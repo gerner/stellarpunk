@@ -9,7 +9,7 @@ setuptools.setup(
     version="0.0.1-pre.1",
     author="Nick Gerner",
     author_email="nick.gerner@gmail.com",
-    description="Stellar Punk: a space sim of trading, stealth naval combat and interplanetary economic development.",
+    description="Stellar Punk: A space sim of trading, stealth naval combat and interplanetary economic development.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/gerner/stellarpunk",

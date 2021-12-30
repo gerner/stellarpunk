@@ -1,5 +1,7 @@
 """ Core stuff for Stellarpunk """
 
+import uuid
+
 import graphviz
 
 class ProductionChain:
@@ -27,6 +29,8 @@ class ProductionChain:
             if s < sink_start:
                 node_name = f'{s}'
             else:
+                import numpy as np
+                assert np.count_nonzero(self.adj_matrix[:,s]) >= 3
                 node_name = f'{self.sink_names[s-sink_start]}'
 
             g.node(f'{s}', label=f'{node_name}:\n${self.prices[s]:,.0f}')
@@ -36,30 +40,38 @@ class ProductionChain:
 
         return g
 
-class Sector:
+class Entity:
+    def __init__(self, name, entity_id=None):
+        self.entity_id = entity_id or str(uuid.uuid4())
+        self.name = name
+
+class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.planets = []
         self.stations = []
         self.ships = []
-        self.resources = {}
+        self.resources = []
 
-class Planet:
-    def __init__(self):
+class Planet(Entity):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.population = 0
 
-class Station:
-    def __init__(self):
+class Station(Entity):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.resource = None
 
-class Ship:
-    def __init__(self):
-        pass
+class Ship(Entity):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-class Character:
-    def __init__(self):
-        pass
+class Character(Entity):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def choose_action(self, game_state):
         pass
