@@ -14,9 +14,14 @@ class GenerationListener:
     def production_chain_complete(self, production_chain):
         pass
 
+    def sectors_complete(self, sectors):
+        pass
+
 class UniverseGenerator:
-    def __init__(self, seed=None, listener=None):
+    def __init__(self, gamestate, seed=None, listener=None):
         self.logger = logging.getLogger(util.fullname(self))
+
+        self.gamestate = gamestate
 
         # random generator
         self.r = np.random.default_rng(seed)
@@ -24,6 +29,8 @@ class UniverseGenerator:
         if not listener:
             # if no listener, set up a no-op listener
             self.listener = GenerationListener()
+        else:
+            self.listener = listener
 
         self.parallel_max_edges_tries = 10000
 
@@ -103,26 +110,27 @@ class UniverseGenerator:
             return nseq
 
         # prepare edge assignments between top and bottom
-        nseq = choose_seq(n, k, min_out, max_out)
-        mseq = choose_seq(m, k, min_in, max_in)
-
-        stubs = [[v] * nseq[v] for v in range(n)]
-        nstubs = [x for subseq in stubs for x in subseq]
-        stubs = [[v] * mseq[v] for v in range(m)]
-        mstubs = [x for subseq in stubs for x in subseq]
-
-        assert len(nstubs) == len(mstubs)
-        assert len(nstubs) == k
-
-        # shuffle nstubs and mstubs to get source/target pairs
-        #   we repeatedly shuffle mstubs to avoid parallel (duplicate) edges
-        self.r.shuffle(nstubs)
         tries = 0
         has_duplicate = True
         while has_duplicate:
             if tries > self.parallel_max_edges_tries:
                 raise Exception(f'failed to generate a bipartite graph with no parallel edges after {tries} attempts')
+            nseq = choose_seq(n, k, min_out, max_out)
+            mseq = choose_seq(m, k, min_in, max_in)
+
+            stubs = [[v] * nseq[v] for v in range(n)]
+            nstubs = [x for subseq in stubs for x in subseq]
+            stubs = [[v] * mseq[v] for v in range(m)]
+            mstubs = [x for subseq in stubs for x in subseq]
+
+            assert len(nstubs) == len(mstubs)
+            assert len(nstubs) == k
+
+            # shuffle nstubs and mstubs to get source/target pairs
+            #   we repeatedly shuffle mstubs to avoid parallel (duplicate) edges
+            self.r.shuffle(nstubs)
             self.r.shuffle(mstubs)
+
             has_duplicate = len(set(zip(nstubs, mstubs))) < len(mstubs)
             tries += 1
 
@@ -311,7 +319,7 @@ class UniverseGenerator:
         return chain
 
     def generate_sectors(self,
-            game_state,
+            gamestate,
             width=6, height=6,
             n_habitable_sectors=5,
             mean_habitable_resources=1e9,
@@ -323,7 +331,7 @@ class UniverseGenerator:
         RESOURCE_REL_CONSUMER = 2
 
         # compute the raw resource needs for each product sink
-        pchain = game_state.production_chain
+        pchain = self.gamestate.production_chain
         slices = [np.s_[pchain.ranks[0:i].sum():pchain.ranks[0:i+1].sum()] for i in range(len(pchain.ranks))]
         raw_needs = pchain.adj_matrix[slices[0], slices[0+1]]
         for i in range(1, len(slices)-1):
@@ -343,7 +351,7 @@ class UniverseGenerator:
             x = self.r.integers(0, width)
             y = self.r.integers(0, height)
 
-            sector = core.Sector(self._gen_sector_name())
+            sector = core.Sector(x, y, self._gen_sector_name())
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
 
             # habitable planet
@@ -375,21 +383,21 @@ class UniverseGenerator:
 
             self.logger.info(f'ending resources: {sector.resources}')
 
-            game_state.sectors[(x,y)] = sector
+            self.gamestate.sectors[(x,y)] = sector
 
         # set up non-habitable sectors
         for x in range(width):
             for y in range(height):
                 # skip inhabited sectors
-                if (x,y) in game_state.sectors:
+                if (x,y) in self.gamestate.sectors:
                     continue
 
-                sector = core.Sector(self._gen_sector_name())
+                sector = core.Sector(x, y, self._gen_sector_name())
                 sector.resources = self.r.uniform(
                         mean_uninhabitable_resources/2,
                         mean_uninhabitable_resources*1.5,
                         pchain.ranks[0])
-                game_state.sectors[(x,y)] = sector
+                self.gamestate.sectors[(x,y)] = sector
 
         #TODO: post-expansion decline
         # deplete resources at population centers
@@ -408,24 +416,22 @@ class UniverseGenerator:
             mean_uninhabitable_resources=1e7,
             production_chain=None):
 
-        game_state = core.StellarPunk()
 
-        game_state.random = self.r
+        self.gamestate.random = self.r
 
         # generate a production chain
         if not production_chain:
             production_chain = self.generate_chain()
         self.listener.production_chain_complete(production_chain)
-        game_state.production_chain = production_chain
-
-        for i in range(1, game_state.production_chain.ranks[-1]+1):
-            assert np.count_nonzero(game_state.production_chain.adj_matrix[:,-1*i]) >= 3
+        self.gamestate.production_chain = production_chain
 
         # generate sectors
         self.generate_sectors(
-                game_state,
+                self.gamestate,
                 width, height,
                 n_habitable_sectors,
                 mean_habitable_resources, mean_uninhabitable_resources)
 
-        return game_state
+        self.listener.sectors_complete(self.gamestate.sectors)
+
+        return self.gamestate

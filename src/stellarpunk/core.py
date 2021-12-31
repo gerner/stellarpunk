@@ -42,14 +42,20 @@ class ProductionChain:
 
 class Entity:
     def __init__(self, name, entity_id=None):
-        self.entity_id = entity_id or str(uuid.uuid4())
+        self.entity_id = entity_id or uuid.uuid4()
         self.name = name
+
+    def short_id(self):
+        """ Least significant 32 bits as hex """
+        return self.entity_id.hex[-8:]
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, x, y, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.x = x
+        self.y = y
         self.planets = []
         self.stations = []
         self.ships = []

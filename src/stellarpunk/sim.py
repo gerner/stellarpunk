@@ -4,7 +4,7 @@ import contextlib
 
 import ipdb
 
-from stellarpunk import util, interface, generate
+from stellarpunk import util, core, interface, generate
 
 class IPDBManager:
     def __init__(self):
@@ -24,16 +24,18 @@ class IPDBManager:
 
 def main():
     with contextlib.ExitStack() as context_stack:
-        logging.basicConfig(filename="/tmp/stellarpunk.log", level=logging.INFO)
+        logging.basicConfig(filename="/tmp/stellarpunk.log", level=logging.DEBUG)
         #logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
         mgr = context_stack.enter_context(IPDBManager())
-        ui = context_stack.enter_context(interface.Interface())
+        gamestate = core.StellarPunk()
+        ui = context_stack.enter_context(interface.Interface(gamestate))
 
         ui.initialize()
+        generation_listener = ui.generation_listener()
 
         logging.info("generating universe...")
-        generator = generate.UniverseGenerator()
+        generator = generate.UniverseGenerator(gamestate, listener=generation_listener)
         stellar_punk = generator.generate_universe()
 
         #logging.info("running simulation...")
