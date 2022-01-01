@@ -3,6 +3,7 @@
 import uuid
 
 import graphviz
+import rtree
 
 class ProductionChain:
     """ A production chain of resources/products interconnected in a DAG. """
@@ -49,29 +50,68 @@ class Entity:
         """ Least significant 32 bits as hex """
         return self.entity_id.hex[-8:]
 
+    def short_id_int(self):
+        return self.entity_id.int & (1<<32)-1
+
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 
-    def __init__(self, x, y, *args, **kwargs):
+    def __init__(self, x, y, radius, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # sector's position in the universe
         self.x = x
         self.y = y
+
+        # one standard deviation
+        self.radius = radius
+
         self.planets = []
         self.stations = []
         self.ships = []
         self.resources = []
 
-class Planet(Entity):
+        # id -> entity for all entities in the sector
+        self.entities = {}
+
+        # spatial index of entities in the sector
+        self.spatial = rtree.index.Index()
+
+    def add_entity(self, entity):
+        #TODO: worry about collisions at location?
+
+        if isinstance(entity, Planet):
+            self.planets.append(entity)
+        elif isinstance(entity, Station):
+            self.stations.append(entity)
+        elif isinstance(entity, Ship):
+            self.ships.append(entity)
+        else:
+            raise ValueError("unknown entity type {entity.__class__}")
+
+        entity.sector = self
+        self.entities[entity.entity_id] = entity
+        #TODO: entity bounding box?
+        self.spatial.insert(entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), obj=entity.entity_id)
+
+class SectorEntity(Entity):
+    """ An entity in space in a sector. """
+
+    def __init__(self, x, y, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.x = x
+        self.y = y
+
+class Planet(SectorEntity):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.population = 0
 
-class Station(Entity):
+class Station(SectorEntity):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.resource = None
 
-class Ship(Entity):
+class Ship(SectorEntity):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

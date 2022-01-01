@@ -154,6 +154,9 @@ class UniverseGenerator:
     def _gen_sector_name(self):
         return "Some Sector"
 
+    def _gen_sector_location(self, sector):
+        return self.r.normal(0, 1, 2) * sector.radius
+
     def _gen_planet_name(self):
         return "Some Planet"
 
@@ -319,8 +322,8 @@ class UniverseGenerator:
         return chain
 
     def generate_sectors(self,
-            gamestate,
             width=6, height=6,
+            sector_radius=1e5,
             n_habitable_sectors=5,
             mean_habitable_resources=1e9,
             mean_uninhabitable_resources=1e7):
@@ -351,7 +354,7 @@ class UniverseGenerator:
             x = self.r.integers(0, width)
             y = self.r.integers(0, height)
 
-            sector = core.Sector(x, y, self._gen_sector_name())
+            sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
 
             # habitable planet
@@ -369,17 +372,19 @@ class UniverseGenerator:
             # set up production stations according to resources
             # every inhabited sector should have a complete production chain
             for i in range(len(pchain.prices)-pchain.ranks[-1]):
-                station = core.Station(self._gen_station_name())
+                entity_loc = self._gen_sector_location(sector)
+                station = core.Station(entity_loc[0], entity_loc[1], self._gen_station_name())
                 station.resource = i
                 sector.resources -= raw_needs[:,RESOURCE_REL_STATION]
-                sector.stations.append(station)
+                sector.add_entity(station)
             # spend resources to build additional stations
             # consume resources to establish and support population
 
             # set up population according to production capacity
-            planet = core.Planet(self._gen_planet_name())
+            entity_loc = self._gen_sector_location(sector)
+            planet = core.Planet(entity_loc[0], entity_loc[1], self._gen_planet_name())
             planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
-            sector.planets.append(planet)
+            sector.add_entity(planet)
 
             self.logger.info(f'ending resources: {sector.resources}')
 
@@ -392,7 +397,7 @@ class UniverseGenerator:
                 if (x,y) in self.gamestate.sectors:
                     continue
 
-                sector = core.Sector(x, y, self._gen_sector_name())
+                sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
                 sector.resources = self.r.uniform(
                         mean_uninhabitable_resources/2,
                         mean_uninhabitable_resources*1.5,
@@ -408,29 +413,16 @@ class UniverseGenerator:
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
 
-    def generate_universe(self,
-            width=6, height=6,
-            n_habitable_sectors=5,
-            seed=None,
-            mean_habitable_resources=1e9,
-            mean_uninhabitable_resources=1e7,
-            production_chain=None):
-
-
+    def generate_universe(self):
         self.gamestate.random = self.r
 
         # generate a production chain
-        if not production_chain:
-            production_chain = self.generate_chain()
-        self.listener.production_chain_complete(production_chain)
+        production_chain = self.generate_chain()
         self.gamestate.production_chain = production_chain
+        self.listener.production_chain_complete(production_chain)
 
         # generate sectors
-        self.generate_sectors(
-                self.gamestate,
-                width, height,
-                n_habitable_sectors,
-                mean_habitable_resources, mean_uninhabitable_resources)
+        self.generate_sectors()
 
         self.listener.sectors_complete(self.gamestate.sectors)
 

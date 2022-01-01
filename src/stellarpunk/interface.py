@@ -5,7 +5,7 @@ import curses
 from curses import textpad
 import enum
 
-from stellarpunk import util, generate
+from stellarpunk import util, generate, core
 
 
 class Layout(enum.Enum):
@@ -13,6 +13,7 @@ class Layout(enum.Enum):
     UP_DOWN = enum.auto()
 
 class Mode(enum.Enum):
+    QUIT = -1
     UNIVERSE = enum.auto()
     COMMAND = enum.auto()
     SECTOR = enum.auto()
@@ -46,6 +47,9 @@ class Icons:
     SHIP_SW = "\u25E3"
     SHIP_NW = "\u25E4"
     SHIP_NE = "\u25E5"
+
+    PLANET = "\u25CB"
+    STATION = "\u25A1"
 
     """
     "△" \u25B3 white up pointing triangle
@@ -116,11 +120,17 @@ class Interface:
         self.camera_x = 0
         self.camera_y = 0
 
-        # position of the viewscreen cursor
+        # position of the universe sector cursor (in universe-sector coords)
         self.ucursor_x = 0
         self.ucursor_y = 0
         self.sector_maxx = 0
         self.sector_maxy = 0
+
+        # position of the sector cursor (in sector space coords
+        self.scursor_x = 0
+        self.scursor_y = 0
+        # sector zoom level, expressed in meters to fit on screen
+        self.szoom = 0
 
         self.gamestate = gamestate
 
@@ -142,9 +152,13 @@ class Interface:
         # we can check if there's color later
         try:
             curses.start_color()
+            curses.use_default_colors()
+            for i in range(0, curses.COLORS):
+                curses.init_pair(i + 1, i, -1)
             curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_RED)
         except:
             pass
+        self.logger.info(f'extended color support? {curses.can_change_color()} {curses.COLORS}')
 
         return self
 
@@ -216,8 +230,7 @@ class Interface:
         self.logger.info(f'viewscreen (x,y) {(self.viewscreen_y, self.viewscreen_x)} (h,w): {(self.viewscreen_height, self.viewscreen_width)}')
         self.logger.info(f'logscreen (x,y) {(self.logscreen_y, self.logscreen_x)} (h,w): {(self.logscreen_height, self.logscreen_width)}')
 
-    def initialize(self):
-
+    def reinitialize_screen(self, name="Main Viewscreen"):
         self.choose_viewport_sizes()
         textpad.rectangle(
                 self.stdscr,
@@ -226,7 +239,7 @@ class Interface:
                 self.viewscreen_y+self.viewscreen_height,
                 self.viewscreen_x+self.viewscreen_width
         )
-        self.stdscr.addstr(self.viewscreen_y-1, self.viewscreen_x+1, " Main Viewscreen ")
+        self.stdscr.addstr(self.viewscreen_y-1, self.viewscreen_x+1, " "+name+" ")
         textpad.rectangle(
                 self.stdscr,
                 self.logscreen_y-1,
@@ -240,20 +253,6 @@ class Interface:
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
 
-        self.viewscreen.addstr(0,0, "V"+("v"*(self.viewscreen_width-2))+"V")
-        self.viewscreen.addstr(1,0, "this is the viewscreen wtf")
-        self.viewscreen.addstr(self.viewscreen_height-1,0, "V"+("v"*(self.viewscreen_width-2))+"V")
-
-        self.logscreen.addstr(0,0, "L"+("l"*(self.logscreen_width-2))+"L")
-        self.logscreen.addstr(1,0, "this is the logscreen")
-        self.logscreen.addstr(self.logscreen_height-1,0, "L"+("l"*(self.logscreen_width-2))+"L")
-
-        self.log_message("first line")
-        for _ in range(10):
-            self.log_message("more text")
-        self.log_message("last line")
-
-
         self.stdscr.noutrefresh()
         self.refresh_viewscreen()
         self.logscreen.noutrefresh(
@@ -262,11 +261,20 @@ class Interface:
                 self.logscreen_y+self.logscreen_height-1,
                 self.logscreen_x+self.logscreen_width-1
         )
+        self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
-        curses.doupdate()
+    def initialize(self):
+        self.color_demo()
+        self.reinitialize_screen()
 
-        self.logger.info("waiting for final input")
-        self.get_any_key()
+    def color_demo(self):
+        self.stdscr.addstr(0, 35, "COLOR DEMO");
+
+        for c in range(256):
+            self.stdscr.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
+        self.stdscr.addstr(34, 1, "Press any key to continue")
+
+        self.stdscr.getch()
 
     def refresh_viewscreen(self):
         self.viewscreen.noutrefresh(
@@ -287,8 +295,7 @@ class Interface:
 
     def get_any_key(self):
         self.status_message("Press any key to continue")
-        k = self.stdscr.getkey()
-        self.logger.info(f'get any key "{k}"')
+        self.stdscr.getch()
 
     def draw_umap_sector(self, y, x, sector):
         """ Draws a single sector to viewscreen starting at position (y,x) """
@@ -299,6 +306,8 @@ class Interface:
         else:
             self.viewscreen.addstr(y+1,x+1, sector.short_id())
 
+        self.viewscreen.addstr(y+2,x+1, sector.name)
+        self.viewscreen.addstr(y+Settings.UMAP_SECTOR_HEIGHT-2, x+1, f'{len(sector.entities)} objects')
 
     def draw_universe_map(self, sectors):
         """ Draws a map of all sectors. """
@@ -330,12 +339,52 @@ class Interface:
             self.camera_y = view_y - self.viewscreen_height + Settings.UMAP_SECTOR_HEIGHT
         self.refresh_viewscreen()
 
+    def draw_entity(self, y, x, entity):
+        """ Draws a single sector entity at screen position (y,x) """
+
+        if isinstance(entity, core.Ship):
+            icon = Icons.SHIP_N
+        elif isinstance(entity, core.Station):
+            icon = Icons.STATION
+        elif isinstance(entity, core.Planet):
+            icon = Icons.PLANET
+        else:
+            icon = "?"
+
+        self.viewscreen.addstr(y, x, icon)
+        self.viewscreen.addstr(y, x+2, entity.short_id(), curses.A_DIM)
+
     def draw_sector_map(self, sector):
         """ Draws a map of a sector. """
 
-        # sectors laid out in x,y grid
-        # we'll lay them out as small boxes with name and overview stats
-        pass
+        self.viewscreen.erase()
+
+        self.viewscreen.addch(int(self.viewscreen_height/2), int(self.viewscreen_width/2), "+")
+
+        # get the bounding box for the viewscreen, determined by the zoom level
+        # we try to fit at least the zoom level on screen, constrained by the
+        # minimum of viewscreen width and height
+        meters_per_char = self.szoom / min(self.viewscreen_width, self.viewscreen_height)
+        ul_x = self.scursor_x - (self.viewscreen_width/2 * meters_per_char)
+        ul_y = self.scursor_y - (self.viewscreen_height/2 * meters_per_char)
+        lr_x = self.scursor_x + (self.viewscreen_width/2 * meters_per_char)
+        lr_y = self.scursor_y + (self.viewscreen_height/2 * meters_per_char)
+
+        self.logger.info(f'drawing sector {sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with {sector.spatial.count((ul_x, ul_y, lr_x, lr_y))} objects visible of {len(sector.entities)} total')
+
+        def sector_to_screen(sector_loc_x, sector_loc_y):
+            return (
+                    int((sector_loc_x - ul_x) / meters_per_char),
+                    int((sector_loc_y - ul_y) / meters_per_char)
+            )
+
+        for hit in sector.spatial.intersection((ul_x, ul_y, lr_x, lr_y), objects=True):
+            entity = sector.entities[hit.object]
+            screen_x, screen_y = sector_to_screen(entity.x, entity.y)
+            self.logger.debug(f'hit {entity.entity_id} at {(entity.x, entity.y)} translates to ({screen_x, screen_y})')
+            self.draw_entity(screen_y, screen_x, entity)
+
+        self.refresh_viewscreen()
 
     def generation_listener(self):
         return GenerationUI(self)
@@ -370,35 +419,96 @@ class Interface:
             self.status_message("no more sectors downward", curses.color_pair(1))
 
     def universe_mode(self):
-        """ universe mode: interacting with the universe map.
+        """ Universe mode: interacting with the universe map.
 
-        Move the cursor around, pan camera at edge of viewscreen. Can select a
-        sector and enter sector mode. """
+        Displays all the sectors in a grid with summary information about each.
+        Player can move between sectors, pan the camera at edge of viewscreen.
+        Can select a sector and enter sector mode. Can enter command mode.
+        """
 
-        self.current_mode = Mode.UNIVERSE
+        self.logger.info(f'entering universe mode') 
+        self.reinitialize_screen(name="Universe Map")
 
         self.ucursor_x = 0
         self.ucursor_y = 0
         self.camera_x = 0
         self.camera_y = 0
         while(True):
-            self.logger.debug("drawloop")
+            self.current_mode = Mode.UNIVERSE
+            self.logger.debug("universe drawloop")
             self.draw_universe_map(self.gamestate.sectors)
             curses.doupdate()
 
             self.logger.debug("awaiting input...")
             key = self.stdscr.getch()
-            self.status_message()
             self.logger.debug(f'got {key}')
+
             if key in (ord('w'), ord('a'), ord('s'), ord('d')):
+                self.status_message()
                 self.move_ucursor(key)
-            elif key == 27:
-                self.logger.info(f'breaking')
+            elif key == 10: #TODO: enter contstant
+                sector_ret = self.sector_mode(self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)])
+                if Mode.QUIT == sector_ret:
+                    return Mode.QUIT
+                self.reinitialize_screen(name="Universe Map")
+            elif key == ord(":"):
+                command_ret = self.command_mode()
+                if Mode.QUIT == command_ret:
+                    return Mode.QUIT
+            elif key == curses.KEY_RESIZE:
+                self.reinitialize_screen(name="Universe Map")
+
+    def sector_mode(self, target_sector):
+        """ Sector mode: interacting with the sector map.
+
+        Draw the contents of the sector: ships, stations, asteroids, etc.
+        Player can move around the sector, panning the camera at the edges of
+        the viewscreen, search for named entities within the sector (jumping to
+        each a la vim search.) Can select a ship to interact with. Can enter
+        pilot mode. Can return to universe mode or enter command mode.
+        """
+
+        self.logger.info(f'entering sector mode for {target_sector.entity_id}')
+        self.reinitialize_screen(name="Sector Map")
+
+        self.scursor_x = 0
+        self.scursor_y = 0
+        self.szoom = target_sector.radius
+        self.camera_x = 0
+        self.camera_y = 0
+
+        while(True):
+            self.logger.debug("sector drawloop")
+            self.draw_sector_map(target_sector)
+
+            self.logger.debug("awaiting input...")
+            key = self.stdscr.getch()
+            self.logger.debug(f'got {key}')
+
+            if key == ord(":"):
+                command_ret = self.command_mode()
+                if Mode.QUIT == command_ret:
+                    return Mode.QUIT
+            else: #TODO: should handle escape here
                 return None
-            elif key == ":":
-                return Mode.COMMAND
 
     def command_mode(self):
         """ Command mode: typing in a command to execute. """
 
-        pass
+        self.logger.info("entering command mode")
+        self.status_message(":")
+        command = ""
+        while(True):
+            self.current_mode = Mode.COMMAND
+            key = self.stdscr.getch()
+            if key == 10: #TODO: enter constant
+                # process the command
+                if command == "quit":
+                    self.logger.info("quitting")
+                    return Mode.QUIT
+                else:
+                    self.status_message(f'unknown command "{command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
+                    return None
+            elif chr(key).isprintable():
+                command += chr(key)
+                self.stdscr.addch(chr(key))

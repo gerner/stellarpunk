@@ -27,6 +27,7 @@ setuptools.setup(
         "numpy",
         "ipdb",
         "graphviz",
+        "rtree",
     ],
     python_requires='>=3.8',
     entry_points={
