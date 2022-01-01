@@ -292,7 +292,7 @@ class UniverseGenerator:
         raw_price = raw_price / raw_price.sum() * np.mean((min_raw_price, max_raw_price)) * np.mean((min_per_rank, max_per_rank))
         markup = self.r.uniform(min_markup, max_markup, total_nodes)
         prices = np.pad(raw_price, (0, total_nodes-ranks[0]))
-        prices = prices.round()
+        prices = np.ceil(prices)
         for (nodes_from, nodes_to), so_far in zip(zip(ranks, ranks[1:]), np.cumsum(ranks)[:-1]):
             # price of the next rank is the price of the prior rank times the
             # production matrix times the markup

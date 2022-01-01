@@ -4,6 +4,12 @@ import logging
 import curses
 from curses import textpad
 import enum
+import array
+import fcntl
+import termios
+import math
+
+import drawille
 
 from stellarpunk import util, generate, core
 
@@ -102,6 +108,10 @@ class Interface:
         self.screen_width = 0
         self.screen_height = 0
 
+        # width/height of the font in pixels
+        self.font_width = 0
+        self.font_height = 0
+
         # viewport sizes and positions in the global screen
         # this is what's visible
         self.viewscreen = None
@@ -158,7 +168,7 @@ class Interface:
             curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_RED)
         except:
             pass
-        self.logger.info(f'extended color support? {curses.can_change_color()} {curses.COLORS}')
+        self.logger.debug(f'extended color support? {curses.can_change_color()} {curses.COLORS}')
 
         return self
 
@@ -181,8 +191,35 @@ class Interface:
     def choose_viewport_sizes(self):
         """ Chooses viewport sizes and locations for viewscreen and the log."""
 
+        # first get some basic terminal screen dimensions
+
+        # calculate the font width/height in pixels
+        # useful for displaying distances properly
+        # from: https://stackoverflow.com/a/43947507/553580
+        #struct winsize
+        #{
+        #   unsigned short ws_row;	/* rows, in characters */
+        #   unsigned short ws_col;	/* columns, in characters */
+        #   unsigned short ws_xpixel;	/* horizontal size, pixels */
+        #   unsigned short ws_ypixel;	/* vertical size, pixels */
+        #};
+        #TODO: font-size in pixels seems pretty fragile
+        # maybe we should just have a setting for it?
+        buf = array.array('H', [0, 0, 0, 0])
+        fcntl.ioctl(1, termios.TIOCGWINSZ, buf)
+        ioctl_rows = buf[0]
+        ioctl_cols = buf[1]
+        ioctl_pwidth = buf[2]
+        ioctl_pheight = buf[3]
+        self.font_height = ioctl_pheight / ioctl_rows
+        self.font_width = ioctl_pwidth / ioctl_cols
+
         self.screen_height, self.screen_width = self.stdscr.getmaxyx()
-        self.logger.info(f'screen dimensions are {(self.screen_height, self.screen_width)}')
+        self.logger.info(f'screen dimensions are {(self.screen_height, self.screen_width)} characters and {(ioctl_pheight, ioctl_pwidth)} pixels (y,x)')
+
+        # ioctl and curses should agree, this is probably fragile
+        assert ioctl_rows == self.screen_height
+        assert ioctl_cols == self.screen_width
 
         if self.screen_width < Settings.MIN_SCREEN_WIDTH:
             raise Exception(f'minimum screen width is {Settings.MIN_SCREEN_WIDTH} columns (currently {self.screen_width})')
@@ -339,7 +376,67 @@ class Interface:
             self.camera_y = view_y - self.viewscreen_height + Settings.UMAP_SECTOR_HEIGHT
         self.refresh_viewscreen()
 
-    def draw_entity(self, y, x, entity):
+    def draw_radar(self, y, x, meters_per_char_x, meters_per_char_y, radius, target_screen):
+        """ Draws a radar graphic to get sense of scale centered at y, x. """
+
+        # choose ticks
+        ticks = util.NiceScale(-1*radius, radius, constrain_to_range=True)
+        stepsize = ticks.tickSpacing
+
+        def polar_to_rectangular(r, theta):
+            return (r*math.cos(theta), r*math.sin(theta))
+
+        def sector_to_drawille(sector_loc_x, sector_loc_y):
+            """ converts from sector coord to drawille coord """
+
+            # characters are 2x4 (w,h) "pixels" in drawille
+            return (
+                    int((sector_loc_x) / meters_per_char_x * 2),
+                    int((sector_loc_y) / meters_per_char_y * 4)
+            )
+
+        c = drawille.Canvas()
+
+        # draw a cross
+        i = 0
+        while i < radius:
+            drawille_x,_ = sector_to_drawille(i, 0)
+            _,drawille_y = sector_to_drawille(0, i)
+            c.set(drawille_x, 0)
+            c.set(-1*drawille_x, 0)
+            c.set(0, drawille_y)
+            c.set(0, -1*drawille_y)
+            i += stepsize/2
+
+        # draw rings to fill up the square with sides 2*radius
+        r = stepsize
+        theta_step = math.pi/16
+        while r < math.sqrt(2*radius*radius):
+            theta = 0
+            while theta < 2*math.pi:
+                s_x, s_y = polar_to_rectangular(r, theta)
+                if abs(s_x) < radius and abs(s_y) < radius:
+                    d_x, d_y = sector_to_drawille(s_x, s_y)
+                    c.set(d_x, d_y)
+                theta += theta_step
+            r += stepsize
+
+        text = c.frame().split("\n")
+        max_text_len = max(map(lambda t: len(t), text))
+
+        ul_y = int(y - len(text)/2)
+        ul_x = int(x - max_text_len/2)
+        for i, line in enumerate(text):
+            if ul_y+i < 0 or ul_x < 0:
+                # off by one between sector to drawille and the fact that
+                # adding a point inside a char means we need that entire char
+                continue
+            target_screen.addstr(ul_y+i, ul_x, line, curses.color_pair(29))
+
+        for r in range(int(stepsize), int(ticks.niceMax), int(stepsize)):
+            target_screen.addstr(y+int(r/meters_per_char_y), x, util.human_distance(r), curses.color_pair(29))
+
+    def draw_entity(self, y, x, entity, target_screen):
         """ Draws a single sector entity at screen position (y,x) """
 
         if isinstance(entity, core.Ship):
@@ -351,38 +448,50 @@ class Interface:
         else:
             icon = "?"
 
-        self.viewscreen.addstr(y, x, icon)
-        self.viewscreen.addstr(y, x+2, entity.short_id(), curses.A_DIM)
+        target_screen.addstr(y, x, icon)
+        target_screen.addstr(y, x+2, entity.short_id(), curses.A_DIM)
 
     def draw_sector_map(self, sector):
         """ Draws a map of a sector. """
 
         self.viewscreen.erase()
 
-        self.viewscreen.addch(int(self.viewscreen_height/2), int(self.viewscreen_width/2), "+")
-
         # get the bounding box for the viewscreen, determined by the zoom level
         # we try to fit at least the zoom level on screen, constrained by the
         # minimum of viewscreen width and height
-        meters_per_char = self.szoom / min(self.viewscreen_width, self.viewscreen_height)
-        ul_x = self.scursor_x - (self.viewscreen_width/2 * meters_per_char)
-        ul_y = self.scursor_y - (self.viewscreen_height/2 * meters_per_char)
-        lr_x = self.scursor_x + (self.viewscreen_width/2 * meters_per_char)
-        lr_y = self.scursor_y + (self.viewscreen_height/2 * meters_per_char)
+        meters_per_char_x = self.szoom / min(self.viewscreen_width, math.floor(self.viewscreen_height/self.font_width*self.font_height))
+        meters_per_char_y = meters_per_char_x / self.font_width * self.font_height
+
+        assert self.szoom / meters_per_char_y <= self.viewscreen_height
+        assert self.szoom / meters_per_char_x <= self.viewscreen_width
+
+        self.logger.info(f'resolution is {meters_per_char_x:.0f}m x {meters_per_char_y:.0f}m')
+
+        ul_x = self.scursor_x - (self.viewscreen_width/2 * meters_per_char_x)
+        ul_y = self.scursor_y - (self.viewscreen_height/2 * meters_per_char_y)
+        lr_x = self.scursor_x + (self.viewscreen_width/2 * meters_per_char_x)
+        lr_y = self.scursor_y + (self.viewscreen_height/2 * meters_per_char_y)
 
         self.logger.info(f'drawing sector {sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with {sector.spatial.count((ul_x, ul_y, lr_x, lr_y))} objects visible of {len(sector.entities)} total')
 
+        self.draw_radar(
+                int(self.viewscreen_height/2), int(self.viewscreen_width/2),
+                meters_per_char_x, meters_per_char_y,
+                self.szoom/2,
+                self.viewscreen
+        )
+
         def sector_to_screen(sector_loc_x, sector_loc_y):
             return (
-                    int((sector_loc_x - ul_x) / meters_per_char),
-                    int((sector_loc_y - ul_y) / meters_per_char)
+                    int((sector_loc_x - ul_x) / meters_per_char_x),
+                    int((sector_loc_y - ul_y) / meters_per_char_y)
             )
 
         for hit in sector.spatial.intersection((ul_x, ul_y, lr_x, lr_y), objects=True):
             entity = sector.entities[hit.object]
             screen_x, screen_y = sector_to_screen(entity.x, entity.y)
             self.logger.debug(f'hit {entity.entity_id} at {(entity.x, entity.y)} translates to ({screen_x, screen_y})')
-            self.draw_entity(screen_y, screen_x, entity)
+            self.draw_entity(screen_y, screen_x, entity, self.viewscreen)
 
         self.refresh_viewscreen()
 
@@ -446,7 +555,7 @@ class Interface:
             if key in (ord('w'), ord('a'), ord('s'), ord('d')):
                 self.status_message()
                 self.move_ucursor(key)
-            elif key == 10: #TODO: enter contstant
+            elif key == ord('\n'): #TODO: enter contstant
                 sector_ret = self.sector_mode(self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)])
                 if Mode.QUIT == sector_ret:
                     return Mode.QUIT
@@ -501,7 +610,7 @@ class Interface:
         while(True):
             self.current_mode = Mode.COMMAND
             key = self.stdscr.getch()
-            if key == 10: #TODO: enter constant
+            if key == ord('\n'): #TODO: enter constant
                 # process the command
                 if command == "quit":
                     self.logger.info("quitting")

@@ -28,6 +28,7 @@ setuptools.setup(
         "ipdb",
         "graphviz",
         "rtree",
+        "drawille",
     ],
     python_requires='>=3.8',
     entry_points={
