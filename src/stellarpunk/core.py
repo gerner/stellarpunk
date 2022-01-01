@@ -42,19 +42,23 @@ class ProductionChain:
         return g
 
 class Entity:
+    id_prefix = "ENT"
+
     def __init__(self, name, entity_id=None):
         self.entity_id = entity_id or uuid.uuid4()
         self.name = name
 
     def short_id(self):
         """ Least significant 32 bits as hex """
-        return self.entity_id.hex[-8:]
+        return f'{self.id_prefix}-{self.entity_id.hex[-8:]}'
 
     def short_id_int(self):
         return self.entity_id.int & (1<<32)-1
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
+
+    id_prefix = "SEC"
 
     def __init__(self, x, y, radius, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -102,16 +106,25 @@ class SectorEntity(Entity):
         self.y = y
 
 class Planet(SectorEntity):
+
+    id_prefix = "PLT"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.population = 0
 
 class Station(SectorEntity):
+
+    id_prefix = "STA"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.resource = None
 
 class Ship(SectorEntity):
+
+    id_prefix = "SHP"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

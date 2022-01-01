@@ -56,6 +56,9 @@ class Icons:
 
     PLANET = "\u25CB"
     STATION = "\u25A1"
+    DERELICT = "\u2302" # house symbol (kina looks like a gravestone?)
+
+    MULTIPLE = "*"
 
     """
     "△" \u25B3 white up pointing triangle
@@ -451,6 +454,10 @@ class Interface:
         target_screen.addstr(y, x, icon)
         target_screen.addstr(y, x+2, entity.short_id(), curses.A_DIM)
 
+    def draw_multiple_entities(self, y, x, entities, target_screen):
+        target_screen.addstr(y, x, Icons.MULTIPLE)
+        target_screen.addstr(y, x+2, f'{len(entities)} entities', curses.A_DIM)
+
     def draw_sector_map(self, sector):
         """ Draws a map of a sector. """
 
@@ -481,17 +488,30 @@ class Interface:
                 self.viewscreen
         )
 
+        self.viewscreen.addstr(0,1, f'{self.scursor_x:.0f},{self.scursor_y:.0f}', curses.color_pair(29))
+
         def sector_to_screen(sector_loc_x, sector_loc_y):
             return (
                     int((sector_loc_x - ul_x) / meters_per_char_x),
                     int((sector_loc_y - ul_y) / meters_per_char_y)
             )
 
-        for hit in sector.spatial.intersection((ul_x, ul_y, lr_x, lr_y), objects=True):
+        occupied = {}
+        # sort the entities so we draw left to right, top to bottom
+        # this ensures any annotations down and to the right of an entity on
+        # the sector map will not cover up the icon for an entity
+        # this assumes any extra annotations are down and to the right
+        for hit in sorted(sector.spatial.intersection((ul_x, ul_y, lr_x, lr_y), objects=True), key=lambda h: h.bbox):
             entity = sector.entities[hit.object]
             screen_x, screen_y = sector_to_screen(entity.x, entity.y)
             self.logger.debug(f'hit {entity.entity_id} at {(entity.x, entity.y)} translates to ({screen_x, screen_y})')
-            self.draw_entity(screen_y, screen_x, entity, self.viewscreen)
+            if (screen_x, screen_y) in occupied:
+                entities = occupied[(screen_x, screen_y)]
+                entities.append(entity)
+                self.draw_multiple_entities(screen_y, screen_x, entities, self.viewscreen)
+            else:
+                occupied[(screen_x, screen_y)] = [entity]
+                self.draw_entity(screen_y, screen_x, entity, self.viewscreen)
 
         self.refresh_viewscreen()
 
@@ -526,6 +546,23 @@ class Interface:
         elif self.ucursor_y > self.sector_maxy:
             self.ucursor_y = self.sector_maxy
             self.status_message("no more sectors downward", curses.color_pair(1))
+
+    def move_scursor(self, direction, sector):
+        old_x = self.scursor_x
+        old_y = self.scursor_y
+
+        stepsize = self.szoom/32
+
+        if direction == ord('w'):
+            self.scursor_y -= stepsize
+        elif direction == ord('a'):
+            self.scursor_x -= stepsize
+        elif direction == ord('s'):
+            self.scursor_y += stepsize
+        elif direction == ord('d'):
+            self.scursor_x += stepsize
+        else:
+            raise ValueError(f'unknown direction {direction}')
 
     def universe_mode(self):
         """ Universe mode: interacting with the universe map.
@@ -582,24 +619,31 @@ class Interface:
 
         self.scursor_x = 0
         self.scursor_y = 0
-        self.szoom = target_sector.radius
+        self.szoom = target_sector.radius*2
         self.camera_x = 0
         self.camera_y = 0
 
         while(True):
-            self.logger.debug("sector drawloop")
+            self.logger.debug(f'sector drawloop at zoom {self.szoom}')
             self.draw_sector_map(target_sector)
+            curses.doupdate()
 
             self.logger.debug("awaiting input...")
             key = self.stdscr.getch()
             self.logger.debug(f'got {key}')
 
-            if key == ord(":"):
+            if key in (ord('w'), ord('a'), ord('s'), ord('d')):
+                self.move_scursor(key, target_sector)
+            elif key == ord("+"):
+                self.szoom *= 0.9
+            elif key == ord("-"):
+                self.szoom *= 1.1
+            elif key == 27: #TODO: should handle escape here
+                return None
+            elif key == ord(":"):
                 command_ret = self.command_mode()
                 if Mode.QUIT == command_ret:
                     return Mode.QUIT
-            else: #TODO: should handle escape here
-                return None
 
     def command_mode(self):
         """ Command mode: typing in a command to execute. """
