@@ -8,6 +8,7 @@ import array
 import fcntl
 import termios
 import math
+import bisect
 
 import drawille
 
@@ -141,6 +142,10 @@ class Interface:
         # position of the sector cursor (in sector space coords
         self.scursor_x = 0
         self.scursor_y = 0
+
+        # entity id of the currently selected target
+        self.selected_target = None
+
         # sector zoom level, expressed in meters to fit on screen
         self.szoom = 0
 
@@ -294,12 +299,7 @@ class Interface:
 
         self.stdscr.noutrefresh()
         self.refresh_viewscreen()
-        self.logscreen.noutrefresh(
-                0, 0,
-                self.logscreen_y, self.logscreen_x,
-                self.logscreen_y+self.logscreen_height-1,
-                self.logscreen_x+self.logscreen_width-1
-        )
+        self.refresh_logscreen()
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
     def initialize(self):
@@ -323,9 +323,19 @@ class Interface:
                 self.viewscreen_x+self.viewscreen_width-1
         )
 
+    def refresh_logscreen(self):
+        self.logscreen.noutrefresh(
+                0, 0,
+                self.logscreen_y, self.logscreen_x,
+                self.logscreen_y+self.logscreen_height-1,
+                self.logscreen_x+self.logscreen_width-1
+        )
+
+
     def log_message(self, message):
         """ Adds a message to the log, scrolling everything else up. """
         self.logscreen.addstr(self.logscreen_height,0, message+"\n")
+        self.refresh_logscreen()
 
     def status_message(self, message="", attr=0):
         """ Adds a status message. """
@@ -505,7 +515,10 @@ class Interface:
             icon = "?"
 
         target_screen.addstr(y, x, icon)
-        target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.A_DIM)
+        if entity.entity_id == self.selected_target:
+            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.A_DIM | curses.A_STANDOUT)
+        else:
+            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.A_DIM)
 
     def draw_multiple_entities(self, y, x, entities, target_screen):
         target_screen.addstr(y, x, Icons.MULTIPLE)
@@ -571,6 +584,10 @@ class Interface:
 
     def generation_listener(self):
         return GenerationUI(self)
+
+    def select_target(self, target_id, entity):
+        self.selected_target = target_id
+        self.log_message(f'{entity.short_id()}: {entity.name}')
 
     def move_ucursor(self, direction):
         old_x = self.ucursor_x
@@ -692,8 +709,26 @@ class Interface:
                 self.szoom *= 0.9
             elif key == ord("-"):
                 self.szoom *= 1.1
+            elif key == ord("t"):
+                entity_id_list = sorted(target_sector.entities.keys())
+                if len(entity_id_list) == 0:
+                    self.select_target(None, None)
+                elif self.selected_target is None:
+                    self.select_target(entity_id_list[0], target_sector.entities[entity_id_list[0]])
+                else:
+                    next_index = bisect.bisect_right(entity_id_list, self.selected_target)
+                    if next_index >= len(entity_id_list):
+                        next_index = 0
+                    self.select_target(entity_id_list[next_index], target_sector.entities[entity_id_list[next_index]])
+            elif key == ord("\n"):
+                if self.selected_target:
+                    self.scursor_x = target_sector.entities[self.selected_target].x
+                    self.scursor_y = target_sector.entities[self.selected_target].y
             elif key == 27: #TODO: should handle escape here
-                return None
+                if self.selected_target is not None:
+                    self.selected_target = None
+                else:
+                    return None
             elif key == ord(":"):
                 command_ret = self.command_mode()
                 if Mode.QUIT == command_ret:
