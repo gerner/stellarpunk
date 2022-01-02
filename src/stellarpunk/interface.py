@@ -2,6 +2,7 @@
 
 import logging
 import curses
+import curses.ascii
 from curses import textpad
 import enum
 import array
@@ -164,7 +165,13 @@ class Interface:
 
         curses.noecho()
         curses.cbreak()
-        self.stdscr.keypad(0)
+
+        # make getch non-blocking, only check if there is input available
+        #   this is important for running the game loop
+        #self.stdscr.nodelay(True)
+
+        # have curses interpret escape sequences for us
+        self.stdscr.keypad(True)
 
         # we can check if there's color later
         try:
@@ -303,7 +310,10 @@ class Interface:
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
     def initialize(self):
-        self.color_demo()
+        #self.color_demo()
+        curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        curses.set_escdelay(100)
+
         self.reinitialize_screen()
 
     def color_demo(self):
@@ -396,11 +406,8 @@ class Interface:
 
         major_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks, constrain_to_range=True)
         minor_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks*4, constrain_to_range=True)
-        major_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks, constrain_to_range=True)
-        minor_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks*4, constrain_to_range=True)
-
-        self.logger.debug(f'bounds {(ul_x, lr_x)} vertical lines {(major_ticks_x.niceMin, major_ticks_x.niceMax)} every {major_ticks_x.tickSpacing}')
-        self.logger.debug(f'bounds {(ul_y, lr_y)} horizonal lines {(major_ticks_y.niceMin, major_ticks_y.niceMax)} every {major_ticks_y.tickSpacing}')
+        major_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks, constrain_to_range=True, tickSpacing=major_ticks_x.tickSpacing)
+        minor_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks*4, constrain_to_range=True, tickSpacing=minor_ticks_y.tickSpacing)
 
         c = drawille.Canvas()
 
@@ -424,17 +431,15 @@ class Interface:
                 i += minor_ticks_x.tickSpacing
             j += major_ticks_y.tickSpacing
 
+        # set one pixel in the upper left corner to make the canvas easier to
+        # display to the screen
+        (d_x, d_y) = util.sector_to_drawille(ul_x, ul_y, meters_per_char_x, meters_per_char_y)
         # draw the grid to the screen
-        text = c.frame().split("\n")
+        text = c.rows(d_x, d_y)
         max_text_len = max(map(lambda t: len(t), text))
 
-        s_ul_y = int(y - len(text)/2)
-        s_ul_x = int(x - max_text_len/2)
+        s_ul_x, s_ul_y = (x,y)
         for i, line in enumerate(text):
-            if s_ul_y+i < 0 or s_ul_x < 0:
-                # off by one between sector to drawille and the fact that
-                # adding a point inside a char means we need that entire char
-                continue
             target_screen.addstr(s_ul_y+i, s_ul_x, line, curses.color_pair(29))
 
         # draw location indicators
@@ -514,15 +519,16 @@ class Interface:
         else:
             icon = "?"
 
-        target_screen.addstr(y, x, icon)
         if entity.entity_id == self.selected_target:
-            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.A_DIM | curses.A_STANDOUT)
+            target_screen.addstr(y, x, icon, curses.A_STANDOUT)
+            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.color_pair(9) | curses.A_STANDOUT)
         else:
-            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.A_DIM)
+            target_screen.addstr(y, x, icon)
+            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.color_pair(9))
 
     def draw_multiple_entities(self, y, x, entities, target_screen):
         target_screen.addstr(y, x, Icons.MULTIPLE)
-        target_screen.addstr(y, x+1, f' {len(entities)} entities', curses.A_DIM)
+        target_screen.addstr(y, x+1, f' {len(entities)} entities', curses.color_pair(9))
 
     def draw_sector_map(self, sector):
         """ Draws a map of a sector. """
@@ -532,11 +538,7 @@ class Interface:
         # get the bounding box for the viewscreen, determined by the zoom level
         # we try to fit at least the zoom level on screen, constrained by the
         # minimum of viewscreen width and height
-        meters_per_char_x = self.szoom / min(self.viewscreen_width, math.floor(self.viewscreen_height/self.font_width*self.font_height))
-        meters_per_char_y = meters_per_char_x / self.font_width * self.font_height
-
-        assert self.szoom / meters_per_char_y <= self.viewscreen_height
-        assert self.szoom / meters_per_char_x <= self.viewscreen_width
+        meters_per_char_x, meters_per_char_y = self.meters_per_char()
 
         self.logger.info(f'resolution is {meters_per_char_x:.0f}m x {meters_per_char_y:.0f}m')
 
@@ -554,7 +556,7 @@ class Interface:
         #        self.viewscreen
         #)
         self.draw_grid(
-            int(self.viewscreen_height/2), int(self.viewscreen_width/2),
+            0, 0
             meters_per_char_x, meters_per_char_y,
             ul_x, ul_y, lr_x, lr_y,
             self.viewscreen
@@ -635,6 +637,15 @@ class Interface:
         else:
             raise ValueError(f'unknown direction {direction}')
 
+    def meters_per_char(self):
+        meters_per_char_x = self.szoom / min(self.viewscreen_width, math.floor(self.viewscreen_height/self.font_width*self.font_height))
+        meters_per_char_y = meters_per_char_x / self.font_width * self.font_height
+
+        assert self.szoom / meters_per_char_y <= self.viewscreen_height
+        assert self.szoom / meters_per_char_x <= self.viewscreen_width
+
+        return (meters_per_char_x, meters_per_char_y)
+
     def universe_mode(self):
         """ Universe mode: interacting with the universe map.
 
@@ -672,6 +683,7 @@ class Interface:
                 command_ret = self.command_mode()
                 if Mode.QUIT == command_ret:
                     return Mode.QUIT
+                self.reinitialize_screen()
             elif key == curses.KEY_RESIZE:
                 self.reinitialize_screen(name="Universe Map")
 
@@ -724,15 +736,30 @@ class Interface:
                 if self.selected_target:
                     self.scursor_x = target_sector.entities[self.selected_target].x
                     self.scursor_y = target_sector.entities[self.selected_target].y
-            elif key == 27: #TODO: should handle escape here
-                if self.selected_target is not None:
-                    self.selected_target = None
-                else:
-                    return None
             elif key == ord(":"):
                 command_ret = self.command_mode()
                 if Mode.QUIT == command_ret:
                     return Mode.QUIT
+                self.reinitialize_screen()
+            elif key == curses.KEY_RESIZE:
+                self.reinitialize_screen(name="Sector Map")
+            elif key == curses.KEY_MOUSE:
+                m_tuple = curses.getmouse()
+                m_id, m_x, m_y, m_z, bstate = m_tuple
+                meters_per_char_x, meters_per_char_y = self.meters_per_char()
+                ul_x = self.scursor_x - (self.viewscreen_width/2 * meters_per_char_x)
+                ul_y = self.scursor_y - (self.viewscreen_height/2 * meters_per_char_y)
+                sector_x, sector_y = util.screen_to_sector(
+                        m_x, m_y, ul_x, ul_y,
+                        meters_per_char_x, meters_per_char_y,
+                        self.viewscreen_x, self.viewscreen_y)
+
+                self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
+            elif key == curses.ascii.ESC: #TODO: should handle escape here
+                if self.selected_target is not None:
+                    self.selected_target = None
+                else:
+                    return None
 
     def command_mode(self):
         """ Command mode: typing in a command to execute. """
@@ -744,19 +771,28 @@ class Interface:
             self.current_mode = Mode.COMMAND
             key = self.stdscr.getch()
             if key == ord('\n'): #TODO: enter constant
+                self.status_message()
                 # process the command
                 if command == "quit":
                     self.logger.info("quitting")
                     return Mode.QUIT
+                elif command == "colordemo":
+                    self.color_demo()
+                    return None
                 else:
                     self.status_message(f'unknown command "{command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
                     return None
             elif chr(key).isprintable():
                 command += chr(key)
                 self.stdscr.addch(chr(key))
-            elif key == 8: #TODO: backspace constant
+            elif key == curses.ascii.BS:
                 command = command[:-1]
                 (y,x) = self.stdscr.getyx()
                 if x > 1:
                     self.stdscr.move(y, x-1)
                     self.stdscr.delch()
+            elif key == curses.ascii.ESC:
+                self.status_message()
+                return None
+            elif key == curses.KEY_RESIZE:
+                self.reinitialize_screen(name="Sector Map")

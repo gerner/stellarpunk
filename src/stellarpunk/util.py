@@ -52,15 +52,26 @@ def sector_to_screen(
             int((sector_loc_y - ul_y) / meters_per_char_y)
     )
 
+def screen_to_sector(
+        screen_loc_x, screen_loc_y,
+        ul_x, ul_y,
+        meters_per_char_x, meters_per_char_y,
+        screen_offset_x=0, screen_offset_y=0):
+    """ converts from screen coordinates to sector coordinates. """
+    return (
+            (screen_loc_x-screen_offset_x) * meters_per_char_x + ul_x,
+            (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
+    )
+
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
 
     from https://stackoverflow.com/a/16959142/553580
     """
 
-    def __init__(self, minv, maxv, maxTicks=10, constrain_to_range=False):
+    def __init__(self, minv, maxv, maxTicks=10, constrain_to_range=False, tickSpacing=None):
         self.maxTicks = maxTicks
-        self.tickSpacing = 0
+        self.tickSpacing = tickSpacing
         self.lst = 10
         self.niceMin = 0
         self.niceMax = 0
@@ -70,8 +81,9 @@ class NiceScale:
         self.calculate()
 
     def calculate(self):
-        self.lst = self.niceNum(self.maxPoint - self.minPoint, False)
-        self.tickSpacing = self.niceNum(self.lst / (self.maxTicks - 1), True)
+        if self.tickSpacing is None:
+            self.lst = self.niceNum(self.maxPoint - self.minPoint, False)
+            self.tickSpacing = self.niceNum(self.lst / (self.maxTicks - 1), True)
 
         if self.constrain_to_range:
             self.niceMin = math.ceil(self.minPoint / self.tickSpacing) * self.tickSpacing
