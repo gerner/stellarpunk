@@ -101,7 +101,6 @@ class GenerationUI(generate.GenerationListener):
     def sectors_complete(self, sectors):
         self.ui.universe_mode()
 
-
 class Interface:
     def __init__(self, gamestate):
         self.stdscr = None
@@ -379,6 +378,67 @@ class Interface:
             self.camera_y = view_y - self.viewscreen_height + Settings.UMAP_SECTOR_HEIGHT
         self.refresh_viewscreen()
 
+    def draw_grid(self, y, x, meters_per_char_x, meters_per_char_y, ul_x, ul_y, lr_x, lr_y, target_screen, max_ticks=10):
+        """ Draws a grid at tick lines. """
+
+        # choose ticks
+        #TODO: should choose maxTicks based on resolution
+
+        major_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks, constrain_to_range=True)
+        minor_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks*4, constrain_to_range=True)
+        major_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks, constrain_to_range=True)
+        minor_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks*4, constrain_to_range=True)
+
+        self.logger.debug(f'bounds {(ul_x, lr_x)} vertical lines {(major_ticks_x.niceMin, major_ticks_x.niceMax)} every {major_ticks_x.tickSpacing}')
+        self.logger.debug(f'bounds {(ul_y, lr_y)} horizonal lines {(major_ticks_y.niceMin, major_ticks_y.niceMax)} every {major_ticks_y.tickSpacing}')
+
+        c = drawille.Canvas()
+
+        # draw the vertical lines
+        i = major_ticks_x.niceMin
+        while i < lr_x:
+            j = minor_ticks_y.niceMin
+            while j < lr_y:
+                d_x, d_y = util.sector_to_drawille(i, j, meters_per_char_x, meters_per_char_y)
+                c.set(d_x, d_y)
+                j += minor_ticks_y.tickSpacing
+            i += major_ticks_x.tickSpacing
+
+        # draw the horizonal lines
+        j = major_ticks_y.niceMin
+        while j < lr_y:
+            i = minor_ticks_x.niceMin
+            while i < lr_x:
+                d_x, d_y = util.sector_to_drawille(i, j, meters_per_char_x, meters_per_char_y)
+                c.set(d_x, d_y)
+                i += minor_ticks_x.tickSpacing
+            j += major_ticks_y.tickSpacing
+
+        # draw the grid to the screen
+        text = c.frame().split("\n")
+        max_text_len = max(map(lambda t: len(t), text))
+
+        s_ul_y = int(y - len(text)/2)
+        s_ul_x = int(x - max_text_len/2)
+        for i, line in enumerate(text):
+            if s_ul_y+i < 0 or s_ul_x < 0:
+                # off by one between sector to drawille and the fact that
+                # adding a point inside a char means we need that entire char
+                continue
+            target_screen.addstr(s_ul_y+i, s_ul_x, line, curses.color_pair(29))
+
+        # draw location indicators
+        i = major_ticks_x.niceMin
+        while i <= major_ticks_x.niceMax:
+            s_i, _ = util.sector_to_screen(i, 0, ul_x, ul_y, meters_per_char_x, meters_per_char_y)
+            target_screen.addstr(0, s_i, util.human_distance(i), curses.color_pair(29))
+            i += major_ticks_x.tickSpacing
+        j = major_ticks_y.niceMin
+        while j <= major_ticks_y.niceMax:
+            _, s_j = util.sector_to_screen(0, j, ul_x, ul_y, meters_per_char_x, meters_per_char_y)
+            target_screen.addstr(s_j, 0, util.human_distance(j), curses.color_pair(29))
+            j += major_ticks_y.tickSpacing
+
     def draw_radar(self, y, x, meters_per_char_x, meters_per_char_y, radius, target_screen):
         """ Draws a radar graphic to get sense of scale centered at y, x. """
 
@@ -389,22 +449,13 @@ class Interface:
         def polar_to_rectangular(r, theta):
             return (r*math.cos(theta), r*math.sin(theta))
 
-        def sector_to_drawille(sector_loc_x, sector_loc_y):
-            """ converts from sector coord to drawille coord """
-
-            # characters are 2x4 (w,h) "pixels" in drawille
-            return (
-                    int((sector_loc_x) / meters_per_char_x * 2),
-                    int((sector_loc_y) / meters_per_char_y * 4)
-            )
-
         c = drawille.Canvas()
 
         # draw a cross
         i = 0
         while i < radius:
-            drawille_x,_ = sector_to_drawille(i, 0)
-            _,drawille_y = sector_to_drawille(0, i)
+            drawille_x,_ = util.sector_to_drawille(i, 0, meters_per_char_x, meters_per_char_y)
+            _,drawille_y = util.sector_to_drawille(0, i, meters_per_char_x, meters_per_char_y)
             c.set(drawille_x, 0)
             c.set(-1*drawille_x, 0)
             c.set(0, drawille_y)
@@ -419,11 +470,12 @@ class Interface:
             while theta < 2*math.pi:
                 s_x, s_y = polar_to_rectangular(r, theta)
                 if abs(s_x) < radius and abs(s_y) < radius:
-                    d_x, d_y = sector_to_drawille(s_x, s_y)
+                    d_x, d_y = util.sector_to_drawille(s_x, s_y, meters_per_char_x, meters_per_char_y)
                     c.set(d_x, d_y)
                 theta += theta_step
             r += stepsize
 
+        # draw radar to the screen
         text = c.frame().split("\n")
         max_text_len = max(map(lambda t: len(t), text))
 
@@ -436,6 +488,7 @@ class Interface:
                 continue
             target_screen.addstr(ul_y+i, ul_x, line, curses.color_pair(29))
 
+        # draw distance indicators
         for r in range(int(stepsize), int(ticks.niceMax), int(stepsize)):
             target_screen.addstr(y+int(r/meters_per_char_y), x, util.human_distance(r), curses.color_pair(29))
 
@@ -452,11 +505,11 @@ class Interface:
             icon = "?"
 
         target_screen.addstr(y, x, icon)
-        target_screen.addstr(y, x+2, entity.short_id(), curses.A_DIM)
+        target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.A_DIM)
 
     def draw_multiple_entities(self, y, x, entities, target_screen):
         target_screen.addstr(y, x, Icons.MULTIPLE)
-        target_screen.addstr(y, x+2, f'{len(entities)} entities', curses.A_DIM)
+        target_screen.addstr(y, x+1, f' {len(entities)} entities', curses.A_DIM)
 
     def draw_sector_map(self, sector):
         """ Draws a map of a sector. """
@@ -481,20 +534,21 @@ class Interface:
 
         self.logger.info(f'drawing sector {sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with {sector.spatial.count((ul_x, ul_y, lr_x, lr_y))} objects visible of {len(sector.entities)} total')
 
-        self.draw_radar(
-                int(self.viewscreen_height/2), int(self.viewscreen_width/2),
-                meters_per_char_x, meters_per_char_y,
-                self.szoom/2,
-                self.viewscreen
+        #self.draw_radar(
+        #        int(self.viewscreen_height/2), int(self.viewscreen_width/2),
+        #        meters_per_char_x, meters_per_char_y,
+        #        self.szoom/2,
+        #        self.viewscreen
+        #)
+        self.draw_grid(
+            int(self.viewscreen_height/2), int(self.viewscreen_width/2),
+            meters_per_char_x, meters_per_char_y,
+            ul_x, ul_y, lr_x, lr_y,
+            self.viewscreen
         )
 
-        self.viewscreen.addstr(0,1, f'{self.scursor_x:.0f},{self.scursor_y:.0f}', curses.color_pair(29))
-
-        def sector_to_screen(sector_loc_x, sector_loc_y):
-            return (
-                    int((sector_loc_x - ul_x) / meters_per_char_x),
-                    int((sector_loc_y - ul_y) / meters_per_char_y)
-            )
+        # list x,y coords of center of screen
+        #self.viewscreen.addstr(1,3, f'{self.scursor_x:.0f},{self.scursor_y:.0f}', curses.color_pair(29))
 
         occupied = {}
         # sort the entities so we draw left to right, top to bottom
@@ -503,8 +557,8 @@ class Interface:
         # this assumes any extra annotations are down and to the right
         for hit in sorted(sector.spatial.intersection((ul_x, ul_y, lr_x, lr_y), objects=True), key=lambda h: h.bbox):
             entity = sector.entities[hit.object]
-            screen_x, screen_y = sector_to_screen(entity.x, entity.y)
-            self.logger.debug(f'hit {entity.entity_id} at {(entity.x, entity.y)} translates to ({screen_x, screen_y})')
+            screen_x, screen_y = util.sector_to_screen(entity.x, entity.y, ul_x, ul_y, meters_per_char_x, meters_per_char_y)
+            #self.logger.debug(f'hit {entity.entity_id} at {(entity.x, entity.y)} translates to ({screen_x, screen_y})')
             if (screen_x, screen_y) in occupied:
                 entities = occupied[(screen_x, screen_y)]
                 entities.append(entity)
@@ -665,3 +719,9 @@ class Interface:
             elif chr(key).isprintable():
                 command += chr(key)
                 self.stdscr.addch(chr(key))
+            elif key == 8: #TODO: backspace constant
+                command = command[:-1]
+                (y,x) = self.stdscr.getyx()
+                if x > 1:
+                    self.stdscr.move(y, x-1)
+                    self.stdscr.delch()

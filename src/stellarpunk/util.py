@@ -20,16 +20,37 @@ def human_distance(distance_meters):
 
     e.g. 1353 => "1.35km" 353.8 => 353m
     """
-    if distance_meters < 1e3:
+    if abs(distance_meters) < 1e3:
         return f'{distance_meters:.0f}m'
-    elif distance_meters < 1e6:
+    elif abs(distance_meters) < 1e6:
         return f'{distance_meters/1e3:.0f}km'
-    elif distance_meters < 1e9:
+    elif abs(distance_meters) < 1e9:
         return f'{distance_meters/1e6:.0f}Mm'
-    elif distance_meters < 1e12:
+    elif abs(distance_meters) < 1e12:
         return f'{distance_meters/1e9:.0f}Gm'
     else:
         return f'{distance_meters:.0e}m'
+
+def sector_to_drawille(
+        sector_loc_x, sector_loc_y,
+        meters_per_char_x, meters_per_char_y):
+    """ converts from sector coord to drawille coord. """
+
+    # characters are 2x4 (w,h) "pixels" in drawille
+    return (
+            int((sector_loc_x) / meters_per_char_x * 2),
+            int((sector_loc_y) / meters_per_char_y * 4)
+    )
+
+def sector_to_screen(
+        sector_loc_x, sector_loc_y,
+        ul_x, ul_y,
+        meters_per_char_x, meters_per_char_y):
+    """ converts from sector coord to screen coord. """
+    return (
+            int((sector_loc_x - ul_x) / meters_per_char_x),
+            int((sector_loc_y - ul_y) / meters_per_char_y)
+    )
 
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
@@ -54,7 +75,9 @@ class NiceScale:
 
         if self.constrain_to_range:
             self.niceMin = math.ceil(self.minPoint / self.tickSpacing) * self.tickSpacing
+            assert self.niceMin >= self.minPoint
             self.niceMax = math.floor(self.maxPoint / self.tickSpacing) * self.tickSpacing
+            assert self.niceMax <= self.maxPoint
         else:
             self.niceMin = math.floor(self.minPoint / self.tickSpacing) * self.tickSpacing
             self.niceMax = math.ceil(self.maxPoint / self.tickSpacing) * self.tickSpacing
