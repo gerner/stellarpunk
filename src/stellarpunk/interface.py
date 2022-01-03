@@ -146,6 +146,7 @@ class Interface:
 
         # entity id of the currently selected target
         self.selected_target = None
+        self.selected_entity = None
 
         # sector zoom level, expressed in meters to fit on screen
         self.szoom = 0
@@ -556,7 +557,7 @@ class Interface:
         #        self.viewscreen
         #)
         self.draw_grid(
-            0, 0
+            0, 0,
             meters_per_char_x, meters_per_char_y,
             ul_x, ul_y, lr_x, lr_y,
             self.viewscreen
@@ -582,6 +583,12 @@ class Interface:
                 occupied[(screen_x, screen_y)] = [entity]
                 self.draw_entity(screen_y, screen_x, entity, self.viewscreen)
 
+        #TODO: draw an indicator for off-screen targeted entities
+        #se_x = self.selected_entity.x
+        #se_y = self.selected_entity.y
+        #if (se_x < ul_x or se_x > lr_x or
+        #        se_y < ul_y or se_y > lr_y):
+
         self.refresh_viewscreen()
 
     def generation_listener(self):
@@ -589,6 +596,7 @@ class Interface:
 
     def select_target(self, target_id, entity):
         self.selected_target = target_id
+        self.selected_entity = entity
         self.log_message(f'{entity.short_id()}: {entity.name}')
 
     def move_ucursor(self, direction):
@@ -755,6 +763,15 @@ class Interface:
                         self.viewscreen_x, self.viewscreen_y)
 
                 self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
+
+                # select a target within a cell of the mouse click
+                hit = next(target_sector.spatial.nearest(
+                    (sector_x-meters_per_char_x, sector_y-meters_per_char_y,
+                        sector_x+meters_per_char_x, sector_y+meters_per_char_y),
+                    1, objects=True), None)
+                if hit:
+                    #TODO: check if the hit is close enough
+                    self.select_target(hit.object, target_sector.entities[hit.object])
             elif key == curses.ascii.ESC: #TODO: should handle escape here
                 if self.selected_target is not None:
                     self.selected_target = None
