@@ -8,13 +8,9 @@ import enum
 import array
 import fcntl
 import termios
-import math
-import bisect
 
-import drawille
-
-from stellarpunk import util, generate, core
-
+from stellarpunk import util, generate
+from . import sector as sector_interface
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -283,6 +279,7 @@ class Interface:
         self.logger.info(f'logscreen (x,y) {(self.logscreen_y, self.logscreen_x)} (h,w): {(self.logscreen_height, self.logscreen_width)}')
 
     def reinitialize_screen(self, name="Main Viewscreen"):
+        self.logger.debug(f'reinitializing the screen')
         self.choose_viewport_sizes()
         textpad.rectangle(
                 self.stdscr,
@@ -311,7 +308,6 @@ class Interface:
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
     def initialize(self):
-        #self.color_demo()
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
         curses.set_escdelay(100)
 
@@ -399,205 +395,8 @@ class Interface:
             self.camera_y = view_y - self.viewscreen_height + Settings.UMAP_SECTOR_HEIGHT
         self.refresh_viewscreen()
 
-    def draw_grid(self, y, x, meters_per_char_x, meters_per_char_y, ul_x, ul_y, lr_x, lr_y, target_screen, max_ticks=10):
-        """ Draws a grid at tick lines. """
-
-        # choose ticks
-        #TODO: should choose maxTicks based on resolution
-
-        major_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks, constrain_to_range=True)
-        minor_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks*4, constrain_to_range=True)
-        major_ticks_y = util.NiceScale(ul_y, lr_y, maxTicks=max_ticks, constrain_to_range=True, tickSpacing=major_ticks_x.tickSpacing)
-        minor_ticks_x = util.NiceScale(ul_x, lr_x, maxTicks=max_ticks*4, constrain_to_range=True, tickSpacing=minor_ticks_y.tickSpacing)
-
-        c = drawille.Canvas()
-
-        # draw the vertical lines
-        i = major_ticks_x.niceMin
-        while i < lr_x:
-            j = minor_ticks_y.niceMin
-            while j < lr_y:
-                d_x, d_y = util.sector_to_drawille(i, j, meters_per_char_x, meters_per_char_y)
-                c.set(d_x, d_y)
-                j += minor_ticks_y.tickSpacing
-            i += major_ticks_x.tickSpacing
-
-        # draw the horizonal lines
-        j = major_ticks_y.niceMin
-        while j < lr_y:
-            i = minor_ticks_x.niceMin
-            while i < lr_x:
-                d_x, d_y = util.sector_to_drawille(i, j, meters_per_char_x, meters_per_char_y)
-                c.set(d_x, d_y)
-                i += minor_ticks_x.tickSpacing
-            j += major_ticks_y.tickSpacing
-
-        # set one pixel in the upper left corner to make the canvas easier to
-        # display to the screen
-        (d_x, d_y) = util.sector_to_drawille(ul_x, ul_y, meters_per_char_x, meters_per_char_y)
-        # draw the grid to the screen
-        text = c.rows(d_x, d_y)
-        max_text_len = max(map(lambda t: len(t), text))
-
-        s_ul_x, s_ul_y = (x,y)
-        for i, line in enumerate(text):
-            target_screen.addstr(s_ul_y+i, s_ul_x, line, curses.color_pair(29))
-
-        # draw location indicators
-        i = major_ticks_x.niceMin
-        while i <= major_ticks_x.niceMax:
-            s_i, _ = util.sector_to_screen(i, 0, ul_x, ul_y, meters_per_char_x, meters_per_char_y)
-            target_screen.addstr(0, s_i, util.human_distance(i), curses.color_pair(29))
-            i += major_ticks_x.tickSpacing
-        j = major_ticks_y.niceMin
-        while j <= major_ticks_y.niceMax:
-            _, s_j = util.sector_to_screen(0, j, ul_x, ul_y, meters_per_char_x, meters_per_char_y)
-            target_screen.addstr(s_j, 0, util.human_distance(j), curses.color_pair(29))
-            j += major_ticks_y.tickSpacing
-
-    def draw_radar(self, y, x, meters_per_char_x, meters_per_char_y, radius, target_screen):
-        """ Draws a radar graphic to get sense of scale centered at y, x. """
-
-        # choose ticks
-        ticks = util.NiceScale(-1*radius, radius, constrain_to_range=True)
-        stepsize = ticks.tickSpacing
-
-        def polar_to_rectangular(r, theta):
-            return (r*math.cos(theta), r*math.sin(theta))
-
-        c = drawille.Canvas()
-
-        # draw a cross
-        i = 0
-        while i < radius:
-            drawille_x,_ = util.sector_to_drawille(i, 0, meters_per_char_x, meters_per_char_y)
-            _,drawille_y = util.sector_to_drawille(0, i, meters_per_char_x, meters_per_char_y)
-            c.set(drawille_x, 0)
-            c.set(-1*drawille_x, 0)
-            c.set(0, drawille_y)
-            c.set(0, -1*drawille_y)
-            i += stepsize/2
-
-        # draw rings to fill up the square with sides 2*radius
-        r = stepsize
-        theta_step = math.pi/16
-        while r < math.sqrt(2*radius*radius):
-            theta = 0
-            while theta < 2*math.pi:
-                s_x, s_y = polar_to_rectangular(r, theta)
-                if abs(s_x) < radius and abs(s_y) < radius:
-                    d_x, d_y = util.sector_to_drawille(s_x, s_y, meters_per_char_x, meters_per_char_y)
-                    c.set(d_x, d_y)
-                theta += theta_step
-            r += stepsize
-
-        # draw radar to the screen
-        text = c.frame().split("\n")
-        max_text_len = max(map(lambda t: len(t), text))
-
-        ul_y = int(y - len(text)/2)
-        ul_x = int(x - max_text_len/2)
-        for i, line in enumerate(text):
-            if ul_y+i < 0 or ul_x < 0:
-                # off by one between sector to drawille and the fact that
-                # adding a point inside a char means we need that entire char
-                continue
-            target_screen.addstr(ul_y+i, ul_x, line, curses.color_pair(29))
-
-        # draw distance indicators
-        for r in range(int(stepsize), int(ticks.niceMax), int(stepsize)):
-            target_screen.addstr(y+int(r/meters_per_char_y), x, util.human_distance(r), curses.color_pair(29))
-
-    def draw_entity(self, y, x, entity, target_screen):
-        """ Draws a single sector entity at screen position (y,x) """
-
-        if isinstance(entity, core.Ship):
-            icon = Icons.SHIP_N
-        elif isinstance(entity, core.Station):
-            icon = Icons.STATION
-        elif isinstance(entity, core.Planet):
-            icon = Icons.PLANET
-        else:
-            icon = "?"
-
-        if entity.entity_id == self.selected_target:
-            target_screen.addstr(y, x, icon, curses.A_STANDOUT)
-            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.color_pair(9) | curses.A_STANDOUT)
-        else:
-            target_screen.addstr(y, x, icon)
-            target_screen.addstr(y, x+1, f' {entity.short_id()}', curses.color_pair(9))
-
-    def draw_multiple_entities(self, y, x, entities, target_screen):
-        target_screen.addstr(y, x, Icons.MULTIPLE)
-        target_screen.addstr(y, x+1, f' {len(entities)} entities', curses.color_pair(9))
-
-    def draw_sector_map(self, sector):
-        """ Draws a map of a sector. """
-
-        self.viewscreen.erase()
-
-        # get the bounding box for the viewscreen, determined by the zoom level
-        # we try to fit at least the zoom level on screen, constrained by the
-        # minimum of viewscreen width and height
-        meters_per_char_x, meters_per_char_y = self.meters_per_char()
-
-        self.logger.info(f'resolution is {meters_per_char_x:.0f}m x {meters_per_char_y:.0f}m')
-
-        ul_x = self.scursor_x - (self.viewscreen_width/2 * meters_per_char_x)
-        ul_y = self.scursor_y - (self.viewscreen_height/2 * meters_per_char_y)
-        lr_x = self.scursor_x + (self.viewscreen_width/2 * meters_per_char_x)
-        lr_y = self.scursor_y + (self.viewscreen_height/2 * meters_per_char_y)
-
-        self.logger.info(f'drawing sector {sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with {sector.spatial.count((ul_x, ul_y, lr_x, lr_y))} objects visible of {len(sector.entities)} total')
-
-        #self.draw_radar(
-        #        int(self.viewscreen_height/2), int(self.viewscreen_width/2),
-        #        meters_per_char_x, meters_per_char_y,
-        #        self.szoom/2,
-        #        self.viewscreen
-        #)
-        self.draw_grid(
-            0, 0,
-            meters_per_char_x, meters_per_char_y,
-            ul_x, ul_y, lr_x, lr_y,
-            self.viewscreen
-        )
-
-        # list x,y coords of center of screen
-        #self.viewscreen.addstr(1,3, f'{self.scursor_x:.0f},{self.scursor_y:.0f}', curses.color_pair(29))
-
-        occupied = {}
-        # sort the entities so we draw left to right, top to bottom
-        # this ensures any annotations down and to the right of an entity on
-        # the sector map will not cover up the icon for an entity
-        # this assumes any extra annotations are down and to the right
-        for hit in sorted(sector.spatial.intersection((ul_x, ul_y, lr_x, lr_y), objects=True), key=lambda h: h.bbox):
-            entity = sector.entities[hit.object]
-            screen_x, screen_y = util.sector_to_screen(entity.x, entity.y, ul_x, ul_y, meters_per_char_x, meters_per_char_y)
-            #self.logger.debug(f'hit {entity.entity_id} at {(entity.x, entity.y)} translates to ({screen_x, screen_y})')
-            if (screen_x, screen_y) in occupied:
-                entities = occupied[(screen_x, screen_y)]
-                entities.append(entity)
-                self.draw_multiple_entities(screen_y, screen_x, entities, self.viewscreen)
-            else:
-                occupied[(screen_x, screen_y)] = [entity]
-                self.draw_entity(screen_y, screen_x, entity, self.viewscreen)
-
-        #TODO: draw an indicator for off-screen targeted entities
-        #se_x = self.selected_entity.x
-        #se_y = self.selected_entity.y
-        #if (se_x < ul_x or se_x > lr_x or
-        #        se_y < ul_y or se_y > lr_y):
-
-        self.refresh_viewscreen()
-
     def generation_listener(self):
         return GenerationUI(self)
-
-    def select_target(self, target_id, entity):
-        self.selected_target = target_id
-        self.selected_entity = entity
-        self.log_message(f'{entity.short_id()}: {entity.name}')
 
     def move_ucursor(self, direction):
         old_x = self.ucursor_x
@@ -628,32 +427,6 @@ class Interface:
             self.ucursor_y = self.sector_maxy
             self.status_message("no more sectors downward", curses.color_pair(1))
 
-    def move_scursor(self, direction, sector):
-        old_x = self.scursor_x
-        old_y = self.scursor_y
-
-        stepsize = self.szoom/32
-
-        if direction == ord('w'):
-            self.scursor_y -= stepsize
-        elif direction == ord('a'):
-            self.scursor_x -= stepsize
-        elif direction == ord('s'):
-            self.scursor_y += stepsize
-        elif direction == ord('d'):
-            self.scursor_x += stepsize
-        else:
-            raise ValueError(f'unknown direction {direction}')
-
-    def meters_per_char(self):
-        meters_per_char_x = self.szoom / min(self.viewscreen_width, math.floor(self.viewscreen_height/self.font_width*self.font_height))
-        meters_per_char_y = meters_per_char_x / self.font_width * self.font_height
-
-        assert self.szoom / meters_per_char_y <= self.viewscreen_height
-        assert self.szoom / meters_per_char_x <= self.viewscreen_width
-
-        return (meters_per_char_x, meters_per_char_y)
-
     def universe_mode(self):
         """ Universe mode: interacting with the universe map.
 
@@ -682,8 +455,12 @@ class Interface:
             if key in (ord('w'), ord('a'), ord('s'), ord('d')):
                 self.status_message()
                 self.move_ucursor(key)
-            elif key == ord('\n'): #TODO: enter contstant
-                sector_ret = self.sector_mode(self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)])
+            elif key == ord('\n'):
+                sector = self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)]
+                sector_view = sector_interface.SectorView(
+                        sector, self)
+                self.camera_x, self.camera_y = (0,0)
+                sector_ret = sector_view.sector_mode()
                 if Mode.QUIT == sector_ret:
                     return Mode.QUIT
                 self.reinitialize_screen(name="Universe Map")
@@ -694,89 +471,6 @@ class Interface:
                 self.reinitialize_screen()
             elif key == curses.KEY_RESIZE:
                 self.reinitialize_screen(name="Universe Map")
-
-    def sector_mode(self, target_sector):
-        """ Sector mode: interacting with the sector map.
-
-        Draw the contents of the sector: ships, stations, asteroids, etc.
-        Player can move around the sector, panning the camera at the edges of
-        the viewscreen, search for named entities within the sector (jumping to
-        each a la vim search.) Can select a ship to interact with. Can enter
-        pilot mode. Can return to universe mode or enter command mode.
-        """
-
-        self.logger.info(f'entering sector mode for {target_sector.entity_id}')
-        self.reinitialize_screen(name="Sector Map")
-
-        self.scursor_x = 0
-        self.scursor_y = 0
-        self.szoom = target_sector.radius*2
-        self.camera_x = 0
-        self.camera_y = 0
-
-        while(True):
-            self.logger.debug(f'sector drawloop at zoom {self.szoom}')
-            self.draw_sector_map(target_sector)
-            curses.doupdate()
-
-            self.logger.debug("awaiting input...")
-            key = self.stdscr.getch()
-            self.logger.debug(f'got {key}')
-
-            if key in (ord('w'), ord('a'), ord('s'), ord('d')):
-                self.move_scursor(key, target_sector)
-            elif key == ord("+"):
-                self.szoom *= 0.9
-            elif key == ord("-"):
-                self.szoom *= 1.1
-            elif key == ord("t"):
-                entity_id_list = sorted(target_sector.entities.keys())
-                if len(entity_id_list) == 0:
-                    self.select_target(None, None)
-                elif self.selected_target is None:
-                    self.select_target(entity_id_list[0], target_sector.entities[entity_id_list[0]])
-                else:
-                    next_index = bisect.bisect_right(entity_id_list, self.selected_target)
-                    if next_index >= len(entity_id_list):
-                        next_index = 0
-                    self.select_target(entity_id_list[next_index], target_sector.entities[entity_id_list[next_index]])
-            elif key == ord("\n"):
-                if self.selected_target:
-                    self.scursor_x = target_sector.entities[self.selected_target].x
-                    self.scursor_y = target_sector.entities[self.selected_target].y
-            elif key == ord(":"):
-                command_ret = self.command_mode()
-                if Mode.QUIT == command_ret:
-                    return Mode.QUIT
-                self.reinitialize_screen()
-            elif key == curses.KEY_RESIZE:
-                self.reinitialize_screen(name="Sector Map")
-            elif key == curses.KEY_MOUSE:
-                m_tuple = curses.getmouse()
-                m_id, m_x, m_y, m_z, bstate = m_tuple
-                meters_per_char_x, meters_per_char_y = self.meters_per_char()
-                ul_x = self.scursor_x - (self.viewscreen_width/2 * meters_per_char_x)
-                ul_y = self.scursor_y - (self.viewscreen_height/2 * meters_per_char_y)
-                sector_x, sector_y = util.screen_to_sector(
-                        m_x, m_y, ul_x, ul_y,
-                        meters_per_char_x, meters_per_char_y,
-                        self.viewscreen_x, self.viewscreen_y)
-
-                self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
-
-                # select a target within a cell of the mouse click
-                hit = next(target_sector.spatial.nearest(
-                    (sector_x-meters_per_char_x, sector_y-meters_per_char_y,
-                        sector_x+meters_per_char_x, sector_y+meters_per_char_y),
-                    1, objects=True), None)
-                if hit:
-                    #TODO: check if the hit is close enough
-                    self.select_target(hit.object, target_sector.entities[hit.object])
-            elif key == curses.ascii.ESC: #TODO: should handle escape here
-                if self.selected_target is not None:
-                    self.selected_target = None
-                else:
-                    return None
 
     def command_mode(self):
         """ Command mode: typing in a command to execute. """
