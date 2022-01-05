@@ -323,7 +323,6 @@ class SectorView:
         #if (se_x < ul_x or se_x > lr_x or
         #        se_y < ul_y or se_y > lr_y):
 
-        self.viewscreen.addstr(self.interface.viewscreen_height-1, self.interface.viewscreen_width-32, f'({self.interface.gamestate.ticks}) ({self.interface.gamestate.ticktime*100:.2f}ms)')
 
         self.interface.refresh_viewscreen()
 
@@ -355,7 +354,7 @@ class SectorView:
                         self.sector.entities[self.selected_target].y
                 )
         elif key == ord(":"):
-            c = CommandInput(self, self.interface)
+            c = interface.CommandInput(self, self.interface)
             c.initialize()
             return self, c
         elif key == curses.KEY_RESIZE:

@@ -9,6 +9,7 @@ import array
 import fcntl
 import termios
 import time
+import collections
 
 from stellarpunk import util, generate
 from . import sector as sector_interface
@@ -228,6 +229,7 @@ class CommandInput(InputFocus):
         self.interface = interface
         self.view = view
         self.command = ""
+        self.frame_ticks = 0
 
     def initialize(self):
         self.logger.info("entering command mode")
@@ -315,6 +317,11 @@ class Interface:
         self.view_focus = []
         self.input_focus = []
 
+        # list of frame times
+        self.frame_history = collections.deque()
+        # max frame history to keep in seconds
+        self.max_frame_history = 1
+
     def __enter__(self):
         """ Does most simple interface initialization.
 
@@ -362,6 +369,11 @@ class Interface:
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
+
+    def fps(self, now=None):
+        if now is None:
+            now = time.perf_counter()
+        return len(self.frame_history) / (now - self.frame_history[0])
 
     def choose_viewport_sizes(self):
         """ Chooses viewport sizes and locations for viewscreen and the log."""
@@ -518,19 +530,40 @@ class Interface:
         self.status_message("Press any key to continue")
         self.stdscr.getch()
 
+    def show_fps(self):
+        self.stdscr.addstr(self.screen_height-1, self.screen_width-32, f'({self.gamestate.ticks}) ({self.gamestate.ticktime*100:.2f}ms) ({self.fps():.0f}fps)')
+
     def generation_listener(self):
         return GenerationUI(self)
 
     def tick(self, timeout):
         # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
-        start_time = time.time()
+        start_time = time.perf_counter()
+        self.frame_history.append(start_time)
+        while self.frame_history[0] < start_time - self.max_frame_history:
+            self.frame_history.popleft()
+
         self.view_focus[-1].update_display()
+        self.show_fps()
+
         curses.doupdate()
-        timeout - (time.time() - start_time)
+        timeout - (time.perf_counter() - start_time)
+
+        #TODO: do we need to worry about running out of time to process input?
+        #if timeout < 0:
+        #    return
 
         # process input according to what has focus (i.e. umap, smap, pilot, command)
         self.stdscr.timeout(int(timeout*100))
+        start_time = time.perf_counter()
+        #TODO: this can block for more than timeout in the case of mouse clicks
+        # maybe we should offload getch to another thread that can always block
+        # and read stuff from it from a queue? it's not clear about
+        # threadsafety of getch vs getmouse tho and other curses stuff
         key = self.stdscr.getch()
+        now = time.perf_counter()
+        #if now - start_time > 1/60 * 2:
+        #    raise Exception(f'getch took {now-start_time}s more than 2 ticks should have been {timeout}s')
 
         if key == curses.KEY_RESIZE:
             self.view_focus[-1].initialize()

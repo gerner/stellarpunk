@@ -174,6 +174,7 @@ class StellarPunk:
 
         self.ticks = 0
         self.ticktime = 0
+        self.timeout = 0
 
     def tick(self):
         # iterate through characters
