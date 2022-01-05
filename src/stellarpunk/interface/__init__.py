@@ -309,7 +309,8 @@ class Interface:
 
     def initialize(self):
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
-        curses.set_escdelay(100)
+        curses.set_escdelay(1)
+        curses.nonl()
 
         self.reinitialize_screen()
 
@@ -455,7 +456,7 @@ class Interface:
             if key in (ord('w'), ord('a'), ord('s'), ord('d')):
                 self.status_message()
                 self.move_ucursor(key)
-            elif key == ord('\n'):
+            elif key in (ord('\n'), ord('\r')):
                 sector = self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)]
                 sector_view = sector_interface.SectorView(
                         sector, self)
@@ -481,7 +482,8 @@ class Interface:
         while(True):
             self.current_mode = Mode.COMMAND
             key = self.stdscr.getch()
-            if key == ord('\n'): #TODO: enter constant
+            if key in (ord('\n'), ord('\r')):
+                self.logger.debug(f'read command {command}')
                 self.status_message()
                 # process the command
                 if command == "quit":

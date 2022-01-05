@@ -24,7 +24,11 @@ class IPDBManager:
 
 def main():
     with contextlib.ExitStack() as context_stack:
-        logging.basicConfig(filename="/tmp/stellarpunk.log", level=logging.DEBUG)
+        logging.basicConfig(
+                format="PID %(process)d %(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+                filename="/tmp/stellarpunk.log",
+                level=logging.DEBUG
+        )
         #logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
         mgr = context_stack.enter_context(IPDBManager())

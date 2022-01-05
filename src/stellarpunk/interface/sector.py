@@ -4,6 +4,7 @@ import logging
 import math
 import bisect
 import curses
+import curses.textpad
 import curses.ascii
 
 import drawille
@@ -57,7 +58,7 @@ class SectorView:
 
         self.bbox = (ul_x, ul_y, lr_x, lr_y)
 
-        self.logger.info(f'viewing sector {self.sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with per {self.meters_per_char_x:.0f}m x {self.meters_per_char_y:.0f}m char')
+        self.logger.debug(f'viewing sector {self.sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with per {self.meters_per_char_x:.0f}m x {self.meters_per_char_y:.0f}m char')
 
     def set_scursor(self, x, y):
         self.scursor_x = x
@@ -184,7 +185,6 @@ class SectorView:
                     0, j,
                     self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
-            self.logger.debug(f'tick label {s_j}, 0')
             self.viewscreen.addstr(s_j, 0, util.human_distance(j), curses.color_pair(29))
             j += major_ticks_y.tickSpacing
 
@@ -253,12 +253,14 @@ class SectorView:
         else:
             icon = "?"
 
+        icon_attr = 0
+        description_attr = curses.color_pair(9)
         if entity.entity_id == self.selected_target:
-            self.viewscreen.addstr(y, x, icon, curses.A_STANDOUT)
-            self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', curses.color_pair(9) | curses.A_STANDOUT)
-        else:
-            self.viewscreen.addstr(y, x, icon)
-            self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', curses.color_pair(9))
+            icon_attr |= curses.A_STANDOUT
+            description_attr |= curses.A_STANDOUT
+
+        self.viewscreen.addstr(y, x, icon, icon_attr)
+        self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
         self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
@@ -328,7 +330,6 @@ class SectorView:
         while(True):
             self.logger.debug(f'sector drawloop at zoom {self.szoom}')
             self.draw_sector_map()
-            self.logger.debug(f'updating curses')
             self.interface.refresh_viewscreen()
             curses.doupdate()
 
@@ -351,7 +352,7 @@ class SectorView:
                     if next_index >= len(entity_id_list):
                         next_index = 0
                     self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
-            elif key == ord("\n"):
+            elif key in (ord('\n'), ord('\r')):
                 if self.selected_target:
                     self.set_scursor(
                             self.sector.entities[self.selected_target].x,
