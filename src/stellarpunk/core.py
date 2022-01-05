@@ -80,6 +80,9 @@ class Sector(Entity):
         # spatial index of entities in the sector
         self.spatial = rtree.index.Index()
 
+        # physics space for this sector (we don't manage this, just have a pointer to it)
+        self.space = None
+
     def add_entity(self, entity):
         #TODO: worry about collisions at location?
 
@@ -98,9 +101,11 @@ class Sector(Entity):
         self.spatial.insert(entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), obj=entity.entity_id)
 
     def reindex_locations(self):
-        self.spatial = rtree.index.Index(
-                (entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), entity.entity_id) for entity in self.entities.values()
-        )
+        # only need to do work if we have any entities
+        if self.entities:
+            self.spatial = rtree.index.Index(
+                    (entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), entity.entity_id) for entity in self.entities.values()
+            )
 
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
@@ -110,6 +115,9 @@ class SectorEntity(Entity):
         self.x = x
         self.y = y
         self.velocity = (0,0)
+
+        # physics simulation entity (we don't manage this, just have a pointer to it)
+        self.phys = None
 
 class Planet(SectorEntity):
 
@@ -163,6 +171,9 @@ class StellarPunk:
         self.actions = []
 
         self.keep_running = True
+
+        self.ticks = 0
+        self.ticktime = 0
 
     def tick(self):
         # iterate through characters

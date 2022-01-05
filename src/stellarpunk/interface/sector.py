@@ -13,6 +13,15 @@ import drawille
 from stellarpunk import util, core, interface
 
 class SectorView:
+    """ Sector mode: interacting with the sector map.
+
+    Draw the contents of the sector: ships, stations, asteroids, etc.
+    Player can move around the sector, panning the camera at the edges of
+    the viewscreen, search for named entities within the sector (jumping to
+    each a la vim search.) Can select a ship to interact with. Can enter
+    pilot mode. Can return to universe mode or enter command mode.
+    """
+
     def __init__(self, sector, interface):
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -31,22 +40,21 @@ class SectorView:
         self.selected_entity = None
 
         # sector zoom level, expressed in meters to fit on screen
-        self.szoom = 0
+        self.szoom = self.sector.radius*2
         self.meters_per_char_x = 0
         self.meters_per_char_y = 0
 
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0,0,0,0)
 
-        self.time = 0
-        self.ticks = 0
-        self.avg_tick_time = 0
-
     @property
     def viewscreen(self):
         return self.interface.viewscreen
 
     def initialize(self):
+        self.logger.info(f'entering sector mode for {self.sector.entity_id}')
+        self.interface.camera_x = 0
+        self.interface.camera_y = 0
         self.update_bbox()
         self.interface.reinitialize_screen(name="Sector Map")
 
@@ -315,133 +323,67 @@ class SectorView:
         #if (se_x < ul_x or se_x > lr_x or
         #        se_y < ul_y or se_y > lr_y):
 
-        self.viewscreen.addstr(self.interface.viewscreen_height-1, self.interface.viewscreen_width-48, f'{self.time:.0f} ({self.ticks}) ({self.avg_tick_time*100:.2f}ms)')
+        self.viewscreen.addstr(self.interface.viewscreen_height-1, self.interface.viewscreen_width-32, f'({self.interface.gamestate.ticks}) ({self.interface.gamestate.ticktime*100:.2f}ms)')
 
         self.interface.refresh_viewscreen()
 
-    def sector_mode(self):
-        """ Sector mode: interacting with the sector map.
+    def update_display(self):
+        self.draw_sector_map()
+        self.interface.refresh_viewscreen()
 
-        Draw the contents of the sector: ships, stations, asteroids, etc.
-        Player can move around the sector, panning the camera at the edges of
-        the viewscreen, search for named entities within the sector (jumping to
-        each a la vim search.) Can select a ship to interact with. Can enter
-        pilot mode. Can return to universe mode or enter command mode.
-        """
+    def handle_input(self, key):
+        self.interface.status_message()
+        if key in (ord('w'), ord('a'), ord('s'), ord('d')):
+            self.move_scursor(key)
+        elif key in (ord("+"), ord("-")):
+            self.zoom_scursor(key)
+        elif key == ord("t"):
+            entity_id_list = sorted(self.sector.entities.keys())
+            if len(entity_id_list) == 0:
+                self.select_target(None, None)
+            elif self.selected_target is None:
+                self.select_target(entity_id_list[0], self.sector.entities[entity_id_list[0]])
+            else:
+                next_index = bisect.bisect_right(entity_id_list, self.selected_target)
+                if next_index >= len(entity_id_list):
+                    next_index = 0
+                self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
+        elif key in (ord('\n'), ord('\r')):
+            if self.selected_target:
+                self.set_scursor(
+                        self.sector.entities[self.selected_target].x,
+                        self.sector.entities[self.selected_target].y
+                )
+        elif key == ord(":"):
+            c = CommandInput(self, self.interface)
+            c.initialize()
+            return self, c
+        elif key == curses.KEY_RESIZE:
+            self.initialize()
+        elif key == curses.KEY_MOUSE:
+            m_tuple = curses.getmouse()
+            m_id, m_x, m_y, m_z, bstate = m_tuple
+            ul_x = self.scursor_x - (self.interface.viewscreen_width/2 * self.meters_per_char_x)
+            ul_y = self.scursor_y - (self.interface.viewscreen_height/2 * self.meters_per_char_y)
+            sector_x, sector_y = util.screen_to_sector(
+                    m_x, m_y, ul_x, ul_y,
+                    self.meters_per_char_x, self.meters_per_char_y,
+                    self.interface.viewscreen_x, self.interface.viewscreen_y)
 
-        self.logger.info(f'entering sector mode for {self.sector.entity_id}')
+            self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
 
-        #TODO: get rid of this hack
-        # hack to test out some physics
-        import pymunk
-        import numpy as np
-        dt = 100 / 1000 # 100ms
-        space = pymunk.Space()
-        ship_mass = 2 * 1e6
-        ship_radius = 30
-        ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
-        ship_shapes = []
-        r = np.random.default_rng()
-        for ship in self.sector.ships:
-            ship_body = pymunk.Body(ship_mass, ship_moment)
-            ship_shape = pymunk.Circle(ship_body, ship_radius)
-            ship_body.position = ship.x, ship.y
-            v = tuple(r.normal(0, 50, 2))
-            ship_body.velocity = v
+            # select a target within a cell of the mouse click
+            hit = next(self.sector.spatial.nearest(
+                (sector_x-self.meters_per_char_x, sector_y-self.meters_per_char_y,
+                    sector_x+self.meters_per_char_x, sector_y+self.meters_per_char_y),
+                1, objects=True), None)
+            if hit:
+                #TODO: check if the hit is close enough
+                self.select_target(hit.object, self.sector.entities[hit.object])
+        elif key == curses.ascii.ESC: #TODO: should handle escape here
+            if self.selected_target is not None:
+                self.selected_target = None
+            else:
+                return None, None
 
-            space.add(ship_body, ship_shape)
-
-            ship_shapes.append((ship_shape, ship))
-            ship.velocity = v
-
-        self.scursor_x = 0
-        self.scursor_y = 0
-        self.szoom = self.sector.radius*2
-
-        self.initialize()
-
-        avg_tick_time_alpha = 0.5
-        self.avg_tick_time = 0
-        last_tick = time.time()
-        next_tick = time.time() + dt
-        while(True):
-            self.time = time.time()
-            #self.logger.debug(f'sector drawloop at zoom {self.szoom}')
-            self.draw_sector_map()
-            self.interface.refresh_viewscreen()
-            curses.doupdate()
-
-            #self.logger.debug("stepping physics sim")
-            space.step(dt)
-
-            #TODO: hack for pymunk
-            # update ship positions from physics sim
-            for ship_shape, ship in ship_shapes:
-                ship.x, ship.y = ship_shape.body.position
-            self.sector.reindex_locations()
-
-            timeout = next_tick - time.time()
-            #self.logger.debug(f'setting timeout for {timeout:e}')
-            self.interface.stdscr.timeout(int(timeout*100))
-            self.avg_tick_time = avg_tick_time_alpha * (time.time() - last_tick) + (1-avg_tick_time_alpha)*self.avg_tick_time
-            #self.logger.debug("awaiting input...")
-            key = self.interface.stdscr.getch()
-            #self.logger.debug(f'got {key}')
-            self.ticks += 1
-            last_tick = time.time()
-            next_tick = last_tick + dt
-
-            if key in (ord('w'), ord('a'), ord('s'), ord('d')):
-                self.move_scursor(key)
-            elif key in (ord("+"), ord("-")):
-                self.zoom_scursor(key)
-            elif key == ord("t"):
-                entity_id_list = sorted(self.sector.entities.keys())
-                if len(entity_id_list) == 0:
-                    self.select_target(None, None)
-                elif self.selected_target is None:
-                    self.select_target(entity_id_list[0], self.sector.entities[entity_id_list[0]])
-                else:
-                    next_index = bisect.bisect_right(entity_id_list, self.selected_target)
-                    if next_index >= len(entity_id_list):
-                        next_index = 0
-                    self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
-            elif key in (ord('\n'), ord('\r')):
-                if self.selected_target:
-                    self.set_scursor(
-                            self.sector.entities[self.selected_target].x,
-                            self.sector.entities[self.selected_target].y
-                    )
-            elif key == ord(":"):
-                command_ret = self.interface.command_mode()
-                if interface.Mode.QUIT == command_ret:
-                    return interface.Mode.QUIT
-                self.initialize()
-            elif key == curses.KEY_RESIZE:
-                self.initialize()
-            elif key == curses.KEY_MOUSE:
-                m_tuple = curses.getmouse()
-                m_id, m_x, m_y, m_z, bstate = m_tuple
-                ul_x = self.scursor_x - (self.interface.viewscreen_width/2 * self.meters_per_char_x)
-                ul_y = self.scursor_y - (self.interface.viewscreen_height/2 * self.meters_per_char_y)
-                sector_x, sector_y = util.screen_to_sector(
-                        m_x, m_y, ul_x, ul_y,
-                        self.meters_per_char_x, self.meters_per_char_y,
-                        self.interface.viewscreen_x, self.interface.viewscreen_y)
-
-                self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
-
-                # select a target within a cell of the mouse click
-                hit = next(self.sector.spatial.nearest(
-                    (sector_x-self.meters_per_char_x, sector_y-self.meters_per_char_y,
-                        sector_x+self.meters_per_char_x, sector_y+self.meters_per_char_y),
-                    1, objects=True), None)
-                if hit:
-                    #TODO: check if the hit is close enough
-                    self.select_target(hit.object, self.sector.entities[hit.object])
-            elif key == curses.ascii.ESC: #TODO: should handle escape here
-                if self.selected_target is not None:
-                    self.selected_target = None
-                else:
-                    return None
-
+        return self, self
