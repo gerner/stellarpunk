@@ -6,6 +6,7 @@ import time
 import ipdb
 
 from stellarpunk import util, core, interface, generate
+from stellarpunk.interface import universe as universe_interface
 
 class IPDBManager:
     def __init__(self):
@@ -116,10 +117,8 @@ def main():
         ui = context_stack.enter_context(interface.Interface(gamestate))
 
         ui.initialize()
-        uv = interface.UniverseView(gamestate, ui)
-        uv.initialize()
-        ui.view_focus.append(uv)
-        ui.input_focus.append(uv)
+        uv = universe_interface.UniverseView(gamestate, ui)
+        ui.open_view(uv)
         generation_listener = ui.generation_listener()
 
         logging.info("generating universe...")

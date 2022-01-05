@@ -12,7 +12,6 @@ import time
 import collections
 
 from stellarpunk import util, generate
-from . import sector as sector_interface
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -89,151 +88,65 @@ class Icons:
     "" \u25F3 white square with upper right quadrant
     """
 
-class ViewFocus:
-    def initialize(self):
-        pass
-
-    def update_display(self):
-        pass
-
-class InputFocus:
-    def initialize(self):
-        pass
-
-    def handle_input(self, key):
-        pass
-
-class UniverseView(ViewFocus, InputFocus):
-    def __init__(self, gamestate, interface):
+class View:
+    def __init__(self):
         self.logger = logging.getLogger(util.fullname(self))
-
-        self.gamestate = gamestate
-        self.interface = interface
-
-        # position of the universe sector cursor (in universe-sector coords)
-        self.ucursor_x = 0
-        self.ucursor_y = 0
-        self.sector_maxx = 0
-        self.sector_maxy = 0
-
-    @property
-    def viewscreen(self):
-        return self.interface.viewscreen
+        self.has_focus = False
 
     def initialize(self):
-        self.logger.info(f'entering universe mode') 
-        self.pan_camera()
-        self.interface.reinitialize_screen(name="Universe Map")
+        pass
 
-    def pan_camera(self):
-        view_y = self.ucursor_y*(Settings.UMAP_SECTOR_HEIGHT+Settings.UMAP_SECTOR_YSEP)
-        view_x = self.ucursor_x*(Settings.UMAP_SECTOR_WIDTH+Settings.UMAP_SECTOR_XSEP)
+    def focus(self):
+        self.logger.debug(f'{self} got focus')
+        self.has_focus = True
 
-        self.viewscreen.move(view_y+1, view_x+1)
-
-        # pan the camera so the selected sector is always in view
-        if view_x < self.interface.camera_x:
-            self.interface.camera_x = view_x
-        elif view_x > self.interface.camera_x + self.interface.viewscreen_width - Settings.UMAP_SECTOR_WIDTH:
-            self.interface.camera_x = view_x - self.interface.viewscreen_width + Settings.UMAP_SECTOR_WIDTH
-        if view_y < self.interface.camera_y:
-            self.interface.camera_y = view_y
-        elif view_y > self.interface.camera_y + self.interface.viewscreen_height - Settings.UMAP_SECTOR_HEIGHT:
-            self.interface.camera_y = view_y - self.interface.viewscreen_height + Settings.UMAP_SECTOR_HEIGHT
-        self.interface.refresh_viewscreen()
-
-    def move_ucursor(self, direction):
-        old_x = self.ucursor_x
-        old_y = self.ucursor_y
-
-        if direction == ord('w'):
-            self.ucursor_y -= 1
-        elif direction == ord('a'):
-            self.ucursor_x -= 1
-        elif direction == ord('s'):
-            self.ucursor_y += 1
-        elif direction == ord('d'):
-            self.ucursor_x += 1
-        else:
-            raise ValueError(f'unknown direction {direction}')
-
-        if self.ucursor_x < 0:
-            self.ucursor_x = 0
-            self.interface.status_message("no more sectors to the left", curses.color_pair(1))
-        elif self.ucursor_x > self.sector_maxx:
-            self.ucursor_x = self.sector_maxx
-            self.interface.status_message("no more sectors to the right", curses.color_pair(1))
-
-        if self.ucursor_y < 0:
-            self.ucursor_y = 0
-            self.interface.status_message("no more sectors upward", curses.color_pair(1))
-        elif self.ucursor_y > self.sector_maxy:
-            self.ucursor_y = self.sector_maxy
-            self.interface.status_message("no more sectors downward", curses.color_pair(1))
-
-    def draw_umap_sector(self, y, x, sector):
-        """ Draws a single sector to viewscreen starting at position (y,x) """
-        textpad.rectangle(self.viewscreen, y, x, y+Settings.UMAP_SECTOR_HEIGHT-1, x+Settings.UMAP_SECTOR_WIDTH-1)
-
-        if (self.ucursor_x, self.ucursor_y) == (sector.x, sector.y):
-            self.viewscreen.addstr(y+1,x+1, sector.short_id(), curses.A_STANDOUT)
-        else:
-            self.viewscreen.addstr(y+1,x+1, sector.short_id())
-
-        self.viewscreen.addstr(y+2,x+1, sector.name)
-        self.viewscreen.addstr(y+Settings.UMAP_SECTOR_HEIGHT-2, x+1, f'{len(sector.entities)} objects')
+    def unfocus(self):
+        self.has_focus = False
 
     def update_display(self):
-        """ Draws a map of all sectors. """
-
-        self.viewscreen.erase()
-        self.sector_maxx = -1
-        self.sector_maxy = -1
-        for (x,y), sector in self.gamestate.sectors.items():
-            self.sector_maxx = max(self.sector_maxx, x)
-            self.sector_maxy = max(self.sector_maxy, y)
-            # claculate screen_y and screen_x from x,y
-            screen_x = x*(Settings.UMAP_SECTOR_WIDTH+Settings.UMAP_SECTOR_XSEP)
-            screen_y = y*(Settings.UMAP_SECTOR_HEIGHT+Settings.UMAP_SECTOR_YSEP)
-
-            self.draw_umap_sector(screen_y, screen_x, sector)
-
-        self.pan_camera()
-
+        pass
 
     def handle_input(self, key):
-        self.interface.status_message()
-        if key in (ord('w'), ord('a'), ord('s'), ord('d')):
-            self.move_ucursor(key)
-        elif key in (ord('\n'), ord('\r')):
-            sector = self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)]
-            sector_view = sector_interface.SectorView(
-                    sector, self.interface)
-            sector_view.initialize()
-            return sector_view, sector_view
-        elif key == ord(":"):
-            c = CommandInput(self, self.interface)
-            c.initialize()
-            return self, c
-
-        return self, self
+        pass
 
 class QuitError(Exception):
     pass
 
-class CommandInput(InputFocus):
+class ColorDemo(View):
+    def __init__(self, interface, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.interface = interface
+
+    def focus(self):
+        super().focus()
+        self.interface.camera_x = 0
+        self.interface.camera_y = 0
+
+    def update_display(self):
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
+
+        for c in range(256):
+            self.interface.viewscreen.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
+        self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key):
+        return key == -1
+
+class CommandInput(View):
     """ Command mode: typing in a command to execute. """
 
-    def __init__(self, view, interface):
-        self.logger = logging.getLogger(util.fullname(self))
+    def __init__(self, interface, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.interface = interface
-        self.view = view
         self.command = ""
-        self.frame_ticks = 0
 
     def initialize(self):
         self.logger.info("entering command mode")
-        self.interface.status_message(":")
+
+    def update_display(self):
+        self.interface.status_message(f':{self.command}')
 
     def handle_input(self, key):
 
@@ -246,27 +159,21 @@ class CommandInput(InputFocus):
                 #TODO: how to quit?
                 raise QuitError()
             elif self.command == "colordemo":
-                self.interface.color_demo()
-                return self.view, self.view
+                self.interface.open_view(ColorDemo(self.interface))
             else:
-                self.status_message(f'unknown command "{command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
-                return view, None
+                self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
+            return False
         elif chr(key).isprintable():
             self.command += chr(key)
-            self.interface.stdscr.addch(chr(key))
         elif key == curses.ascii.BS:
             self.command = self.command[:-1]
-            (y,x) = self.interface.stdscr.getyx()
-            if x > 1:
-                self.interface.stdscr.move(y, x-1)
-                self.interface.stdscr.delch()
         elif key == curses.ascii.ESC:
             self.interface.status_message()
-            return self.view, self.view
+            return False
         elif key == curses.KEY_RESIZE:
-            self.interface.reinitialize_screen(name="Sector Map")
+            self.interface.reinitialize_screen(name="???")
 
-        return self.view, self
+        return True
 
 class GenerationUI(generate.GenerationListener):
     """ Handles the UI during universe generation. """
@@ -314,8 +221,8 @@ class Interface:
 
         self.gamestate = gamestate
 
-        self.view_focus = []
-        self.input_focus = []
+        # last view has focus for input handling
+        self.views = []
 
         # list of frame times
         self.frame_history = collections.deque()
@@ -481,7 +388,7 @@ class Interface:
         self.stdscr.noutrefresh()
         self.refresh_viewscreen()
         self.refresh_logscreen()
-        self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
+        #self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
     def initialize(self):
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
@@ -489,15 +396,6 @@ class Interface:
         curses.nonl()
 
         self.reinitialize_screen()
-
-    def color_demo(self):
-        self.stdscr.addstr(0, 35, "COLOR DEMO");
-
-        for c in range(256):
-            self.stdscr.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
-        self.stdscr.addstr(34, 1, "Press any key to continue")
-
-        self.stdscr.getch()
 
     def refresh_viewscreen(self):
         self.viewscreen.noutrefresh(
@@ -523,18 +421,23 @@ class Interface:
 
     def status_message(self, message="", attr=0):
         """ Adds a status message. """
+        self.logger.debug(f'status message {message}')
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
-
-    def get_any_key(self):
-        self.status_message("Press any key to continue")
-        self.stdscr.getch()
 
     def show_fps(self):
         self.stdscr.addstr(self.screen_height-1, self.screen_width-32, f'({self.gamestate.ticks}) ({self.gamestate.ticktime*100:.2f}ms) ({self.fps():.0f}fps)')
 
     def generation_listener(self):
         return GenerationUI(self)
+
+    def open_view(self, view):
+        self.logger.debug(f'opening view {view}')
+        if len(self.views):
+            self.views[-1].unfocus()
+        view.initialize()
+        view.focus()
+        self.views.append(view)
 
     def tick(self, timeout):
         # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
@@ -543,7 +446,8 @@ class Interface:
         while self.frame_history[0] < start_time - self.max_frame_history:
             self.frame_history.popleft()
 
-        self.view_focus[-1].update_display()
+        for view in self.views:
+            view.update_display()
         self.show_fps()
 
         curses.doupdate()
@@ -566,12 +470,12 @@ class Interface:
         #    raise Exception(f'getch took {now-start_time}s more than 2 ticks should have been {timeout}s')
 
         if key == curses.KEY_RESIZE:
-            self.view_focus[-1].initialize()
+            for view in self.views:
+                view.initialize()
         elif key >= 0:
-            view_handler, input_handler = self.input_focus[-1].handle_input(key)
-            self.view_focus.pop()
-            self.input_focus.pop()
-            if view_handler is not None:
-                self.view_focus.append(view_handler)
-            if input_handler is not None:
-                self.input_focus.append(input_handler)
+            self.status_message()
+            v = self.views[-1]
+            if not v.handle_input(key):
+                self.logger.debug(f'closing view {v}')
+                self.views.remove(v)
+                self.views[-1].focus()

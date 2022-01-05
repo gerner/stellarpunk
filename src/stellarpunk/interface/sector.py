@@ -12,7 +12,7 @@ import drawille
 
 from stellarpunk import util, core, interface
 
-class SectorView:
+class SectorView(interface.View):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -22,8 +22,8 @@ class SectorView:
     pilot mode. Can return to universe mode or enter command mode.
     """
 
-    def __init__(self, sector, interface):
-        self.logger = logging.getLogger(util.fullname(self))
+    def __init__(self, sector, interface, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         #TODO: this circular dependency feels odd
         #   need to know dimensions of the viewscreen (should pass in?)
@@ -56,6 +56,12 @@ class SectorView:
         self.interface.camera_x = 0
         self.interface.camera_y = 0
         self.update_bbox()
+        self.interface.reinitialize_screen(name="Sector Map")
+
+    def focus(self):
+        super().focus()
+        self.interface.camera_x = 0
+        self.interface.camera_y = 0
         self.interface.reinitialize_screen(name="Sector Map")
 
     def update_bbox(self):
@@ -327,11 +333,12 @@ class SectorView:
         self.interface.refresh_viewscreen()
 
     def update_display(self):
+        self.interface.camera_x = 0
+        self.interface.camera_y = 0
         self.draw_sector_map()
         self.interface.refresh_viewscreen()
 
     def handle_input(self, key):
-        self.interface.status_message()
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_scursor(key)
         elif key in (ord("+"), ord("-")):
@@ -354,9 +361,7 @@ class SectorView:
                         self.sector.entities[self.selected_target].y
                 )
         elif key == ord(":"):
-            c = interface.CommandInput(self, self.interface)
-            c.initialize()
-            return self, c
+            self.interface.open_view(interface.CommandInput(self.interface))
         elif key == curses.KEY_RESIZE:
             self.initialize()
         elif key == curses.KEY_MOUSE:
@@ -383,6 +388,6 @@ class SectorView:
             if self.selected_target is not None:
                 self.selected_target = None
             else:
-                return None, None
+                return False
 
-        return self, self
+        return True
