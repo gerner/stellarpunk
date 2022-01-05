@@ -6,6 +6,7 @@ import bisect
 import curses
 import curses.textpad
 import curses.ascii
+import time
 
 import drawille
 
@@ -36,6 +37,10 @@ class SectorView:
 
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0,0,0,0)
+
+        self.time = 0
+        self.ticks = 0
+        self.avg_tick_time = 0
 
     @property
     def viewscreen(self):
@@ -245,6 +250,7 @@ class SectorView:
         """ Draws a single sector entity at screen position (y,x) """
 
         if isinstance(entity, core.Ship):
+            #TODO: visualize orientation of ship
             icon = interface.Icons.SHIP_N
         elif isinstance(entity, core.Station):
             icon = interface.Icons.STATION
@@ -261,6 +267,8 @@ class SectorView:
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
         self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
+        self.viewscreen.addstr(y+1, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
+        self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
         self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
@@ -307,6 +315,8 @@ class SectorView:
         #if (se_x < ul_x or se_x > lr_x or
         #        se_y < ul_y or se_y > lr_y):
 
+        self.viewscreen.addstr(self.interface.viewscreen_height-1, self.interface.viewscreen_width-48, f'{self.time:.0f} ({self.ticks}) ({self.avg_tick_time*100:.2f}ms)')
+
         self.interface.refresh_viewscreen()
 
     def sector_mode(self):
@@ -321,21 +331,65 @@ class SectorView:
 
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
 
+        #TODO: get rid of this hack
+        # hack to test out some physics
+        import pymunk
+        import numpy as np
+        dt = 100 / 1000 # 100ms
+        space = pymunk.Space()
+        ship_mass = 2 * 1e6
+        ship_radius = 30
+        ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
+        ship_shapes = []
+        r = np.random.default_rng()
+        for ship in self.sector.ships:
+            ship_body = pymunk.Body(ship_mass, ship_moment)
+            ship_shape = pymunk.Circle(ship_body, ship_radius)
+            ship_body.position = ship.x, ship.y
+            v = tuple(r.normal(0, 50, 2))
+            ship_body.velocity = v
+
+            space.add(ship_body, ship_shape)
+
+            ship_shapes.append((ship_shape, ship))
+            ship.velocity = v
+
         self.scursor_x = 0
         self.scursor_y = 0
         self.szoom = self.sector.radius*2
 
         self.initialize()
 
+        avg_tick_time_alpha = 0.5
+        self.avg_tick_time = 0
+        last_tick = time.time()
+        next_tick = time.time() + dt
         while(True):
-            self.logger.debug(f'sector drawloop at zoom {self.szoom}')
+            self.time = time.time()
+            #self.logger.debug(f'sector drawloop at zoom {self.szoom}')
             self.draw_sector_map()
             self.interface.refresh_viewscreen()
             curses.doupdate()
 
-            self.logger.debug("awaiting input...")
+            #self.logger.debug("stepping physics sim")
+            space.step(dt)
+
+            #TODO: hack for pymunk
+            # update ship positions from physics sim
+            for ship_shape, ship in ship_shapes:
+                ship.x, ship.y = ship_shape.body.position
+            self.sector.reindex_locations()
+
+            timeout = next_tick - time.time()
+            #self.logger.debug(f'setting timeout for {timeout:e}')
+            self.interface.stdscr.timeout(int(timeout*100))
+            self.avg_tick_time = avg_tick_time_alpha * (time.time() - last_tick) + (1-avg_tick_time_alpha)*self.avg_tick_time
+            #self.logger.debug("awaiting input...")
             key = self.interface.stdscr.getch()
-            self.logger.debug(f'got {key}')
+            #self.logger.debug(f'got {key}')
+            self.ticks += 1
+            last_tick = time.time()
+            next_tick = last_tick + dt
 
             if key in (ord('w'), ord('a'), ord('s'), ord('d')):
                 self.move_scursor(key)

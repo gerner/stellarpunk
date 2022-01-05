@@ -3,3 +3,4 @@ ipdb
 graphviz
 rtree
 drawille
+pymunk

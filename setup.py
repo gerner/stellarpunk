@@ -29,6 +29,7 @@ setuptools.setup(
         "graphviz",
         "rtree",
         "drawille",
+        "pymunk",
     ],
     python_requires='>=3.8',
     entry_points={

@@ -351,9 +351,6 @@ class UniverseGenerator:
                 n_habitable_sectors,
                 replace=False)
         for x,y in habitable_coordinates:
-            x = self.r.integers(0, width)
-            y = self.r.integers(0, height)
-
             sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
 
@@ -412,6 +409,16 @@ class UniverseGenerator:
         # establish factions
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
+
+        # quick hack to populate some ships
+        for x,y in habitable_coordinates:
+            sector = self.gamestate.sectors[(x,y)]
+            num_ships = self.r.integers(5,15)
+            self.logger.debug(f'adding {num_ships} to sector {sector.short_id()}')
+            for i in range(num_ships):
+                ship_x, ship_y = self._gen_sector_location(sector)
+                ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
+                sector.add_entity(ship)
 
     def generate_universe(self):
         self.gamestate.random = self.r

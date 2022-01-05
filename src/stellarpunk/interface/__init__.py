@@ -449,6 +449,7 @@ class Interface:
             self.draw_universe_map(self.gamestate.sectors)
             curses.doupdate()
 
+            self.stdscr.timeout(-1)
             self.logger.debug("awaiting input...")
             key = self.stdscr.getch()
             self.logger.debug(f'got {key}')
@@ -479,6 +480,7 @@ class Interface:
         self.logger.info("entering command mode")
         self.status_message(":")
         command = ""
+        self.stdscr.timeout(-1)
         while(True):
             self.current_mode = Mode.COMMAND
             key = self.stdscr.getch()

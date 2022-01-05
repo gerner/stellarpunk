@@ -97,6 +97,11 @@ class Sector(Entity):
         #TODO: entity bounding box?
         self.spatial.insert(entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), obj=entity.entity_id)
 
+    def reindex_locations(self):
+        self.spatial = rtree.index.Index(
+                (entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), entity.entity_id) for entity in self.entities.values()
+        )
+
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
 
@@ -104,6 +109,7 @@ class SectorEntity(Entity):
         super().__init__(*args, **kwargs)
         self.x = x
         self.y = y
+        self.velocity = (0,0)
 
 class Planet(SectorEntity):
 
