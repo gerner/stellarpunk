@@ -48,6 +48,10 @@ class StellarPunkSim:
             for ship in sector.ships:
                 ship.x, ship.y = ship.phys.position
                 ship.angle = ship.phys.angle
+                if ship.phys.force.x > 0 or ship.phys.force.y > 0:
+                    raise Exception()
+                if ship.phys.torque > 0:
+                    raise Exception()
             sector.reindex_locations()
 
             #TODO: do resource and production stuff
@@ -73,21 +77,14 @@ class StellarPunkSim:
                 ship_shape = pymunk.Circle(ship_body, ship_radius)
                 ship_shape.friction=0.5
                 ship_body.position = ship.x, ship.y
-                v = tuple(r.normal(0, 50, 2))
+                v = pymunk.vec2d.Vec2d(*(r.normal(0, 50, 2)))
                 ship_body.velocity = v
-
-                # get angle aligned with velocity vector
-                a = math.atan(v[1]/v[0])
-                if v[0] > 0:
-                    ship_body.angle = a
-                elif v[0] < 0:
-                    ship_body.angle = a + math.pi
-                elif v[1] > 0:
-                    ship_body.angle = math.pi/2
-                elif v[1] > 0:
-                    ship_body.angle = -1 * math.pi/2
+                ship_body.angle = v.angle
 
                 sector.space.add(ship_body, ship_shape)
+
+                ship_body.apply_force_at_local_point((ship_mass * 1000, 0), (0, -1*ship_radius))
+
                 ship.phys = ship_body
                 ship.velocity = v
 

@@ -63,6 +63,20 @@ def screen_to_sector(
             (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
     )
 
+def cartesian_to_polar(x, y):
+    r = math.sqrt(x*x + y*y)
+    a = math.atan(v[1]/v[0])
+    if v[0] > 0:
+        return r, a
+    elif v[0] < 0:
+        return r, a+math.pi
+    elif v[1] > 0:
+        return r, math.pi/2
+    elif v[1] > 0:
+        return r, math.pi/-2
+    else:
+        return r, 0
+
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
 
