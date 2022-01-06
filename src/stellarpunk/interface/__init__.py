@@ -10,19 +10,13 @@ import fcntl
 import termios
 import time
 import collections
+import math
 
 from stellarpunk import util, generate
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
     UP_DOWN = enum.auto()
-
-class Mode(enum.Enum):
-    QUIT = -1
-    UNIVERSE = enum.auto()
-    COMMAND = enum.auto()
-    SECTOR = enum.auto()
-    PILOT = enum.auto()
 
 class Settings:
     MIN_LOGSCREEN_WIDTH = 80
@@ -87,6 +81,26 @@ class Icons:
     "" \u25F2 white square with lower right quadrant
     "" \u25F3 white square with upper right quadrant
     """
+
+    @staticmethod
+    def angle_to_ship(angle):
+        """ Returns ship icon pointing in angle (radians) direction. """
+
+        # pos x is E
+        # pos y is S (different than standard axes!
+        # 0 radians -> E
+        # pi/2 radians -> S
+        icons = [
+                Icons.SHIP_E,
+                Icons.SHIP_SE,
+                Icons.SHIP_S,
+                Icons.SHIP_SW,
+                Icons.SHIP_W,
+                Icons.SHIP_NW,
+                Icons.SHIP_N,
+                Icons.SHIP_NE
+        ]
+        return icons[round((angle%(2*math.pi))/(2*math.pi)*len(icons))%len(icons)]
 
 class View:
     def __init__(self):

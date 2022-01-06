@@ -115,6 +115,7 @@ class SectorEntity(Entity):
         self.x = x
         self.y = y
         self.velocity = (0,0)
+        self.angle = 0
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = None

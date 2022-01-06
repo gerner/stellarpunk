@@ -264,8 +264,7 @@ class SectorView(interface.View):
         """ Draws a single sector entity at screen position (y,x) """
 
         if isinstance(entity, core.Ship):
-            #TODO: visualize orientation of ship
-            icon = interface.Icons.SHIP_N
+            icon = interface.Icons.angle_to_ship(entity.angle)
         elif isinstance(entity, core.Station):
             icon = interface.Icons.STATION
         elif isinstance(entity, core.Planet):

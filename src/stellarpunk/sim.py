@@ -2,6 +2,7 @@ import sys
 import logging
 import contextlib
 import time
+import math
 
 import ipdb
 
@@ -26,6 +27,7 @@ class IPDBManager:
 
 class StellarPunkSim:
     def __init__(self, gamestate, ui):
+        self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
 
@@ -45,6 +47,7 @@ class StellarPunkSim:
             # update ship positions from physics sim
             for ship in sector.ships:
                 ship.x, ship.y = ship.phys.position
+                ship.angle = ship.phys.angle
             sector.reindex_locations()
 
             #TODO: do resource and production stuff
@@ -68,9 +71,22 @@ class StellarPunkSim:
             for ship in sector.ships:
                 ship_body = pymunk.Body(ship_mass, ship_moment)
                 ship_shape = pymunk.Circle(ship_body, ship_radius)
+                ship_shape.friction=0.5
                 ship_body.position = ship.x, ship.y
                 v = tuple(r.normal(0, 50, 2))
                 ship_body.velocity = v
+
+                # get angle aligned with velocity vector
+                a = math.atan(v[1]/v[0])
+                if v[0] > 0:
+                    ship_body.angle = a
+                elif v[0] < 0:
+                    ship_body.angle = a + math.pi
+                elif v[1] > 0:
+                    ship_body.angle = math.pi/2
+                elif v[1] > 0:
+                    ship_body.angle = -1 * math.pi/2
+
                 sector.space.add(ship_body, ship_shape)
                 ship.phys = ship_body
                 ship.velocity = v
@@ -101,7 +117,11 @@ class StellarPunkSim:
             if timeout > 0: # only render a frame if there's enough time
                 self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
-                self.ui.tick(next_tick - time.perf_counter())
+                try:
+                    self.ui.tick(next_tick - time.perf_counter())
+                except interface.QuitError:
+                    self.logger.info("quitting")
+                    keep_running = False
 
 def main():
     with contextlib.ExitStack() as context_stack:
