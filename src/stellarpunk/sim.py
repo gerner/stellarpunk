@@ -34,7 +34,7 @@ class StellarPunkSim:
         # time between ticks, this is the framerate
         self.dt = 1/60
 
-        self.ticktime_alpha = 0.1
+        self.ticktime_alpha = 0.01
         self.min_tick_sleep = self.dt/5
 
     def tick(self, dt):
@@ -97,14 +97,14 @@ class StellarPunkSim:
         while keep_running:
             now = time.perf_counter()
 
-            if next_tick-now > self.min_tick_sleep:
+            if next_tick - now > self.min_tick_sleep:
                 time.sleep(next_tick - now)
             #TODO: what to do if we miss a tick (or a lot)
             # seems like we should run a tick with a longer dt to make up for
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
-            #elif now > next_tick + 5*self.dt:
-            #    raise Exception("missed more than 5 ticks")
+            if now - next_tick > self.dt:
+                self.gamestate.missed_ticks += int((now - next_tick)/self.dt)
 
             starttime = time.perf_counter()
             self.tick(self.dt)

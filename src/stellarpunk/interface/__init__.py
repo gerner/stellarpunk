@@ -137,6 +137,8 @@ class ColorDemo(View):
         self.interface.camera_y = 0
 
     def update_display(self):
+        self.interface.camera_x = 0
+        self.interface.camera_y = 0
         self.interface.viewscreen.erase()
         self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
 
@@ -445,7 +447,7 @@ class Interface:
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
 
     def show_fps(self):
-        self.stdscr.addstr(self.screen_height-1, self.screen_width-32, f'({self.gamestate.ticks}) ({self.gamestate.ticktime*100:.2f}ms) ({self.fps():.0f}fps)')
+        self.stdscr.addstr(self.screen_height-1, self.screen_width-32, f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*100:.2f}ms) {self.fps():.0f}fps')
 
     def generation_listener(self):
         return GenerationUI(self)

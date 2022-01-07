@@ -10,7 +10,7 @@ import time
 
 import drawille
 
-from stellarpunk import util, core, interface
+from stellarpunk import util, core, interface, orders
 
 class SectorView(interface.View, interface.CommandHandler):
     """ Sector mode: interacting with the sector map.
@@ -131,7 +131,10 @@ class SectorView(interface.View, interface.CommandHandler):
         self.selected_target = target_id
         self.selected_entity = entity
         if entity:
-            self.interface.log_message(f'{entity.short_id()}: {entity.name}')
+            if isinstance(entity, core.Ship):
+                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.order}')
+            else:
+                self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
     def draw_grid(self, max_ticks=10):
         """ Draws a grid at tick lines. """
@@ -375,17 +378,17 @@ class SectorView(interface.View, interface.CommandHandler):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = core.KillRotationOrder(self.selected_entity)
+                self.selected_entity.order = orders.KillRotationOrder(self.selected_entity)
         elif key == ord("r"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = core.RotateOrder(0, self.selected_entity)
+                self.selected_entity.order = orders.RotateOrder(0, self.selected_entity)
         elif key == ord("x"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = core.KillVelocityOrder(self.selected_entity)
+                self.selected_entity.order = orders.KillVelocityOrder(self.selected_entity)
 
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(self.interface, command_handler=self))
