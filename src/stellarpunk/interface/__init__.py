@@ -103,9 +103,10 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
 class View:
-    def __init__(self):
+    def __init__(self, interface):
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
+        self.interface = interface
 
     def initialize(self):
         pass
@@ -127,9 +128,8 @@ class QuitError(Exception):
     pass
 
 class ColorDemo(View):
-    def __init__(self, interface, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.interface = interface
 
     def focus(self):
         super().focus()
@@ -148,12 +148,16 @@ class ColorDemo(View):
     def handle_input(self, key):
         return key == -1
 
+class CommandHandler:
+    def handle_command(self, command):
+        return False
+
 class CommandInput(View):
     """ Command mode: typing in a command to execute. """
 
-    def __init__(self, interface, *args, **kwargs):
+    def __init__(self, *args, command_handler=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.interface = interface
+        self.command_handler = command_handler
         self.command = ""
 
     def initialize(self):
@@ -174,6 +178,8 @@ class CommandInput(View):
                 raise QuitError()
             elif self.command == "colordemo":
                 self.interface.open_view(ColorDemo(self.interface))
+            elif self.command_handler and self.command_handler.handle_command(self.command):
+                self.logger.debug(f'{self.command} handled by parent')
             else:
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
             return False

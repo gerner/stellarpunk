@@ -12,7 +12,7 @@ import drawille
 
 from stellarpunk import util, core, interface
 
-class SectorView(interface.View):
+class SectorView(interface.View, interface.CommandHandler):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -22,13 +22,12 @@ class SectorView(interface.View):
     pilot mode. Can return to universe mode or enter command mode.
     """
 
-    def __init__(self, sector, interface, *args, **kwargs):
+    def __init__(self, sector, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         #TODO: this circular dependency feels odd
         #   need to know dimensions of the viewscreen (should pass in?)
         #   need to write messages outside the viewscreen (do we?)
-        self.interface = interface
         self.sector = sector
 
         # where the sector map is centered in sector coordinates
@@ -46,6 +45,8 @@ class SectorView(interface.View):
 
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0,0,0,0)
+
+        self.debug_entity = False
 
     @property
     def viewscreen(self):
@@ -280,10 +281,12 @@ class SectorView(interface.View):
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
         self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
-        self.viewscreen.addstr(y+1, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
-        self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
-        self.viewscreen.addstr(y+3, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
-        self.viewscreen.addstr(y+4, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
+
+        if self.debug_entity:
+            self.viewscreen.addstr(y+1, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
+            self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
+            self.viewscreen.addstr(y+3, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
+            self.viewscreen.addstr(y+4, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
         self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
@@ -339,6 +342,13 @@ class SectorView(interface.View):
         self.draw_sector_map()
         self.interface.refresh_viewscreen()
 
+    def handle_command(self, command):
+        if command in ["debug_entity_on", "debug_entity_off"]:
+            self.debug_entity = command.endswith("on")
+        else:
+            return False
+        return True
+
     def handle_input(self, key):
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_scursor(key)
@@ -378,7 +388,7 @@ class SectorView(interface.View):
                 self.selected_entity.order = core.KillVelocityOrder(self.selected_entity)
 
         elif key == ord(":"):
-            self.interface.open_view(interface.CommandInput(self.interface))
+            self.interface.open_view(interface.CommandInput(self.interface, command_handler=self))
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()
             m_id, m_x, m_y, m_z, bstate = m_tuple

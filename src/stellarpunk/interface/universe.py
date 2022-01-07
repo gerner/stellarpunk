@@ -6,11 +6,10 @@ from stellarpunk import interface, util
 from stellarpunk.interface import sector as sector_interface
 
 class UniverseView(interface.View):
-    def __init__(self, gamestate, interface, *args, **kwargs):
+    def __init__(self, gamestate, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.gamestate = gamestate
-        self.interface = interface
 
         # position of the universe sector cursor (in universe-sector coords)
         self.ucursor_x = 0
@@ -46,7 +45,6 @@ class UniverseView(interface.View):
             self.interface.camera_y = view_y
         elif view_y > self.interface.camera_y + self.interface.viewscreen_height - interface.Settings.UMAP_SECTOR_HEIGHT:
             self.interface.camera_y = view_y - self.interface.viewscreen_height + interface.Settings.UMAP_SECTOR_HEIGHT
-        self.interface.refresh_viewscreen()
 
     def move_ucursor(self, direction):
         old_x = self.ucursor_x
@@ -105,6 +103,7 @@ class UniverseView(interface.View):
             self.draw_umap_sector(screen_y, screen_x, sector)
 
         self.pan_camera()
+        self.interface.refresh_viewscreen()
 
     def handle_input(self, key):
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):

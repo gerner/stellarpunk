@@ -34,7 +34,8 @@ class StellarPunkSim:
         # time between ticks, this is the framerate
         self.dt = 1/60
 
-        self.ticktime_alpha = 0.5
+        self.ticktime_alpha = 0.1
+        self.min_tick_sleep = self.dt/5
 
     def tick(self, dt):
         """ Do stuff to update the universe """
@@ -96,7 +97,7 @@ class StellarPunkSim:
         while keep_running:
             now = time.perf_counter()
 
-            if now < next_tick:
+            if next_tick-now > self.min_tick_sleep:
                 time.sleep(next_tick - now)
             #TODO: what to do if we miss a tick (or a lot)
             # seems like we should run a tick with a longer dt to make up for
@@ -108,10 +109,8 @@ class StellarPunkSim:
             starttime = time.perf_counter()
             self.tick(self.dt)
 
-            ticktime = now - starttime
             last_tick = next_tick
             next_tick = next_tick + self.dt
-            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
 
             now = time.perf_counter()
 
@@ -124,6 +123,10 @@ class StellarPunkSim:
                 except interface.QuitError:
                     self.logger.info("quitting")
                     keep_running = False
+
+            now = time.perf_counter()
+            ticktime = now - starttime
+            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
 
 def main():
     with contextlib.ExitStack() as context_stack:
