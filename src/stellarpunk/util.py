@@ -1,4 +1,7 @@
+import logging
 import math
+
+import numpy as np
 
 def fullname(o):
     # from https://stackoverflow.com/a/2020083/553580
@@ -65,17 +68,65 @@ def screen_to_sector(
 
 def cartesian_to_polar(x, y):
     r = math.sqrt(x*x + y*y)
-    a = math.atan(v[1]/v[0])
-    if v[0] > 0:
-        return r, a
-    elif v[0] < 0:
-        return r, a+math.pi
-    elif v[1] > 0:
-        return r, math.pi/2
-    elif v[1] > 0:
-        return r, math.pi/-2
+    if x == 0:
+        if y > 0:
+            a = math.pi/2
+        else:
+            a = -1 * math.pi/2
     else:
-        return r, 0
+        a = math.atan(y/x)
+    if x < 0:
+        return r, a+math.pi
+    elif y < 0:
+        return r, a+math.pi*2
+    else:
+        return r, a
+
+def polar_to_cartesian(r, theta):
+    x = r * math.cos(theta)
+    y = r * math.sin(theta)
+    return (x,y)
+
+
+def normalize_angle(angle, shortest=False):
+    angle = angle % (2*math.pi)
+    angle = (angle + 2*math.pi) if angle < 0 else angle
+    if not shortest or angle <= math.pi:
+        return angle
+    else:
+        return angle - 2*math.pi
+
+def torque_for_angle(target_angle, angle, w, max_torque, moment, dt, eps=1e-3):
+    difference_angle = normalize_angle(target_angle - angle, shortest=True)
+    braking_angle =  -1 * np.sign(w) * -0.5 * w*w * moment / max_torque
+
+    if abs(w) < eps and abs(difference_angle) < eps:
+        # bail if we're basically already there
+        t = 0
+    elif abs(braking_angle) > abs(difference_angle):
+        # we can't break in time, so just start breaking and we'll fix it later
+        t = moment * -1 * w / dt
+        t = np.clip(t, -1*max_torque, max_torque)
+    else:
+        # add torque in the desired direction to get
+        # accel = tau / moment
+        # dw = accel * dt
+        # desired w is w such that braking_angle = difference_angle
+
+        t = max_torque * np.sign(difference_angle)
+
+    return t
+
+def force_for_zero_velocity(v, max_thrust, mass, dt, eps=1e-2):
+    velocity_magnitude, velocity_angle = cartesian_to_polar(*v)
+    if velocity_magnitude < eps:
+        # bail if we're basically already there
+        x,y = (0,0)
+    else:
+        thrust = np.clip(mass * (velocity_magnitude-eps/2) / dt, 0, max_thrust)
+        x, y = polar_to_cartesian(thrust, velocity_angle + math.pi)
+    return (x,y)
+
 
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.

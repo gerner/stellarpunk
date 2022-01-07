@@ -100,7 +100,7 @@ class Icons:
                 Icons.SHIP_N,
                 Icons.SHIP_NE
         ]
-        return icons[round((angle%(2*math.pi))/(2*math.pi)*len(icons))%len(icons)]
+        return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
 class View:
     def __init__(self):
@@ -435,7 +435,6 @@ class Interface:
 
     def status_message(self, message="", attr=0):
         """ Adds a status message. """
-        self.logger.debug(f'status message {message}')
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
 

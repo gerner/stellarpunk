@@ -41,17 +41,22 @@ class StellarPunkSim:
 
         # update physics simulations
         for sector in self.gamestate.sectors.values():
+            for ship in sector.ships:
+                if ship.order:
+                    if ship.order.is_complete():
+                        self.logger.debug(f'{ship.entity_id} completed {ship.order}')
+                        ship.order = None
+                    else:
+                        ship.order.act(dt)
+
             sector.space.step(dt)
 
-            #TODO: hack for pymunk
             # update ship positions from physics sim
             for ship in sector.ships:
                 ship.x, ship.y = ship.phys.position
                 ship.angle = ship.phys.angle
-                if ship.phys.force.x > 0 or ship.phys.force.y > 0:
-                    raise Exception()
-                if ship.phys.torque > 0:
-                    raise Exception()
+                ship.velocity = ship.phys.velocity
+
             sector.reindex_locations()
 
             #TODO: do resource and production stuff
@@ -66,7 +71,7 @@ class StellarPunkSim:
         # hack to test out some physics
         import pymunk
         import numpy as np
-        ship_mass = 2 * 1e6
+        ship_mass = 2 * 1e3
         ship_radius = 30
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
         r = np.random.default_rng()
@@ -83,10 +88,10 @@ class StellarPunkSim:
 
                 sector.space.add(ship_body, ship_shape)
 
-                ship_body.apply_force_at_local_point((ship_mass * 1000, 0), (0, -1*ship_radius))
+                #TODO: quick hack to give some interest
+                ship_body.angular_velocity = r.normal(0, 0.08)
 
                 ship.phys = ship_body
-                ship.velocity = v
 
         while keep_running:
             now = time.perf_counter()
@@ -123,7 +128,7 @@ class StellarPunkSim:
 def main():
     with contextlib.ExitStack() as context_stack:
         logging.basicConfig(
-                format="PID %(process)d %(asctime)s %(name)-12s %(levelname)-8s %(message)s",
+                format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
                 filename="/tmp/stellarpunk.log",
                 level=logging.DEBUG
         )

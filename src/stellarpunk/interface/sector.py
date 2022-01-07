@@ -129,8 +129,8 @@ class SectorView(interface.View):
             return
         self.selected_target = target_id
         self.selected_entity = entity
-        self.interface.log_message(f'{entity.short_id()}: {entity.name}')
-
+        if entity:
+            self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
     def draw_grid(self, max_ticks=10):
         """ Draws a grid at tick lines. """
@@ -282,6 +282,8 @@ class SectorView(interface.View):
         self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
         self.viewscreen.addstr(y+1, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
         self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
+        self.viewscreen.addstr(y+3, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
+        self.viewscreen.addstr(y+4, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
         self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
@@ -359,10 +361,24 @@ class SectorView(interface.View):
                         self.sector.entities[self.selected_target].x,
                         self.sector.entities[self.selected_target].y
                 )
+        elif key == ord("k"):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+            else:
+                self.selected_entity.order = core.KillRotationOrder(self.selected_entity)
+        elif key == ord("r"):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+            else:
+                self.selected_entity.order = core.RotateOrder(0, self.selected_entity)
+        elif key == ord("x"):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+            else:
+                self.selected_entity.order = core.KillVelocityOrder(self.selected_entity)
+
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(self.interface))
-        elif key == curses.KEY_RESIZE:
-            self.initialize()
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()
             m_id, m_x, m_y, m_z, bstate = m_tuple
@@ -385,7 +401,7 @@ class SectorView(interface.View):
                 self.select_target(hit.object, self.sector.entities[hit.object])
         elif key == curses.ascii.ESC: #TODO: should handle escape here
             if self.selected_target is not None:
-                self.selected_target = None
+                self.select_target(None, None)
             else:
                 return False
 
