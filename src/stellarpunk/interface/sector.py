@@ -346,8 +346,8 @@ class SectorView(interface.View, interface.CommandHandler):
         self.interface.refresh_viewscreen()
 
     def handle_command(self, command):
-        if command in ["debug_entity_on", "debug_entity_off"]:
-            self.debug_entity = command.endswith("on")
+        if command == "debug_entity":
+            self.debug_entity = not self.debug_entity
         else:
             return False
         return True

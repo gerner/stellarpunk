@@ -180,8 +180,12 @@ class CommandInput(View):
                 raise QuitError()
             elif self.command == "colordemo":
                 self.interface.open_view(ColorDemo(self.interface))
+            elif self.command == "pause":
+                self.interface.gamestate.paused = not self.interface.gamestate.paused
             elif self.command_handler and self.command_handler.handle_command(self.command):
                 self.logger.debug(f'{self.command} handled by parent')
+            elif self.interface.handle_command(self.command):
+                self.logger.debug(f'{self.command} handled by interface')
             else:
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
             return False
@@ -250,6 +254,8 @@ class Interface:
         self.frame_history = collections.deque()
         # max frame history to keep in seconds
         self.max_frame_history = 1
+
+        self.show_fps = False
 
     def __enter__(self):
         """ Does most simple interface initialization.
@@ -446,8 +452,29 @@ class Interface:
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
 
-    def show_fps(self):
-        self.stdscr.addstr(self.screen_height-1, self.screen_width-32, f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*100:.2f}ms) {self.fps():.0f}fps')
+    def diagnostics_message(self, message, attr=0):
+
+        self.stdscr.addstr(self.screen_height-1, self.screen_width-len(message)-1, message, attr)
+
+    def show_diagnostics(self):
+        attr = 0
+        diagnostics = []
+        if self.show_fps:
+            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*100:.2f}ms) {self.fps():.0f}fps')
+        if self.gamestate.paused:
+            attr |= curses.color_pair(1)
+            diagnostics.append("PAUSED")
+
+        self.diagnostics_message(" ".join(diagnostics), attr)
+
+    def show_date(self):
+        date_string = self.gamestate.current_time().strftime("%c")
+        date_string = " "+date_string+" "
+        self.stdscr.addstr(
+                self.viewscreen_y-1,
+                self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
+                date_string
+        )
 
     def generation_listener(self):
         return GenerationUI(self)
@@ -460,6 +487,15 @@ class Interface:
         view.focus()
         self.views.append(view)
 
+    def handle_command(self, command):
+        if command == "pause":
+            self.gamestate.paused = not self.gamestate.paused
+        elif command == "fps":
+            self.show_fps = not self.show_fps
+        else:
+            return False
+        return True
+
     def tick(self, timeout):
         # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
         start_time = time.perf_counter()
@@ -469,7 +505,8 @@ class Interface:
 
         for view in self.views:
             view.update_display()
-        self.show_fps()
+        self.show_date()
+        self.show_diagnostics()
 
         curses.doupdate()
         timeout - (time.perf_counter() - start_time)
@@ -481,6 +518,7 @@ class Interface:
         # process input according to what has focus (i.e. umap, smap, pilot, command)
         self.stdscr.timeout(int(timeout*100))
         start_time = time.perf_counter()
+
         #TODO: this can block for more than timeout in the case of mouse clicks
         # maybe we should offload getch to another thread that can always block
         # and read stuff from it from a queue? it's not clear about

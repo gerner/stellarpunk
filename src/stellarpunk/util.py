@@ -67,6 +67,9 @@ def screen_to_sector(
             (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
     )
 
+def magnitude(x, y):
+    return math.sqrt(x*x + y*y)
+
 def cartesian_to_polar(x, y):
     r = math.sqrt(x*x + y*y)
     if x == 0:

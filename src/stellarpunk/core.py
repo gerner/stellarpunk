@@ -1,6 +1,7 @@
 """ Core stuff for Stellarpunk """
 
 import uuid
+import datetime
 
 import graphviz
 import rtree
@@ -151,6 +152,9 @@ class Ship(SectorEntity):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.max_thrust = 0
+        self.max_torque = 0
+
         self.order = None
 
 class Character(Entity):
@@ -160,16 +164,10 @@ class Character(Entity):
     def choose_action(self, game_state):
         pass
 
-class Action:
-    def __init__(self):
-        pass
-
-    def act(self, game_state):
-        pass
-
 class Order:
     def __init__(self, ship):
         self.ship = ship
+        self.eta = 0
 
     def is_complete(self):
         return True
@@ -190,14 +188,24 @@ class StellarPunk:
         self.sectors = {}
 
         self.characters = []
-        self.actions = []
 
         self.keep_running = True
 
+        self.base_date = datetime.datetime(2234, 4, 3)
+
+        self.dt = 1/60
         self.ticks = 0
         self.ticktime = 0
         self.timeout = 0
         self.missed_ticks = 0
+
+        self.paused = False
+
+    def current_time(self):
+        #TODO: probably want to decouple telling time from ticks processed
+        # we want missed ticks to slow time, but if we skip time will we
+        # increment the ticks even though we don't process them?
+        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.ticks*self.dt)
 
     def tick(self):
         # iterate through characters
@@ -208,10 +216,6 @@ class StellarPunk:
         for character in self.characters:
             character.choose_action(self)
 
-        for action in self.actions:
-            action.act(self)
-
     def run(self):
         while self.keep_running:
             self.tick()
-

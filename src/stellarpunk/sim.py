@@ -72,8 +72,36 @@ class StellarPunkSim:
         # hack to test out some physics
         import pymunk
         import numpy as np
+        # soyuz 5000 - 10000kg
+        # dragon capsule 4000kg
+        # shuttle orbiter 78000kg
         ship_mass = 2 * 1e3
+
+        # soyuz: 7-10m long
+        # shuttle orbiter: 37m long
+        # spacex dragon: 6.1m
+        # spacex starship: 120m long
         ship_radius = 30
+
+        # one raptor: 1.81 kN
+        # one SSME: 2.279 kN
+        # OMS main engine: 26.7 kN
+        # KTDU-80 main engine: 2.95 kN
+        max_thrust = 0.5 * 1e6
+
+        # one draco: 400 N (x16 on Dragon)
+        # OMS aft RCS: 3.87 kN
+        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
+        # note about g-forces:
+        # assuming circle of radius 30m, mass 2e3 kg
+        # mass moment 18,000,000 kg m^2
+        # centriptal acceleration = r * w^2
+        # 1g at 30m with angular acceleration of 0.57 rad/sec
+        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
+        # starting from zero
+        # space shuttle doesn't exeed 3g during ascent
+        max_torque = 5000 * ship_radius
+
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
         r = np.random.default_rng()
         for sector in self.gamestate.sectors.values():
@@ -93,6 +121,8 @@ class StellarPunkSim:
                 ship_body.angular_velocity = r.normal(0, 0.08)
 
                 ship.phys = ship_body
+                ship.max_thrust = max_thrust
+                ship.max_torque = max_torque
 
         while keep_running:
             now = time.perf_counter()
@@ -107,7 +137,8 @@ class StellarPunkSim:
                 self.gamestate.missed_ticks += int((now - next_tick)/self.dt)
 
             starttime = time.perf_counter()
-            self.tick(self.dt)
+            if not self.gamestate.paused:
+                self.tick(self.dt)
 
             last_tick = next_tick
             next_tick = next_tick + self.dt
@@ -116,7 +147,8 @@ class StellarPunkSim:
 
             timeout = next_tick - now
             if timeout > 0: # only render a frame if there's enough time
-                self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
+                if not self.gamestate.paused:
+                    self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
                 try:
                     self.ui.tick(next_tick - time.perf_counter())
