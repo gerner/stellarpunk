@@ -46,7 +46,8 @@ class SectorView(interface.View, interface.CommandHandler):
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0,0,0,0)
 
-        self.debug_entity = False
+        self.debug_entity = True
+        self.debug_entity_vectors = False
 
     @property
     def viewscreen(self):
@@ -264,6 +265,35 @@ class SectorView(interface.View, interface.CommandHandler):
         for r in range(int(stepsize), int(ticks.niceMax), int(stepsize)):
             self.viewscreen.addstr(y+int(r/meters_per_char_y), x, util.human_distance(r), curses.color_pair(29))
 
+    def draw_entity_vectors(self, y, x, entity):
+        """ Draws heading, velocity, force vectors for the entity. """
+
+        if not isinstance(entity, core.Ship):
+            return
+
+        def draw_canvas(c, attr=0):
+            text = c.rows(-20, -20, 20, 20)
+            for i, row in zip(range(-5, 5), text):
+                if y+i < 0:
+                    continue
+                if x-10 < 0:
+                    row = row[-1 * (x-10):]
+                    self.viewscreen.addstr(y+i, 0, row, attr)
+                else:
+                    self.viewscreen.addstr(y+i, x-10, row, attr)
+
+        heading_x, heading_y = util.polar_to_cartesian(self.meters_per_char_y*5, entity.phys.angle)
+        d_x, d_y = util.sector_to_drawille(heading_x, heading_y, self.meters_per_char_x, self.meters_per_char_y)
+        c = util.drawille_vector(d_x, d_y)
+
+        velocity_x, velocity_y = entity.phys.velocity
+        d_x, d_y = util.sector_to_drawille(velocity_x, velocity_y, self.meters_per_char_x, self.meters_per_char_y)
+        util.drawille_vector(d_x, d_y, canvas=c)
+
+        accel_x, accel_y = entity.phys.force / entity.phys.mass
+        d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
+        draw_canvas(util.drawille_vector(d_x, d_y, canvas=c))
+
     def draw_entity(self, y, x, entity):
         """ Draws a single sector entity at screen position (y,x) """
 
@@ -336,6 +366,13 @@ class SectorView(interface.View, interface.CommandHandler):
         #if (se_x < ul_x or se_x > lr_x or
         #        se_y < ul_y or se_y > lr_y):
 
+        if self.debug_entity_vectors and self.selected_entity:
+            entity = self.selected_entity
+            screen_x, screen_y = util.sector_to_screen(
+                    entity.x, entity.y, self.bbox[0], self.bbox[1],
+                    self.meters_per_char_x, self.meters_per_char_y)
+
+            self.draw_entity_vectors(screen_y, screen_x, entity)
 
         self.interface.refresh_viewscreen()
 
@@ -348,6 +385,8 @@ class SectorView(interface.View, interface.CommandHandler):
     def handle_command(self, command):
         if command == "debug_entity":
             self.debug_entity = not self.debug_entity
+        elif command == "vectors":
+            self.debug_entity_vectors = not self.debug_entity_vectors
         else:
             return False
         return True
@@ -389,7 +428,11 @@ class SectorView(interface.View, interface.CommandHandler):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
                 self.selected_entity.order = orders.KillVelocityOrder(self.selected_entity)
-
+        elif key == ord("g"):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+            else:
+                self.selected_entity.order = orders.GoToLocation((0,0), self.selected_entity)
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(self.interface, command_handler=self))
         elif key == curses.KEY_MOUSE:

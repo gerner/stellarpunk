@@ -152,7 +152,11 @@ class Ship(SectorEntity):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # max thrust along heading vector
         self.max_thrust = 0
+        # max thrust in any direction
+        self.max_fine_thrust = 0
+        # max torque for turning
         self.max_torque = 0
 
         self.order = None

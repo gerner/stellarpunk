@@ -3,6 +3,7 @@
 import math
 
 import numpy as np
+import drawille
 
 def fullname(o):
     # from https://stackoverflow.com/a/2020083/553580
@@ -99,6 +100,33 @@ def normalize_angle(angle, shortest=False):
         return angle
     else:
         return angle - 2*math.pi
+
+def drawille_vector(x, y, canvas=None, tick_size=3):
+    """ Draws a vector (x,y) on a drawille canvas and returns it.
+
+    x and y are expressed as drawille canvas coordinates. """
+
+    # draw the vector as an arrow
+    if canvas is None:
+        canvas = drawille.Canvas()
+
+    r, theta = cartesian_to_polar(x,y)
+
+    # draw tail of arrow
+    r_i = r
+    while r_i >= 0:
+        x_i, y_i = polar_to_cartesian(r_i, theta)
+        canvas.set(x_i, y_i)
+        r_i -= tick_size
+
+    # draw head of arrow
+    for i in range(4):
+        x_i, y_i = polar_to_cartesian(r - tick_size/4*i, theta + 0.05*i)
+        canvas.set(x_i, y_i)
+        x_i, y_i = polar_to_cartesian(r - tick_size/4*i, theta - 0.05*i)
+        canvas.set(x_i, y_i)
+
+    return canvas
 
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
