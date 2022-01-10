@@ -54,7 +54,7 @@ class AbstractSteeringOrder(core.Order):
     def _rotation_time(self, delta_angle):
         max_angular_acceleration = self.ship.max_torque / self.ship.phys.moment
         # theta_f = theta_0 + omega_0*t + 1/2 * alpha * t^2
-        # assume omega_0 = 0
+        # assume omega_0 = 0 <--- assumes we're not currently rotating!
         # assume we constantly accelerate half way, constantly accelerate the
         # other half
         return 2*math.sqrt(abs(delta_angle)/max_angular_acceleration)
@@ -184,32 +184,17 @@ class GoToLocation(AbstractSteeringOrder):
         self.arrival_distance = arrival_distance
         self.safety_factor = safety_factor
 
-    def _deceleration_radius(self):
-        # braking distance is how much distance we'll travel at current
-        # velocity while thrusting
-        # to zero velocity
-        #   F = ma
-        #   max_accel = max_thrust / m
-        #   v_f^2 = 2a*d
-        #   d = v_f^2 / 2a
-        max_acceleration = self.ship.max_thrust / self.ship.phys.mass
-        braking_distance = self.ship.phys.velocity.get_length_sqrd() / (2 * max_acceleration)
-
-        # rotation distance is how much linear distance we'll travel at current
-        # velocity while rotating to oppose direction of velocity, worst case
-        max_angular_acceleration = self.ship.max_torque / self.ship.phys.moment
-        rot_time = 2*math.sqrt(math.pi/max_angular_acceleration)
-        rotation_distance = rot_time * self.ship.phys.velocity.length
-
-        dist = braking_distance + rotation_distance + self.arrival_distance
-        return max(dist * self.safety_factor, self.arrival_distance)
-
     def is_complete(self):
         return np.linalg.norm(self.target_location - np.array((self.ship.x, self.ship.y))) < self.arrival_distance and self.ship.phys.velocity == (0,0)
 
     def act(self, dt):
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
+
+        #TODO: collision avoidance for nearby objects
+        #   this includes fixed bodies as well as dynamic ones
+        #if self._avoid_collisions(dt):
+        #    return
 
         v = self.ship.phys.velocity
 
@@ -224,16 +209,15 @@ class GoToLocation(AbstractSteeringOrder):
                 self._accelerate_to((0,0), dt)
             return
 
-
         max_acceleration = self.ship.max_thrust / self.ship.phys.mass
         if distance < self.arrival_distance:
-            self._accelerate_to(course/distance * VELOCITY_EPS/2)
-        elif distance <= self._deceleration_radius():
-            # when we start braking we want our velocity to be pointed at the
-            max_angular_acceleration = self.ship.max_torque / self.ship.phys.moment
-            rot_time = math.sqrt(2*math.pi/max_angular_acceleration)
-            # target with enough speed that we can still slow down
-            target_distance = (distance - rot_time * v.length)
+            self._accelerate_to((0,0))
+        else:
+            # accelerate along a vector toward the target location to a speed
+            # as big as possible so we can reach zero velocity at the target
+            # build in some saftey margin: desired final position and max speed
+            rot_time = self._rotation_time(2*math.pi)
+            target_distance = distance - rot_time * v.length - self.arrival_distance * (self.safety_factor - 1)
             desired_speed = math.sqrt(2 * max_acceleration * max(0, target_distance))/self.safety_factor
 
             #TODO: what happens if we can't stop in time?
@@ -242,29 +226,3 @@ class GoToLocation(AbstractSteeringOrder):
                 raise Exception()
 
             self._accelerate_to(course/distance * desired_speed, dt)
-        else:
-            # plan is to accelerate constantly to a max velocity and then flip
-            # and accelerate constantly to zero velocity
-            # the max speed possible is if we accelerate constantly to a max
-            # velocity and then rotate 180deg and then decelerate to zero
-            #   d_a: distance over which we acelerate
-            #   d_r: distance traveled when we rotate 180deg
-            #   d_b: distance over which we brake
-            #   d_r = v_f * t_r ; velocity times time to rotate
-            #   t_r = sqrt(2pi * moment / torque)
-            #   d = d_a + d_r + d_b ; how we divide the distance up
-            #   v_f^2 = v_i^2 + 2a * d_a ; when we're acelerating
-            #   v_f^2 = 2a * d_b ; when we're braking
-            #
-            #   d_b = v_f^2 / 2a
-            #   d_a = d - v_f * t_r - v_f^2/2a
-            #   v_f^2 = v_i^2 + 2a * (d - v_f * t_r - v_f^2/2a)
-            #   v_f^2 = v_i^2 + 2a*d - 2a*v_f*t_r - v_f^2
-            #   v_f^2 + a*t_r * v_f - (v_i^2 + a*d) = 0
-            #
-            #   (-b +/- sqrt(b^2 -4ac)) / 2a
-            #
-            #   (-a*t_r +/- sqrt( (a*t_r)^2 - 4(v_i^2 + a*d))) / 2
-            speed_to_target_sqrd = v.projection(tuple(course)).get_length_sqrd()
-            max_speed = math.sqrt(4*max_acceleration*(distance-self.arrival_distance) - speed_to_target_sqrd) / self.safety_factor
-            self._accelerate_to(course/distance * max_speed, dt)
