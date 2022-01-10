@@ -158,7 +158,7 @@ class UniverseGenerator:
         return self.r.normal(0, 1, 2) * sector.radius
 
     def _gen_planet_name(self):
-        return "Some Planet"
+        return "Magusan"
 
     def _gen_station_name(self):
         return "Some Station"
