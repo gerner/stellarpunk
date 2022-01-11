@@ -213,6 +213,12 @@ class SectorView(interface.View):
             self.viewscreen.addstr(s_j, 0, util.human_distance(j), curses.color_pair(29))
             j += major_ticks_y.tickSpacing
 
+        # add a scale near upper right corner
+        scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
+        scale_x = self.interface.viewscreen_width - len(scale_label) - 2
+        scale_y = self.interface.viewscreen_height - 2
+        self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
+
     def draw_radar(self, radius):
         """ Draws a radar graphic to get sense of scale centered at y, x. """
 
@@ -293,10 +299,24 @@ class SectorView(interface.View):
 
         accel_x, accel_y = entity.phys.force / entity.phys.mass
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
-        draw_canvas(util.drawille_vector(d_x, d_y, canvas=c))
+        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x)
 
     def draw_entity(self, y, x, entity):
         """ Draws a single sector entity at screen position (y,x) """
+
+        #TODO: better handle drawing entity shapes
+        if isinstance(entity, core.Ship) and self.meters_per_char_x < 30:
+            c = drawille.Canvas()
+            r = 30
+            theta = 0
+            step = 3/r*self.meters_per_char_x
+            while theta < 2*math.pi:
+                c_x, c_y = util.polar_to_cartesian(r, theta)
+                d_x, d_y = util.sector_to_drawille(c_x, c_y, self.meters_per_char_x, self.meters_per_char_y)
+                c.set(d_x, d_y)
+                theta += step
+            util.draw_canvas_at(c, self.viewscreen, y, x)
+
 
         if isinstance(entity, core.Ship):
             icon = interface.Icons.angle_to_ship(entity.angle)
@@ -314,6 +334,8 @@ class SectorView(interface.View):
             description_attr |= curses.A_STANDOUT
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
+
+
         self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
 
         if self.debug_entity:
@@ -399,7 +421,7 @@ class SectorView(interface.View):
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
-                "target": (target, util.tab_completer(map(str, self.sector.entities.keys())))
+                "target": (target, util.tab_completer(self.sector.entities.keys())),
         }
 
     def handle_input(self, key):

@@ -122,13 +122,43 @@ def drawille_vector(x, y, canvas=None, tick_size=3):
         r_i -= tick_size
 
     # draw head of arrow
-    for i in range(4):
-        x_i, y_i = polar_to_cartesian(r - tick_size/4*i, theta + 0.05*i)
+    for i in range(2):
+        x_i, y_i = polar_to_cartesian(r - tick_size/2*i, theta + 0.05*i)
         canvas.set(x_i, y_i)
-        x_i, y_i = polar_to_cartesian(r - tick_size/4*i, theta - 0.05*i)
+        x_i, y_i = polar_to_cartesian(r - tick_size/2*i, theta - 0.05*i)
         canvas.set(x_i, y_i)
 
     return canvas
+
+def draw_line(y, x, line, screen, attr=0):
+    for i, c in enumerate(line):
+        # don't write spaces or the braille empty character
+        if c != " " and c != chr(drawille.braille_char_offset):
+            screen.addch(y, x+i, c, attr)
+
+def draw_canvas_at(canvas, screen, y, x, attr=0):
+    """ Draws canvas to screen with canvas origin appearing at y,x.
+
+    Notice the curses based convention of y preceeding x here. """
+
+    # find the bounds of the canvas in characters
+    minrow = min(canvas.chars.keys())
+    maxrow = max(canvas.chars.keys())
+    mincol = min(min(x.keys()) for x in canvas.chars.values())
+    maxcol = max(max(x.keys()) for x in canvas.chars.values())
+
+    rows = canvas.rows()
+    for i, row in enumerate(rows):
+        y_row = y+minrow+i
+        x_row = x+mincol
+        if y_row < 0:
+            continue
+        if x_row < 0:
+            if len(row) < -1*x_row:
+                continue
+            draw_line(y_row, 0, row[-1*x_row:], screen, attr=attr)
+        else:
+            draw_line(y_row, x_row, row, screen, attr=attr)
 
 def tab_complete(partial, current, options):
     """ Tab completion of partial given sorted options. """
@@ -144,7 +174,7 @@ def tab_complete(partial, current, options):
         return options[i]
 
 def tab_completer(options):
-    options = list(options)
+    options = list(map(str, options))
     def completer(partial, command):
         p = partial.split(' ')[-1]
         c = command.split(' ')[-1]
