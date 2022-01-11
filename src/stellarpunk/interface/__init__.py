@@ -234,7 +234,7 @@ class GenerationUI(generate.GenerationListener):
         pass
 
 class Interface:
-    def __init__(self, gamestate):
+    def __init__(self, gamestate, generator):
         self.stdscr = None
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -265,6 +265,8 @@ class Interface:
         self.camera_y = 0
 
         self.gamestate = gamestate
+
+        self.generator = generator
 
         # last view has focus for input handling
         self.views = []

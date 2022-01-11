@@ -213,11 +213,17 @@ class SectorView(interface.View):
             self.viewscreen.addstr(s_j, 0, util.human_distance(j), curses.color_pair(29))
             j += major_ticks_y.tickSpacing
 
-        # add a scale near upper right corner
+        # add a scale near corner
         scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
         scale_x = self.interface.viewscreen_width - len(scale_label) - 2
         scale_y = self.interface.viewscreen_height - 2
         self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
+
+        # add center position near corner
+        pos_label = f'({self.scursor_x:.0f},{self.scursor_y:.0f})'
+        pos_x = self.interface.viewscreen_width - len(pos_label) - 2
+        pos_y = self.interface.viewscreen_height - 1
+        self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
     def draw_radar(self, radius):
         """ Draws a radar graphic to get sense of scale centered at y, x. """
@@ -416,12 +422,36 @@ class SectorView(interface.View):
             if target_id not in self.sector.entities:
                 raise interface.CommandInput.UserError("{args[0]} not found in sector")
             self.select_target(target_id, self.sector.entities[target_id])
+
+        def goto(args):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+            try:
+                x,y = int(args[0]), int(args[1])
+            except Exception:
+                raise interface.CommandInput.UserError("need two int args for x,y pos")
+
+            self.selected_entity.order = orders.GoToLocation((x,y), self.selected_entity)
+
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
+        def spawn_ship(args):
+            if len(args) < 2:
+                x,y = self.scursor_x, self.scursor_y
+            else:
+                try:
+                    x,y = int(args[0]), int(args[1])
+                except Exception:
+                    raise interface.CommandInput.UserError("need two int args for x,y pos")
+
+            self.interface.generator.spawn_ship(self.sector, x, y, v=(0,0), w=0)
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
                 "target": (target, util.tab_completer(self.sector.entities.keys())),
+                "spawn_ship": spawn_ship,
+                "goto": goto,
         }
 
     def handle_input(self, key):

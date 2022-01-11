@@ -2,6 +2,7 @@ import logging
 import itertools
 
 import numpy as np
+import pymunk
 
 import stellarpunk.util as util
 import stellarpunk.core as core
@@ -168,6 +169,76 @@ class UniverseGenerator:
 
     def _gen_character_name(self):
         return "Somebody"
+
+    def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None):
+        ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
+        sector.add_entity(ship)
+
+        #TODO: clean this up
+        # set up physics stuff
+
+        # soyuz 5000 - 10000kg
+        # dragon capsule 4000kg
+        # shuttle orbiter 78000kg
+        ship_mass = 2e3
+
+        # soyuz: 7-10m long
+        # shuttle orbiter: 37m long
+        # spacex dragon: 6.1m
+        # spacex starship: 120m long
+        ship_radius = 30
+
+        # one raptor: 1.81 MN
+        # one SSME: 2.279 MN
+        # OMS main engine: 26.7 kN
+        # KTDU-80 main engine: 2.95 kN
+        max_thrust = 5e5
+
+        # one draco: 400 N (x16 on Dragon)
+        # OMS aft RCS: 3.87 kN
+        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
+        # some speculation that starship thrusters can do 100-200 kN
+        max_fine_thrust = 5e3
+
+        # note about g-forces:
+        # assuming circle of radius 30m, mass 2e3 kg
+        # mass moment 18,000,000 kg m^2
+        # centriptal acceleration = r * w^2
+        # 1g at 30m with angular acceleration of 0.57 rad/sec
+        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
+        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
+        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
+        # starting from zero
+        # space shuttle doesn't exeed 3g during ascent
+        max_torque = max_fine_thrust * 6 * ship_radius
+
+        ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
+        ship_body = pymunk.Body(ship_mass, ship_moment)
+        ship_shape = pymunk.Circle(ship_body, ship_radius)
+        ship_shape.friction=0.5
+        ship_body.position = ship.x, ship.y
+
+
+        ship.phys = ship_body
+        ship.max_thrust = max_thrust
+        ship.max_fine_thrust = max_fine_thrust
+        ship.max_torque = max_torque
+
+        if v is None:
+            v = pymunk.vec2d.Vec2d(*(self.r.normal(0, 50, 2)))
+            ship_body.velocity = v
+            ship_body.angle = v.angle
+        else:
+            v = pymunk.vec2d.Vec2d(*v)
+            ship_body.velocity = v
+            ship_body.angle = v.angle
+
+        if w is None:
+            ship_body.angular_velocity = self.r.normal(0, 0.08)
+        else:
+            ship_body.angular_velocity = w
+
+        sector.space.add(ship_body, ship_shape)
 
     def generate_chain(
             self,
@@ -353,6 +424,7 @@ class UniverseGenerator:
         for x,y in habitable_coordinates:
             sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
+            sector.space = pymunk.Space()
 
             # habitable planet
             # plenty of resources
@@ -395,6 +467,7 @@ class UniverseGenerator:
                     continue
 
                 sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
+                sector.space = pymunk.Space()
                 sector.resources = self.r.uniform(
                         mean_uninhabitable_resources/2,
                         mean_uninhabitable_resources*1.5,
@@ -417,8 +490,7 @@ class UniverseGenerator:
             self.logger.debug(f'adding {num_ships} to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
-                ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
-                sector.add_entity(ship)
+                self.spawn_ship(sector, ship_x, ship_y)
 
     def generate_universe(self):
         self.gamestate.random = self.r

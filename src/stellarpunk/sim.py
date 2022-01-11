@@ -69,68 +69,6 @@ class StellarPunkSim:
         keep_running = True
         next_tick = time.perf_counter()+self.dt
 
-        #TODO: get rid of this hack
-        # hack to test out some physics
-        import pymunk
-        import numpy as np
-        # soyuz 5000 - 10000kg
-        # dragon capsule 4000kg
-        # shuttle orbiter 78000kg
-        ship_mass = 2e3
-
-        # soyuz: 7-10m long
-        # shuttle orbiter: 37m long
-        # spacex dragon: 6.1m
-        # spacex starship: 120m long
-        ship_radius = 30
-
-        # one raptor: 1.81 MN
-        # one SSME: 2.279 MN
-        # OMS main engine: 26.7 kN
-        # KTDU-80 main engine: 2.95 kN
-        max_thrust = 5e5
-
-        # one draco: 400 N (x16 on Dragon)
-        # OMS aft RCS: 3.87 kN
-        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
-        # some speculation that starship thrusters can do 100-200 kN
-        max_fine_thrust = 5e3
-
-        # note about g-forces:
-        # assuming circle of radius 30m, mass 2e3 kg
-        # mass moment 18,000,000 kg m^2
-        # centriptal acceleration = r * w^2
-        # 1g at 30m with angular acceleration of 0.57 rad/sec
-        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
-        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
-        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
-        # starting from zero
-        # space shuttle doesn't exeed 3g during ascent
-        max_torque = max_fine_thrust * 6 * ship_radius
-
-        ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
-        r = np.random.default_rng()
-        for sector in self.gamestate.sectors.values():
-            sector.space = pymunk.Space()
-            for ship in sector.ships:
-                ship_body = pymunk.Body(ship_mass, ship_moment)
-                ship_shape = pymunk.Circle(ship_body, ship_radius)
-                ship_shape.friction=0.5
-                ship_body.position = ship.x, ship.y
-                v = pymunk.vec2d.Vec2d(*(r.normal(0, 50, 2)))
-                ship_body.velocity = v
-                ship_body.angle = v.angle
-
-                sector.space.add(ship_body, ship_shape)
-
-                #TODO: quick hack to give some interest
-                ship_body.angular_velocity = r.normal(0, 0.08)
-
-                ship.phys = ship_body
-                ship.max_thrust = max_thrust
-                ship.max_fine_thrust = max_fine_thrust
-                ship.max_torque = max_torque
-
         while keep_running:
             now = time.perf_counter()
 
@@ -178,16 +116,16 @@ def main():
 
         mgr = context_stack.enter_context(IPDBManager())
         gamestate = core.StellarPunk()
-        ui = context_stack.enter_context(interface.Interface(gamestate))
+
+        logging.info("generating universe...")
+        generator = generate.UniverseGenerator(gamestate)
+        stellar_punk = generator.generate_universe()
+
+        ui = context_stack.enter_context(interface.Interface(gamestate, generator))
 
         ui.initialize()
         uv = universe_interface.UniverseView(gamestate, ui)
         ui.open_view(uv)
-        generation_listener = ui.generation_listener()
-
-        logging.info("generating universe...")
-        generator = generate.UniverseGenerator(gamestate, listener=generation_listener)
-        stellar_punk = generator.generate_universe()
 
         #logging.info("running simulation...")
         #stellar_punk.run()
