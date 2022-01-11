@@ -7,12 +7,13 @@ import curses
 import curses.textpad
 import curses.ascii
 import time
+import uuid
 
 import drawille
 
 from stellarpunk import util, core, interface, orders
 
-class SectorView(interface.View, interface.CommandHandler):
+class SectorView(interface.View):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -382,14 +383,24 @@ class SectorView(interface.View, interface.CommandHandler):
         self.draw_sector_map()
         self.interface.refresh_viewscreen()
 
-    def handle_command(self, command):
-        if command == "debug_entity":
-            self.debug_entity = not self.debug_entity
-        elif command == "vectors":
-            self.debug_entity_vectors = not self.debug_entity_vectors
-        else:
-            return False
-        return True
+    def command_list(self):
+        def target(args):
+            if not args:
+                raise interface.CommandInput.UserError("need a valid target")
+            try:
+                target_id = uuid.UUID(args[0])
+            except ValueError:
+                raise interface.CommandInput.UserError("not a valid target id, try tab completion.")
+            if target_id not in self.sector.entities:
+                raise interface.CommandInput.UserError("{args[0]} not found in sector")
+            self.select_target(target_id, self.sector.entities[target_id])
+        def debug_entity(args): self.debug_entity = not self.debug_entity
+        def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
+        return {
+                "debug_entity": debug_entity,
+                "debug_vectors": debug_vectors,
+                "target": (target, util.tab_completer(map(str, self.sector.entities.keys())))
+        }
 
     def handle_input(self, key):
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
@@ -434,7 +445,8 @@ class SectorView(interface.View, interface.CommandHandler):
             else:
                 self.selected_entity.order = orders.GoToLocation((0,0), self.selected_entity)
         elif key == ord(":"):
-            self.interface.open_view(interface.CommandInput(self.interface, command_handler=self))
+            self.interface.open_view(interface.CommandInput(
+                self.interface, commands=self.command_list()))
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()
             m_id, m_x, m_y, m_z, bstate = m_tuple

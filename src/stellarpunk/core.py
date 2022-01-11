@@ -50,11 +50,11 @@ class Entity:
         self.name = name
 
     def short_id(self):
-        """ Least significant 32 bits as hex """
-        return f'{self.id_prefix}-{self.entity_id.hex[-8:]}'
+        """ first 32 bits as hex """
+        return f'{self.id_prefix}-{self.entity_id.hex[:8]}'
 
     def short_id_int(self):
-        return self.entity_id.int & (1<<32)-1
+        return int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """

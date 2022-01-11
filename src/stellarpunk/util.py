@@ -1,6 +1,8 @@
 """ Utility methods broadly applicable across the codebase. """
 
 import math
+import bisect
+import logging
 
 import numpy as np
 import drawille
@@ -127,6 +129,29 @@ def drawille_vector(x, y, canvas=None, tick_size=3):
         canvas.set(x_i, y_i)
 
     return canvas
+
+def tab_complete(partial, current, options):
+    """ Tab completion of partial given sorted options. """
+
+    options = sorted(options)
+    if not current:
+        current = partial
+
+    i = bisect.bisect(options, current)
+    if i == len(options):
+        return None
+    if options[i].startswith(partial):
+        return options[i]
+
+def tab_completer(options):
+    options = list(options)
+    def completer(partial, command):
+        p = partial.split(' ')[-1]
+        c = command.split(' ')[-1]
+        o = tab_complete(p, c, options) or ""
+        logging.debug(f'p:{p} c:{c} o:{o}')
+        return " ".join(command.split(' ')[:-1]) + " " + o
+    return completer
 
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.

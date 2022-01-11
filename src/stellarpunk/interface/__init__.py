@@ -11,6 +11,7 @@ import termios
 import time
 import collections
 import math
+import collections.abc
 
 from stellarpunk import util, generate
 
@@ -150,49 +151,67 @@ class ColorDemo(View):
     def handle_input(self, key):
         return key == -1
 
-class CommandHandler:
-    def handle_command(self, command):
-        return False
-
 class CommandInput(View):
     """ Command mode: typing in a command to execute. """
 
-    def __init__(self, *args, command_handler=None, **kwargs):
+    class UserError(Exception):
+        pass
+
+    def __init__(self, *args, commands=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.command_handler = command_handler
+        self.commands = commands or {}
+        self.partial = ""
         self.command = ""
 
+    def _command_name(self):
+        i = self.command.strip(" ").find(" ")
+        if i < 0:
+            return self.command.strip()
+        else:
+            return self.command.strip()[0:i]
+
+    def _command_args(self):
+        return self.command.strip().split()[1:]
+
     def initialize(self):
+        for c, f in self.interface.command_list().items():
+            if c not in self.commands:
+                self.commands[c] = f
         self.logger.info("entering command mode")
 
     def update_display(self):
         self.interface.status_message(f':{self.command}')
 
     def handle_input(self, key):
-
         if key in (ord('\n'), ord('\r')):
             self.logger.debug(f'read command {self.command}')
             self.interface.status_message()
             # process the command
-            if self.command == "quit":
-                self.logger.info("quitting")
-                #TODO: how to quit?
-                raise QuitError()
-            elif self.command == "colordemo":
-                self.interface.open_view(ColorDemo(self.interface))
-            elif self.command == "pause":
-                self.interface.gamestate.paused = not self.interface.gamestate.paused
-            elif self.command_handler and self.command_handler.handle_command(self.command):
-                self.logger.debug(f'{self.command} handled by parent')
-            elif self.interface.handle_command(self.command):
-                self.logger.debug(f'{self.command} handled by interface')
+            command_name = self._command_name()
+            if command_name in self.commands:
+                self.logger.info(f'executing {self.command}')
+                try:
+                    if isinstance(self.commands[command_name], collections.abc.Sequence):
+                        self.commands[command_name][0](self._command_args())
+                    else:
+                        self.commands[command_name](self._command_args())
+                except CommandInput.UserError as e:
+                    self.logger.info(f'user error executing {self.command}: {e}')
+                    self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
             else:
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
             return False
         elif chr(key).isprintable():
             self.command += chr(key)
+            self.partial = self.command
         elif key == curses.ascii.BS:
             self.command = self.command[:-1]
+            self.partial = self.command
+        elif key == curses.ascii.TAB:
+            if " " not in self.command:
+                self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or ""
+            elif self._command_name() in self.commands and isinstance(self.commands[self._command_name()], collections.abc.Sequence):
+                self.command = self.commands[self._command_name()][1](self.partial, self.command) or ""
         elif key == curses.ascii.ESC:
             self.interface.status_message()
             return False
@@ -487,14 +506,17 @@ class Interface:
         view.focus()
         self.views.append(view)
 
-    def handle_command(self, command):
-        if command == "pause":
-            self.gamestate.paused = not self.gamestate.paused
-        elif command == "fps":
-            self.show_fps = not self.show_fps
-        else:
-            return False
-        return True
+    def command_list(self):
+        def pause(args): self.gamestate.paused = not self.gamestate.paused
+        def fps(args): self.show_fps = not self.show_fps
+        def quit(args): raise QuitError()
+        def colordemo(args): self.open_view(ColorDemo(self))
+        return {
+                "pause": pause,
+                "fps": fps,
+                "quit": quit,
+                "colordemo": colordemo,
+        }
 
     def tick(self, timeout):
         # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
