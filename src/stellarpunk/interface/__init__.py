@@ -278,6 +278,8 @@ class Interface:
 
         self.show_fps = False
 
+        self.step = False
+
     def __enter__(self):
         """ Does most simple interface initialization.
 
@@ -527,6 +529,10 @@ class Interface:
         while self.frame_history[0] < start_time - self.max_frame_history:
             self.frame_history.popleft()
 
+        if self.step:
+            self.gamestate.paused = True
+            self.step = False
+
         for view in self.views:
             view.update_display()
         self.show_date()
@@ -555,6 +561,9 @@ class Interface:
         if key == curses.KEY_RESIZE:
             for view in self.views:
                 view.initialize()
+        if key == ord("."):
+            self.gamestate.paused = False
+            self.step = True
         elif key >= 0:
             self.status_message()
             v = self.views[-1]

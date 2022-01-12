@@ -120,6 +120,8 @@ class SectorEntity(Entity):
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = None
+        #TODO: are all entities just circles?
+        self.radius = 0
 
     #TODO: do we just want all these position things to be properties?
     @property

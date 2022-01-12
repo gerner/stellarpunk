@@ -284,17 +284,6 @@ class SectorView(interface.View):
         if not isinstance(entity, core.Ship):
             return
 
-        def draw_canvas(c, attr=0):
-            text = c.rows(-20, -20, 20, 20)
-            for i, row in zip(range(-5, 5), text):
-                if y+i < 0:
-                    continue
-                if x-10 < 0:
-                    row = row[-1 * (x-10):]
-                    self.viewscreen.addstr(y+i, 0, row, attr)
-                else:
-                    self.viewscreen.addstr(y+i, x-10, row, attr)
-
         heading_x, heading_y = util.polar_to_cartesian(self.meters_per_char_y*5, entity.phys.angle)
         d_x, d_y = util.sector_to_drawille(heading_x, heading_y, self.meters_per_char_x, self.meters_per_char_y)
         c = util.drawille_vector(d_x, d_y)
@@ -311,9 +300,9 @@ class SectorView(interface.View):
         """ Draws a single sector entity at screen position (y,x) """
 
         #TODO: better handle drawing entity shapes
-        if isinstance(entity, core.Ship) and self.meters_per_char_x < 30:
+        if entity.radius > 0 and self.meters_per_char_x < entity.radius:
             c = drawille.Canvas()
-            r = 30
+            r = entity.radius
             theta = 0
             step = 3/r*self.meters_per_char_x
             while theta < 2*math.pi:
@@ -322,7 +311,6 @@ class SectorView(interface.View):
                 c.set(d_x, d_y)
                 theta += step
             util.draw_canvas_at(c, self.viewscreen, y, x)
-
 
         if isinstance(entity, core.Ship):
             icon = interface.Icons.angle_to_ship(entity.angle)
@@ -349,6 +337,7 @@ class SectorView(interface.View):
             self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
             self.viewscreen.addstr(y+3, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
             self.viewscreen.addstr(y+4, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
+            self.viewscreen.addstr(y+5, x+1, f' r: {entity.radius:.2f}', description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
         self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
@@ -426,12 +415,14 @@ class SectorView(interface.View):
         def goto(args):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise interface.CommandInput.UserError(f'order only valid on a ship target')
-            try:
-                x,y = int(args[0]), int(args[1])
-            except Exception:
-                raise interface.CommandInput.UserError("need two int args for x,y pos")
-
-            self.selected_entity.order = orders.GoToLocation((x,y), self.selected_entity)
+            if len(args) < 2:
+                x,y = self.scursor_x, self.scursor_y
+            else:
+                try:
+                    x,y = int(args[0]), int(args[1])
+                except Exception:
+                    raise interface.CommandInput.UserError("need two int args for x,y pos")
+            self.selected_entity.order = orders.GoToLocation((x,y), self.sector, self.selected_entity)
 
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
@@ -495,7 +486,11 @@ class SectorView(interface.View):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.GoToLocation((0,0), self.selected_entity)
+                self.selected_entity.order = orders.GoToLocation((0,0), self.sector, self.selected_entity)
+        elif key == ord("o"):
+            for ship in self.sector.ships:
+                station = self.interface.generator.r.choice(self.sector.stations)
+                ship.order = orders.GoToLocation((station.x, station.y), self.sector, ship)
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(
                 self.interface, commands=self.command_list()))

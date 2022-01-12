@@ -170,6 +170,44 @@ class UniverseGenerator:
     def _gen_character_name(self):
         return "Somebody"
 
+    def spawn_station(self, sector, x, y, resource=None):
+        if resource is None:
+            resource = self.r.uniform(0, len(pchain.prices)-pchain.ranks[-1])
+
+        station = core.Station(x, y, self._gen_station_name())
+        station.resource = resource
+        sector.add_entity(station)
+
+        station_radius = 300
+
+        #TODO: stations are static?
+        #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
+        station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        station_shape = pymunk.Circle(station_body, station_radius)
+        station_shape.friction=0.5
+        station_body.position = station.x, station.y
+        station.phys = station_body
+        station.radius = station_radius
+
+        sector.space.add(station_body, station_shape)
+
+    def spawn_planet(self, sector, x, y):
+        planet_radius = 1000
+
+        planet = core.Planet(x, y, self._gen_planet_name())
+        planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
+        sector.add_entity(planet)
+
+        #TODO: stations are static?
+        planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        planet_shape = pymunk.Circle(planet_body, planet_radius)
+        planet_shape.friction=0.5
+        planet_body.position = planet.x, planet.y
+        planet.phys = planet_body
+        planet.radius = planet_radius
+
+        sector.space.add(planet_body, planet_shape)
+
     def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None):
         ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
         sector.add_entity(ship)
@@ -220,6 +258,7 @@ class UniverseGenerator:
 
 
         ship.phys = ship_body
+        ship.radius = ship_radius
         ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
@@ -425,6 +464,10 @@ class UniverseGenerator:
             sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
             sector.space = pymunk.Space()
+            h = sector.space.add_default_collision_handler()
+            def collision_logger(a, s, d):
+                logging.info(f'collision detected!')
+            h.begin = collision_logger
 
             # habitable planet
             # plenty of resources
@@ -442,18 +485,14 @@ class UniverseGenerator:
             # every inhabited sector should have a complete production chain
             for i in range(len(pchain.prices)-pchain.ranks[-1]):
                 entity_loc = self._gen_sector_location(sector)
-                station = core.Station(entity_loc[0], entity_loc[1], self._gen_station_name())
-                station.resource = i
+                self.spawn_station(sector, entity_loc[0], entity_loc[1], resource=i)
                 sector.resources -= raw_needs[:,RESOURCE_REL_STATION]
-                sector.add_entity(station)
             # spend resources to build additional stations
             # consume resources to establish and support population
 
             # set up population according to production capacity
             entity_loc = self._gen_sector_location(sector)
-            planet = core.Planet(entity_loc[0], entity_loc[1], self._gen_planet_name())
-            planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
-            sector.add_entity(planet)
+            self.spawn_planet(sector, entity_loc[0], entity_loc[1])
 
             self.logger.info(f'ending resources: {sector.resources}')
 
