@@ -80,7 +80,7 @@ class SectorView(interface.View):
 
         self.bbox = (ul_x, ul_y, lr_x, lr_y)
 
-        self.logger.debug(f'viewing sector {self.sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with per {self.meters_per_char_x:.0f}m x {self.meters_per_char_y:.0f}m char')
+        #self.logger.debug(f'viewing sector {self.sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with per {self.meters_per_char_x:.0f}m x {self.meters_per_char_y:.0f}m char')
 
     def set_scursor(self, x, y):
         self.scursor_x = x
@@ -296,7 +296,7 @@ class SectorView(interface.View):
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
         util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x)
 
-    def draw_entity(self, y, x, entity):
+    def draw_entity(self, y, x, entity, icon_attr=0):
         """ Draws a single sector entity at screen position (y,x) """
 
         #TODO: better handle drawing entity shapes
@@ -321,7 +321,6 @@ class SectorView(interface.View):
         else:
             icon = "?"
 
-        icon_attr = 0
         description_attr = curses.color_pair(9)
         if entity.entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
@@ -337,7 +336,8 @@ class SectorView(interface.View):
             self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
             self.viewscreen.addstr(y+3, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
             self.viewscreen.addstr(y+4, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
-            self.viewscreen.addstr(y+5, x+1, f' r: {entity.radius:.2f}', description_attr)
+            if isinstance(entity, core.Ship) and entity.collision_threat:
+                self.viewscreen.addstr(y+5, x+1, f' c: {entity.collision_threat.short_id()}', description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
         self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
@@ -359,6 +359,11 @@ class SectorView(interface.View):
         # list x,y coords of center of screen
         #self.viewscreen.addstr(1,3, f'{self.scursor_x:.0f},{self.scursor_y:.0f}', curses.color_pair(29))
 
+        collision_threats = []
+        for ship in self.sector.ships:
+            if ship.collision_threat:
+                collision_threats.append(ship.collision_threat)
+
         occupied = {}
         # sort the entities so we draw left to right, top to bottom
         # this ensures any annotations down and to the right of an entity on
@@ -376,7 +381,11 @@ class SectorView(interface.View):
                         screen_y, screen_x, entities)
             else:
                 occupied[(screen_x, screen_y)] = [entity]
-                self.draw_entity(screen_y, screen_x, entity)
+                icon_attr = 0
+                if entity in collision_threats:
+                    icon_attr = curses.color_pair(1)
+
+                self.draw_entity(screen_y, screen_x, entity, icon_attr=icon_attr)
 
         #TODO: draw an indicator for off-screen targeted entities
         #se_x = self.selected_entity.x
@@ -422,7 +431,7 @@ class SectorView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise interface.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.order = orders.GoToLocation((x,y), self.sector, self.selected_entity)
+            self.selected_entity.order = orders.GoToLocation((x,y), self.sector, self.selected_entity, self.interface.gamestate)
 
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
@@ -437,11 +446,16 @@ class SectorView(interface.View):
 
             self.interface.generator.spawn_ship(self.sector, x, y, v=(0,0), w=0)
 
+        def spawn_collision(args):
+            self.interface.generator.spawn_ship(self.sector, 0, 1100, v=(0,0), w=0)
+            self.interface.generator.spawn_ship(self.sector, 0, 2200, v=(0,0), w=0)
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
                 "target": (target, util.tab_completer(self.sector.entities.keys())),
                 "spawn_ship": spawn_ship,
+                "spawn_collision": spawn_collision,
                 "goto": goto,
         }
 
@@ -471,26 +485,26 @@ class SectorView(interface.View):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.KillRotationOrder(self.selected_entity)
+                self.selected_entity.order = orders.KillRotationOrder(self.selected_entity, self.interface.gamestate)
         elif key == ord("r"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.RotateOrder(0, self.selected_entity)
+                self.selected_entity.order = orders.RotateOrder(0, self.selected_entity, self.interface.gamestate)
         elif key == ord("x"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.KillVelocityOrder(self.selected_entity)
+                self.selected_entity.order = orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate)
         elif key == ord("g"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.GoToLocation((0,0), self.sector, self.selected_entity)
+                self.selected_entity.order = orders.GoToLocation((0,0), self.sector, self.selected_entity, self.interface.gamestate)
         elif key == ord("o"):
             for ship in self.sector.ships:
                 station = self.interface.generator.r.choice(self.sector.stations)
-                ship.order = orders.GoToLocation((station.x, station.y), self.sector, ship)
+                ship.order = orders.GoToLocation((station.x, station.y), self.sector, ship, self.interface.gamestate)
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(
                 self.interface, commands=self.command_list()))

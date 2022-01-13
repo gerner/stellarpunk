@@ -184,8 +184,10 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
         station_shape = pymunk.Circle(station_body, station_radius)
-        station_shape.friction=0.5
+        station_shape.friction=0.1
+        station_shape.collision_type = station.object_type
         station_body.position = station.x, station.y
+        station_body.entity = station
         station.phys = station_body
         station.radius = station_radius
 
@@ -201,14 +203,16 @@ class UniverseGenerator:
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
         planet_shape = pymunk.Circle(planet_body, planet_radius)
-        planet_shape.friction=0.5
+        planet_shape.friction=0.1
+        planet_shape.collision_type = planet.object_type
         planet_body.position = planet.x, planet.y
+        planet_body.entity = planet
         planet.phys = planet_body
         planet.radius = planet_radius
 
         sector.space.add(planet_body, planet_shape)
 
-    def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None):
+    def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None):
         ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
         sector.add_entity(ship)
 
@@ -253,8 +257,10 @@ class UniverseGenerator:
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
         ship_body = pymunk.Body(ship_mass, ship_moment)
         ship_shape = pymunk.Circle(ship_body, ship_radius)
-        ship_shape.friction=0.5
+        ship_shape.friction=0.1
+        ship_shape.collision_type = ship.object_type
         ship_body.position = ship.x, ship.y
+        ship_body.entity = ship
 
 
         ship.phys = ship_body
@@ -271,6 +277,9 @@ class UniverseGenerator:
             v = pymunk.vec2d.Vec2d(*v)
             ship_body.velocity = v
             ship_body.angle = v.angle
+
+        if theta is not None:
+            ship_body.angle = theta
 
         if w is None:
             ship_body.angular_velocity = self.r.normal(0, 0.08)
@@ -464,10 +473,6 @@ class UniverseGenerator:
             sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
             sector.space = pymunk.Space()
-            h = sector.space.add_default_collision_handler()
-            def collision_logger(a, s, d):
-                logging.info(f'collision detected!')
-            h.begin = collision_logger
 
             # habitable planet
             # plenty of resources
@@ -507,6 +512,7 @@ class UniverseGenerator:
 
                 sector = core.Sector(x, y, sector_radius, self._gen_sector_name())
                 sector.space = pymunk.Space()
+
                 sector.resources = self.r.uniform(
                         mean_uninhabitable_resources/2,
                         mean_uninhabitable_resources*1.5,

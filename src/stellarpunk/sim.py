@@ -3,6 +3,7 @@ import logging
 import contextlib
 import time
 import math
+import warnings
 
 import ipdb
 
@@ -37,12 +38,42 @@ class StellarPunkSim:
         self.ticktime_alpha = 0.01
         self.min_tick_sleep = self.dt/5
 
+        self.collisions = []
+
+    def _ship_collision_detected(self, arbiter, space, data):
+        # which ship(s) are colliding?
+
+        (shape_a, shape_b) = arbiter.shapes
+        sector = data["sector"]
+
+        self.logger.debug(f'collision detected in {sector}, between {shape_a.body.entity} {shape_b.body.entity} with {arbiter.total_impulse}N and {arbiter.total_ke}j')
+
+        self.collisions.append((
+            shape_a.body.entity,
+            shape_b.body.entity,
+            arbiter.total_impulse,
+            arbiter.total_ke,
+        ))
+
+    def initialize(self):
+        """ One-time initialize of the simulation. """
+        for sector in self.gamestate.sectors.values():
+            h = sector.space.add_default_collision_handler()#add_wildcard_collision_handler(core.ObjectType.SHIP)
+            h.data["sector"] = sector
+            h.post_solve = self._ship_collision_detected
+
     def tick(self, dt):
         """ Do stuff to update the universe """
 
         # update physics simulations
         for sector in self.gamestate.sectors.values():
+            self.collisions.clear()
+
             sector.space.step(dt)
+
+            if self.collisions:
+                self.gamestate.paused = True
+
             for ship in sector.ships:
                 # update ship positions from physics sim
                 ship.x, ship.y = ship.phys.position
@@ -107,12 +138,17 @@ class StellarPunkSim:
 
 def main():
     with contextlib.ExitStack() as context_stack:
+        # for reference, config to stderr:
+        # logging.basicConfig(stream=sys.stderr, level=logging.INFO)
         logging.basicConfig(
                 format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
                 filename="/tmp/stellarpunk.log",
                 level=logging.DEBUG
         )
-        #logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+        # send warnings to the logger
+        logging.captureWarnings(True)
+        # turn warnings into exceptions
+        warnings.filterwarnings("error")
 
         mgr = context_stack.enter_context(IPDBManager())
         gamestate = core.StellarPunk()
@@ -133,6 +169,7 @@ def main():
         stellar_punk.production_chain.viz().render("production_chain", format="pdf")
 
         sim = StellarPunkSim(gamestate, ui)
+        sim.initialize()
         sim.run()
 
         logging.info("done.")

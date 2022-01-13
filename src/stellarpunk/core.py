@@ -2,10 +2,14 @@
 
 import uuid
 import datetime
+import enum
+import logging
 
 import graphviz
 import rtree
 import numpy as np
+
+from stellarpunk import util
 
 class ProductionChain:
     """ A production chain of resources/products interconnected in a DAG. """
@@ -55,6 +59,9 @@ class Entity:
 
     def short_id_int(self):
         return int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
+
+    def __str__(self):
+        return f'{self.short_id()}'
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
@@ -108,11 +115,22 @@ class Sector(Entity):
                     (entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), entity.entity_id) for entity in self.entities.values()
             )
 
+class ObjectType(enum.IntEnum):
+    OTHER = enum.auto()
+    SHIP = enum.auto()
+    STATION = enum.auto()
+    PLANET = enum.auto()
+
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
 
+    object_type = ObjectType.OTHER
+
     def __init__(self, x, y, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.sector = None
+
         self.x = x
         self.y = y
         self.velocity = (0,0)
@@ -131,9 +149,13 @@ class SectorEntity(Entity):
         else:
             return self.phys.angular_velocity
 
+    def __str__(self):
+        return f'{self.short_id()} at {(self.x, self.y)} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+
 class Planet(SectorEntity):
 
     id_prefix = "PLT"
+    object_type = ObjectType.PLANET
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -142,6 +164,7 @@ class Planet(SectorEntity):
 class Station(SectorEntity):
 
     id_prefix = "STA"
+    object_type = ObjectType.STATION
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -150,6 +173,7 @@ class Station(SectorEntity):
 class Ship(SectorEntity):
 
     id_prefix = "SHP"
+    objec_type = ObjectType.SHIP
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -163,6 +187,15 @@ class Ship(SectorEntity):
 
         self.order = None
 
+        self.collision_threat = None
+
+    def max_speed(self):
+        return self.max_thrust / self.phys.mass * 5
+
+    def max_acceleration(self):
+        return self.max_thrust / self.phys.mass
+
+
 class Character(Entity):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -170,10 +203,23 @@ class Character(Entity):
     def choose_action(self, game_state):
         pass
 
+class OrderLoggerAdapter(logging.LoggerAdapter):
+    def __init__(self, ship, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ship = ship
+
+    def process(self, msg, kwargs):
+        return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
+
 class Order:
-    def __init__(self, ship):
+    def __init__(self, ship, gamestate):
+        self.gamestate = gamestate
         self.ship = ship
         self.eta = 0
+        self.logger = OrderLoggerAdapter(
+                ship,
+                logging.getLogger(util.fullname(self)),
+        )
 
     def is_complete(self):
         return True
