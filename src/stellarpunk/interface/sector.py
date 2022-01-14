@@ -431,7 +431,12 @@ class SectorView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise interface.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.order = orders.GoToLocation((x,y), self.sector, self.selected_entity, self.interface.gamestate)
+            self.selected_entity.order = orders.GoToLocation((x,y), self.selected_entity, self.interface.gamestate)
+
+        def wait(wargs):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+            self.selected_entity.order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
 
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
@@ -457,6 +462,7 @@ class SectorView(interface.View):
                 "spawn_ship": spawn_ship,
                 "spawn_collision": spawn_collision,
                 "goto": goto,
+                "wait": wait,
         }
 
     def handle_input(self, key):
@@ -500,11 +506,11 @@ class SectorView(interface.View):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.GoToLocation((0,0), self.sector, self.selected_entity, self.interface.gamestate)
+                self.selected_entity.order = orders.GoToLocation((0,0), self.selected_entity, self.interface.gamestate)
         elif key == ord("o"):
             for ship in self.sector.ships:
                 station = self.interface.generator.r.choice(self.sector.stations)
-                ship.order = orders.GoToLocation((station.x, station.y), self.sector, ship, self.interface.gamestate)
+                ship.order = orders.GoToLocation((station.x, station.y), ship, self.interface.gamestate)
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(
                 self.interface, commands=self.command_list()))
