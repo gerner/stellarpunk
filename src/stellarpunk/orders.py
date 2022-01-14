@@ -311,7 +311,7 @@ class AbstractSteeringOrder(core.Order):
         #self.logger.debug(f'avoid: {target_relative_speed}m/s {delta_velocity} vs {v}')
 
         if target_relative_speed > self.ship.max_thrust / self.ship.phys.mass * approach_time:
-            #self.logger.debug(f'cannot avoid collision: {target_relative_speed} > {self.ship.max_thrust} / {self.ship.phys.mass} * {approach_time}')
+            self.logger.debug(f'cannot avoid collision: {target_relative_speed} > {self.ship.max_thrust} / {self.ship.phys.mass} * {approach_time}')
 
         if detail:
             return delta_velocity, approach_time, minimum_separation, d

@@ -276,7 +276,7 @@ class Interface:
         # max frame history to keep in seconds
         self.max_frame_history = 1
 
-        self.show_fps = False
+        self.show_fps = True
 
         self.step = False
 
@@ -443,6 +443,7 @@ class Interface:
 
     def initialize(self):
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        #curses.mouseinterval(200)
         curses.set_escdelay(1)
         curses.nonl()
 

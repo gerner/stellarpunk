@@ -35,7 +35,7 @@ class StellarPunkSim:
         # time between ticks, this is the framerate
         self.dt = 1/60
 
-        self.ticktime_alpha = 0.01
+        self.ticktime_alpha = 0.2
         self.min_tick_sleep = self.dt/5
 
         self.collisions = []
@@ -62,11 +62,24 @@ class StellarPunkSim:
             h.data["sector"] = sector
             h.post_solve = self._ship_collision_detected
 
+    def tick_order(self, ship, dt):
+        if ship.order:
+            #self.logger.debug(f'evaluating {ship.order}')
+            if ship.order.is_complete():
+                self.logger.debug(f'{ship.entity_id} completed {ship.order}')
+                ship.order = ship.default_order()
+            else:
+                ship.order.act(dt)
+        else:
+            raise Exception(f'{ship} unexpectedly had no order!')
+
+
     def tick(self, dt):
         """ Do stuff to update the universe """
 
         # update physics simulations
-        for sector in self.gamestate.sectors.values():
+        #self.logger.debug(f'{len(self.gamestate.sectors.values())} sectors')
+        for i,sector in enumerate(self.gamestate.sectors.values()):
             self.collisions.clear()
 
             sector.space.step(dt)
@@ -79,18 +92,13 @@ class StellarPunkSim:
                 ship.x, ship.y = ship.phys.position
                 ship.angle = ship.phys.angle
                 ship.velocity = ship.phys.velocity
+                ship.angular_velocity = ship.phys.angular_velocity
 
             sector.reindex_locations()
 
+            #self.logger.debug(f'{sector} has {len(sector.ships)}')
             for ship in sector.ships:
-                if ship.order:
-                    if ship.order.is_complete():
-                        self.logger.debug(f'{ship.entity_id} completed {ship.order}')
-                        ship.order = None
-                    else:
-                        ship.order.act(dt)
-
-
+                self.tick_order(ship, dt)
 
             #TODO: do resource and production stuff
             #TODO: do AI stuff
@@ -115,6 +123,7 @@ class StellarPunkSim:
             starttime = time.perf_counter()
             if not self.gamestate.paused:
                 self.tick(self.dt)
+                #self.logger.debug(f'tick took {time.perf_counter() - starttime}s vs {self.dt}s')
 
             last_tick = next_tick
             next_tick = next_tick + self.dt

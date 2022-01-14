@@ -4,8 +4,7 @@ import itertools
 import numpy as np
 import pymunk
 
-import stellarpunk.util as util
-import stellarpunk.core as core
+from stellarpunk import util, core, orders
 
 #TODO: names: sectors, planets, stations, ships, characters, raw materials,
 #   intermediate products, final products, consumer products, station products,
@@ -214,6 +213,8 @@ class UniverseGenerator:
 
     def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None):
         ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
+        ship.default_order_fn = lambda x: orders.WaitOrder(x, self.gamestate)
+        ship.order = ship.default_order()
         sector.add_entity(ship)
 
         #TODO: clean this up
@@ -264,6 +265,8 @@ class UniverseGenerator:
 
 
         ship.phys = ship_body
+        ship.mass = ship_mass
+        ship.moment = ship_moment
         ship.radius = ship_radius
         ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust

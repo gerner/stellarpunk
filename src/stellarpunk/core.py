@@ -131,23 +131,19 @@ class SectorEntity(Entity):
 
         self.sector = None
 
+        # some physical properties
+        self.mass = 0
+        self.moment = 0
         self.x = x
         self.y = y
         self.velocity = (0,0)
         self.angle = 0
+        self.angular_velocity = 0
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = None
         #TODO: are all entities just circles?
         self.radius = 0
-
-    #TODO: do we just want all these position things to be properties?
-    @property
-    def angular_velocity(self):
-        if not self.phys:
-            return 0
-        else:
-            return self.phys.angular_velocity
 
     def __str__(self):
         return f'{self.short_id()} at {(self.x, self.y)} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
@@ -186,14 +182,21 @@ class Ship(SectorEntity):
         self.max_torque = 0
 
         self.order = None
+        self.default_order_fn = lambda x: None
 
         self.collision_threat = None
 
     def max_speed(self):
-        return self.max_thrust / self.phys.mass * 5
+        return self.max_thrust / self.mass * 5
 
     def max_acceleration(self):
-        return self.max_thrust / self.phys.mass
+        return self.max_thrust / self.mass
+
+    def max_angular_acceleration(self):
+        return self.max_torque / self.moment
+
+    def default_order(self):
+        return self.default_order_fn(self)
 
 
 class Character(Entity):
@@ -220,6 +223,9 @@ class Order:
                 ship,
                 logging.getLogger(util.fullname(self)),
         )
+
+    def __str__(self):
+        return f'{self.__class__} for {self.ship.short_id()}@{self.ship.sector.short_id()}'
 
     def is_complete(self):
         return True
