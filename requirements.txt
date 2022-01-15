@@ -1,6 +1,5 @@
 numpy
 ipdb
 graphviz
-rtree
 drawille
 pymunk

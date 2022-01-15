@@ -29,13 +29,13 @@ class Settings:
     MIN_SCREEN_HEIGHT_LR = min((MIN_LOGSCREEN_HEIGHT, MIN_VIEWSCREEN_HEIGHT)) + 2 + 1
     MIN_SCREEN_HEIGHT_UD = MIN_LOGSCREEN_HEIGHT + MIN_VIEWSCREEN_HEIGHT + 4 + 1
 
-    VIEWSCREEN_BUFFER_WIDTH = 1000
-    VIEWSCREEN_BUFFER_HEIGHT = 1000
-
     UMAP_SECTOR_WIDTH=34
     UMAP_SECTOR_HEIGHT=17
     UMAP_SECTOR_XSEP=0
     UMAP_SECTOR_YSEP=0
+
+    VIEWSCREEN_BUFFER_WIDTH = 500
+    VIEWSCREEN_BUFFER_HEIGHT = 500
 
 class Icons:
 
@@ -484,7 +484,7 @@ class Interface:
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*100:.2f}ms) {self.fps():.0f}fps')
+            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*1000:.2f}ms) {self.fps():.0f}fps')
         if self.gamestate.paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")

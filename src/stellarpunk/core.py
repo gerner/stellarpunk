@@ -8,6 +8,7 @@ import logging
 import graphviz
 import rtree
 import numpy as np
+import pymunk
 
 from stellarpunk import util
 
@@ -85,11 +86,14 @@ class Sector(Entity):
         # id -> entity for all entities in the sector
         self.entities = {}
 
-        # spatial index of entities in the sector
-        self.spatial = rtree.index.Index()
-
-        # physics space for this sector (we don't manage this, just have a pointer to it)
+        # physics space for this sector
+        # we don't manage this, just have a pointer to it
+        # we do rely on this to provide a spatial index of the sector
         self.space = None
+
+    def spatial_query(self, bbox):
+        for hit in self.space.bb_query(bbox, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
+            yield hit.body.entity
 
     def add_entity(self, entity):
         #TODO: worry about collisions at location?
@@ -105,15 +109,6 @@ class Sector(Entity):
 
         entity.sector = self
         self.entities[entity.entity_id] = entity
-        #TODO: entity bounding box?
-        self.spatial.insert(entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), obj=entity.entity_id)
-
-    def reindex_locations(self):
-        # only need to do work if we have any entities
-        if self.entities:
-            self.spatial = rtree.index.Index(
-                    (entity.short_id_int(), (entity.x, entity.y, entity.x, entity.y), entity.entity_id) for entity in self.entities.values()
-            )
 
 class ObjectType(enum.IntEnum):
     OTHER = enum.auto()
@@ -233,6 +228,10 @@ class Order:
     def act(self, dt):
         """ Performs one immediate tick's of action for this order """
         pass
+
+class NullOrder(Order):
+    def is_complete(self):
+        return False
 
 class StellarPunk:
     def __init__(self):

@@ -17,6 +17,8 @@ class UniverseView(interface.View):
         self.sector_maxx = 0
         self.sector_maxy = 0
 
+        self.in_sector = False
+
     @property
     def viewscreen(self):
         return self.interface.viewscreen
@@ -28,6 +30,7 @@ class UniverseView(interface.View):
 
     def focus(self):
         super().focus()
+        self.in_sector = False
         self.interface.reinitialize_screen(name="Universe Map")
 
     def pan_camera(self):
@@ -77,6 +80,10 @@ class UniverseView(interface.View):
 
     def draw_umap_sector(self, y, x, sector):
         """ Draws a single sector to viewscreen starting at position (y,x) """
+
+        if self.in_sector:
+            return
+
         textpad.rectangle(self.viewscreen, y, x, y+interface.Settings.UMAP_SECTOR_HEIGHT-1, x+interface.Settings.UMAP_SECTOR_WIDTH-1)
 
         if (self.ucursor_x, self.ucursor_y) == (sector.x, sector.y):
@@ -113,6 +120,7 @@ class UniverseView(interface.View):
             sector_view = sector_interface.SectorView(
                     sector, self.interface)
             self.interface.open_view(sector_view)
+            self.in_sector = True
         elif key == ord(":"):
             command_input = interface.CommandInput(self.interface)
             self.interface.open_view(command_input)

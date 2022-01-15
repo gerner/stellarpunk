@@ -47,6 +47,8 @@ class SectorView(interface.View):
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0,0,0,0)
 
+        self.cached_grid = None
+
         self.debug_entity = True
         self.debug_entity_vectors = False
 
@@ -79,6 +81,8 @@ class SectorView(interface.View):
         lr_y = self.scursor_y + (vsh/2 * self.meters_per_char_y)
 
         self.bbox = (ul_x, ul_y, lr_x, lr_y)
+
+        self._compute_grid()
 
         #self.logger.debug(f'viewing sector {self.sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with per {self.meters_per_char_x:.0f}m x {self.meters_per_char_y:.0f}m char')
 
@@ -138,9 +142,7 @@ class SectorView(interface.View):
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
-    def draw_grid(self, max_ticks=10):
-        """ Draws a grid at tick lines. """
-
+    def _compute_grid(self, max_ticks=10):
         # choose ticks
         #TODO: should choose maxTicks based on resolution
 
@@ -191,6 +193,19 @@ class SectorView(interface.View):
                 self.meters_per_char_x, self.meters_per_char_y)
         # draw the grid to the screen
         text = c.rows(d_x, d_y)
+
+        self._cached_grid = (
+                major_ticks_x,
+                minor_ticks_y,
+                major_ticks_y,
+                minor_ticks_x,
+                text
+        )
+
+    def draw_grid(self):
+        """ Draws a grid at tick lines. """
+
+        major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, text = self._cached_grid
 
         for i, line in enumerate(text):
             self.viewscreen.addstr(i, 0, line, curses.color_pair(29))
@@ -369,12 +384,14 @@ class SectorView(interface.View):
         # this ensures any annotations down and to the right of an entity on
         # the sector map will not cover up the icon for an entity
         # this assumes any extra annotations are down and to the right
-        for hit in sorted(self.sector.spatial.intersection(self.bbox, objects=True), key=lambda h: h.bbox):
-            entity = self.sector.entities[hit.object]
+        for entity in sorted(self.sector.spatial_query(self.bbox), key=lambda h: (h.x, h.y)):
+            #entity = self.sector.entities[hit]#hit.object]
             screen_x, screen_y = util.sector_to_screen(
                     entity.x, entity.y, self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
-            if (screen_x, screen_y) in occupied:
+            if screen_x < 0 or screen_y < 0:
+                continue
+            elif (screen_x, screen_y) in occupied:
                 entities = occupied[(screen_x, screen_y)]
                 entities.append(entity)
                 self.draw_multiple_entities(
@@ -527,13 +544,14 @@ class SectorView(interface.View):
             self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
 
             # select a target within a cell of the mouse click
-            hit = next(self.sector.spatial.nearest(
-                (sector_x-self.meters_per_char_x, sector_y-self.meters_per_char_y,
-                    sector_x+self.meters_per_char_x, sector_y+self.meters_per_char_y),
-                1, objects=True), None)
+            bounds = (
+                    sector_x-self.meters_per_char_x, sector_y-self.meters_per_char_y,
+                    sector_x+self.meters_per_char_x, sector_y+self.meters_per_char_y
+            )
+            hit = next(self.sector.spatial_query(bounds), None)
             if hit:
                 #TODO: check if the hit is close enough
-                self.select_target(hit.object, self.sector.entities[hit.object])
+                self.select_target(hit.entity_id, hit)
         elif key == curses.ascii.ESC: #TODO: should handle escape here
             if self.selected_target is not None:
                 self.select_target(None, None)

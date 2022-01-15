@@ -4,6 +4,8 @@ import contextlib
 import time
 import math
 import warnings
+import cProfile
+import pstats
 
 import ipdb
 
@@ -27,13 +29,13 @@ class IPDBManager:
             ipdb.post_mortem(tb)
 
 class StellarPunkSim:
-    def __init__(self, gamestate, ui):
+    def __init__(self, gamestate, ui, dt=1/60):
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
 
         # time between ticks, this is the framerate
-        self.dt = 1/60
+        self.dt = dt
 
         self.ticktime_alpha = 0.2
         self.min_tick_sleep = self.dt/5
@@ -90,11 +92,17 @@ class StellarPunkSim:
             for ship in sector.ships:
                 # update ship positions from physics sim
                 ship.x, ship.y = ship.phys.position
+                #new_x, new_y = ship.phys.position
+                #if (new_x, new_y) != (ship.x, ship.y):
+                #    ship.sector.spatial.delete(ship.short_id_int(), (ship.x, ship.y, ship.x, ship.y))
+                #    ship.x, ship.y = ship.phys.position
+                #    ship.sector.spatial.insert(ship.short_id_int(), (ship.x, ship.y, ship.x, ship.y), obj=ship.entity_id)
+
                 ship.angle = ship.phys.angle
                 ship.velocity = ship.phys.velocity
                 ship.angular_velocity = ship.phys.angular_velocity
 
-            sector.reindex_locations()
+            #sector.reindex_locations()
 
             #self.logger.debug(f'{sector} has {len(sector.ships)}')
             for ship in sector.ships:
@@ -119,16 +127,19 @@ class StellarPunkSim:
             # but why would we miss ticks?
             if now - next_tick > self.dt:
                 self.gamestate.missed_ticks += int((now - next_tick)/self.dt)
+                self.logger.debug(f'behind by {(now - next_tick)/self.dt} ticks')
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
                 self.tick(self.dt)
-                #self.logger.debug(f'tick took {time.perf_counter() - starttime}s vs {self.dt}s')
 
             last_tick = next_tick
             next_tick = next_tick + self.dt
 
             now = time.perf_counter()
+
+            ticktime = now - starttime
+            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
 
             timeout = next_tick - now
             if timeout > 0: # only render a frame if there's enough time
@@ -141,11 +152,8 @@ class StellarPunkSim:
                     self.logger.info("quitting")
                     keep_running = False
 
-            now = time.perf_counter()
-            ticktime = now - starttime
-            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
-
 def main():
+    profile = False
     with contextlib.ExitStack() as context_stack:
         # for reference, config to stderr:
         # logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -177,11 +185,20 @@ def main():
 
         stellar_punk.production_chain.viz().render("production_chain", format="pdf")
 
-        sim = StellarPunkSim(gamestate, ui)
+        dt = 1/60
+        if profile:
+            dt = 1/40
+        sim = StellarPunkSim(gamestate, ui, dt=dt)
         sim.initialize()
+
+        if profile:
+            pr = context_stack.enter_context(cProfile.Profile())
         sim.run()
 
         logging.info("done.")
+
+    if profile:
+        pstats.Stats(pr).dump_stats("/tmp/profile.prof")
 
 if __name__ == "__main__":
     main()
