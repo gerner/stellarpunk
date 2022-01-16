@@ -222,8 +222,6 @@ class UniverseGenerator:
 
     def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None):
         ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
-        ship.default_order_fn = lambda x: orders.WaitOrder(x, self.gamestate)
-        ship.order = ship.default_order()
 
         #TODO: clean this up
         # set up physics stuff
@@ -298,6 +296,13 @@ class UniverseGenerator:
             ship_body.angular_velocity = w
 
         sector.add_entity(ship)
+
+        #ship.default_order_fn = lambda x: orders.WaitOrder(x, self.gamestate)
+        def goto_random_station(ship):
+            station = self.r.choice(ship.sector.stations)
+            return orders.GoToLocation((station.x, station.y), ship, self.gamestate)
+        ship.default_order_fn = goto_random_station
+        ship.order = ship.default_order()
 
         return ship
 

@@ -9,7 +9,7 @@ import curses.ascii
 import time
 import uuid
 
-import drawille
+import drawille # type: ignore
 
 from stellarpunk import util, core, interface, orders
 

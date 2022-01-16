@@ -7,7 +7,7 @@ import warnings
 import cProfile
 import pstats
 
-import ipdb
+import ipdb # type: ignore
 
 from stellarpunk import util, core, interface, generate
 from stellarpunk.interface import universe as universe_interface
@@ -188,7 +188,7 @@ def main():
 
         dt = 1/60
         if profile:
-            dt = 1/30
+            dt = 1/40
         sim = StellarPunkSim(gamestate, ui, dt=dt)
         sim.initialize()
 

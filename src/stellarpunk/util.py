@@ -5,7 +5,7 @@ import bisect
 import logging
 
 import numpy as np
-import drawille
+import drawille # type: ignore
 
 def fullname(o):
     # from https://stackoverflow.com/a/2020083/553580

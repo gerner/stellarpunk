@@ -7,8 +7,7 @@ import logging
 import collections
 
 
-import graphviz
-import rtree
+import graphviz # type: ignore
 import numpy as np
 import pymunk
 
