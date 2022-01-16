@@ -111,6 +111,7 @@ class StellarPunkSim:
             #TODO: do resource and production stuff
             #TODO: do AI stuff
         self.gamestate.ticks += 1
+        self.gamestate.timestamp += dt
 
     def run(self):
         keep_running = True
@@ -126,7 +127,7 @@ class StellarPunkSim:
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
             if now - next_tick > self.dt:
-                self.gamestate.missed_ticks += int((now - next_tick)/self.dt)
+                self.gamestate.missed_ticks += 1
                 self.logger.debug(f'behind by {(now - next_tick)/self.dt} ticks')
 
             starttime = time.perf_counter()
@@ -187,7 +188,7 @@ def main():
 
         dt = 1/60
         if profile:
-            dt = 1/40
+            dt = 1/30
         sim = StellarPunkSim(gamestate, ui, dt=dt)
         sim.initialize()
 

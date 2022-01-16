@@ -92,6 +92,13 @@ class UniverseView(interface.View):
             self.viewscreen.addstr(y+1,x+1, sector.short_id())
 
         self.viewscreen.addstr(y+2,x+1, sector.name)
+
+        for resource, asteroids in sector.asteroids.items():
+            amount = sum(map(lambda x: x.amount, asteroids))
+            icon = interface.Icons.ASTEROID
+            icon_attr = curses.color_pair(interface.Icons.RESOURCE_COLORS[resource])
+            self.viewscreen.addstr(y+3+resource, x+2, f'{icon} {amount:.2e}', icon_attr)
+
         self.viewscreen.addstr(y+interface.Settings.UMAP_SECTOR_HEIGHT-2, x+1, f'{len(sector.entities)} objects')
 
     def update_display(self):

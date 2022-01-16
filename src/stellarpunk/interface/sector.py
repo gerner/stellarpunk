@@ -136,6 +136,7 @@ class SectorView(interface.View):
             return
         self.selected_target = target_id
         self.selected_entity = entity
+        self.logger.info(f'selected target {entity}')
         if entity:
             if isinstance(entity, core.Ship):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.order}')
@@ -311,6 +312,17 @@ class SectorView(interface.View):
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
         util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x)
 
+    def draw_entity_debug_info(self, y, x, entity, description_attr):
+        if isinstance(entity, core.Ship):
+            self.viewscreen.addstr(y, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
+            self.viewscreen.addstr(y+1, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
+            self.viewscreen.addstr(y+2, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
+            self.viewscreen.addstr(y+3, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
+            if isinstance(entity, core.Ship) and entity.collision_threat:
+                self.viewscreen.addstr(y+4, x+1, f' c: {entity.collision_threat.short_id()}', description_attr)
+        else:
+            self.viewscreen.addstr(y, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
+
     def draw_entity(self, y, x, entity, icon_attr=0):
         """ Draws a single sector entity at screen position (y,x) """
 
@@ -327,36 +339,40 @@ class SectorView(interface.View):
                 theta += step
             util.draw_canvas_at(c, self.viewscreen, y, x)
 
-        if isinstance(entity, core.Ship):
-            icon = interface.Icons.angle_to_ship(entity.angle)
-        elif isinstance(entity, core.Station):
-            icon = interface.Icons.STATION
-        elif isinstance(entity, core.Planet):
-            icon = interface.Icons.PLANET
-        else:
-            icon = "?"
 
-        description_attr = curses.color_pair(9)
+        icon = interface.Icons.sector_entity_icon(entity)
+        icon_attr |= interface.Icons.sector_entity_attr(entity)
+
+        description_attr = interface.Icons.sector_entity_attr(entity)
+        #description_attr |= curses.A_DIM#curses.color_pair(9)
         if entity.entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
             description_attr |= curses.A_STANDOUT
+        else:
+            description_attr |= curses.A_DIM
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
 
 
-        self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
+        if not isinstance(entity, core.Asteroid):
+            self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
 
         if self.debug_entity:
-            self.viewscreen.addstr(y+1, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
-            self.viewscreen.addstr(y+2, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
-            self.viewscreen.addstr(y+3, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
-            self.viewscreen.addstr(y+4, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
-            if isinstance(entity, core.Ship) and entity.collision_threat:
-                self.viewscreen.addstr(y+5, x+1, f' c: {entity.collision_threat.short_id()}', description_attr)
+            self.draw_entity_debug_info(y+1, x, entity, description_attr)
 
     def draw_multiple_entities(self, y, x, entities):
-        self.viewscreen.addstr(y, x, interface.Icons.MULTIPLE)
-        self.viewscreen.addstr(y, x+1, f' {len(entities)} entities', curses.color_pair(9))
+
+        icons = set(map(interface.Icons.sector_entity_icon, entities))
+        icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
+
+        icon_attrs = set(map(interface.Icons.sector_entity_attr, entities))
+        icon_attr = icon_attrs.pop() if len(icon_attrs) == 1 else 0
+
+        prefixes = set(map(lambda x: x.id_prefix, entities))
+        prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
+
+        self.viewscreen.addstr(y, x, icon, icon_attr)
+        self.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
     def draw_sector_map(self):
         """ Draws a map of a sector. """
@@ -379,30 +395,45 @@ class SectorView(interface.View):
             if ship.collision_threat:
                 collision_threats.append(ship.collision_threat)
 
+        last_loc = None
         occupied = {}
+        def draw_cell(loc):
+            if loc is None:
+                return
+
+            entities = occupied[loc]
+            if len(entities) > 1:
+                self.draw_multiple_entities(
+                        loc[1], loc[0], entities)
+            else:
+                icon_attr = 0
+                if entity in collision_threats:
+                    icon_attr = curses.color_pair(1)
+
+                self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
+
         # sort the entities so we draw left to right, top to bottom
         # this ensures any annotations down and to the right of an entity on
         # the sector map will not cover up the icon for an entity
         # this assumes any extra annotations are down and to the right
-        for entity in sorted(self.sector.spatial_query(self.bbox), key=lambda h: (h.x, h.y)):
-            #entity = self.sector.entities[hit]#hit.object]
+        for entity in self.sector.spatial_query(self.bbox):#sorted(self.sector.spatial_query(self.bbox), key=lambda h: (h.y, h.x)):
             screen_x, screen_y = util.sector_to_screen(
                     entity.x, entity.y, self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
             if screen_x < 0 or screen_y < 0:
                 continue
-            elif (screen_x, screen_y) in occupied:
-                entities = occupied[(screen_x, screen_y)]
-                entities.append(entity)
-                self.draw_multiple_entities(
-                        screen_y, screen_x, entities)
-            else:
-                occupied[(screen_x, screen_y)] = [entity]
-                icon_attr = 0
-                if entity in collision_threats:
-                    icon_attr = curses.color_pair(1)
 
-                self.draw_entity(screen_y, screen_x, entity, icon_attr=icon_attr)
+            if last_loc != (screen_x, screen_y):
+                draw_cell(last_loc)
+
+            last_loc = (screen_x, screen_y)
+            if last_loc in occupied:
+                entities = occupied[last_loc]
+                entities.append(entity)
+            else:
+                occupied[last_loc] = [entity]
+
+        draw_cell(last_loc)
 
         #TODO: draw an indicator for off-screen targeted entities
         #se_x = self.selected_entity.x
@@ -472,12 +503,17 @@ class SectorView(interface.View):
             self.interface.generator.spawn_ship(self.sector, 0, 1100, v=(0,0), w=0)
             self.interface.generator.spawn_ship(self.sector, 0, 2200, v=(0,0), w=0)
 
+        def spawn_resources(args):
+            x,y = self.scursor_x, self.scursor_y
+            self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
                 "target": (target, util.tab_completer(self.sector.entities.keys())),
                 "spawn_ship": spawn_ship,
                 "spawn_collision": spawn_collision,
+                "spawn_resources": spawn_resources,
                 "goto": goto,
                 "wait": wait,
         }

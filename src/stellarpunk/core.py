@@ -4,6 +4,8 @@ import uuid
 import datetime
 import enum
 import logging
+import collections
+
 
 import graphviz
 import rtree
@@ -81,6 +83,7 @@ class Sector(Entity):
         self.planets = []
         self.stations = []
         self.ships = []
+        self.asteroids = collections.defaultdict(list)
         self.resources = []
 
         # id -> entity for all entities in the sector
@@ -95,6 +98,9 @@ class Sector(Entity):
         for hit in self.space.bb_query(bbox, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.body.entity
 
+    def is_occupied(self, x, y, eps=1e1):
+        return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
+
     def add_entity(self, entity):
         #TODO: worry about collisions at location?
 
@@ -104,17 +110,41 @@ class Sector(Entity):
             self.stations.append(entity)
         elif isinstance(entity, Ship):
             self.ships.append(entity)
+        elif isinstance(entity, Asteroid):
+            self.asteroids[entity.resource].append(entity)
         else:
-            raise ValueError("unknown entity type {entity.__class__}")
+            raise ValueError(f'unknown entity type {entity.__class__}')
 
+        self.space.add(entity.phys, *(entity.phys.shapes))
         entity.sector = self
         self.entities[entity.entity_id] = entity
+
+    def remove_entity(self, entity):
+
+        if entity.entity_id not in self.entities:
+            raise ValueError(f'entity {entity.entity_id} not in this sector')
+
+        if isinstance(entity, Planet):
+            self.planets.remove(entity)
+        elif isinstance(entity, Station):
+            self.stations.remove(entity)
+        elif isinstance(entity, Ship):
+            self.ships.remove(entity)
+        elif isinstance(entity, Asteroid):
+            self.asteroids[entity.resource].remove(entity)
+        else:
+            raise ValueError(f'unknown entity type {entity.__class__}')
+
+        self.space.remove(entity.phys, *entity.phys.shapes)
+        entity.sector = None
+        del self.entities[entity.entity_id]
 
 class ObjectType(enum.IntEnum):
     OTHER = enum.auto()
     SHIP = enum.auto()
     STATION = enum.auto()
     PLANET = enum.auto()
+    ASTEROID = enum.auto()
 
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
@@ -164,7 +194,7 @@ class Station(SectorEntity):
 class Ship(SectorEntity):
 
     id_prefix = "SHP"
-    objec_type = ObjectType.SHIP
+    object_type = ObjectType.SHIP
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -193,6 +223,18 @@ class Ship(SectorEntity):
     def default_order(self):
         return self.default_order_fn(self)
 
+class Asteroid(SectorEntity):
+
+    id_prefix = "AST"
+    object_type = ObjectType.ASTEROID
+
+    def __init__(self, resource, amount, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.resource = resource
+        self.amount = amount
+
+    def __str__(self):
+        return f'{self.short_id()} at {(self.x, self.y)} r:{self.resource} a:{self.amount}'
 
 class Character(Entity):
     def __init__(self, *args, **kwargs):
@@ -249,6 +291,7 @@ class StellarPunk:
         self.keep_running = True
 
         self.base_date = datetime.datetime(2234, 4, 3)
+        self.timestamp = 0
 
         self.dt = 1/60
         self.ticks = 0
@@ -262,7 +305,7 @@ class StellarPunk:
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
         # increment the ticks even though we don't process them?
-        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.ticks*self.dt)
+        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.timestamp)
 
     def tick(self):
         # iterate through characters

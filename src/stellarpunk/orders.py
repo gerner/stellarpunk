@@ -4,7 +4,6 @@ import logging
 import math
 
 import numpy as np
-import pymunk
 
 from stellarpunk import util, core
 
@@ -173,8 +172,7 @@ class AbstractSteeringOrder(core.Order):
 
         i = 0
         #for hit in sector.spatial.intersection(bounds, objects="raw"):
-        bb_query = pymunk.BB(*bounds)
-        for entity in sector.spatial_query(bb_query):
+        for entity in sector.spatial_query(bounds):
 
             i+=1
             #entity = sector.entities[hit]

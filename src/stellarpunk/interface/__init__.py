@@ -13,7 +13,7 @@ import collections
 import math
 import collections.abc
 
-from stellarpunk import util, generate
+from stellarpunk import util, generate, core
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -48,9 +48,10 @@ class Icons:
     SHIP_NW = "\u25E4"
     SHIP_NE = "\u25E5"
 
-    PLANET = "\u25CB"
-    STATION = "\u25A1"
-    DERELICT = "\u2302" # house symbol (kina looks like a gravestone?)
+    PLANET = "\u25CB" #"○" \u25CB white circle
+    STATION = "\u25A1" #"□" \u25A1 white square
+    DERELICT = "\u2302" # "⌂" house symbol (kinda looks like a gravestone?)
+    ASTEROID = "\u25C7" # "◇" \u25C7 white diamond
 
     MULTIPLE = "*"
 
@@ -73,7 +74,7 @@ class Icons:
     "" \u25D1 circle with right half black
     "" \u25D2 circle with lower half black
     "" \u25D3 circle with upper half black
-    "" \u25C6 white diamond
+    "" \u25C7 white diamond
     "◆" \u25C6 black diamond
     "□" \u25A1 white square
     "■" \u25A0 black square
@@ -82,6 +83,8 @@ class Icons:
     "" \u25F2 white square with lower right quadrant
     "" \u25F3 white square with upper right quadrant
     """
+
+    RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
 
     @staticmethod
     def angle_to_ship(angle):
@@ -102,6 +105,27 @@ class Icons:
                 Icons.SHIP_NE
         ]
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
+
+    @staticmethod
+    def sector_entity_icon(entity):
+        if isinstance(entity, core.Ship):
+            icon = Icons.angle_to_ship(entity.angle)
+        elif isinstance(entity, core.Station):
+            icon = Icons.STATION
+        elif isinstance(entity, core.Planet):
+            icon = Icons.PLANET
+        elif isinstance(entity, core.Asteroid):
+            icon = Icons.ASTEROID
+        else:
+            icon = "?"
+        return icon
+
+    @staticmethod
+    def sector_entity_attr(entity):
+        if isinstance(entity, core.Asteroid):
+            return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
+        else:
+            return 0
 
 class View:
     def __init__(self, interface):
@@ -209,7 +233,7 @@ class CommandInput(View):
             self.partial = self.command
         elif key == curses.ascii.TAB:
             if " " not in self.command:
-                self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or ""
+                self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial
             elif self._command_name() in self.commands and isinstance(self.commands[self._command_name()], collections.abc.Sequence):
                 self.command = self.commands[self._command_name()][1](self.partial, self.command) or ""
         elif key == curses.ascii.ESC:

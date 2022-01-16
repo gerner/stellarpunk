@@ -154,8 +154,12 @@ class UniverseGenerator:
     def _gen_sector_name(self):
         return "Some Sector"
 
-    def _gen_sector_location(self, sector):
-        return self.r.normal(0, 1, 2) * sector.radius
+    def _gen_sector_location(self, sector, unoccupied=True):
+        loc = self.r.normal(0, 1, 2) * sector.radius
+        while unoccupied and sector.is_occupied(*loc):
+            loc = self.r.normal(0, 1, 2) * sector.radius
+
+        return loc
 
     def _gen_planet_name(self):
         return "Magusan"
@@ -169,13 +173,15 @@ class UniverseGenerator:
     def _gen_character_name(self):
         return "Somebody"
 
+    def _gen_asteroid_name(self):
+        return "Asteroid X"
+
     def spawn_station(self, sector, x, y, resource=None):
         if resource is None:
             resource = self.r.uniform(0, len(pchain.prices)-pchain.ranks[-1])
 
         station = core.Station(x, y, self._gen_station_name())
         station.resource = resource
-        sector.add_entity(station)
 
         station_radius = 300
 
@@ -190,14 +196,15 @@ class UniverseGenerator:
         station.phys = station_body
         station.radius = station_radius
 
-        sector.space.add(station_body, station_shape)
+        sector.add_entity(station)
+
+        return station
 
     def spawn_planet(self, sector, x, y):
         planet_radius = 1000
 
         planet = core.Planet(x, y, self._gen_planet_name())
         planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
-        sector.add_entity(planet)
 
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
@@ -209,13 +216,14 @@ class UniverseGenerator:
         planet.phys = planet_body
         planet.radius = planet_radius
 
-        sector.space.add(planet_body, planet_shape)
+        sector.add_entity(planet)
+
+        return planet
 
     def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None):
         ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
         ship.default_order_fn = lambda x: orders.WaitOrder(x, self.gamestate)
         ship.order = ship.default_order()
-        sector.add_entity(ship)
 
         #TODO: clean this up
         # set up physics stuff
@@ -289,7 +297,87 @@ class UniverseGenerator:
         else:
             ship_body.angular_velocity = w
 
-        sector.space.add(ship_body, ship_shape)
+        sector.add_entity(ship)
+
+        return ship
+
+    def spawn_resource_field(self, sector, x, y, resource, total_amount, width=None, mean_per_asteroid=1e5, variance_per_asteroid=1e4):
+        """ Spawns a resource field centered on x,y.
+
+        resource : the type of resource
+        total_amount : the total amount of that resource in the field
+        width : the "width" of the field (stdev of the normal distribution),
+            default sector radius / 5
+        mean_per_asteroid : mean of resources per asteroid, default 1e5
+        stdev_per_asteroid : stdev of resources per asteroid, default 1e4
+        """
+
+        field_center = np.array((x,y))
+        if not width:
+            width = sector.radius / 5
+
+        # generate asteroids until we run out of resources
+        asteroids = []
+        while total_amount > 0:
+            loc = self.r.normal(0, width, 2) + field_center
+            amount = self.r.normal(mean_per_asteroid, variance_per_asteroid)
+            if amount > total_amount:
+                amount = total_amount
+
+            asteroid = core.Asteroid(resource, amount, loc[0], loc[1], self._gen_asteroid_name())
+
+            asteroid_radius = 100
+
+            #TODO: stations are static?
+            #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
+            body = pymunk.Body(body_type=pymunk.Body.STATIC)
+            shape = pymunk.Circle(body, asteroid_radius)
+            shape.friction=0.1
+            shape.collision_type = asteroid.object_type
+            body.position = asteroid.x, asteroid.y
+            body.entity = asteroid
+            asteroid.phys = body
+            asteroid.radius = asteroid_radius
+
+            sector.add_entity(asteroid)
+
+            asteroids.append(asteroid)
+
+            total_amount -= amount
+
+        return asteroids
+
+    def harvest_resources(self, sector, x, y, resource, amount):
+        asteroids = sector.asteroids[resource].copy()
+
+        # probability of harvest falls off inverse square
+        dists = np.sqrt(
+            np.sum(
+                 np.array(list((x - asteroid.x, y - asteroid.y) for asteroid in asteroids))**2,
+                 axis=1
+            )
+        )
+
+        dists = 1/dists**2
+        asteroid_probs = dists / dists.sum()
+
+        # repeatedly mine asteroids, using them up and removing
+        # them from the sector until we've paid the resource cost
+        # for the station
+        while amount > 0:
+            i = self.r.choice(len(asteroids), p=asteroid_probs)
+            asteroid = asteroids[i]
+
+            amount_to_mine = min(amount, asteroid.amount)
+            asteroid.amount -= amount_to_mine
+            amount -= amount_to_mine
+
+            # if we've used up this one, remove it from the sector
+            # set its prob to zero and renormalize
+            if asteroid.amount == 0:
+                sector.remove_entity(asteroid)
+                asteroid_probs[i] = 0
+                asteroid_probs = asteroid_probs/asteroid_probs.sum()
 
     def generate_chain(
             self,
@@ -481,6 +569,10 @@ class UniverseGenerator:
             # plenty of resources
             # plenty of production
 
+            #TODO: resources we get should be enough to build out a full
+            #production chain, plus some more in neighboring sectors, plus
+            #fleet of ships, plus support population for a long time (from
+            #expansion through the fall)
             sector.resources = self.r.uniform(
                     mean_habitable_resources/2,
                     mean_habitable_resources*1.5,
@@ -488,12 +580,41 @@ class UniverseGenerator:
 
             self.logger.info(f'starting resources: {sector.resources}')
 
+            #TODO: set up resource fields
+            # random number of fields per resource
+            # random sizes
+            # random allocation to each that sums to desired total
+            num_stations = len(pchain.prices)-pchain.ranks[-1]
+            resources_to_generate = raw_needs[:,RESOURCE_REL_STATION] *  self.r.uniform(num_stations, 2*num_stations)
+            #resources_to_generate += raw_needs[:,RESOURCE_REL_SHIP] * 100
+            #resources_to_generate += raw_needs[:,RESOURCE_REL_CONSUMER] * 100*100
+            asteroids = {}
+            for resource, amount in enumerate(resources_to_generate):
+                self.logger.info(f'spawning resource fields for {amount} units of {resource} in sector {sector.short_id()}')
+                # choose a number of fields to start off with
+                # divide resource amount across them
+                field_amounts = [amount]
+                # generate a field for each one
+                asteroids[resource] = []
+                for field_amount in field_amounts:
+                    loc = self._gen_sector_location(sector)
+                    asteroids[resource].extend(self.spawn_resource_field(sector, loc[0], loc[1], resource, amount))
+                self.logger.info(f'generated {len(asteroids[resource])} asteroids for resource {resource} in sector {sector.short_id()}')
+
+            self.logger.info(f'beginning entities: {len(sector.entities)}')
+
+
             #TODO: production and population
             # set up production stations according to resources
             # every inhabited sector should have a complete production chain
             for i in range(len(pchain.prices)-pchain.ranks[-1]):
                 entity_loc = self._gen_sector_location(sector)
+
+                # deplete enough resources from asteroids to pay for this station
+                for resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
+                    self.harvest_resources(sector, entity_loc[0], entity_loc[1], resource, amount)
                 self.spawn_station(sector, entity_loc[0], entity_loc[1], resource=i)
+
                 sector.resources -= raw_needs[:,RESOURCE_REL_STATION]
             # spend resources to build additional stations
             # consume resources to establish and support population
@@ -502,7 +623,7 @@ class UniverseGenerator:
             entity_loc = self._gen_sector_location(sector)
             self.spawn_planet(sector, entity_loc[0], entity_loc[1])
 
-            self.logger.info(f'ending resources: {sector.resources}')
+            self.logger.info(f'ending resources: {sector.resources} ending entities: {len(sector.entities)}')
 
             self.gamestate.sectors[(x,y)] = sector
 
@@ -535,7 +656,7 @@ class UniverseGenerator:
         for x,y in habitable_coordinates:
             sector = self.gamestate.sectors[(x,y)]
             num_ships = self.r.integers(5,15)
-            self.logger.debug(f'adding {num_ships} to sector {sector.short_id()}')
+            self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
                 self.spawn_ship(sector, ship_x, ship_y)
