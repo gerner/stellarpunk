@@ -5,6 +5,7 @@ import bisect
 import logging
 
 import numpy as np
+from numba import jit # type: ignore
 import drawille # type: ignore
 
 def fullname(o):
@@ -70,38 +71,47 @@ def screen_to_sector(
             (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
     )
 
-def magnitude(x, y):
-    return math.sqrt(x*x + y*y)
+@jit(cache=True, nopython=True)
+def magnitude(x:float, y:float) -> float:
+    return np.sqrt(x*x + y*y)
 
-def cartesian_to_polar(x, y):
-    r = math.sqrt(x*x + y*y)
+@jit(cache=True, nopython=True)
+def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
+    r = np.sqrt(x*x + y*y)
     if x == 0:
         if y > 0:
-            a = math.pi/2
+            a = np.pi/2
         else:
-            a = -1 * math.pi/2
+            a = -1 * np.pi/2
     else:
-        a = math.atan(y/x)
+        a = np.arctan(y/x)
     if x < 0:
-        return r, a+math.pi
+        return r, a+np.pi
     elif y < 0:
-        return r, a+math.pi*2
+        return r, a+np.pi*2
     else:
         return r, a
 
-def polar_to_cartesian(r, theta):
-    x = r * math.cos(theta)
-    y = r * math.sin(theta)
+@jit(cache=True, nopython=True)
+def polar_to_cartesian(r:float, theta:float) -> tuple[float, float]:
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
     return (x,y)
 
 
-def normalize_angle(angle, shortest=False):
-    angle = angle % (2*math.pi)
-    angle = (angle + 2*math.pi) if angle < 0 else angle
+@jit(cache=True, nopython=True)
+def normalize_angle(angle:float, shortest:bool=False) -> float:
+    angle = angle % (2*np.pi)
+    angle = (angle + 2*np.pi) if angle < 0 else angle
     if not shortest or angle <= math.pi:
         return angle
     else:
-        return angle - 2*math.pi
+        return angle - 2*np.pi
+
+@jit(cache=True, nopython=True)
+def clip(x:float, min_x:float, max_x:float) -> float:
+    return min_x if x < min_x else max_x if x > max_x else x
+
 
 def drawille_vector(x, y, canvas=None, tick_size=3):
     """ Draws a vector (x,y) on a drawille canvas and returns it.

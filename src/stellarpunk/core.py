@@ -1,11 +1,13 @@
 """ Core stuff for Stellarpunk """
 
+from __future__ import annotations
+
 import uuid
 import datetime
 import enum
 import logging
 import collections
-
+from typing import Optional
 
 import graphviz # type: ignore
 import numpy as np
@@ -153,7 +155,7 @@ class SectorEntity(Entity):
     def __init__(self, x, y, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.sector = None
+        self.sector: Optional[Sector] = None
 
         # some physical properties
         self.mass = 0
@@ -205,21 +207,27 @@ class Ship(SectorEntity):
         # max torque for turning
         self.max_torque = 0
 
-        self.order = None
+        self.orders = collections.deque()
         self.default_order_fn = lambda x: None
 
-        self.collision_threat = None
+        self.collision_threat: Optional[SectorEntity] = None
 
-    def max_speed(self):
-        return self.max_thrust / self.mass * 5
+    def __str__(self) -> str:
+        if self.sector:
+            return f'{self.short_id()}@{self.sector.short_id()}'
+        else:
+            return f'{self.short_id()}@None'
 
-    def max_acceleration(self):
+    def max_speed(self) -> float:
+        return self.max_thrust / self.mass * 10
+
+    def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
 
-    def max_angular_acceleration(self):
+    def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
 
-    def default_order(self):
+    def default_order(self) -> Order:
         return self.default_order_fn(self)
 
 class Asteroid(SectorEntity):
@@ -251,7 +259,7 @@ class OrderLoggerAdapter(logging.LoggerAdapter):
         return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
 class Order:
-    def __init__(self, ship, gamestate):
+    def __init__(self, ship: Ship, gamestate: StellarPunk):
         self.gamestate = gamestate
         self.ship = ship
         self.eta = 0
@@ -260,13 +268,13 @@ class Order:
                 logging.getLogger(util.fullname(self)),
         )
 
-    def __str__(self):
-        return f'{self.__class__} for {self.ship.short_id()}@{self.ship.sector.short_id()}'
+    def __str__(self) -> str:
+        return f'{self.__class__} for {self.ship}'
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         return True
 
-    def act(self, dt):
+    def act(self, dt:float) -> None:
         """ Performs one immediate tick's of action for this order """
         pass
 

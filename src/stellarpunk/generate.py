@@ -302,11 +302,10 @@ class UniverseGenerator:
             station = self.r.choice(ship.sector.stations)
             return orders.GoToLocation((station.x, station.y), ship, self.gamestate)
         ship.default_order_fn = goto_random_station
-        ship.order = ship.default_order()
 
         return ship
 
-    def spawn_resource_field(self, sector, x, y, resource, total_amount, width=None, mean_per_asteroid=1e5, variance_per_asteroid=1e4):
+    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=None, mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> list[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
         resource : the type of resource
@@ -316,6 +315,9 @@ class UniverseGenerator:
         mean_per_asteroid : mean of resources per asteroid, default 1e5
         stdev_per_asteroid : stdev of resources per asteroid, default 1e4
         """
+
+        if total_amount < 0:
+            return []
 
         field_center = np.array((x,y))
         if not width:
@@ -352,8 +354,13 @@ class UniverseGenerator:
 
         return asteroids
 
-    def harvest_resources(self, sector, x, y, resource, amount):
+    def harvest_resources(self, sector: core.Sector, x: float, y: float, resource: int, amount: float) -> None:
+        if amount <= 0:
+            return
+
         asteroids = sector.asteroids[resource].copy()
+        if not asteroids:
+            raise ValueError(f'no asteroids of type {resource} in sector {sector.short_id()}')
 
         # probability of harvest falls off inverse square
         dists = np.sqrt(

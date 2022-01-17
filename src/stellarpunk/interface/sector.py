@@ -139,7 +139,7 @@ class SectorView(interface.View):
         self.logger.info(f'selected target {entity}')
         if entity:
             if isinstance(entity, core.Ship):
-                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.order}')
+                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.orders[0]}')
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
@@ -331,7 +331,7 @@ class SectorView(interface.View):
             c = drawille.Canvas()
             r = entity.radius
             theta = 0
-            step = 3/r*self.meters_per_char_x
+            step = 2/r*self.meters_per_char_x
             while theta < 2*math.pi:
                 c_x, c_y = util.polar_to_cartesian(r, theta)
                 d_x, d_y = util.sector_to_drawille(c_x, c_y, self.meters_per_char_x, self.meters_per_char_y)

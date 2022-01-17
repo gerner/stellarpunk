@@ -37,7 +37,7 @@ class StellarPunkSim:
         # time between ticks, this is the framerate
         self.dt = dt
 
-        self.ticktime_alpha = 0.2
+        self.ticktime_alpha = 0.1
         self.min_tick_sleep = self.dt/5
 
         self.collisions = []
@@ -60,23 +60,22 @@ class StellarPunkSim:
     def initialize(self):
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
-            h = sector.space.add_default_collision_handler()#add_wildcard_collision_handler(core.ObjectType.SHIP)
+            h = sector.space.add_default_collision_handler()
             h.data["sector"] = sector
             h.post_solve = self._ship_collision_detected
 
-    def tick_order(self, ship, dt):
-        if ship.order:
-            #self.logger.debug(f'evaluating {ship.order}')
-            if ship.order.is_complete():
-                self.logger.debug(f'{ship.entity_id} completed {ship.order}')
-                ship.order = ship.default_order()
-            else:
-                ship.order.act(dt)
+    def tick_order(self, ship: core.Ship, dt: float) -> None:
+        if not ship.orders:
+            ship.orders.append(ship.default_order())
+
+        order = ship.orders[0]
+        if order.is_complete():
+            self.logger.debug(f'{ship.entity_id} completed {order}')
+            ship.orders.popleft()
         else:
-            raise Exception(f'{ship} unexpectedly had no order!')
+            order.act(dt)
 
-
-    def tick(self, dt):
+    def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
         # update physics simulations
@@ -87,6 +86,7 @@ class StellarPunkSim:
             sector.space.step(dt)
 
             if self.collisions:
+                raise Exception()
                 self.gamestate.paused = True
 
             for ship in sector.ships:
@@ -163,6 +163,7 @@ def main():
                 filename="/tmp/stellarpunk.log",
                 level=logging.DEBUG
         )
+        logging.getLogger("numba").level = logging.INFO
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions
@@ -188,7 +189,7 @@ def main():
 
         dt = 1/60
         if profile:
-            dt = 1/40
+            dt = 1/20
         sim = StellarPunkSim(gamestate, ui, dt=dt)
         sim.initialize()
 

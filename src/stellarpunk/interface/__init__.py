@@ -508,7 +508,7 @@ class Interface:
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*1000:.2f}ms) {self.fps():.0f}fps')
+            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) ({self.gamestate.ticktime*1000:>5.2f}ms) {self.fps():>2.0f}fps')
         if self.gamestate.paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")

@@ -5,6 +5,7 @@ import math
 from typing import Optional
 
 import numpy as np
+from numba import jit # type: ignore
 
 from stellarpunk import util, core
 
@@ -12,13 +13,11 @@ ANGLE_EPS = 1e-2
 PARALLEL_EPS = 1e-3
 VELOCITY_EPS = 1e-2
 
-ZERO_VECTOR = np.array((0,0))
+ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
-def vec_length(v: np.ndarray) -> float:
-    return np.sqrt(np.sum(v ** 2))
-
-def torque_for_angle(target_angle, angle, w, max_torque, moment, dt, eps=ANGLE_EPS):
+@jit(cache=True, nopython=True)
+def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float, moment:float, dt:float, eps:float=ANGLE_EPS) -> float:
     """ What torque to apply to achieve target angle """
 
     difference_angle = util.normalize_angle(target_angle - angle, shortest=True)
@@ -27,10 +26,10 @@ def torque_for_angle(target_angle, angle, w, max_torque, moment, dt, eps=ANGLE_E
     if abs(w) < eps and abs(difference_angle) < eps:
         # bail if we're basically already there
         # caller can handle this, e.g. set rotation to target and w to 0
-        t = 0
+        t = 0.0
     elif abs(braking_angle) > abs(difference_angle):
         # we can't break in time, so just start breaking and we'll fix it later
-        t = moment * -1 * w / dt
+        t = moment * -1.0 * w / dt
     else:
         # add torque in the desired direction to get
         # accel = tau / moment
@@ -45,25 +44,58 @@ def torque_for_angle(target_angle, angle, w, max_torque, moment, dt, eps=ANGLE_E
         # crude method:
         #t = max_torque * np.sign(difference_angle)
 
-    return np.clip(t, -1*max_torque, max_torque)
+    return util.clip(t, -1.0*max_torque, max_torque)
+    #return np.clip(t, -1*max_torque, max_torque)
 
-def force_for_delta_velocity(dv, max_thrust, mass, dt, eps=VELOCITY_EPS):
+@jit(cache=True, nopython=True)
+def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:float, eps:float=VELOCITY_EPS) -> np.ndarray:
     """ What force to apply to get dv change in velocity. Ignores heading. """
 
-    dv_magnitude, dv_angle = util.cartesian_to_polar(*dv)
+    dv_magnitude, dv_angle = util.cartesian_to_polar(dv[0], dv[1])
     if dv_magnitude < eps:
         x,y = (0,0)
     else:
-        thrust = np.clip(mass * dv_magnitude / dt, 0, max_thrust)
+        #thrust = np.clip(mass * dv_magnitude / dt, 0, max_thrust)
+        thrust = util.clip(mass * dv_magnitude / dt, 0, max_thrust)
         x, y = util.polar_to_cartesian(thrust, dv_angle)
-    return (x,y)
+    return np.array((x,y))
+
+@jit(cache=True, nopython=True)
+def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, approach_time: float, margin: float) -> tuple[float, float, np.ndarray, np.ndarray, float]:
+    rel_pos = entity_pos - pos
+    rel_vel = entity_v - v
+
+    rel_speed = np.linalg.norm(rel_vel)
+
+    rel_dist = np.linalg.norm(rel_pos)
+
+    # check for parallel paths
+    if rel_speed == 0:
+        return rel_dist, math.inf, ZERO_VECTOR, ZERO_VECTOR, math.inf
+
+    rel_tangent = rel_vel / rel_speed
+    approach_t = -1 * rel_tangent.dot(rel_pos) / rel_speed
+
+    if approach_t <= 0 or approach_t >= approach_time:
+        return rel_dist, math.inf, ZERO_VECTOR, ZERO_VECTOR, math.inf
+
+    min_sep = np.linalg.norm((pos + v*approach_t) - (entity_pos + entity_v*approach_t))
+
+    if min_sep > entity_radius + margin:
+        return rel_dist, math.inf, ZERO_VECTOR, ZERO_VECTOR, math.inf
+
+    return rel_dist, approach_t, rel_pos, rel_vel, float(min_sep)
 
 class AbstractSteeringOrder(core.Order):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, safety_factor:float=1.2, **kwargs):
         super().__init__(*args, **kwargs)
-        self.collision_threat = None
+        self.safety_factor = safety_factor
+        self.collision_threat:Optional[core.SectorEntity] = None
+        self.nearest_neighbor = math.inf
         self.collision_threat_time = 0
-        self.collision_threat_max_age = 0.3
+
+        self.collision_threat_max_age = 0
+        self.high_awareness_dist = self.ship.max_speed() * self.collision_threat_max_age * 2 * self.safety_factor
 
     def _rotation_time(self, delta_angle: float) -> float:
         # theta_f = theta_0 + omega_0*t + 1/2 * alpha * t^2
@@ -90,6 +122,7 @@ class AbstractSteeringOrder(core.Order):
         else:
             self.ship.phys.torque = t
 
+    #@jit(nopython=True)
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float) -> None:
 
         mass = self.ship.mass
@@ -167,36 +200,55 @@ class AbstractSteeringOrder(core.Order):
         #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')
 
-    def _collision_neighbor(self, sector: core.Sector, neighborhood_dist: float, margin: float, v: np.ndarray=None) -> tuple[Optional[core.SectorEntity], float, np.ndarray, np.ndarray, float]:
-        bounds = (
-                self.ship.x-neighborhood_dist, self.ship.y-neighborhood_dist,
-                self.ship.x+neighborhood_dist, self.ship.y+neighborhood_dist
-        )
 
+    def _collision_neighbor(self, sector: core.Sector, neighborhood_dist: float, margin: float, v: np.ndarray=None) -> tuple[Optional[core.SectorEntity], float, np.ndarray, np.ndarray, float]:
         approach_time = math.inf
         neighbor: Optional[core.SectorEntity] = None
         relative_position: np.ndarray = ZERO_VECTOR
         relative_velocity: np.ndarray  = ZERO_VECTOR
-        minimum_separation = np.inf
+        minimum_separation = math.inf
+
 
         pos = np.array((self.ship.x, self.ship.y))
         if v is None:
             v = np.array(self.ship.velocity)
 
         # we cache the collision threat to avoid searching space
-        if self.gamestate.ticktime - self.collision_threat_time < self.collision_threat_max_age:
+        if self.nearest_neighbor > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = (self.collision_threat,) if self.collision_threat else ()
         else:
+            bounds = (
+                    self.ship.x-neighborhood_dist, self.ship.y-neighborhood_dist,
+                    self.ship.x+neighborhood_dist, self.ship.y+neighborhood_dist
+            )
+
             self.collision_threat = None
+            self.nearest_neighbor = math.inf
             hits = sector.spatial_query(bounds)
 
         for entity in hits:
+
+            # the query will include ourselves, so let's skip that
+            if entity == self.ship:
+                continue
+
             entity_pos = np.array((entity.x, entity.y))
             entity_v = np.array(entity.velocity)
+
+            rel_dist, approach_t, rel_pos, rel_vel, min_sep = _analyze_neighbor(
+                    pos, v, entity.radius, entity_pos, entity_v, approach_time, self.ship.radius + margin)
+
+            """
             rel_pos = entity_pos - pos
             rel_vel = entity_v - v
 
             rel_speed = np.linalg.norm(rel_vel)
+
+            rel_dist = np.linalg.norm(rel_pos)
+            if rel_dist < self.nearest_neighbor:
+                if rel_dist  == 0:
+                    raise Exception()
+                self.nearest_neighbor = float(rel_dist)
 
             # check for parallel paths
             if rel_speed == 0:
@@ -208,25 +260,27 @@ class AbstractSteeringOrder(core.Order):
             if approach_t <= 0 or approach_t >= approach_time:
                 continue
 
-            min_sep = vec_length((pos + v*approach_t) - (entity_pos + entity_v*approach_t))
+            min_sep = np.linalg.norm((pos + v*approach_t) - (entity_pos + entity_v*approach_t))
 
             if min_sep > self.ship.radius + entity.radius + margin:
                 continue
+            """
 
-            approach_time = approach_t
-            neighbor = entity
-            relative_position = rel_pos
-            relative_velocity = rel_vel
-            minimum_separation = min_sep
+            if approach_t < approach_time:
+                approach_time = approach_t
+                neighbor = entity
+                relative_position = rel_pos
+                relative_velocity = rel_vel
+                minimum_separation = float(min_sep)
 
         # cache the collision threat
         if neighbor != self.collision_threat:
             self.collision_threat = neighbor
-            self.collision_threat_time = self.gamestate.ticktime
+            self.collision_threat_time = self.gamestate.timestamp
 
         return neighbor, approach_time, relative_position, relative_velocity, minimum_separation
 
-    def _avoid_collisions_dv(self, sector, neighborhood_dist, margin, max_distance=math.inf, v=None, detail=False, margin_histeresis=10):
+    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=math.inf, v: Optional[np.ndarray]=None, margin_histeresis:float=10) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
 
         sector
@@ -234,8 +288,9 @@ class AbstractSteeringOrder(core.Order):
         margin: how far apart (between envelopes) to target
         max_distance: max distance to care about collisions
         v: our velocity
-        detail: to return detailed collision info
         margin_histeresis: margin to avoid rapid switching at the boundary
+
+        returns tuple of desired delta v to avoid collision, approach time, minimum separation and the target distance
         """
 
         if v is None:
@@ -246,10 +301,7 @@ class AbstractSteeringOrder(core.Order):
 
         if neighbor is None:
             self.ship.collision_threat = None
-            if detail:
-                return ZERO_VECTOR, math.inf, math.inf, 0
-            else:
-                return ZERO_VECTOR
+            return ZERO_VECTOR, math.inf, math.inf, 0
 
         # if the collision will happen outside our max time horizon (e.g. we
         # have plenty of time to stop), then don't worry about it.
@@ -264,10 +316,7 @@ class AbstractSteeringOrder(core.Order):
         collision_distance = np.linalg.norm(self.ship.velocity * approach_time)
         if collision_distance > max_distance:
             self.ship.collision_threat = None
-            if detail:
-                return ZERO_VECTOR, math.inf, math.inf, 0
-            else:
-                return ZERO_VECTOR
+            return ZERO_VECTOR, math.inf, math.inf, 0
 
         distance = np.linalg.norm(relative_position)
 
@@ -275,7 +324,7 @@ class AbstractSteeringOrder(core.Order):
         # desired margin, try to go directly away, other wise (this if) go away
         # from the collision positjion
         if minimum_separation > VELOCITY_EPS and distance > self.ship.radius + neighbor.radius + margin:
-            relative_position += relative_velocity * approach_time
+            relative_position = relative_position + relative_velocity * approach_time
             distance = np.linalg.norm(relative_position)
 
         speed = np.linalg.norm(v)
@@ -325,19 +374,16 @@ class AbstractSteeringOrder(core.Order):
         if target_relative_speed > self.ship.max_acceleration() * approach_time:
             self.logger.debug(f'cannot avoid collision: {target_relative_speed} > {self.ship.max_thrust} / {self.ship.mass} * {approach_time}')
 
-        if detail:
-            return delta_velocity, approach_time, minimum_separation, d
-        else:
-            return delta_velocity
+        return delta_velocity, approach_time, minimum_separation, d
 
 class KillRotationOrder(core.Order):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         return self.ship.angular_velocity == 0
 
-    def act(self, dt):
+    def act(self, dt: float) -> None:
         # apply torque up to max torque to kill angular velocity
         # torque = moment * angular_acceleration
         # the perfect acceleration would be -1 * angular_velocity / timestep
@@ -349,14 +395,14 @@ class KillRotationOrder(core.Order):
             self.ship.phys.torque = np.clip(t, -9000, 9000)
 
 class RotateOrder(AbstractSteeringOrder):
-    def __init__(self, target_angle, *args, **kwargs):
+    def __init__(self, target_angle: float, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.target_angle = util.normalize_angle(target_angle)
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         return self.ship.angular_velocity == 0 and util.normalize_angle(self.ship.angle) == self.target_angle
 
-    def act(self, dt):
+    def act(self, dt: float) -> None:
         self._rotate_to(self.target_angle, dt)
 
 class KillVelocityOrder(AbstractSteeringOrder):
@@ -365,17 +411,17 @@ class KillVelocityOrder(AbstractSteeringOrder):
     Rotates to opposite direction of current velocity and applies thrust to
     zero out velocity. """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         return self.ship.angular_velocity == 0 and self.ship.velocity == (0,0)
 
-    def act(self, dt):
+    def act(self, dt: float) -> None:
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class GoToLocation(AbstractSteeringOrder):
-    def __init__(self, target_location, *args, arrival_distance=1e3, safety_factor=1.2, **kwargs):
+    def __init__(self, target_location: np.ndarray, *args, arrival_distance: float=1e3, **kwargs) -> None:
         """ Creates an order to go to a specific location.
 
         The order will arrivate at the location approximately and with zero
@@ -383,21 +429,21 @@ class GoToLocation(AbstractSteeringOrder):
 
         target_location the location
         arrival_distance how close to the location to arrive
-        safety_factor how much safety to build into velocity and force calcs
         """
 
         super().__init__(*args, **kwargs)
-        self.target_location = np.array(target_location)
+        self.target_location = target_location
         self.arrival_distance = arrival_distance
-        self.safety_factor = safety_factor
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'GoToLocation: {self.target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
 
-    def is_complete(self):
-        return np.linalg.norm(self.target_location - np.array((self.ship.x, self.ship.y))) < self.arrival_distance and self.ship.velocity == (0,0)
+    def is_complete(self) -> bool:
+        return bool(np.linalg.norm(self.target_location - np.array((self.ship.x, self.ship.y))) < self.arrival_distance and self.ship.velocity == (0,0))
 
-    def act(self, dt):
+    def act(self, dt: float) -> None:
+        if self.ship.sector is None:
+            raise Exception(f'{self.ship} not in any sector')
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
 
@@ -405,12 +451,12 @@ class GoToLocation(AbstractSteeringOrder):
 
         # vector toward target
         current_location = np.array((self.ship.x, self.ship.y))
-        course = self.target_location - (current_location + v * dt)
+        course = self.target_location - (current_location)
         distance, target_angle = util.cartesian_to_polar(*course)
 
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
-        collision_dv = self._avoid_collisions_dv(self.ship.sector, 5e4, 3e2, max_distance=distance-self.arrival_distance)
+        collision_dv, _, _, _ = self._avoid_collisions_dv(self.ship.sector, 5e4, 3e2, max_distance=distance-self.arrival_distance)
 
         #TODO: quick hack to test just avoiding collisions
         #   if we do this then we get to our target margin
@@ -424,7 +470,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         max_acceleration = self.ship.max_acceleration()
         if distance < self.arrival_distance:
-            self._accelerate_to(collision_dv)
+            self._accelerate_to(collision_dv, dt)
         else:
             # accelerate along a vector toward the target location to a speed
             # as big as possible so we can reach zero velocity at the target
@@ -446,15 +492,18 @@ class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         # wait forever
         return False
 
-    def act(self, dt):
+    def act(self, dt:float) -> None:
+        if self.ship.sector is None:
+            raise Exception(f'{self.ship} not in any sector')
+
         # avoid collisions while we're waiting
         # but only if those collisions are really imminent
         # we want to have enough time to get away
-        collision_dv, approach_time, min_separation, distance=self._avoid_collisions_dv(self.ship.sector, 5e3, 3e2, detail=True)
+        collision_dv, approach_time, min_separation, distance=self._avoid_collisions_dv(self.ship.sector, 5e3, 3e2)
         if distance > 0:
             t = approach_time - self._rotation_time(2*math.pi)
             if t < 0 or distance > 1/2 * self.ship.max_acceleration()*t**2 / 1.2:
@@ -463,7 +512,7 @@ class WaitOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class MineOrder(AbstractSteeringOrder):
-    def __init__(self, target: core.Asteroid, *args, max_dist=1.2e3, **kwargs):
+    def __init__(self, target: core.Asteroid, *args, max_dist=1.2e3, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
         self.max_dist = max_dist
@@ -482,7 +531,30 @@ class MineOrder(AbstractSteeringOrder):
         # grab resources from the asteroid and add to our cargo
         pass
 
+class TransferCargo(core.Order):
+    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.target = target
+        self.resource = resource
+        self.amount = amount
+        self.transferred = 0
+
+    def is_complete(self) -> bool:
+        return self.transferred == self.amount
+
+    def act(self, dt:float) -> None:
+        # if we're too far away, go to the target
+        # otherwise, transfer the goods
+        pass
+
 class HarvestOrder(core.Order):
+    def __init__(self, base: core.SectorEntity, resource: int, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.base = base
+        self.resource = resource
+
     def is_complete(self):
         #TODO: harvest forever?
         return False
@@ -491,7 +563,6 @@ class HarvestOrder(core.Order):
         # choose an asteroid to harvest
         # go to it
         # mine it until we're full
-        # go back to home base
-        # drop off cargo
+        # goto + transfer cargo to home station
         # repeat
         pass
