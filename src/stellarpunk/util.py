@@ -3,6 +3,7 @@
 import math
 import bisect
 import logging
+import json
 
 import numpy as np
 from numba import jit # type: ignore
@@ -112,6 +113,11 @@ def normalize_angle(angle:float, shortest:bool=False) -> float:
 def clip(x:float, min_x:float, max_x:float) -> float:
     return min_x if x < min_x else max_x if x > max_x else x
 
+def write_history_to_file(ship, filename, mode="w"):
+    with open(filename, mode) as f:
+        for entry in ship.history:
+            f.write(json.dumps(entry.to_json()))
+            f.write("\n")
 
 def drawille_vector(x, y, canvas=None, tick_size=3):
     """ Draws a vector (x,y) on a drawille canvas and returns it.

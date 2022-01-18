@@ -25,9 +25,9 @@ setuptools.setup(
     ],
     install_requires=[
         "numpy",
+        "numba",
         "ipdb",
         "graphviz",
-        "rtree",
         "drawille",
         "pymunk",
     ],

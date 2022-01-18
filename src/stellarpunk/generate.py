@@ -17,6 +17,16 @@ class GenerationListener:
     def sectors_complete(self, sectors):
         pass
 
+def order_fn_null(ship, gamestate):
+    return core.Order(ship, gamestate)
+
+def order_fn_wait(ship, gamestate):
+    return orders.WaitOrder(ship, gamestate)
+
+def order_fn_goto_random_station(ship, gamestate):
+    station = gamestate.random.choice(ship.sector.stations)
+    return orders.GoToLocation(np.array((station.x, station.y)), ship, gamestate)
+
 class UniverseGenerator:
     def __init__(self, gamestate, seed=None, listener=None):
         self.logger = logging.getLogger(util.fullname(self))
@@ -180,20 +190,20 @@ class UniverseGenerator:
         if resource is None:
             resource = self.r.uniform(0, len(pchain.prices)-pchain.ranks[-1])
 
-        station = core.Station(x, y, self._gen_station_name())
-        station.resource = resource
-
         station_radius = 300
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        station = core.Station(x, y, station_body, self._gen_station_name())
+        station.resource = resource
+
         station_shape = pymunk.Circle(station_body, station_radius)
         station_shape.friction=0.1
         station_shape.collision_type = station.object_type
+        station_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.STATION)
         station_body.position = station.x, station.y
         station_body.entity = station
-        station.phys = station_body
         station.radius = station_radius
 
         sector.add_entity(station)
@@ -203,25 +213,24 @@ class UniverseGenerator:
     def spawn_planet(self, sector, x, y):
         planet_radius = 1000
 
-        planet = core.Planet(x, y, self._gen_planet_name())
-        planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
-
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        planet = core.Planet(x, y, planet_body, self._gen_planet_name())
+        planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
+
         planet_shape = pymunk.Circle(planet_body, planet_radius)
         planet_shape.friction=0.1
         planet_shape.collision_type = planet.object_type
+        planet_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.PLANET)
         planet_body.position = planet.x, planet.y
         planet_body.entity = planet
-        planet.phys = planet_body
         planet.radius = planet_radius
 
         sector.add_entity(planet)
 
         return planet
 
-    def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None):
-        ship = core.Ship(ship_x, ship_y, self._gen_ship_name())
+    def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None, default_order_fn=order_fn_null):
 
         #TODO: clean this up
         # set up physics stuff
@@ -262,15 +271,17 @@ class UniverseGenerator:
         max_torque = max_fine_thrust * 6 * ship_radius
 
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
+
         ship_body = pymunk.Body(ship_mass, ship_moment)
+        ship = core.Ship(ship_x, ship_y, ship_body, self._gen_ship_name())
+
         ship_shape = pymunk.Circle(ship_body, ship_radius)
         ship_shape.friction=0.1
         ship_shape.collision_type = ship.object_type
+        ship_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.SHIP)
         ship_body.position = ship.x, ship.y
         ship_body.entity = ship
 
-
-        ship.phys = ship_body
         ship.mass = ship_mass
         ship.moment = ship_moment
         ship.radius = ship_radius
@@ -297,11 +308,7 @@ class UniverseGenerator:
 
         sector.add_entity(ship)
 
-        #ship.default_order_fn = lambda x: orders.WaitOrder(x, self.gamestate)
-        def goto_random_station(ship):
-            station = self.r.choice(ship.sector.stations)
-            return orders.GoToLocation((station.x, station.y), ship, self.gamestate)
-        ship.default_order_fn = goto_random_station
+        ship.default_order_fn = default_order_fn
 
         return ship
 
@@ -331,19 +338,19 @@ class UniverseGenerator:
             if amount > total_amount:
                 amount = total_amount
 
-            asteroid = core.Asteroid(resource, amount, loc[0], loc[1], self._gen_asteroid_name())
 
             asteroid_radius = 100
 
             #TODO: stations are static?
             #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
             body = pymunk.Body(body_type=pymunk.Body.STATIC)
+            asteroid = core.Asteroid(resource, amount, loc[0], loc[1], body, self._gen_asteroid_name())
             shape = pymunk.Circle(body, asteroid_radius)
             shape.friction=0.1
             shape.collision_type = asteroid.object_type
+            shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.ASTEROID)
             body.position = asteroid.x, asteroid.y
             body.entity = asteroid
-            asteroid.phys = body
             asteroid.radius = asteroid_radius
 
             sector.add_entity(asteroid)
@@ -671,7 +678,7 @@ class UniverseGenerator:
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
-                self.spawn_ship(sector, ship_x, ship_y)
+                self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_goto_random_station)
 
     def generate_universe(self):
         self.gamestate.random = self.r

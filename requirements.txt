@@ -1,5 +1,12 @@
 numpy
+numba
 ipdb
 graphviz
 drawille
 pymunk
+
+# dev dependencies
+pytest
+jupyter
+pandas
+matplotlib

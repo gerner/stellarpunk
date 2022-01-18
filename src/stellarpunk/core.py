@@ -7,7 +7,7 @@ import datetime
 import enum
 import logging
 import collections
-from typing import Optional
+from typing import Optional, Deque, Callable
 
 import graphviz # type: ignore
 import numpy as np
@@ -99,6 +99,12 @@ class Sector(Entity):
         for hit in self.space.bb_query(bbox, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.body.entity
 
+    def spatial_point(self, point, max_dist=None):
+        if not max_dist:
+            max_dist = self.radius*3
+        for hit in self.space.point_query(tuple(point), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
+            yield hit.shape.body.entity
+
     def is_occupied(self, x, y, eps=1e1):
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
 
@@ -147,29 +153,40 @@ class ObjectType(enum.IntEnum):
     PLANET = enum.auto()
     ASTEROID = enum.auto()
 
+class ObjectFlag(enum.IntFlag):
+    # note: with pymunk we get up to 32 of these (depending on the c-type?)
+    SHIP = enum.auto()
+    STATION = enum.auto()
+    PLANET = enum.auto()
+    ASTEROID = enum.auto()
+
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, x, y, *args, **kwargs):
+    def __init__(self, x:float, y:float, phys: pymunk.Body, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
 
         # some physical properties
-        self.mass = 0
-        self.moment = 0
+        self.mass = 0.
+        self.moment = 0.
         self.x = x
         self.y = y
-        self.velocity = (0,0)
-        self.angle = 0
-        self.angular_velocity = 0
+        self.velocity = np.array((0.,0.))
+        self.angle = 0.
+        self.angular_velocity = 0.
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
-        self.phys = None
+        self.phys = phys
         #TODO: are all entities just circles?
-        self.radius = 0
+        self.radius = 0.
+
+    @property
+    def loc(self) -> np.ndarray:
+        return np.array((self.x,self.y))
 
     def __str__(self):
         return f'{self.short_id()} at {(self.x, self.y)} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
@@ -179,36 +196,62 @@ class Planet(SectorEntity):
     id_prefix = "PLT"
     object_type = ObjectType.PLANET
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.population = 0
+        self.population = 0.
 
 class Station(SectorEntity):
 
     id_prefix = "STA"
     object_type = ObjectType.STATION
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.resource = None
+        self.resource: Optional[int] = None
+
+class HistoryEntry:
+    def __init__(self, entity_id:uuid.UUID, ts:int, loc:np.ndarray, angle:float, velocity:np.ndarray, angular_velocity:float, order_hist:Optional[dict]) -> None:
+        self.entity_id = entity_id
+        self.ts = ts
+
+        self.order_hist = order_hist
+
+        self.loc = loc
+        self.angle = angle
+
+        self.velocity = velocity
+        self.angular_velocity = angular_velocity
+
+    def to_json(self):
+        return {
+            "eid": str(self.entity_id),
+            "ts": self.ts,
+            "loc": self.loc.tolist(),
+            "a": self.angle,
+            "v": self.velocity.tolist(),
+            "av": self.angular_velocity,
+            "o": self.order_hist,
+        }
 
 class Ship(SectorEntity):
 
     id_prefix = "SHP"
     object_type = ObjectType.SHIP
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        # max thrust along heading vector
-        self.max_thrust = 0
-        # max thrust in any direction
-        self.max_fine_thrust = 0
-        # max torque for turning
-        self.max_torque = 0
+        self.history: Deque[HistoryEntry] = collections.deque(maxlen=60*60)
 
-        self.orders = collections.deque()
-        self.default_order_fn = lambda x: None
+        # max thrust along heading vector
+        self.max_thrust = 0.
+        # max thrust in any direction
+        self.max_fine_thrust = 0.
+        # max torque for turning
+        self.max_torque = 0.
+
+        self.orders: Deque[Order] = collections.deque()
+        self.default_order_fn: Callable[[Ship, Gamestate], Order] = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
 
@@ -218,17 +261,29 @@ class Ship(SectorEntity):
         else:
             return f'{self.short_id()}@None'
 
+    def to_history(self, timestamp) -> HistoryEntry:
+        order_hist = self.orders[0].to_history() if self.orders else None
+        return HistoryEntry(
+                self.entity_id, timestamp,
+                self.loc, self.angle,
+                self.velocity, self.angular_velocity,
+                order_hist,
+        )
+
     def max_speed(self) -> float:
-        return self.max_thrust / self.mass * 10
+        return self.max_thrust / self.mass * 7
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
 
+    def max_fine_acceleration(self) -> float:
+        return self.max_fine_thrust / self.mass
+
     def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
 
-    def default_order(self) -> Order:
-        return self.default_order_fn(self)
+    def default_order(self, gamestate: Gamestate) -> Order:
+        return self.default_order_fn(self, gamestate)
 
 class Asteroid(SectorEntity):
 
@@ -259,10 +314,9 @@ class OrderLoggerAdapter(logging.LoggerAdapter):
         return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
 class Order:
-    def __init__(self, ship: Ship, gamestate: StellarPunk):
+    def __init__(self, ship: Ship, gamestate: Gamestate) -> None:
         self.gamestate = gamestate
         self.ship = ship
-        self.eta = 0
         self.logger = OrderLoggerAdapter(
                 ship,
                 logging.getLogger(util.fullname(self)),
@@ -271,18 +325,17 @@ class Order:
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
 
+    def to_history(self) -> dict:
+        return {"o": util.fullname(self)}
+
     def is_complete(self) -> bool:
-        return True
+        return False
 
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's of action for this order """
         pass
 
-class NullOrder(Order):
-    def is_complete(self):
-        return False
-
-class StellarPunk:
+class Gamestate:
     def __init__(self):
 
         self.random = None
@@ -308,21 +361,14 @@ class StellarPunk:
 
         self.paused = False
 
+        self.keep_running = True
+
     def current_time(self):
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
         # increment the ticks even though we don't process them?
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.timestamp)
 
-    def tick(self):
-        # iterate through characters
-        # set up choices/actions (and make instantaneous changes to state)
-        # execute actions, run simulation, etc.
-        # random events
+    def quit(self):
+        self.keep_running = False
 
-        for character in self.characters:
-            character.choose_action(self)
-
-    def run(self):
-        while self.keep_running:
-            self.tick()

@@ -140,6 +140,8 @@ class SectorView(interface.View):
         if entity:
             if isinstance(entity, core.Ship):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.orders[0]}')
+                for order in list(entity.orders)[1:]:
+                    self.interface.log_message(f'queued: {order}')
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
@@ -479,15 +481,32 @@ class SectorView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise interface.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.order = orders.GoToLocation((x,y), self.selected_entity, self.interface.gamestate)
+            self.selected_entity.orders.clear()
+            self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
 
-        def wait(wargs):
+        def wait(args):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise interface.CommandInput.UserError(f'order only valid on a ship target')
-            self.selected_entity.order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
+            self.selected_entity.orders.clear()
+            self.selected_entity.orders.append(orders.WaitOrder(self.selected_entity, self.interface.gamestate))
+
+        def harvest(args):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+            self.logger.info('adding harvest order to {self.selected_entity}')
+            base = self.sector.stations[0]
+            self.selected_entity.orders.clear()
+            self.selected_entity.orders.append(orders.HarvestOrder(base, 0, self.selected_entity, self.interface.gamestate))
 
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
+        def debug_write_history(args):
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+            filename = "/tmp/stellarpunk.history"
+            self.logger.info(f'writing history for {self.selected_entity} to {filename}')
+            util.write_history_to_file(self.selected_entity, filename)
+
         def spawn_ship(args):
             if len(args) < 2:
                 x,y = self.scursor_x, self.scursor_y
@@ -510,12 +529,14 @@ class SectorView(interface.View):
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
+                "debug_write_history": debug_write_history,
                 "target": (target, util.tab_completer(self.sector.entities.keys())),
                 "spawn_ship": spawn_ship,
                 "spawn_collision": spawn_collision,
                 "spawn_resources": spawn_resources,
                 "goto": goto,
                 "wait": wait,
+                "harvest": harvest,
         }
 
     def handle_input(self, key):
@@ -544,26 +565,31 @@ class SectorView(interface.View):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.KillRotationOrder(self.selected_entity, self.interface.gamestate)
+                self.selected_entity.orders.clear()
+                self.selected_entity.orders.append(orders.KillRotationOrder(self.selected_entity, self.interface.gamestate))
         elif key == ord("r"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.RotateOrder(0, self.selected_entity, self.interface.gamestate)
+                self.selected_entity.orders.clear()
+                self.selected_entity.orders.append(orders.RotateOrder(0, self.selected_entity, self.interface.gamestate))
         elif key == ord("x"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate)
+                self.selected_entity.orders.clear()
+                self.selected_entity.orders.append(orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate))
         elif key == ord("g"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.order = orders.GoToLocation((0,0), self.selected_entity, self.interface.gamestate)
+                self.selected_entity.orders.clear()
+                self.selected_entity.orders.append(orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate))
         elif key == ord("o"):
             for ship in self.sector.ships:
                 station = self.interface.generator.r.choice(self.sector.stations)
-                ship.order = orders.GoToLocation((station.x, station.y), ship, self.interface.gamestate)
+                self.selected_entity.orders.clear()
+                ship.orders.append(orders.GoToLocation(np.array((station.x, station.y)), ship, self.interface.gamestate))
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(
                 self.interface, commands=self.command_list()))

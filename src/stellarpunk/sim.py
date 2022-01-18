@@ -8,6 +8,7 @@ import cProfile
 import pstats
 
 import ipdb # type: ignore
+import numpy as np
 
 from stellarpunk import util, core, interface, generate
 from stellarpunk.interface import universe as universe_interface
@@ -28,7 +29,7 @@ class IPDBManager:
             print(m.__repr__(), file=sys.stderr)
             ipdb.post_mortem(tb)
 
-class StellarPunkSim:
+class Simulator:
     def __init__(self, gamestate, ui, dt=1/60):
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
@@ -39,6 +40,7 @@ class StellarPunkSim:
 
         self.ticktime_alpha = 0.1
         self.min_tick_sleep = self.dt/5
+        self.min_ui_timeout = 0
 
         self.collisions = []
 
@@ -66,7 +68,7 @@ class StellarPunkSim:
 
     def tick_order(self, ship: core.Ship, dt: float) -> None:
         if not ship.orders:
-            ship.orders.append(ship.default_order())
+            ship.orders.append(ship.default_order(self.gamestate))
 
         order = ship.orders[0]
         if order.is_complete():
@@ -86,6 +88,12 @@ class StellarPunkSim:
             sector.space.step(dt)
 
             if self.collisions:
+                #TODO: use kinetic energy from the collision to cause damage
+                # metals hav an impact strength between 0.34e3 and 145e3
+                # joules / meter^2
+                # so an impact of 17M joules spread over an area of 1000 m^2
+                # would be a lot, but not catostrophic
+                # spread over 100m^2 would be
                 raise Exception()
                 self.gamestate.paused = True
 
@@ -99,8 +107,10 @@ class StellarPunkSim:
                 #    ship.sector.spatial.insert(ship.short_id_int(), (ship.x, ship.y, ship.x, ship.y), obj=ship.entity_id)
 
                 ship.angle = ship.phys.angle
-                ship.velocity = ship.phys.velocity
+                ship.velocity = np.array(ship.phys.velocity)
                 ship.angular_velocity = ship.phys.angular_velocity
+
+                ship.history.append(ship.to_history(self.gamestate.timestamp))
 
             #sector.reindex_locations()
 
@@ -114,10 +124,9 @@ class StellarPunkSim:
         self.gamestate.timestamp += dt
 
     def run(self):
-        keep_running = True
         next_tick = time.perf_counter()+self.dt
 
-        while keep_running:
+        while self.gamestate.keep_running:
             now = time.perf_counter()
 
             if next_tick - now > self.min_tick_sleep:
@@ -128,7 +137,7 @@ class StellarPunkSim:
             # but why would we miss ticks?
             if now - next_tick > self.dt:
                 self.gamestate.missed_ticks += 1
-                self.logger.debug(f'behind by {(now - next_tick)/self.dt} ticks')
+                self.logger.warning(f'behind by {(now - next_tick)/self.dt} ticks')
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
@@ -143,15 +152,15 @@ class StellarPunkSim:
             self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
 
             timeout = next_tick - now
-            if timeout > 0: # only render a frame if there's enough time
+            if timeout > self.min_ui_timeout: # only render a frame if there's enough time
                 if not self.gamestate.paused:
                     self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
                 try:
-                    self.ui.tick(next_tick - time.perf_counter())
+                    self.ui.tick(timeout)
                 except interface.QuitError:
                     self.logger.info("quitting")
-                    keep_running = False
+                    self.gamestate.quit()
 
 def main():
     profile = False
@@ -161,16 +170,17 @@ def main():
         logging.basicConfig(
                 format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
                 filename="/tmp/stellarpunk.log",
-                level=logging.DEBUG
+                level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
+        logging.getLogger("stellarpunk").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions
         warnings.filterwarnings("error")
 
         mgr = context_stack.enter_context(IPDBManager())
-        gamestate = core.StellarPunk()
+        gamestate = core.Gamestate()
 
         logging.info("generating universe...")
         generator = generate.UniverseGenerator(gamestate)
@@ -190,7 +200,7 @@ def main():
         dt = 1/60
         if profile:
             dt = 1/20
-        sim = StellarPunkSim(gamestate, ui, dt=dt)
+        sim = Simulator(gamestate, ui, dt=dt)
         sim.initialize()
 
         if profile:
