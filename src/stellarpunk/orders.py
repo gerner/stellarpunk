@@ -101,8 +101,12 @@ class AbstractSteeringOrder(core.Order):
 
         self.collision_margin = 3e2
         self.collision_threat:Optional[core.SectorEntity] = None
+        self.collision_dv = ZERO_VECTOR
         self.nearest_neighbor_dist = np.inf
         self.collision_threat_time = 0
+        self.collision_relative_velocity = ZERO_VECTOR
+        self.collision_relative_position = ZERO_VECTOR
+        self.collision_approach_time = np.inf
         self.cannot_avoid_collision = False
 
         self.collision_threat_max_age = 0
@@ -224,7 +228,7 @@ class AbstractSteeringOrder(core.Order):
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')
 
 
-    def _collision_neighbor(self, sector: core.Sector, neighborhood_dist: float, margin: float, v: np.ndarray=None) -> tuple[Optional[core.SectorEntity], float, np.ndarray, np.ndarray, float]:
+    def _collision_neighbor(self, sector: core.Sector, neighborhood_dist: float, margin: float) -> tuple[Optional[core.SectorEntity], float, np.ndarray, np.ndarray, float]:
         approach_time = np.inf
         neighbor: Optional[core.SectorEntity] = None
         relative_position: np.ndarray = ZERO_VECTOR
@@ -233,8 +237,7 @@ class AbstractSteeringOrder(core.Order):
 
 
         pos = np.array((self.ship.x, self.ship.y))
-        if v is None:
-            v = np.array(self.ship.velocity)
+        v = np.array(self.ship.velocity)
 
         # we cache the collision threat to avoid searching space
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
@@ -259,6 +262,7 @@ class AbstractSteeringOrder(core.Order):
             entity_pos = np.array((entity.x, entity.y))
             entity_v = np.array(entity.velocity)
 
+            #self.logger.debug(f'analyze with {pos, v, entity.radius, entity_pos, entity_v, approach_time, self.ship.radius + margin}')
             rel_dist, approach_t, rel_pos, rel_vel, min_sep = _analyze_neighbor(
                     pos, v, entity.radius, entity_pos, entity_v, approach_time, self.ship.radius + margin)
 
@@ -275,11 +279,14 @@ class AbstractSteeringOrder(core.Order):
         # cache the collision threat
         if neighbor != self.collision_threat:
             self.collision_threat = neighbor
+            self.collision_approach_time = approach_time
+            self.collision_relative_velocity = relative_velocity
+            self.collision_relative_position = relative_position
             self.collision_threat_time = self.gamestate.timestamp
 
         return neighbor, approach_time, relative_position, relative_velocity, minimum_separation
 
-    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, v: Optional[np.ndarray]=None, margin_histeresis:float=30) -> tuple[np.ndarray, float, float, float]:
+    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:float=30, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
 
         sector
@@ -292,8 +299,10 @@ class AbstractSteeringOrder(core.Order):
         returns tuple of desired delta v to avoid collision, approach time, minimum separation and the target distance
         """
 
-        if v is None:
-            v = np.array(self.ship.velocity)
+        v = np.array(self.ship.velocity)
+
+        if desired_direction is None:
+            desired_direction = v
 
         # if we already have a threat increase margin to get extra far from it
         neighbor_margin = margin
@@ -301,11 +310,12 @@ class AbstractSteeringOrder(core.Order):
             neighbor_margin += margin_histeresis
 
         # find neighbor with soonest closest appraoch
-        neighbor, approach_time, relative_position, relative_velocity, minimum_separation = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, v=v)
+        neighbor, approach_time, relative_position, relative_velocity, minimum_separation = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin)
 
         if neighbor is None:
             self.cannot_avoid_collision = False
             self.ship.collision_threat = None
+            self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
 
         # if the collision will happen outside our max time horizon (e.g. we
@@ -322,9 +332,10 @@ class AbstractSteeringOrder(core.Order):
         if collision_distance > max_distance:
             self.collision_threat = None
             self.ship.collision_threat = None
+            self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
-        elif np.linalg.norm(self.collision_threat.loc - self.target_location) < 10:
-            raise Exception()
+        #elif np.linalg.norm(self.collision_threat.loc - self.target_location) < 10:
+        #    raise Exception()
 
         distance = np.linalg.norm(relative_position)
 
@@ -339,56 +350,89 @@ class AbstractSteeringOrder(core.Order):
         elif distance <= self.ship.radius + neighbor.radius + margin:
             self.logger.debug(f'already inside margin: {distance}')
 
-        speed = np.linalg.norm(v)
+        speed = np.linalg.norm(desired_direction)
         if speed < VELOCITY_EPS:
-            v = relative_velocity
+            desired_direction = relative_velocity
             speed = np.linalg.norm(relative_velocity)
 
         # if the angle between relative pos and velocity is very small or close to pi
         # we could have instability
-        parallelness = np.dot(relative_position/distance,v/speed)
+        parallelness = np.dot(relative_position/distance,desired_direction/speed)
 
         if parallelness < -1+PARALLEL_EPS or parallelness > 1-PARALLEL_EPS:
             #TODO: is this weird if we're already offset by a bunch?
 
             # prefer diverting clockwise
-            dv = np.array((v[1], v[0]))
+            dv = np.array((desired_direction[1], -desired_direction[0]))
             dv = dv / np.linalg.norm(dv)
         else:
             # get the component of relative position perpendicular to our velocity
             #   this will be the direction of delta v
             #   we want this to be big enough so that by the time we reach collision, we're radius + radius + margin apart
-            dv = relative_position - v * np.dot(relative_position, v) / np.dot(v, v)
+            dv = relative_position - desired_direction * np.dot(relative_position, desired_direction) / np.dot(desired_direction, desired_direction)
+
+        # model is that we will accelerate to avoid the threat by desired
+        # margin by the time we reach our closest approach. That is, we will
+        # accelerate in direction dv to achieve distance d = radii + margin in
+        # time=approach_time
+        # in addition, we want to accelerate along  dv, chosen to be for
+        # minimal impact to desired course.
+        # dv points in the direction of our threat (so we want negative
+        # acceleration w.r.t. dv)
+        # so by approach_time from now we want to have traveled distance d
+        # in direction dv, under constant acceleration, given the current
+        # relative velocity
 
         #TODO: need to account for acceleration time
         # really we're going to have a period of time when we're accelerating
         # to the target (relative) speed and a period of time when we're
         # cruising at that (relative) speed
-        # triangle: 0 to v_f over t_accelerate
+        # triangle: v_i to v_f over t_accelerate
         # rectangle: v_f over t_cruise
         # areas should equal d
 
-        d = self.ship.radius + neighbor.radius + margin + margin_histeresis - np.linalg.norm(dv)
+        delta_dist = np.linalg.norm(dv)
+        d = self.ship.radius + neighbor.radius + margin + margin_histeresis - delta_dist
 
         # this discounts apporach_time by a factor 1.2 for safety, but see
         # above TODO for a more principled way to do this
-        # d = 1/2  * v_f * t + 1/2 v_i * t
+        # d = 1/2  * (v_f + v_i) * t
+        # 2d/t = v_f + v_i
+        # v_f = 2d/t - v_i
         # v_f = 2 * d / t - v_i
-        delta_speed = np.linalg.norm(dv)
-        v_i = np.dot(relative_velocity, dv) / delta_speed
-        target_relative_speed = (-1 * 2 * d / approach_time - v_i) * self.safety_factor
-        delta_velocity = dv / delta_speed * target_relative_speed
+        # linear case where v_i is the scalar projection on dv
+        # note, dv is TOWARD the threat, so we want to move -d away
+        v_i = np.dot(relative_velocity, dv) / delta_dist
+        v_f = (2 * -d / approach_time - v_i) * self.safety_factor
+
+        #TODO: this is a temp asserts for testing
+        assert abs((v_f/self.safety_factor + v_i)/2 * approach_time + d) < VELOCITY_EPS
+        #TODO: we want to get to v_f, but we're already at v_i, right?
+        # so if this is delta_velocity, shouldn't we subtract v_i?
+        delta_velocity = dv / delta_dist * v_f# - v_i * dv/delta_dist
 
         self.ship.collision_threat = neighbor
         #self.logger.debug(f'collision imminent in {approach_time}s at {minimum_separation}m in {collision_distance}m < {max_distance}m dist: {distance}m rel vel: {relative_velocity}m/s')
-        #self.logger.debug(f'avoid: {target_relative_speed}m/s {delta_velocity} vs {v}')
+        #self.logger.debug(f'avoid: {v_f}m/s {delta_velocity} vs {v}')
 
-        if minimum_separation < self.ship.radius + neighbor.radius + margin and abs(target_relative_speed)/self.safety_factor > self.ship.max_acceleration() * approach_time:
+        if minimum_separation < self.ship.radius + neighbor.radius + margin and abs(v_f)/self.safety_factor > self.ship.max_acceleration() * approach_time:
             self.cannot_avoid_collision = True
-            self.logger.debug(f'cannot avoid collision: {abs(target_relative_speed)} > {self.ship.max_thrust} / {self.ship.mass} * {approach_time}')
+            self.logger.debug(f'cannot avoid collision: {abs(v_f)} > {self.ship.max_thrust} / {self.ship.mass} * {approach_time}')
         else:
             self.cannot_avoid_collision = False
 
+        #TODO: hack to coordinate betweent two steering agents
+        # only one gets to steer to avoid the collision
+        #if isinstance(neighbor, core.Ship) and isinstance(neighbor.orders[0], AbstractSteeringOrder) and neighbor.orders[0].collision_threat == self.ship and np.all(neighbor.orders[0].collision_dv != ZERO_VECTOR):
+        #    delta_velocity = ZERO_VECTOR
+
+        #TODO: these are temp asserts for testing
+        ret_old = _analyze_neighbor(self.ship.loc, self.ship.velocity, neighbor.radius, neighbor.loc, neighbor.velocity, np.inf, self.ship.radius+neighbor_margin)
+        ret_new = _analyze_neighbor(self.ship.loc, self.ship.velocity + delta_velocity, neighbor.radius, neighbor.loc, neighbor.velocity, np.inf, self.ship.radius+neighbor_margin)
+        assert ret_old[1] < np.inf
+        assert not (ret_new[1] < np.inf)
+
+        self.collision_dv = delta_velocity
         return delta_velocity, approach_time, minimum_separation, d
 
 class KillRotationOrder(core.Order):
@@ -463,7 +507,7 @@ class GoToLocation(AbstractSteeringOrder):
         return f'GoToLocation: {self.target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
 
     def is_complete(self) -> bool:
-        return bool(np.linalg.norm(self.target_location - np.array((self.ship.x, self.ship.y))) < self.arrival_distance and np.allclose(self.ship.velocity, ZERO_VECTOR))
+        return bool(np.linalg.norm(self.target_location - np.array((self.ship.x, self.ship.y))) < self.arrival_distance + VELOCITY_EPS and np.allclose(self.ship.velocity, ZERO_VECTOR))
 
     def act(self, dt: float) -> None:
         if self.ship.sector is None:
@@ -481,19 +525,18 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         #TODO: should we pass in where we'd really like to go? (e.g. course to the target?)
-        collision_dv, _, _, _ = self._avoid_collisions_dv(self.ship.sector, 5e4, self.collision_margin, max_distance=distance-self.arrival_distance/self.safety_factor)
+        collision_dv, _, _, _ = self._avoid_collisions_dv(self.ship.sector, 5e4, self.collision_margin, max_distance=distance-self.arrival_distance/self.safety_factor, desired_direction=course)
 
         #TODO: quick hack to test just avoiding collisions
         #   if we do this then we get to our target margin
-        if np.linalg.norm(collision_dv) > 0:
+        if np.linalg.norm(collision_dv) > VELOCITY_EPS:
             self._accelerate_to(np.array(v) + collision_dv, dt)
             return
 
-        if distance < self.arrival_distance:
+        if distance < self.arrival_distance + VELOCITY_EPS:
             self._accelerate_to(collision_dv, dt)
         else:
             max_acceleration = self.ship.max_acceleration()
-            speed = np.linalg.norm(v)
             rot_time = rotation_time(abs(util.normalize_angle(self.ship.angle-(target_angle+np.pi), shortest=True)), self.ship.max_angular_acceleration())
 
             # choose a desired speed such that if we were at that speed right
@@ -502,14 +545,14 @@ class GoToLocation(AbstractSteeringOrder):
             # distance
             a = -1 * max_acceleration
             s = distance-self.arrival_distance
-            desired_speed_1 = (-1 * rot_time + np.sqrt(rot_time ** 2 - 2*distance/a))/(-1/a)
-            desired_speed_2 = (-1 * rot_time - np.sqrt(rot_time ** 2 - 2*distance/a))/(-1/a)
+            desired_speed_1 = (-1 * rot_time + np.sqrt(rot_time ** 2 - 2*s/a))/(-1/a)
+            desired_speed_2 = (-1 * rot_time - np.sqrt(rot_time ** 2 - 2*s/a))/(-1/a)
 
             desired_speed = np.max((desired_speed_1, desired_speed_2))/self.safety_factor
             assert desired_speed >= 0
 
             #TODO: what happens if we can't stop in time?
-            d = (speed**2) / (2* max_acceleration)
+            d = (np.linalg.norm(v)**2) / (2* max_acceleration)
             if d > distance:
                 self.cannot_stop = True
                 self.logger.debug(f'cannot stop in time {d} > {distance}')
