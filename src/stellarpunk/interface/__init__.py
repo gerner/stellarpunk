@@ -12,6 +12,8 @@ import time
 import collections
 import math
 import collections.abc
+import cProfile
+import pstats
 
 from stellarpunk import util, generate, core
 
@@ -304,6 +306,8 @@ class Interface:
 
         self.step = False
 
+        self.profiler = None
+
     def __enter__(self):
         """ Does most simple interface initialization.
 
@@ -352,10 +356,8 @@ class Interface:
             curses.endwin()
             self.logger.info("done")
 
-    def fps(self, now=None):
-        if now is None:
-            now = time.perf_counter()
-        return len(self.frame_history) / (now - self.frame_history[0])
+    def fps(self):
+        return len(self.frame_history) / self.max_frame_history
 
     def choose_viewport_sizes(self):
         """ Chooses viewport sizes and locations for viewscreen and the log."""
@@ -540,11 +542,19 @@ class Interface:
         def fps(args): self.show_fps = not self.show_fps
         def quit(args): raise QuitError()
         def colordemo(args): self.open_view(ColorDemo(self))
+        def profile(args):
+            if self.profiler:
+                self.profiler.disable()
+                pstats.Stats(self.profiler).dump_stats("/tmp/profile.prof")
+            else:
+                self.profiler = cProfile.Profile()
+                self.profiler.enable()
         return {
                 "pause": pause,
                 "fps": fps,
                 "quit": quit,
                 "colordemo": colordemo,
+                "profile": profile,
         }
 
     def tick(self, timeout):

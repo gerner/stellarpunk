@@ -201,8 +201,8 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
     # add two ships in an offset (relative to desired course) arrangement
     # travel along course and observe no collision
 
-    ship_blocker = generator.spawn_ship(sector, -300, 1200, v=(0,0), w=0, theta=0)
     ship_driver = generator.spawn_ship(sector, 0, 2400, v=(0,0), w=0, theta=0)
+    ship_blocker = generator.spawn_ship(sector, -300, 1200, v=(0,0), w=0, theta=0)
 
     goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
@@ -218,7 +218,7 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
 
     starttime = gamestate.timestamp
     def tick(timeout):
-        logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
+        #logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
         assert not simulator.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin
@@ -226,13 +226,16 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
             gamestate.quit()
         assert not goto_order.cannot_stop
         assert not goto_order.cannot_avoid_collision
+        assert not goto_order.collision_cbdr
         assert gamestate.timestamp - starttime < eta*1.6
 
     testui.tick = tick
     simulator.run()
     assert goto_order.is_complete()
 
-def test_head_on_collision_avoidance(gamestate, generator, sector, testui, simulator):
+    #util.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
+
+def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui, simulator):
     ship_blocker = generator.spawn_ship(sector, 0, 1200, v=(0,0), w=0, theta=0)
     ship_driver = generator.spawn_ship(sector, 0, 2400, v=(0,0), w=0, theta=0)
 
@@ -250,6 +253,9 @@ def test_head_on_collision_avoidance(gamestate, generator, sector, testui, simul
         if goto_order.is_complete():
             gamestate.quit()
         assert gamestate.timestamp - starttime < eta * 2.6
+        assert not goto_order.cannot_stop
+        assert not goto_order.cannot_avoid_collision
+        #assert not goto_order.collision_cbdr
 
     testui.tick = tick
     simulator.run()
@@ -302,6 +308,8 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
         assert neighbor_dist >= goto_order.collision_margin
         if goto_order.is_complete():
             gamestate.quit()
+
+        #TODO: we should not hit this condition!
         #assert not goto_order.cannot_stop
         assert not goto_order.cannot_avoid_collision
         assert gamestate.timestamp - starttime < eta*1.5
@@ -310,7 +318,84 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     simulator.run()
     assert goto_order.is_complete()
 
-@pytest.mark.skip
+def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulator):
+    ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
+    ship_b = generator.spawn_ship(sector, 0, -5000, v=(0,0), w=0, theta=np.pi/2)
+
+    goto_a = orders.GoToLocation(np.array((5000,0)), ship_a, gamestate)
+    ship_a.orders.append(goto_a)
+    goto_b = orders.GoToLocation(np.array((0,5000)), ship_b, gamestate)
+    ship_b.orders.append(goto_b)
+
+    a_cbdr = False
+    b_cbdr = False
+
+    def tick(timeout):
+        nonlocal a_cbdr
+        nonlocal b_cbdr
+        r,theta = util.cartesian_to_polar(*goto_a.collision_dv)
+        logging.debug(f'collision_dv: {r} {theta} {goto_a.ship.angle}')
+        assert not simulator.collisions
+
+        # only need to check one, they are symmetric
+        neighbor, neighbor_dist = nearest_neighbor(sector, ship_a)
+        assert neighbor_dist >= goto_a.collision_margin
+
+        if goto_a.is_complete() and goto_b.is_complete():
+            gamestate.quit()
+        assert not goto_a.cannot_stop
+        #assert not goto_a.cannot_avoid_collision
+        assert not goto_b.cannot_stop
+        #assert not goto_b.cannot_avoid_collision
+        a_cbdr = a_cbdr or goto_a.collision_cbdr
+        b_cbdr = b_cbdr or goto_b.collision_cbdr
+
+    testui.tick = tick
+    simulator.run()
+    assert goto_a.is_complete()
+    assert not goto_a.collision_cbdr
+    assert goto_b.is_complete()
+    assert not goto_b.collision_cbdr
+    assert a_cbdr
+    assert b_cbdr
+
+    #util.write_history_to_file(goto_a.ship, "/tmp/stellarpunk_test.history")
+    #util.write_history_to_file(goto_b.ship, "/tmp/stellarpunk_test.history", mode="a")
+
+def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulator):
+    ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
+    ship_b = generator.spawn_ship(sector, 5000, 0, v=(0,0), w=0, theta=np.pi)
+
+    goto_a = orders.GoToLocation(np.array((10000,0)), ship_a, gamestate)
+    ship_a.orders.append(goto_a)
+    goto_b = orders.GoToLocation(np.array((-10000,0)), ship_b, gamestate)
+    ship_b.orders.append(goto_b)
+
+    def tick(timeout):
+        assert not simulator.collisions
+
+        # only need to check one, they are symmetric
+        neighbor, neighbor_dist = nearest_neighbor(sector, ship_a)
+        assert neighbor_dist >= goto_a.collision_margin
+
+        if goto_a.is_complete() and goto_b.is_complete():
+            gamestate.quit()
+        assert not goto_a.cannot_stop
+        assert not goto_a.cannot_avoid_collision
+        assert not goto_b.cannot_stop
+        assert not goto_b.cannot_avoid_collision
+
+    testui.tick = tick
+    simulator.run()
+    assert goto_a.is_complete()
+    assert not goto_a.collision_cbdr
+    assert goto_b.is_complete()
+    assert not goto_b.collision_cbdr
+
+    util.write_history_to_file(goto_a.ship, "/tmp/stellarpunk_test.history")
+    util.write_history_to_file(goto_b.ship, "/tmp/stellarpunk_test.history", mode="a")
+
+@pytest.mark.skip(reason="this test is pretty slow because it takes a while to reach the destinations")
 def test_ships_intersecting_collision(gamestate, generator, sector, testui, simulator):
     # two ships headed on intersecting courses collide
     # testcase from gameplay logs
@@ -335,14 +420,17 @@ def test_ships_intersecting_collision(gamestate, generator, sector, testui, simu
         if goto_a.is_complete() and goto_b.is_complete():
             gamestate.quit()
         assert not goto_a.cannot_stop
-        #assert not goto_a.cannot_avoid_collision
+        assert not goto_a.cannot_avoid_collision
         assert not goto_b.cannot_stop
-        #assert not goto_b.cannot_avoid_collision
+        assert not goto_b.cannot_avoid_collision
 
     testui.tick = tick
     simulator.run()
     assert goto_a.is_complete()
     assert goto_b.is_complete()
+
+    util.write_history_to_file(goto_a.ship, "/tmp/stellarpunk_test.history")
+    util.write_history_to_file(goto_b.ship, "/tmp/stellarpunk_test.history", mode="a")
 
 @pytest.mark.skip
 def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator):

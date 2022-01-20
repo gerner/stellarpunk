@@ -4,8 +4,7 @@ import contextlib
 import time
 import math
 import warnings
-import cProfile
-import pstats
+from typing import List
 
 import ipdb # type: ignore
 import numpy as np
@@ -30,19 +29,21 @@ class IPDBManager:
             ipdb.post_mortem(tb)
 
 class Simulator:
-    def __init__(self, gamestate, ui, dt=1/60):
+    def __init__(self, gamestate, ui, dt:float=1/60) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
 
         # time between ticks, this is the framerate
+        self.desired_dt = dt
         self.dt = dt
+        self.behind_ticks = 0.
 
         self.ticktime_alpha = 0.1
-        self.min_tick_sleep = self.dt/5
-        self.min_ui_timeout = 0
+        self.min_tick_sleep = self.desired_dt/5
+        self.min_ui_timeout = 0.
 
-        self.collisions = []
+        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, float, float]] = []
 
     def _ship_collision_detected(self, arbiter, space, data):
         # which ship(s) are colliding?
@@ -50,7 +51,7 @@ class Simulator:
         (shape_a, shape_b) = arbiter.shapes
         sector = data["sector"]
 
-        self.logger.debug(f'collision detected in {sector}, between {shape_a.body.entity} {shape_b.body.entity} with {arbiter.total_impulse}N and {arbiter.total_ke}j')
+        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.entity.address_str()} {shape_b.body.entity.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j')
 
         self.collisions.append((
             shape_a.body.entity,
@@ -59,7 +60,7 @@ class Simulator:
             arbiter.total_ke,
         ))
 
-    def initialize(self):
+    def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
             h = sector.space.add_default_collision_handler()
@@ -92,19 +93,14 @@ class Simulator:
                 # metals hav an impact strength between 0.34e3 and 145e3
                 # joules / meter^2
                 # so an impact of 17M joules spread over an area of 1000 m^2
-                # would be a lot, but not catostrophic
+                # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
-                raise Exception()
                 self.gamestate.paused = True
+                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}')
 
             for ship in sector.ships:
                 # update ship positions from physics sim
                 ship.x, ship.y = ship.phys.position
-                #new_x, new_y = ship.phys.position
-                #if (new_x, new_y) != (ship.x, ship.y):
-                #    ship.sector.spatial.delete(ship.short_id_int(), (ship.x, ship.y, ship.x, ship.y))
-                #    ship.x, ship.y = ship.phys.position
-                #    ship.sector.spatial.insert(ship.short_id_int(), (ship.x, ship.y, ship.x, ship.y), obj=ship.entity_id)
 
                 ship.angle = ship.phys.angle
                 ship.velocity = np.array(ship.phys.velocity)
@@ -112,9 +108,7 @@ class Simulator:
 
                 ship.history.append(ship.to_history(self.gamestate.timestamp))
 
-            #sector.reindex_locations()
 
-            #self.logger.debug(f'{sector} has {len(sector.ships)}')
             for ship in sector.ships:
                 self.tick_order(ship, dt)
 
@@ -123,13 +117,17 @@ class Simulator:
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
 
-    def run(self):
+    def run(self) -> None:
+
         next_tick = time.perf_counter()+self.dt
 
         while self.gamestate.keep_running:
             now = time.perf_counter()
 
             if next_tick - now > self.min_tick_sleep:
+                if self.dt > self.desired_dt:
+                    self.dt = max(self.desired_dt, self.dt/1.1)
+                    self.logger.debug(f'dt: {self.dt}')
                 time.sleep(next_tick - now)
             #TODO: what to do if we miss a tick (or a lot)
             # seems like we should run a tick with a longer dt to make up for
@@ -137,7 +135,14 @@ class Simulator:
             # but why would we miss ticks?
             if now - next_tick > self.dt:
                 self.gamestate.missed_ticks += 1
-                self.logger.warning(f'behind by {(now - next_tick)/self.dt} ticks')
+                behind = (now - next_tick)/self.dt
+                if behind > self.behind_ticks:
+                    self.dt *= 1.5
+                self.behind_ticks = behind
+                self.logger.warning(f'behind by {behind} ticks dt: {self.dt}')
+            else:
+                self.behind_ticks = 0
+
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
@@ -152,7 +157,8 @@ class Simulator:
             self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
 
             timeout = next_tick - now
-            if timeout > self.min_ui_timeout: # only render a frame if there's enough time
+            # only render a frame if there's enough time
+            if timeout > self.min_ui_timeout:
                 if not self.gamestate.paused:
                     self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
@@ -162,8 +168,7 @@ class Simulator:
                     self.logger.info("quitting")
                     self.gamestate.quit()
 
-def main():
-    profile = False
+def main() -> None:
     with contextlib.ExitStack() as context_stack:
         # for reference, config to stderr:
         # logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -198,19 +203,12 @@ def main():
         stellar_punk.production_chain.viz().render("production_chain", format="pdf")
 
         dt = 1/60
-        if profile:
-            dt = 1/20
         sim = Simulator(gamestate, ui, dt=dt)
         sim.initialize()
 
-        if profile:
-            pr = context_stack.enter_context(cProfile.Profile())
         sim.run()
 
         logging.info("done.")
-
-    if profile:
-        pstats.Stats(pr).dump_stats("/tmp/profile.prof")
 
 if __name__ == "__main__":
     main()

@@ -188,8 +188,14 @@ class SectorEntity(Entity):
     def loc(self) -> np.ndarray:
         return np.array((self.x,self.y))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.short_id()} at {(self.x, self.y)} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+
+    def address_str(self) -> str:
+        if self.sector:
+            return f'{self.short_id()}@{self.sector.short_id()}'
+        else:
+            return f'{self.short_id()}@None'
 
 class Planet(SectorEntity):
 
@@ -238,10 +244,10 @@ class Ship(SectorEntity):
     id_prefix = "SHP"
     object_type = ObjectType.SHIP
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, history_length=60*60, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.history: Deque[HistoryEntry] = collections.deque(maxlen=60*60)
+        self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         # max thrust along heading vector
         self.max_thrust = 0.
@@ -254,12 +260,6 @@ class Ship(SectorEntity):
         self.default_order_fn: Callable[[Ship, Gamestate], Order] = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
-
-    def __str__(self) -> str:
-        if self.sector:
-            return f'{self.short_id()}@{self.sector.short_id()}'
-        else:
-            return f'{self.short_id()}@None'
 
     def to_history(self, timestamp) -> HistoryEntry:
         order_hist = self.orders[0].to_history() if self.orders else None
