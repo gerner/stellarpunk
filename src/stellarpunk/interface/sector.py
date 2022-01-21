@@ -316,14 +316,14 @@ class SectorView(interface.View):
 
     def draw_entity_debug_info(self, y, x, entity, description_attr):
         if isinstance(entity, core.Ship):
-            self.viewscreen.addstr(y, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
+            self.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
             self.viewscreen.addstr(y+1, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
             self.viewscreen.addstr(y+2, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
             self.viewscreen.addstr(y+3, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
             if isinstance(entity, core.Ship) and entity.collision_threat:
                 self.viewscreen.addstr(y+4, x+1, f' c: {entity.collision_threat.short_id()}', description_attr)
         else:
-            self.viewscreen.addstr(y, x+1, f' s: {entity.x:.0f},{entity.y:.0f}', description_attr)
+            self.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
 
     def draw_entity(self, y, x, entity, icon_attr=0):
         """ Draws a single sector entity at screen position (y,x) """
@@ -418,9 +418,9 @@ class SectorView(interface.View):
         # this ensures any annotations down and to the right of an entity on
         # the sector map will not cover up the icon for an entity
         # this assumes any extra annotations are down and to the right
-        for entity in self.sector.spatial_query(self.bbox):#sorted(self.sector.spatial_query(self.bbox), key=lambda h: (h.y, h.x)):
+        for entity in self.sector.spatial_query(self.bbox):
             screen_x, screen_y = util.sector_to_screen(
-                    entity.x, entity.y, self.bbox[0], self.bbox[1],
+                    entity.loc[0], entity.loc[1], self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
             if screen_x < 0 or screen_y < 0:
                 continue
@@ -438,15 +438,11 @@ class SectorView(interface.View):
         draw_cell(last_loc)
 
         #TODO: draw an indicator for off-screen targeted entities
-        #se_x = self.selected_entity.x
-        #se_y = self.selected_entity.y
-        #if (se_x < ul_x or se_x > lr_x or
-        #        se_y < ul_y or se_y > lr_y):
 
         if self.debug_entity_vectors and self.selected_entity:
             entity = self.selected_entity
             screen_x, screen_y = util.sector_to_screen(
-                    entity.x, entity.y, self.bbox[0], self.bbox[1],
+                    entity.loc[0], entity.loc[1], self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
 
             self.draw_entity_vectors(screen_y, screen_x, entity)
@@ -558,8 +554,8 @@ class SectorView(interface.View):
         elif key in (ord('\n'), ord('\r')):
             if self.selected_target:
                 self.set_scursor(
-                        self.sector.entities[self.selected_target].x,
-                        self.sector.entities[self.selected_target].y
+                        self.sector.entities[self.selected_target].loc[0],
+                        self.sector.entities[self.selected_target].loc[1]
                 )
         elif key == ord("k"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
@@ -589,7 +585,7 @@ class SectorView(interface.View):
             for ship in self.sector.ships:
                 station = self.interface.generator.r.choice(self.sector.stations)
                 self.selected_entity.orders.clear()
-                ship.orders.append(orders.GoToLocation(np.array((station.x, station.y)), ship, self.interface.gamestate))
+                ship.orders.append(orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate))
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(
                 self.interface, commands=self.command_list()))

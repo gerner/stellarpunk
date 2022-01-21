@@ -233,7 +233,7 @@ class AbstractSteeringOrder(core.Order):
         else:
             self.ship.phys.apply_force_at_world_point(
                     (force[0], force[1]),
-                    (self.ship.x, self.ship.y)
+                    (self.ship.loc[0], self.ship.loc[1])
             )
 
         if torque == 0.:
@@ -264,17 +264,19 @@ class AbstractSteeringOrder(core.Order):
         minimum_separation = np.inf
 
 
-        pos = np.array((self.ship.x, self.ship.y))
-        v = np.array(self.ship.velocity)
+        pos = self.ship.loc
+        v = self.ship.velocity
 
         last_collision_threat = self.collision_threat
         # we cache the collision threat to avoid searching space
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = (self.collision_threat,) if self.collision_threat else ()
         else:
+            ul = self.ship.loc - neighborhood_dist
+            lr = self.ship.loc + neighborhood_dist
             bounds = (
-                    self.ship.x-neighborhood_dist, self.ship.y-neighborhood_dist,
-                    self.ship.x+neighborhood_dist, self.ship.y+neighborhood_dist
+                    ul[0], ul[1],
+                    lr[0], lr[0],
             )
 
             self.collision_threat = None
@@ -412,9 +414,9 @@ class AbstractSteeringOrder(core.Order):
             dv = np.array((desired_direction[1], -desired_direction[0]))
             dv = dv / np.linalg.norm(dv)
         else:
-            # get the component of relative position perpendicular to our velocity
-            #   this will be the direction of delta v
-            #   we want this to be big enough so that by the time we reach collision, we're radius + radius + margin apart
+            # get the component of relative position perpendicular to our
+            # desired direction. This will be the direction of our divert which
+            # will limit the impact on our desired path.
             dv = relative_position - desired_direction * np.dot(relative_position, desired_direction) / np.dot(desired_direction, desired_direction)
 
         if self.collision_cbdr:
@@ -447,6 +449,7 @@ class AbstractSteeringOrder(core.Order):
 
         delta_dist = np.linalg.norm(dv)
         d = self.ship.radius + neighbor.radius + margin + margin_histeresis - delta_dist
+        #d2 = self.ship.radius + neighbor.radius + margin + margin_histeresis + delta_dist
 
         # this discounts apporach_time by a factor 1.2 for safety, but see
         # above TODO for a more principled way to do this
@@ -457,7 +460,9 @@ class AbstractSteeringOrder(core.Order):
         # linear case where v_i is the scalar projection on dv
         # note, dv is TOWARD the threat, so we want to move -d away
         v_i = np.dot(relative_velocity, dv) / delta_dist
+        #v_i2 = np.dot(relative_velocity, dv) / -delta_dist
         v_f = (2 * -d / approach_time - v_i) * self.safety_factor
+        #v_f2 = (2 * d2 / approach_time + v_i) * self.safety_factor
 
         #TODO: we want to get to v_f, but we're already at v_i, right?
         # so if this is delta_velocity, shouldn't we subtract v_i?
@@ -577,7 +582,10 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         #TODO: should we pass in where we'd really like to go? (e.g. course to the target?)
-        collision_dv, _, _, distance_to_avoid_collision = self._avoid_collisions_dv(self.ship.sector, 5e4, self.collision_margin, max_distance=distance-self.arrival_distance/self.safety_factor, desired_direction=course)
+        collision_dv, _, _, distance_to_avoid_collision = self._avoid_collisions_dv(
+                self.ship.sector, 5e4, self.collision_margin,
+                max_distance=distance-self.arrival_distance/self.safety_factor,
+                desired_direction=course)
 
         #TODO: quick hack to test just avoiding collisions
         #   if we do this then we get to our target margin

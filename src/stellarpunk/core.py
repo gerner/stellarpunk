@@ -165,7 +165,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, x:float, y:float, phys: pymunk.Body, *args, **kwargs) -> None:
+    def __init__(self, loc:np.ndarray, phys: pymunk.Body, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -173,8 +173,7 @@ class SectorEntity(Entity):
         # some physical properties
         self.mass = 0.
         self.moment = 0.
-        self.x = x
-        self.y = y
+        self.loc = loc
         self.velocity = np.array((0.,0.))
         self.angle = 0.
         self.angular_velocity = 0.
@@ -184,12 +183,8 @@ class SectorEntity(Entity):
         #TODO: are all entities just circles?
         self.radius = 0.
 
-    @property
-    def loc(self) -> np.ndarray:
-        return np.array((self.x,self.y))
-
     def __str__(self) -> str:
-        return f'{self.short_id()} at {(self.x, self.y)} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+        return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
 
     def address_str(self) -> str:
         if self.sector:
@@ -296,7 +291,7 @@ class Asteroid(SectorEntity):
         self.amount = amount
 
     def __str__(self):
-        return f'{self.short_id()} at {(self.x, self.y)} r:{self.resource} a:{self.amount}'
+        return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.amount}'
 
 class Character(Entity):
     def __init__(self, *args, **kwargs):

@@ -461,3 +461,40 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     testui.tick = tick
     simulator.run()
     assert goto_order.is_complete()
+
+def test_collision_flapping(gamestate, generator, sector, testui, simulator):
+    """ Illustrates "flapping" in collision detection which makes avoiding the
+    collision very slow."""
+
+    log_entry = {"eid": "54ac288f-f321-4a5d-b681-06304946c1c5", "ts": 24.316986544634826, "loc": [-33555.48438201977, 26908.30401095389], "a": -1.6033951624880438, "v": [-30.158483917339932, -196.17277081634103], "av": -0.303054933539972, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "5d23b4c8-7fcd-463c-b46e-bce1f5daf1ff", "ct_loc": [-40857.126658436646, -16386.73414552246], "ct_ts": 24.30031987796816, "cac": False, "cbdr": False, "nnd": 43909.734240760576, "t_loc": [-58968.88094427537, -50074.22099620187], "cs": False}}
+
+    ship_driver = ship_from_history(log_entry, generator, sector)
+    blocker = generator.spawn_station(sector, -40857.126658436646, -16386.73414552246, resource=0)
+
+    goto_order = order_from_history(log_entry, ship_driver, gamestate)
+
+    starttime = gamestate.timestamp
+    distance = np.linalg.norm(ship_driver.loc - goto_order.target_location)
+    eta = 2 * np.sqrt( 2 * (distance) / ship_driver.max_acceleration()) + orders.rotation_time(2*np.pi, ship_driver.max_angular_acceleration())
+
+    def tick(timeout):
+        assert not simulator.collisions
+
+        # only need to check one, they are symmetric
+        neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
+        assert neighbor_dist >= goto_order.collision_margin
+
+        if goto_order.is_complete():
+            gamestate.quit()
+        assert not goto_order.cannot_stop
+        assert not goto_order.cannot_avoid_collision
+        assert gamestate.timestamp - starttime < eta*150
+
+        #assert gamestate.timestamp < 1
+
+    testui.tick = tick
+    simulator.run()
+    assert goto_order.is_complete()
+
+    util.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
+

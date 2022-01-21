@@ -1,5 +1,6 @@
 import logging
 import itertools
+from typing import Optional
 
 import numpy as np
 import pymunk
@@ -25,7 +26,7 @@ def order_fn_wait(ship, gamestate):
 
 def order_fn_goto_random_station(ship, gamestate):
     station = gamestate.random.choice(ship.sector.stations)
-    return orders.GoToLocation(np.array((station.x, station.y)), ship, gamestate)
+    return orders.GoToLocation(station.loc, ship, gamestate)
 
 class UniverseGenerator:
     def __init__(self, gamestate, seed=None, listener=None):
@@ -195,14 +196,14 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        station = core.Station(x, y, station_body, self._gen_station_name())
+        station = core.Station(np.array((x, y)), station_body, self._gen_station_name())
         station.resource = resource
 
         station_shape = pymunk.Circle(station_body, station_radius)
         station_shape.friction=0.1
         station_shape.collision_type = station.object_type
         station_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.STATION)
-        station_body.position = station.x, station.y
+        station_body.position = (station.loc[0], station.loc[1])
         station_body.entity = station
         station.radius = station_radius
 
@@ -215,14 +216,14 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        planet = core.Planet(x, y, planet_body, self._gen_planet_name())
+        planet = core.Planet(np.array((x, y)), planet_body, self._gen_planet_name())
         planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
 
         planet_shape = pymunk.Circle(planet_body, planet_radius)
         planet_shape.friction=0.1
         planet_shape.collision_type = planet.object_type
         planet_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.PLANET)
-        planet_body.position = planet.x, planet.y
+        planet_body.position = (planet.loc[0], planet.loc[1])
         planet_body.entity = planet
         planet.radius = planet_radius
 
@@ -230,7 +231,7 @@ class UniverseGenerator:
 
         return planet
 
-    def spawn_ship(self, sector, ship_x, ship_y, v=None, w=None, theta=None, default_order_fn=order_fn_null):
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[np.ndarray]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn=order_fn_null) -> core.Ship:
 
         #TODO: clean this up
         # set up physics stuff
@@ -273,13 +274,13 @@ class UniverseGenerator:
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
 
         ship_body = pymunk.Body(ship_mass, ship_moment)
-        ship = core.Ship(ship_x, ship_y, ship_body, self._gen_ship_name())
+        ship = core.Ship(np.array((ship_x, ship_y)), ship_body, self._gen_ship_name())
 
         ship_shape = pymunk.Circle(ship_body, ship_radius)
         ship_shape.friction=0.1
         ship_shape.collision_type = ship.object_type
         ship_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.SHIP)
-        ship_body.position = ship.x, ship.y
+        ship_body.position = ship.loc[0], ship.loc[1]
         ship_body.entity = ship
 
         ship.mass = ship_mass
@@ -290,13 +291,9 @@ class UniverseGenerator:
         ship.max_torque = max_torque
 
         if v is None:
-            v = pymunk.vec2d.Vec2d(*(self.r.normal(0, 50, 2)))
-            ship_body.velocity = v
-            ship_body.angle = v.angle
-        else:
-            v = pymunk.vec2d.Vec2d(*v)
-            ship_body.velocity = v
-            ship_body.angle = v.angle
+            v = (self.r.normal(0, 50, 2))
+        ship_body.velocity = pymunk.vec2d.Vec2d(*v)
+        ship_body.angle = ship_body.velocity.angle
 
         if theta is not None:
             ship_body.angle = theta
@@ -344,12 +341,12 @@ class UniverseGenerator:
             #TODO: stations are static?
             #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
             body = pymunk.Body(body_type=pymunk.Body.STATIC)
-            asteroid = core.Asteroid(resource, amount, loc[0], loc[1], body, self._gen_asteroid_name())
+            asteroid = core.Asteroid(resource, amount, loc, body, self._gen_asteroid_name())
             shape = pymunk.Circle(body, asteroid_radius)
             shape.friction=0.1
             shape.collision_type = asteroid.object_type
             shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.ASTEROID)
-            body.position = asteroid.x, asteroid.y
+            body.position = (asteroid.loc[0], asteroid.loc[1])
             body.entity = asteroid
             asteroid.radius = asteroid_radius
 
@@ -369,10 +366,11 @@ class UniverseGenerator:
         if not asteroids:
             raise ValueError(f'no asteroids of type {resource} in sector {sector.short_id()}')
 
+        center_loc = np.array((x, y))
         # probability of harvest falls off inverse square
         dists = np.sqrt(
             np.sum(
-                 np.array(list((x - asteroid.x, y - asteroid.y) for asteroid in asteroids))**2,
+                 np.array(list(center_loc - asteroid.loc for asteroid in asteroids))**2,
                  axis=1
             )
         )
