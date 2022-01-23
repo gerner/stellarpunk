@@ -3,13 +3,14 @@ import logging
 import contextlib
 import time
 import math
+import curses
 import warnings
-from typing import List
+from typing import List, Optional
 
 import ipdb # type: ignore
 import numpy as np
 
-from stellarpunk import util, core, interface, generate
+from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
 class IPDBManager:
@@ -29,13 +30,16 @@ class IPDBManager:
             ipdb.post_mortem(tb)
 
 class Simulator:
-    def __init__(self, gamestate, ui, dt:float=1/60) -> None:
+    def __init__(self, gamestate, ui, dt:float=1/60, max_dt:Optional[float]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
 
         # time between ticks, this is the framerate
         self.desired_dt = dt
+        if not max_dt:
+            max_dt = dt
+        self.max_dt = max_dt
         self.dt = dt
         self.behind_ticks = 0.
 
@@ -96,7 +100,7 @@ class Simulator:
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
                 self.gamestate.paused = True
-                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}')
+                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}', attr=curses.color_pair(1))
 
             for ship in sector.ships:
                 # update ship positions from physics sim
@@ -106,11 +110,9 @@ class Simulator:
                 ship.velocity = np.array(ship.phys.velocity)
                 ship.angular_velocity = ship.phys.angular_velocity
 
-                ship.history.append(ship.to_history(self.gamestate.timestamp))
-
-
             for ship in sector.ships:
                 self.tick_order(ship, dt)
+                ship.history.append(ship.to_history(self.gamestate.timestamp))
 
             #TODO: do resource and production stuff
             #TODO: do AI stuff
@@ -136,7 +138,7 @@ class Simulator:
             if now - next_tick > self.dt:
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
-                if behind > self.behind_ticks:
+                if self.dt < self.max_dt and behind > self.behind_ticks:
                     self.dt *= 1.5
                 self.behind_ticks = behind
                 self.logger.warning(f'behind by {behind} ticks dt: {self.dt}')
@@ -203,7 +205,7 @@ def main() -> None:
         stellar_punk.production_chain.viz().render("production_chain", format="pdf")
 
         dt = 1/60
-        sim = Simulator(gamestate, ui, dt=dt)
+        sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5)
         sim.initialize()
 
         sim.run()

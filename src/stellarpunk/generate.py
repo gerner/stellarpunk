@@ -303,6 +303,8 @@ class UniverseGenerator:
         else:
             ship_body.angular_velocity = w
 
+        ship.velocity = np.array(ship_body.velocity)
+        ship.angular_velocity = ship_body.angular_velocity
         sector.add_entity(ship)
 
         ship.default_order_fn = default_order_fn

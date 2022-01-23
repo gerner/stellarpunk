@@ -540,7 +540,8 @@ class Interface:
     def command_list(self):
         def pause(args): self.gamestate.paused = not self.gamestate.paused
         def fps(args): self.show_fps = not self.show_fps
-        def quit(args): raise QuitError()
+        def quit(args): self.gamestate.quit()
+        def raise_exception(args): raise Exception()
         def colordemo(args): self.open_view(ColorDemo(self))
         def profile(args):
             if self.profiler:
@@ -553,6 +554,7 @@ class Interface:
                 "pause": pause,
                 "fps": fps,
                 "quit": quit,
+                "raise": raise_exception,
                 "colordemo": colordemo,
                 "profile": profile,
         }
