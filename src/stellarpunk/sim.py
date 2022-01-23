@@ -100,7 +100,7 @@ class Simulator:
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
                 self.gamestate.paused = True
-                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}', attr=curses.color_pair(1))
+                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}, dt: {self.dt}', attr=curses.color_pair(1))
 
             for ship in sector.ships:
                 # update ship positions from physics sim
@@ -138,7 +138,7 @@ class Simulator:
             if now - next_tick > self.dt:
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
-                if self.dt < self.max_dt and behind > self.behind_ticks:
+                if behind > 20 and self.dt < self.max_dt and behind > self.behind_ticks:
                     self.dt *= 1.5
                 self.behind_ticks = behind
                 self.logger.warning(f'behind by {behind} ticks dt: {self.dt}')

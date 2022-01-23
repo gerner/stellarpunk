@@ -7,7 +7,7 @@ import datetime
 import enum
 import logging
 import collections
-from typing import Optional, Deque, Callable
+from typing import Optional, Deque, Callable, Iterable
 
 import graphviz # type: ignore
 import numpy as np
@@ -160,6 +160,30 @@ class ObjectFlag(enum.IntFlag):
     PLANET = enum.auto()
     ASTEROID = enum.auto()
 
+class HistoryEntry:
+    def __init__(self, entity_id:uuid.UUID, ts:int, loc:np.ndarray, angle:float, velocity:np.ndarray, angular_velocity:float, order_hist:Optional[dict]=None) -> None:
+        self.entity_id = entity_id
+        self.ts = ts
+
+        self.order_hist = order_hist
+
+        self.loc = loc
+        self.angle = angle
+
+        self.velocity = velocity
+        self.angular_velocity = angular_velocity
+
+    def to_json(self):
+        return {
+            "eid": str(self.entity_id),
+            "ts": self.ts,
+            "loc": self.loc.tolist(),
+            "a": self.angle,
+            "v": self.velocity.tolist(),
+            "av": self.angular_velocity,
+            "o": self.order_hist,
+        }
+
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
 
@@ -186,6 +210,13 @@ class SectorEntity(Entity):
     def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
 
+    def get_history(self) -> Iterable[HistoryEntry]:
+        return (HistoryEntry(
+                self.entity_id, 0,
+                self.loc, self.angle,
+                self.velocity, self.angular_velocity,
+        ),)
+
     def address_str(self) -> str:
         if self.sector:
             return f'{self.short_id()}@{self.sector.short_id()}'
@@ -210,30 +241,6 @@ class Station(SectorEntity):
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
 
-class HistoryEntry:
-    def __init__(self, entity_id:uuid.UUID, ts:int, loc:np.ndarray, angle:float, velocity:np.ndarray, angular_velocity:float, order_hist:Optional[dict]) -> None:
-        self.entity_id = entity_id
-        self.ts = ts
-
-        self.order_hist = order_hist
-
-        self.loc = loc
-        self.angle = angle
-
-        self.velocity = velocity
-        self.angular_velocity = angular_velocity
-
-    def to_json(self):
-        return {
-            "eid": str(self.entity_id),
-            "ts": self.ts,
-            "loc": self.loc.tolist(),
-            "a": self.angle,
-            "v": self.velocity.tolist(),
-            "av": self.angular_velocity,
-            "o": self.order_hist,
-        }
-
 class Ship(SectorEntity):
 
     id_prefix = "SHP"
@@ -255,6 +262,9 @@ class Ship(SectorEntity):
         self.default_order_fn: Callable[[Ship, Gamestate], Order] = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
+
+    def get_history(self) -> Iterable[HistoryEntry]:
+        return self.history
 
     def to_history(self, timestamp) -> HistoryEntry:
         order_hist = self.orders[0].to_history() if self.orders else None

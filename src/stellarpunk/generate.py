@@ -311,6 +311,25 @@ class UniverseGenerator:
 
         return ship
 
+    def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float) -> core.Asteroid:
+        asteroid_radius = 100
+
+        #TODO: stations are static?
+        #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
+        body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        asteroid = core.Asteroid(resource, amount, np.array((x,y)), body, self._gen_asteroid_name())
+        shape = pymunk.Circle(body, asteroid_radius)
+        shape.friction=0.1
+        shape.collision_type = asteroid.object_type
+        shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.ASTEROID)
+        body.position = (asteroid.loc[0], asteroid.loc[1])
+        body.entity = asteroid
+        asteroid.radius = asteroid_radius
+
+        sector.add_entity(asteroid)
+
+        return asteroid
+
     def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=None, mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> list[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
@@ -337,22 +356,7 @@ class UniverseGenerator:
             if amount > total_amount:
                 amount = total_amount
 
-
-            asteroid_radius = 100
-
-            #TODO: stations are static?
-            #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-            body = pymunk.Body(body_type=pymunk.Body.STATIC)
-            asteroid = core.Asteroid(resource, amount, loc, body, self._gen_asteroid_name())
-            shape = pymunk.Circle(body, asteroid_radius)
-            shape.friction=0.1
-            shape.collision_type = asteroid.object_type
-            shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.ASTEROID)
-            body.position = (asteroid.loc[0], asteroid.loc[1])
-            body.entity = asteroid
-            asteroid.radius = asteroid_radius
-
-            sector.add_entity(asteroid)
+            asteroid = self.spawn_asteroid(sector, loc[0], loc[1], resource, amount)
 
             asteroids.append(asteroid)
 

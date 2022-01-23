@@ -278,11 +278,11 @@ class AbstractSteeringOrder(core.Order):
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = (self.collision_threat,) if self.collision_threat else ()
         else:
-            ul = self.ship.loc - neighborhood_dist
-            lr = self.ship.loc + neighborhood_dist
+            ll = self.ship.loc - neighborhood_dist
+            ur = self.ship.loc + neighborhood_dist
             bounds = (
-                    ul[0], ul[1],
-                    lr[0], lr[0],
+                    ll[0], ll[1],
+                    ur[0], ur[1],
             )
 
             self.collision_threat = None
@@ -390,7 +390,6 @@ class AbstractSteeringOrder(core.Order):
             self.collision_cbdr = False
             self.collision_cbdr_time = 0
 
-
         #self.logger.debug(f'collision in {approach_time:.2f}s, {collision_distance}m, {relative_position + relative_velocity * approach_time}')
 
         # if we're going to exactly collide or we're already inside of the
@@ -403,30 +402,33 @@ class AbstractSteeringOrder(core.Order):
             self.logger.debug(f'already inside margin: {distance}')
 
         speed = np.linalg.norm(desired_direction)
+
         if speed < VELOCITY_EPS:
-            desired_direction = relative_velocity
-            speed = np.linalg.norm(relative_velocity)
-
-        # if the angle between relative pos and velocity is very small or close to pi
-        # we could have instability
-        parallelness = np.dot(relative_position/distance,desired_direction/speed)
-
-        if parallelness < -1+PARALLEL_EPS or parallelness > 1-PARALLEL_EPS:
-            #TODO: is this weird if we're already offset by a bunch?
-
-            # prefer diverting clockwise
-            dv = np.array((desired_direction[1], -desired_direction[0]))
-            dv = dv / np.linalg.norm(dv)
+            # if desired speed is (effectively) zero, then just avoid in
+            # direction of min sep.
+            dv = relative_position
         else:
-            # get the component of relative position perpendicular to our
-            # desired direction. This will be the direction of our divert which
-            # will limit the impact on our desired path.
-            dv = relative_position - desired_direction * np.dot(relative_position, desired_direction) / np.dot(desired_direction, desired_direction)
+            # if the angle between relative pos and velocity is very small or
+            # close to pi we could have instability
+            parallelness = np.dot(relative_position/distance,desired_direction/speed)
+
+            if parallelness < -1+PARALLEL_EPS or parallelness > 1-PARALLEL_EPS:
+                #TODO: is this weird if we're already offset by a bunch?
+
+                # prefer diverting clockwise
+                dv = np.array((desired_direction[1], -desired_direction[0]))
+                dv = dv / np.linalg.norm(dv)
+            else:
+                # get the component of relative position perpendicular to our
+                # desired direction. This will be the direction of our divert
+                # which will limit the impact on our desired path.
+                dv = relative_position - desired_direction * np.dot(relative_position, desired_direction) / np.dot(desired_direction, desired_direction)
 
         if self.collision_cbdr:
-            # when we're in a CBDR situation, we divert from our desired vector
-            # by a fixed amount in a fixed direction, this should help avoid
-            # two agents following the same algorithm steering into each other.
+            # when we're in a CBDR situation, we divert from our desired
+            # vector by a fixed amount in a fixed direction, this should
+            # help avoid two agents following the same algorithm steering
+            # into each other.
 
             r, theta = util.cartesian_to_polar(dv[0], dv[1])
             dv = np.array(util.polar_to_cartesian(r, theta + self.collision_cbdr_divert_angle))
@@ -572,6 +574,8 @@ class GoToLocation(AbstractSteeringOrder):
 
         self.cannot_stop = False
 
+        self.distance_estimate = 0
+
     def to_history(self) -> dict:
         data = super().to_history()
         data["t_loc"] = self.target_location.tolist()
@@ -609,7 +613,11 @@ class GoToLocation(AbstractSteeringOrder):
 
 
     def is_complete(self) -> bool:
-        return bool(np.linalg.norm(self.target_location - self.ship.loc) < self.arrival_distance + VELOCITY_EPS and np.allclose(self.ship.velocity, ZERO_VECTOR))
+        # computing this is expensive, so don't if we can avoid it
+        if self.distance_estimate > self.arrival_distance*100:
+            return False
+        else:
+            return bool(np.linalg.norm(self.target_location - self.ship.loc) < self.arrival_distance + VELOCITY_EPS and np.allclose(self.ship.velocity, ZERO_VECTOR))
 
     def act(self, dt: float) -> None:
         if self.ship.sector is None:
@@ -624,9 +632,12 @@ class GoToLocation(AbstractSteeringOrder):
         course = self.target_location - (current_location)
         distance, target_angle = util.cartesian_to_polar(course[0], course[1])
 
+        self.distance_estimate = distance - self.ship.max_speed()*dt
+
         max_acceleration = self.ship.max_acceleration()
         if distance < self.arrival_distance + VELOCITY_EPS:
             target_v = ZERO_VECTOR
+            desired_speed = 0.
         else:
             rot_time = rotation_time(abs(util.normalize_angle(self.ship.angle-(target_angle+np.pi), shortest=True)), self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
             #rot_time = rotation_time(np.pi, 0, self.ship.max_angular_acceleration(), self.safety_factor)
@@ -659,9 +670,10 @@ class GoToLocation(AbstractSteeringOrder):
             target_v = course/distance * desired_speed
             #self.logger.debug(f'target_v: {target_v}')
 
+        self.target_v = target_v
+
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
-        #TODO: desired_direction is a rough approximation of the velocity we'd really like to have
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
                 self.ship.sector, 5e4, self.collision_margin,
                 max_distance=distance-self.arrival_distance/self.safety_factor,
@@ -671,15 +683,15 @@ class GoToLocation(AbstractSteeringOrder):
         # so we've got enough acceleration to achieve collision_dv in
         # approach_time seconds
 
-        #TODO: quick hack to test just avoiding collisions
-        #   if we do this then we get to our target margin
+        # if we need to avoid a collision, divert all resources to that
         if distance_to_avoid_collision > VELOCITY_EPS:
             self._accelerate_to(v + collision_dv, dt)
         else:
             self._accelerate_to(target_v + collision_dv, dt)
-        self.target_v = target_v
-        #if np.linalg.norm(target_v + collision_dv) / (approach_time-2*rotation_time(np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration())) > max_acceleration/self.safety_factor:
-        #    self._accelerate_to(collision_dv, dt)
+
+        #TODO: maybe combine our target with the 
+        #if max_acceleration * approach_time / self.safety_factor < distance_to_avoid_collision:
+        #    self._accelerate_to(v + collision_dv, dt)
         #else:
         #    self._accelerate_to(target_v + collision_dv, dt)
 
