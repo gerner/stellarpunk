@@ -40,8 +40,19 @@ class Simulator:
         if not max_dt:
             max_dt = dt
         self.max_dt = max_dt
+        self.dt_scaleup = 1.5
+        self.dt_scaledown = 0.9
+        # dt is "best effort" constant but varies between desired_dt and max_dt
         self.dt = dt
+
+        # number of ticks we're currently behind
         self.behind_ticks = 0.
+        # number of ticks we've been behind by >= 1 tick
+        self.behind_length = 0
+        # number of tickse we need to be behind to trigger dt scaling
+        # note that dt scaling is somewhat disruptive since some things might
+        # expect us to have a constant dt.
+        self.behind_dt_scale_thresthold = 30
 
         self.ticktime_alpha = 0.1
         self.min_tick_sleep = self.desired_dt/5
@@ -100,7 +111,7 @@ class Simulator:
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
                 self.gamestate.paused = True
-                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}, dt: {self.dt}', attr=curses.color_pair(1))
+                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}', attr=curses.color_pair(1))
 
             for ship in sector.ships:
                 # update ship positions from physics sim
@@ -128,7 +139,7 @@ class Simulator:
 
             if next_tick - now > self.min_tick_sleep:
                 if self.dt > self.desired_dt:
-                    self.dt = max(self.desired_dt, self.dt/1.1)
+                    self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
                     self.logger.debug(f'dt: {self.dt}')
                 time.sleep(next_tick - now)
             #TODO: what to do if we miss a tick (or a lot)
@@ -138,12 +149,14 @@ class Simulator:
             if now - next_tick > self.dt:
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
-                if behind > 20 and self.dt < self.max_dt and behind > self.behind_ticks:
-                    self.dt *= 1.5
+                if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
+                    self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
                 self.behind_ticks = behind
-                self.logger.warning(f'behind by {behind} ticks dt: {self.dt}')
+                self.behind_length += 1
+                self.logger.warning(f'behind by {behind} ticks dt: {self.dt} for {self.behind_length} ticks')
             else:
                 self.behind_ticks = 0
+                self.behind_length = 0
 
 
             starttime = time.perf_counter()

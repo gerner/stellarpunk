@@ -196,7 +196,7 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        station = core.Station(np.array((x, y)), station_body, self._gen_station_name())
+        station = core.Station(np.array((x, y), dtype=np.float64), station_body, self._gen_station_name())
         station.resource = resource
 
         station_shape = pymunk.Circle(station_body, station_radius)
@@ -216,7 +216,7 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        planet = core.Planet(np.array((x, y)), planet_body, self._gen_planet_name())
+        planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self._gen_planet_name())
         planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
 
         planet_shape = pymunk.Circle(planet_body, planet_radius)
@@ -274,7 +274,7 @@ class UniverseGenerator:
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
 
         ship_body = pymunk.Body(ship_mass, ship_moment)
-        ship = core.Ship(np.array((ship_x, ship_y)), ship_body, self._gen_ship_name())
+        ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self._gen_ship_name())
 
         ship_shape = pymunk.Circle(ship_body, ship_radius)
         ship_shape.friction=0.1
@@ -303,7 +303,7 @@ class UniverseGenerator:
         else:
             ship_body.angular_velocity = w
 
-        ship.velocity = np.array(ship_body.velocity)
+        ship.velocity = np.array(ship_body.velocity, dtype=np.float64)
         ship.angular_velocity = ship_body.angular_velocity
         sector.add_entity(ship)
 
@@ -317,7 +317,7 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        asteroid = core.Asteroid(resource, amount, np.array((x,y)), body, self._gen_asteroid_name())
+        asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self._gen_asteroid_name())
         shape = pymunk.Circle(body, asteroid_radius)
         shape.friction=0.1
         shape.collision_type = asteroid.object_type
@@ -344,7 +344,7 @@ class UniverseGenerator:
         if total_amount < 0:
             return []
 
-        field_center = np.array((x,y))
+        field_center = np.array((x,y), dtype=np.float64)
         if not width:
             width = sector.radius / 5
 
@@ -372,7 +372,7 @@ class UniverseGenerator:
         if not asteroids:
             raise ValueError(f'no asteroids of type {resource} in sector {sector.short_id()}')
 
-        center_loc = np.array((x, y))
+        center_loc = np.array((x, y), dtype=np.float64)
         # probability of harvest falls off inverse square
         dists = np.sqrt(
             np.sum(

@@ -497,11 +497,14 @@ class SectorView(interface.View):
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
         def debug_write_history(args):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise interface.CommandInput.UserError(f'order only valid on a ship target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
             util.write_history_to_file(self.selected_entity, filename)
+
+        def debug_write_sector(args):
+            filename = "/tmp/stellarpunk.history.gz"
+            self.logger.info(f'writing history for sector {self.sector.short_id()} to {filename}')
+            self.sector.write_history(filename)
 
         def spawn_ship(args):
             if len(args) < 2:
@@ -526,6 +529,7 @@ class SectorView(interface.View):
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
                 "debug_write_history": debug_write_history,
+                "debug_write_sector": debug_write_sector,
                 "target": (target, util.tab_completer(self.sector.entities.keys())),
                 "spawn_ship": spawn_ship,
                 "spawn_collision": spawn_collision,

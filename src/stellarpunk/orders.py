@@ -5,6 +5,8 @@ import collections
 from typing import Optional, Deque
 
 import numpy as np
+import numpy.typing as npt
+import numba as nb # type: ignore
 from numba import jit # type: ignore
 
 from stellarpunk import util, core
@@ -13,11 +15,16 @@ ANGLE_EPS = 1e-3
 PARALLEL_EPS = 1e-3
 VELOCITY_EPS = 1e-2
 
-ZERO_VECTOR = np.array((0.,0.))
-ZERO_VECTOR.flags.writeable = False
-
 CBDR_HIST_SEC = 0.5
 CBDR_DIST_EPS = 5
+
+# think of this as the gimballing angle (?)
+# pi/16 is ~11 degrees
+COARSE_ANGLE_MATCH = np.pi/16
+
+# a convenient zero vector to avoid needless array creations
+ZERO_VECTOR = np.array((0.,0.))
+ZERO_VECTOR.flags.writeable = False
 
 @jit(cache=True, nopython=True)
 def rotation_time(delta_angle: float, angular_velocity: float, max_angular_acceleration: float, safety_factor:float) -> float:
@@ -75,10 +82,6 @@ def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, mome
     if target_speed > max_speed:
         target_velocity = target_velocity / target_speed * max_speed
 
-    # orient toward the opposite of the direction of travel
-    # thrust until zero velocity
-    velocity_magnitude, velocity_angle = util.cartesian_to_polar(v[0], v[1])
-
     dv = target_velocity - v
     difference_mag, difference_angle = util.cartesian_to_polar(dv[0], dv[1])
 
@@ -93,8 +96,7 @@ def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, mome
     # this should have something to do with how much we expect this angle
     # to change in dt time, but order of magnitude seems reasonable approx
 
-    # pi/16 is ~11 degrees. think of this as gimballing (?)
-    coarse_angle_match = np.pi/16
+    coarse_angle_match = COARSE_ANGLE_MATCH
 
     if (difference_mag * mass / max_fine_thrust > rot_time and np.abs(delta_heading) > coarse_angle_match) or difference_mag < VELOCITY_EPS:
         # we need to rotate in direction of thrust
@@ -108,7 +110,7 @@ def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, mome
         # we should apply thrust, however we can with the current heading
         # max thrust is main engines if we're pointing in the desired
         # direction, otherwise use fine thrusters
-        if abs(delta_heading) < coarse_angle_match:
+        if np.abs(delta_heading) < coarse_angle_match:
             max_thrust = max_thrust
         else:
             max_thrust = max_fine_thrust
@@ -142,6 +144,64 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
         return rel_dist, np.inf, ZERO_VECTOR, ZERO_VECTOR, np.inf
 
     return rel_dist, approach_t, rel_pos, rel_vel, float(min_sep)
+
+# numba seems to have trouble with this method and recompiles it with some
+# frequency. So we explicitly specify types here to avoid that.
+@jit(
+        nb.types.Tuple(
+            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
+        )(
+            nb.float64[:], nb.float64, nb.float64,
+            nb.float64[:], nb.float64[:], nb.float64, nb.float64, nb.float64,
+            nb.float64, nb.float64, nb.float64, nb.float64
+        ), cache=True, nopython=True)
+def _find_target_v(
+        target_location:np.ndarray, arrival_distance:float, min_distance:float,
+        current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
+        max_acceleration:float, max_angular_acceleration:float, max_speed:float,
+        dt:float, safety_factor:float) -> tuple[np.ndarray, float, float, bool]:
+
+        course = target_location - current_location
+        distance, target_angle = util.cartesian_to_polar(course[0], course[1])
+
+        distance_estimate = distance - max_speed*dt
+
+        d = np.sum(v**2) / (2* max_acceleration)
+        if d > distance-min_distance:
+            cannot_stop = True
+        else:
+            cannot_stop = False
+
+        if distance < arrival_distance + VELOCITY_EPS:
+            #target_v = ZERO_VECTOR
+            target_v = np.array((0.,0.))
+            desired_speed = 0.
+        else:
+            rot_time = rotation_time(abs(util.normalize_angle(theta-(target_angle+np.pi), shortest=True)), omega, max_angular_acceleration, safety_factor)
+            #rot_time = rotation_time(np.pi, 0, self.ship.max_angular_acceleration(), self.safety_factor)
+
+            # choose a desired speed such that if we were at that speed right
+            # now we would have enough time to rotate 180 degrees and
+            # decelerate to a stop at full thrust by the time we reach arrival
+            # distance
+            a = max_acceleration
+            s = distance - min_distance
+            if s < 0:
+                s = 0
+
+            # there are two roots to the quadratic equation
+            desired_speed_1 = (-2 * a * rot_time + np.sqrt((2 * a  * rot_time) ** 2 + 8 * a * s))/2
+            # we discard the smaller one
+            #desired_speed_2 = (-2 * a * rot_time - np.sqrt((2 * a * rot_time) ** 2 + 8 * a * s))/2
+
+            # numba doesn't support np.clip
+            #desired_speed = np.clip(desired_speed_1/safety_factor, 0, max_speed)
+            desired_speed = util.clip(desired_speed_1/safety_factor, 0, max_speed)
+
+
+            target_v = course/distance * desired_speed
+
+        return target_v, distance, distance_estimate, cannot_stop
 
 def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int):
     if len(rel_pos_hist) < min_hist:
@@ -205,9 +265,6 @@ class AbstractSteeringOrder(core.Order):
                 target_angle, self.ship.angle, w,
                 self.ship.max_torque, moment, dt,
                 self.safety_factor)
-
-        #if abs(util.normalize_angle(target_angle - self.ship.angle, shortest=True)) < ANGLE_EPS:
-        #    raise Exception()
 
         if t == 0:
             self.ship.phys.angle = target_angle
@@ -274,6 +331,7 @@ class AbstractSteeringOrder(core.Order):
         v = self.ship.velocity
 
         last_collision_threat = self.collision_threat
+        #TODO: this seems unsatable, so I set max age to zero to avoid it
         # we cache the collision threat to avoid searching space
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = (self.collision_threat,) if self.collision_threat else ()
@@ -554,7 +612,7 @@ class KillVelocityOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class GoToLocation(AbstractSteeringOrder):
-    def __init__(self, target_location: np.ndarray, *args, arrival_distance: float=1e3, min_distance:Optional[float]=None, **kwargs) -> None:
+    def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1e3, min_distance:Optional[float]=None, **kwargs) -> None:
         """ Creates an order to go to a specific location.
 
         The order will arrivate at the location approximately and with zero
@@ -574,7 +632,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         self.cannot_stop = False
 
-        self.distance_estimate = 0
+        self.distance_estimate = 0.
 
     def to_history(self) -> dict:
         data = super().to_history()
@@ -626,74 +684,46 @@ class GoToLocation(AbstractSteeringOrder):
         # obstacle avoidance
 
         v = self.ship.velocity
-
-        # vector toward target
-        current_location = self.ship.loc
-        course = self.target_location - (current_location)
-        distance, target_angle = util.cartesian_to_polar(course[0], course[1])
-
-        self.distance_estimate = distance - self.ship.max_speed()*dt
+        theta = self.ship.angle
+        omega = self.ship.angular_velocity
 
         max_acceleration = self.ship.max_acceleration()
-        if distance < self.arrival_distance + VELOCITY_EPS:
-            target_v = ZERO_VECTOR
-            desired_speed = 0.
-        else:
-            rot_time = rotation_time(abs(util.normalize_angle(self.ship.angle-(target_angle+np.pi), shortest=True)), self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
-            #rot_time = rotation_time(np.pi, 0, self.ship.max_angular_acceleration(), self.safety_factor)
+        max_angular_acceleration = self.ship.max_angular_acceleration()
+        max_speed = self.ship.max_speed()
 
-            # choose a desired speed such that if we were at that speed right
-            # now we would have enough time to rotate 180 degrees and
-            # decelerate to a stop at full thrust by the time we reach arrival
-            # distance
-            a = max_acceleration
-            s = (distance - self.min_distance)
-            if s < 0:
-                s = 0
+        self.target_v, distance, self.distance_estimate, self.cannot_stop = _find_target_v(
+                self.target_location, self.arrival_distance, self.min_distance,
+                self.ship.loc, v, theta, omega,
+                max_acceleration, max_angular_acceleration, max_speed,
+                dt, self.safety_factor)
 
-            # there are two roots to the quadratic equation
-            desired_speed_1 = (-2 * a * rot_time + np.sqrt((2 * a  * rot_time) ** 2 + 8 * a * s))/2
-            # we discard the smaller one
-            #desired_speed_2 = (-2 * a * rot_time - np.sqrt((2 * a * rot_time) ** 2 + 8 * a * s))/2
-
-            desired_speed = np.clip(desired_speed_1/self.safety_factor, 0, self.ship.max_speed())
-
-            #TODO: what happens if we can't stop in time?
-            d = np.sum(v**2) / (2* max_acceleration)
-            if d > distance:
-                self.cannot_stop = True
-                self.logger.debug(f'cannot stop in time {d} > {distance}')
-            else:
-                #self.logger.debug(f'stopping margin: {distance - d} at {distance} {desired_speed - np.linalg.norm(self.ship.velocity)}')
-                self.cannot_stop = False
-
-            target_v = course/distance * desired_speed
-            #self.logger.debug(f'target_v: {target_v}')
-
-        self.target_v = target_v
+        if self.cannot_stop:
+            self.logger.debug(f'cannot stop in time distance: {distance} v: {v}')
 
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
                 self.ship.sector, 5e4, self.collision_margin,
                 max_distance=distance-self.arrival_distance/self.safety_factor,
-                desired_direction=target_v)
+                desired_direction=self.target_v)
 
         # accelerate to alpha * target_v + collision_dv where alpha is chosen
         # so we've got enough acceleration to achieve collision_dv in
         # approach_time seconds
 
         # if we need to avoid a collision, divert all resources to that
-        if distance_to_avoid_collision > VELOCITY_EPS:
+        if distance > self.arrival_distance and distance_to_avoid_collision > VELOCITY_EPS:
             self._accelerate_to(v + collision_dv, dt)
         else:
-            self._accelerate_to(target_v + collision_dv, dt)
+            self._accelerate_to(self.target_v + collision_dv, dt)
 
-        #TODO: maybe combine our target with the 
+        #TODO: combine target_v with collision_dv
+        # this doesn't seem to work well in practice (both in terms of eta and
+        # collision avoidance) so we're not doing it
         #if max_acceleration * approach_time / self.safety_factor < distance_to_avoid_collision:
         #    self._accelerate_to(v + collision_dv, dt)
         #else:
-        #    self._accelerate_to(target_v + collision_dv, dt)
+        #    self._accelerate_to(self.target_v + collision_dv, dt)
 
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args, **kwargs):

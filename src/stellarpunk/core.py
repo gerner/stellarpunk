@@ -7,10 +7,12 @@ import datetime
 import enum
 import logging
 import collections
+import gzip
 from typing import Optional, Deque, Callable, Iterable
 
 import graphviz # type: ignore
 import numpy as np
+import numpy.typing as npt
 import pymunk
 
 from stellarpunk import util
@@ -146,6 +148,11 @@ class Sector(Entity):
         entity.sector = None
         del self.entities[entity.entity_id]
 
+    def write_history(self, filename):
+        with gzip.open(filename, mode="wt") as f:
+            for entity in self.entities.values():
+                util.write_history_to_file(entity, f)
+
 class ObjectType(enum.IntEnum):
     OTHER = enum.auto()
     SHIP = enum.auto()
@@ -189,7 +196,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:np.ndarray, phys: pymunk.Body, *args, **kwargs) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -198,7 +205,7 @@ class SectorEntity(Entity):
         self.mass = 0.
         self.moment = 0.
         self.loc = loc
-        self.velocity = np.array((0.,0.))
+        self.velocity:npt.NDArray[np.float64] = np.array((0.,0.), dtype=np.float64)
         self.angle = 0.
         self.angular_velocity = 0.
 

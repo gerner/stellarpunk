@@ -16,6 +16,7 @@ class MonitoringUI:
 
         self.orders = []
         self.cannot_stop_orders = []
+        self.cannot_avoid_collision_orders = []
         self.margin_neighbors = []
         self.eta = np.inf
 
@@ -35,7 +36,7 @@ class MonitoringUI:
         assert self.gamestate.timestamp < self.eta
 
         assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders))
-        assert all(map(lambda x: not x.cannot_avoid_collision, self.orders))
+        assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
 
 @pytest.fixture
 def history_writer(sector):
@@ -98,6 +99,11 @@ def ship_from_history(history_entry, generator, sector):
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta)
     return ship
 
+def station_from_history(history_entry, generator, sector):
+    x, y = history_entry["loc"]
+    station = generator.spawn_station(sector, x, y, 0)
+    return station
+
 def order_from_history(history_entry, ship, gamestate):
     if history_entry["o"]["o"] != "stellarpunk.orders.GoToLocation":
         raise ValueError(f'can only support stellarpunk.orders.GoToLocation, not {history_entry["o"]["o"]}')
@@ -151,7 +157,7 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -178,7 +184,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
     ship_blocker = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -206,7 +212,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
     ship_driver.velocity = np.array((0, -10)) * 50
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -232,7 +238,7 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     ship_driver.velocity = np.array((-4, -10)) * 50
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -268,7 +274,7 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
     ship_driver = generator.spawn_ship(sector, 0, 2400, v=(0,0), w=0, theta=0)
     ship_blocker = generator.spawn_ship(sector, -300, 1200, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     # d = v_i*t + 1/2 a * t**2
@@ -303,7 +309,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     ship_blocker = generator.spawn_ship(sector, 0, 1200, v=(0,0), w=0, theta=0)
     ship_driver = generator.spawn_ship(sector, 0, 2400, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     distance = 2400
@@ -350,7 +356,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     ship_driver.velocity = np.array((0, 0))
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
-    goto_order = orders.GoToLocation(np.array((0,0)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
     # d = v_i*t + 1/2 a * t**2
@@ -387,9 +393,9 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
     ship_b = generator.spawn_ship(sector, 0, -5000, v=(0,0), w=0, theta=np.pi/2)
 
-    goto_a = orders.GoToLocation(np.array((5000,0)), ship_a, gamestate)
+    goto_a = orders.GoToLocation(np.array((5000.,0.)), ship_a, gamestate)
     ship_a.orders.append(goto_a)
-    goto_b = orders.GoToLocation(np.array((0,5000)), ship_b, gamestate)
+    goto_b = orders.GoToLocation(np.array((0.,5000.)), ship_b, gamestate)
     ship_b.orders.append(goto_b)
 
     a_cbdr = False
@@ -435,9 +441,9 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
     ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
     ship_b = generator.spawn_ship(sector, 5000, 0, v=(0,0), w=0, theta=np.pi)
 
-    goto_a = orders.GoToLocation(np.array((10000,0)), ship_a, gamestate)
+    goto_a = orders.GoToLocation(np.array((10000.,0.)), ship_a, gamestate)
     ship_a.orders.append(goto_a)
-    goto_b = orders.GoToLocation(np.array((-10000,0)), ship_b, gamestate)
+    goto_b = orders.GoToLocation(np.array((-10000.,0.)), ship_b, gamestate)
     ship_b.orders.append(goto_b)
 
     eta = max(goto_a.eta(), goto_b.eta())
@@ -616,7 +622,7 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     util.write_history_to_file(goto_a.ship, "/tmp/stellarpunk_test.history")
     util.write_history_to_file(goto_b.ship, "/tmp/stellarpunk_test.history", mode="a")
 
-def test_ct_near_target(gamestate, generator, sector, testui, simulator, history_writer):
+def test_ct_near_target_a(gamestate, generator, sector, testui, simulator, history_writer):
     # This case caused a collision while running, but I think it was because of
     # changing dt, perhaps because of a mouse click. it doesn't repro in test.
     a = {"eid": "a06358ed-5d1c-4026-b978-c6d05b65b971", "ts": 73.23596008924422, "loc": [33817.46867325524, -2802.702863489674], "a": 0.6501890587823068, "v": [-1516.455517907544, -865.0005079951259], "av": 1.4302311626798327, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 16950.413686796317, "t_loc": [19117.170259352486, -11241.763871430074], "t_v": [-1419.7763852577352, -815.0568917357202], "cs": False}}
@@ -638,8 +644,35 @@ def test_ct_near_target(gamestate, generator, sector, testui, simulator, history
 
     testui.eta = eta
     testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+def test_ct_near_target_b(gamestate, generator, sector, testui, simulator, history_writer):
+    # collision while arriving at a target because another ship was there
+    # no dt variability this time.
+
+    a = {"eid": "77fbba91-269d-4cb9-904e-61787ce80d63", "ts": 79.64999999999677, "loc": [-122815.03076181814, 3850.3306086948373], "a": 6.627042960484162, "v": [-313.63413720994583, -108.78384365820793], "av": -0.05623741471284617, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 698.2370720135756, "t_loc": [-123970.6044737978, 3449.5204445404756], "t_v": [-303.65517804617946, -105.32264666224427], "cs": False}}
+    b = {"eid": "1b28ffaf-48f3-452e-94a9-ad47b61ef800", "ts": 79.64999999999677, "loc": [-123425.9076592069, 4188.508705222051], "a": -6.6292338372113075, "v": [117.17944431531055, -44.3506433557185], "av": -0.1750688589776473, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 698.2370720135756, "t_loc": [-48664.37939049937, -24107.596438030298], "t_v": [1636.693269452293, -619.4635919322167], "cs": False}}
+
+
+    ship_a = ship_from_history(a, generator, sector)
+    ship_b = ship_from_history(b, generator, sector)
+
+    goto_a = order_from_history(a, ship_a, gamestate)
+    goto_b = order_from_history(b, ship_b, gamestate)
+
+    blocker = generator.spawn_station(sector, -123970.6044737978, 3449.5204445404756, resource=0)
+
+    eta = goto_a.eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
