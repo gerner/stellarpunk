@@ -200,7 +200,7 @@ def tab_completer(options):
     def completer(partial, command):
         p = partial.split(' ')[-1]
         c = command.split(' ')[-1]
-        o = tab_complete(p, c, options) or ""
+        o = tab_complete(p, c, options) or p
         logging.debug(f'p:{p} c:{c} o:{o}')
         return " ".join(command.split(' ')[:-1]) + " " + o
     return completer
