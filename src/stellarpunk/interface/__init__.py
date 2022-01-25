@@ -39,6 +39,10 @@ class Settings:
     VIEWSCREEN_BUFFER_WIDTH = 500
     VIEWSCREEN_BUFFER_HEIGHT = 500
 
+class Color(enum.Enum):
+    ERROR = enum.auto()
+
+
 class Icons:
 
     SHIP_N = "\u25B2" # black up pointing triangle
@@ -474,6 +478,12 @@ class Interface:
         curses.nonl()
 
         self.reinitialize_screen()
+
+    def get_color(self, color:Color) -> int:
+        if color == Color.ERROR:
+            return curses.color_pair(1)
+        else:
+            raise ValueError(f'unknown color {color}')
 
     def refresh_viewscreen(self):
         self.viewscreen.noutrefresh(

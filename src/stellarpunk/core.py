@@ -8,6 +8,7 @@ import enum
 import logging
 import collections
 import gzip
+import json
 from typing import Optional, Deque, Callable, Iterable
 
 import graphviz # type: ignore
@@ -148,11 +149,6 @@ class Sector(Entity):
         entity.sector = None
         del self.entities[entity.entity_id]
 
-    def write_history(self, filename):
-        with gzip.open(filename, mode="wt") as f:
-            for entity in self.entities.values():
-                util.write_history_to_file(entity, f)
-
 class ObjectType(enum.IntEnum):
     OTHER = enum.auto()
     SHIP = enum.auto()
@@ -168,7 +164,7 @@ class ObjectFlag(enum.IntFlag):
     ASTEROID = enum.auto()
 
 class HistoryEntry:
-    def __init__(self, entity_id:uuid.UUID, ts:int, loc:np.ndarray, angle:float, velocity:np.ndarray, angular_velocity:float, order_hist:Optional[dict]=None) -> None:
+    def __init__(self, entity_id:uuid.UUID, ts:int, loc:np.ndarray, angle:float, velocity:np.ndarray, angular_velocity:float, force:float, torque:float, order_hist:Optional[dict]=None) -> None:
         self.entity_id = entity_id
         self.ts = ts
 
@@ -180,6 +176,9 @@ class HistoryEntry:
         self.velocity = velocity
         self.angular_velocity = angular_velocity
 
+        self.force = force
+        self.torque = torque
+
     def to_json(self):
         return {
             "eid": str(self.entity_id),
@@ -188,6 +187,8 @@ class HistoryEntry:
             "a": self.angle,
             "v": self.velocity.tolist(),
             "av": self.angular_velocity,
+            "f": self.force,
+            "t": self.torque,
             "o": self.order_hist,
         }
 
@@ -222,6 +223,7 @@ class SectorEntity(Entity):
                 self.entity_id, 0,
                 self.loc, self.angle,
                 self.velocity, self.angular_velocity,
+                0, 0,
         ),)
 
     def address_str(self) -> str:
@@ -279,11 +281,12 @@ class Ship(SectorEntity):
                 self.entity_id, timestamp,
                 self.loc, self.angle,
                 self.velocity, self.angular_velocity,
+                self.phys.force, self.phys.torque,
                 order_hist,
         )
 
     def max_speed(self) -> float:
-        return self.max_thrust / self.mass * 7
+        return self.max_thrust / self.mass * 4
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
@@ -384,3 +387,24 @@ class Gamestate:
     def quit(self):
         self.keep_running = False
 
+def write_history_to_file(entity, f, mode="w"):
+    if isinstance(f, str):
+        needs_close = True
+        if f.endswith(".gz"):
+            f = gzip.open(f, mode+"t")
+        else:
+            f = open(f, mode)
+    else:
+        needs_close = False
+
+    if isinstance(entity, Ship):
+        entities = [entity]
+    elif isinstance(entity, Sector):
+        entities = entity.entities.values()
+
+    for ent in entities:
+        for entry in ent.get_history():
+            f.write(json.dumps(entry.to_json()))
+            f.write("\n")
+    if needs_close:
+        f.close()

@@ -111,7 +111,10 @@ class Simulator:
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
                 self.gamestate.paused = True
-                self.ui.status_message(f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}', attr=curses.color_pair(1))
+                self.ui.status_message(
+                        f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}',
+                        attr=self.ui.get_color(interface.Color.ERROR)
+                )
 
             for ship in sector.ships:
                 # update ship positions from physics sim

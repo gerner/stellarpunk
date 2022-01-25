@@ -499,12 +499,12 @@ class SectorView(interface.View):
         def debug_write_history(args):
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
-            util.write_history_to_file(self.selected_entity, filename)
+            core.write_history_to_file(self.selected_entity, filename)
 
         def debug_write_sector(args):
             filename = "/tmp/stellarpunk.history.gz"
             self.logger.info(f'writing history for sector {self.sector.short_id()} to {filename}')
-            self.sector.write_history(filename)
+            core.write_history_to_file(self.sector, filename)
 
         def spawn_ship(args):
             if len(args) < 2:
