@@ -312,7 +312,7 @@ class SectorView(interface.View):
 
         accel_x, accel_y = entity.phys.force / entity.phys.mass
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
-        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x)
+        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x, bounds=self.interface.viewscreen_bounds)
 
     def draw_entity_debug_info(self, y, x, entity, description_attr):
         if isinstance(entity, core.Ship):
@@ -340,7 +340,7 @@ class SectorView(interface.View):
                 d_x, d_y = util.sector_to_drawille(c_x, c_y, self.meters_per_char_x, self.meters_per_char_y)
                 c.set(d_x, d_y)
                 theta += step
-            util.draw_canvas_at(c, self.viewscreen, y, x)
+            util.draw_canvas_at(c, self.viewscreen, y, x, bounds=self.interface.viewscreen_bounds)
 
         icon = interface.Icons.sector_entity_icon(entity)
         icon_attr |= interface.Icons.sector_entity_attr(entity)
@@ -376,13 +376,13 @@ class SectorView(interface.View):
         self.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
     def draw_cells(self, occupied, collision_threats):
-        for loc, entities in collision_threats.items():
+        for loc, entities in occupied.items():
             if len(entities) > 1:
                 self.draw_multiple_entities(
                         loc[1], loc[0], entities)
             else:
                 icon_attr = 0
-                if entity in collision_threats:
+                if entities[0] in collision_threats:
                     icon_attr = curses.color_pair(1)
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
@@ -429,7 +429,7 @@ class SectorView(interface.View):
             else:
                 occupied[last_loc] = [entity]
 
-        draw_cells(occupied, collision_threats)
+        self.draw_cells(occupied, collision_threats)
 
         #TODO: draw an indicator for off-screen targeted entities
 

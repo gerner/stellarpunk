@@ -1,5 +1,6 @@
 """ Utility methods broadly applicable across the codebase. """
 
+import sys
 import math
 import bisect
 import logging
@@ -139,13 +140,17 @@ def drawille_vector(x, y, canvas=None, tick_size=3):
 
     return canvas
 
-def draw_line(y, x, line, screen, attr=0):
+def draw_line(y, x, line, screen, attr=0, bounds=(0,0,sys.maxsize,sys.maxsize)):
+    if y < bounds[1] or y >= bounds[3]:
+        return
     for i, c in enumerate(line):
         # don't write spaces or the braille empty character
         if c != " " and c != chr(drawille.braille_char_offset):
+            if x+i < bounds[0] or x+i >= bounds[2]:
+                continue
             screen.addch(y, x+i, c, attr)
 
-def draw_canvas_at(canvas, screen, y, x, attr=0):
+def draw_canvas_at(canvas, screen, y, x, attr=0, bounds=(0,0,sys.maxsize,sys.maxsize)):
     """ Draws canvas to screen with canvas origin appearing at y,x.
 
     Notice the curses based convention of y preceeding x here. """
@@ -165,9 +170,9 @@ def draw_canvas_at(canvas, screen, y, x, attr=0):
         if x_row < 0:
             if len(row) < -1*x_row:
                 continue
-            draw_line(y_row, 0, row[-1*x_row:], screen, attr=attr)
+            draw_line(y_row, 0, row[-1*x_row:], screen, attr=attr, bounds=bounds)
         else:
-            draw_line(y_row, x_row, row, screen, attr=attr)
+            draw_line(y_row, x_row, row, screen, attr=attr, bounds=bounds)
 
 def tab_complete(partial, current, options):
     """ Tab completion of partial given sorted options. """

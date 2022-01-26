@@ -280,6 +280,7 @@ class Interface:
         self.viewscreen_height = 0
         self.viewscreen_x = 0
         self.viewscreen_y = 0
+        self.viewscreen_bounds = (0,0,0,0)
 
         self.logscreen = None
         self.logscreen_width = 0
@@ -434,6 +435,8 @@ class Interface:
 
             self.logscreen_x = 1
             self.logscreen_y = self.viewscreen_height + 3
+
+        self.viewscreen_bounds = (0, 0, self.viewscreen_width, self.viewscreen_height)
 
         self.logger.info(f'chose layout {self.layout}')
         self.logger.info(f'viewscreen (x,y) {(self.viewscreen_y, self.viewscreen_x)} (h,w): {(self.viewscreen_height, self.viewscreen_width)}')
