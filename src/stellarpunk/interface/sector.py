@@ -328,7 +328,8 @@ class SectorView(interface.View):
     def draw_entity(self, y, x, entity, icon_attr=0):
         """ Draws a single sector entity at screen position (y,x) """
 
-        #TODO: better handle drawing entity shapes
+        #TODO: handle shapes not circles?
+        #TODO: better handle drawing entity shapes: refactor into own method
         if entity.radius > 0 and self.meters_per_char_x < entity.radius:
             c = drawille.Canvas()
             r = entity.radius
@@ -340,7 +341,6 @@ class SectorView(interface.View):
                 c.set(d_x, d_y)
                 theta += step
             util.draw_canvas_at(c, self.viewscreen, y, x)
-
 
         icon = interface.Icons.sector_entity_icon(entity)
         icon_attr |= interface.Icons.sector_entity_attr(entity)
@@ -354,7 +354,6 @@ class SectorView(interface.View):
             description_attr |= curses.A_DIM
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
-
 
         if not isinstance(entity, core.Asteroid):
             self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
@@ -375,6 +374,18 @@ class SectorView(interface.View):
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
         self.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
+
+    def draw_cells(self, occupied, collision_threats):
+        for loc, entities in collision_threats.items():
+            if len(entities) > 1:
+                self.draw_multiple_entities(
+                        loc[1], loc[0], entities)
+            else:
+                icon_attr = 0
+                if entity in collision_threats:
+                    icon_attr = curses.color_pair(1)
+
+                self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
     def draw_sector_map(self):
         """ Draws a map of a sector. """
@@ -399,20 +410,6 @@ class SectorView(interface.View):
 
         last_loc = None
         occupied = {}
-        def draw_cell(loc):
-            if loc is None:
-                return
-
-            entities = occupied[loc]
-            if len(entities) > 1:
-                self.draw_multiple_entities(
-                        loc[1], loc[0], entities)
-            else:
-                icon_attr = 0
-                if entity in collision_threats:
-                    icon_attr = curses.color_pair(1)
-
-                self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
         # sort the entities so we draw left to right, top to bottom
         # this ensures any annotations down and to the right of an entity on
@@ -425,9 +422,6 @@ class SectorView(interface.View):
             if screen_x < 0 or screen_y < 0:
                 continue
 
-            if last_loc != (screen_x, screen_y):
-                draw_cell(last_loc)
-
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
                 entities = occupied[last_loc]
@@ -435,7 +429,7 @@ class SectorView(interface.View):
             else:
                 occupied[last_loc] = [entity]
 
-        draw_cell(last_loc)
+        draw_cells(occupied, collision_threats)
 
         #TODO: draw an indicator for off-screen targeted entities
 

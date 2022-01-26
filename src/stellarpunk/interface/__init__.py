@@ -155,9 +155,6 @@ class View:
     def handle_input(self, key):
         pass
 
-class QuitError(Exception):
-    pass
-
 class ColorDemo(View):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -475,6 +472,8 @@ class Interface:
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
         #curses.mouseinterval(200)
         curses.set_escdelay(1)
+        self.stdscr.timeout(0)
+
         curses.nonl()
 
         self.reinitialize_screen()
@@ -551,7 +550,7 @@ class Interface:
         def pause(args): self.gamestate.paused = not self.gamestate.paused
         def fps(args): self.show_fps = not self.show_fps
         def quit(args): self.gamestate.quit()
-        def raise_exception(args): raise Exception()
+        def raise_exception(args): self.gamestate.should_raise = True
         def colordemo(args): self.open_view(ColorDemo(self))
         def profile(args):
             if self.profiler:
@@ -584,31 +583,26 @@ class Interface:
             view.update_display()
         self.show_date()
         self.show_diagnostics()
+        self.stdscr.noutrefresh()
 
         curses.doupdate()
-        timeout - (time.perf_counter() - start_time)
 
-        #TODO: do we need to worry about running out of time to process input?
-        #if timeout < 0:
-        #    return
 
-        # process input according to what has focus (i.e. umap, smap, pilot, command)
-        self.stdscr.timeout(int(timeout*100))
-        start_time = time.perf_counter()
-
-        #TODO: this can block for more than timeout in the case of mouse clicks
+        #TODO: this can block in the case of mouse clicks
         # maybe we should offload getch to another thread that can always block
         # and read stuff from it from a queue? it's not clear about
         # threadsafety of getch vs getmouse tho and other curses stuff
-        key = self.stdscr.getch()
-        now = time.perf_counter()
-        #if now - start_time > 1/60 * 2:
-        #    raise Exception(f'getch took {now-start_time}s more than 2 ticks should have been {timeout}s')
 
-        if key == curses.KEY_RESIZE:
+        # process input according to what has focus (i.e. umap, smap, pilot, command)
+        #self.stdscr.timeout(int(timeout*100))
+        key = self.stdscr.getch()
+
+        if key == -1:
+            return
+        elif key == curses.KEY_RESIZE:
             for view in self.views:
                 view.initialize()
-        if key == ord("."):
+        elif key == ord("."):
             self.gamestate.paused = False
             self.step = True
         elif key >= 0:

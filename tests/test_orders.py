@@ -554,27 +554,25 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
 
     core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
 
-@pytest.mark.skip(reason="the set up makes collision enivitable")
 def test_double_threat(gamestate, generator, sector, testui, simulator, history_writer):
     """ Illustrates two threats close together on opposite sides of the desired
     vector. Collision detection will potentially ignore one and steer into it
     while trying to avoid the other."""
 
-    a = {"eid": "930b8a10-031c-441a-856a-cb2fb1290cd0", "ts": 30.008905357101778, "loc": [-72143.76532798856, -78624.06548147832], "a": 2.9133531117749483, "v": [1463.036867755909, -996.9419093935754], "av": 0.4587402180730085, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "21983a29-1531-46bc-b6c8-0ef07425b7c1", "ct_loc": [-40624.746151124345, -100866.35271782603], "ct_ts": 30.008905357101778, "cac": False, "cbdr": False, "nnd": 36974.430981702404, "t_loc": [-36920.864211910965, -103518.43254502042], "cs": False}}
-    b = {"eid": "16da5d1f-7f10-404d-9d72-8a619a0e6dcb", "ts": 30.008905357101778, "loc": [-43429.36600606786, -53155.60502547812], "a": 1.6291834169699106, "v": [235.54041525110756, -4006.892165292321], "av": 0.0208950231759309, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 10321.52131236344, "t_loc": [-40624.746151124345, -100866.35271782603], "cs": False}}
+    a = {"eid":"c99bf358-5ed8-45b6-94ae-c109de01fd6d","ts":173.88333333336385,"loc":[11238.533139689527,2642.1486435851307],"a":-4.462215755014741,"v":[8.673617379884035e-19,-1.734723475976807e-18],"av":-0.5601751626636616,"f":[-2171.128156091397,-4504.0207070824135],"t":900000,"o":{"o":"stellarpunk.orders.GoToLocation","ct":"230d82ca-b3a5-4d65-90c4-9ec4b561afa8","ct_loc":[10900.178689763814,1713.1145124524808],"ct_ts":173.88333333336385,"ct_dv":[9.1603417240449e-18,-4.415671492188985e-18],"cac":False,"cbdr":False,"nnd":988.7305753307772,"t_loc":[-88985.9230279687,-205274.1941428623],"t_v":[-434.22563121827943,-900.8041414164829],"cs":False}}
+
+    b = {"eid":"8bba20d1-2f53-40b7-bea1-a758a1447a77","ts":173.88333333336385,"loc":[11885.659312275971,-629.4315137146432],"a":-1.0588787644372917,"v":[-97.96382930038575,232.86584616015844],"av":-0.09934969312887348,"f":[-1938.8568302904862,4608.7779499164335],"t":900000,"o":{"o":"stellarpunk.orders.GoToLocation","nnd":2541.396061628005,"t_loc":[10900.178689763814,1713.1145124524808],"t_v":[-115.13388981445071,273.6801007557891],"cs":False}}
+
+    c = {"eid":"230d82ca-b3a5-4d65-90c4-9ec4b561afa8","ts":0,"loc":[10900.178689763814,1713.1145124524808],"a":0,"v":[0,0],"av":0,"f":0,"t":0,"o":None}
 
     ship_a = ship_from_history(a, generator, sector)
     ship_b = ship_from_history(b, generator, sector)
+    station = station_from_history(c, generator, sector)
 
     goto_a = order_from_history(a, ship_a, gamestate)
+    goto_a.target_location = ship_a.loc + (goto_a.target_location  - ship_a.loc)/10
     goto_b = order_from_history(b, ship_b, gamestate)
 
-    planet = generator.spawn_planet(sector, -40624.746151124345, -100866.35271782603)
-
-    starttime = gamestate.timestamp
-    distance = np.linalg.norm(ship_a.loc - goto_a.target_location)
-
-    #we really only care about a here. b might run into the planet or something
     eta = goto_a.eta()
 
     testui.eta = eta
@@ -584,9 +582,8 @@ def test_double_threat(gamestate, generator, sector, testui, simulator, history_
     testui.margin_neighbors = [ship_a]
     simulator.run()
     assert goto_a.is_complete()
-    #assert goto_b.is_complete()
 
-def test_ct_near_target_a(gamestate, generator, sector, testui, simulator, history_writer):
+def test_ct_near_target(gamestate, generator, sector, testui, simulator, history_writer):
     # This case caused a collision while running, but I think it was because of
     # changing dt, perhaps because of a mouse click. it doesn't repro in test.
     a = {"eid": "a06358ed-5d1c-4026-b978-c6d05b65b971", "ts": 73.23596008924422, "loc": [33817.46867325524, -2802.702863489674], "a": 0.6501890587823068, "v": [-1516.455517907544, -865.0005079951259], "av": 1.4302311626798327, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 16950.413686796317, "t_loc": [19117.170259352486, -11241.763871430074], "t_v": [-1419.7763852577352, -815.0568917357202], "cs": False}}
@@ -615,30 +612,3 @@ def test_ct_near_target_a(gamestate, generator, sector, testui, simulator, histo
     simulator.run()
     assert goto_a.is_complete()
 
-@pytest.mark.skip(reason="the set up makes collision enivitable")
-def test_ct_near_target_b(gamestate, generator, sector, testui, simulator, history_writer):
-    # collision while arriving at a target because another ship was there
-    # no dt variability this time.
-
-    a = {"eid": "77fbba91-269d-4cb9-904e-61787ce80d63", "ts": 79.64999999999677, "loc": [-122815.03076181814, 3850.3306086948373], "a": 6.627042960484162, "v": [-313.63413720994583, -108.78384365820793], "av": -0.05623741471284617, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 698.2370720135756, "t_loc": [-123970.6044737978, 3449.5204445404756], "t_v": [-303.65517804617946, -105.32264666224427], "cs": False}}
-    b = {"eid": "1b28ffaf-48f3-452e-94a9-ad47b61ef800", "ts": 79.64999999999677, "loc": [-123425.9076592069, 4188.508705222051], "a": -6.6292338372113075, "v": [117.17944431531055, -44.3506433557185], "av": -0.1750688589776473, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 698.2370720135756, "t_loc": [-48664.37939049937, -24107.596438030298], "t_v": [1636.693269452293, -619.4635919322167], "cs": False}}
-
-
-    ship_a = ship_from_history(a, generator, sector)
-    ship_b = ship_from_history(b, generator, sector)
-
-    goto_a = order_from_history(a, ship_a, gamestate)
-    goto_b = order_from_history(b, ship_b, gamestate)
-
-    blocker = generator.spawn_station(sector, -123970.6044737978, 3449.5204445404756, resource=0)
-
-    eta = goto_a.eta()
-
-    testui.eta = eta
-    testui.orders = [goto_a]
-    #testui.cannot_stop_orders = [goto_a]
-    #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
-    testui.margin_neighbors = [ship_a]
-
-    simulator.run()
-    assert goto_a.is_complete()

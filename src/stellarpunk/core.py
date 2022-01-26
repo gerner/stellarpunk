@@ -360,6 +360,7 @@ class Gamestate:
 
         # the universe is a set of sectors, indexed by coordinate
         self.sectors = {}
+        self.entities = {}
 
         self.characters = []
 
@@ -374,9 +375,9 @@ class Gamestate:
         self.timeout = 0
         self.missed_ticks = 0
 
-        self.paused = False
-
         self.keep_running = True
+        self.paused = False
+        self.should_raise= False
 
     def current_time(self):
         #TODO: probably want to decouple telling time from ticks processed

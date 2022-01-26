@@ -6,28 +6,30 @@ import math
 import curses
 import warnings
 from typing import List, Optional
+import pdb
+import collections
 
-import ipdb # type: ignore
+#import ipdb # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
-class IPDBManager:
+class PDBManager:
     def __init__(self):
         self.logger = logging.getLogger(util.fullname(self))
 
     def __enter__(self):
-        self.logger.info("entering IPDBManager")
+        self.logger.info("entering PDBManager")
 
         return self
 
     def __exit__(self, e, m, tb):
-        self.logger.info("exiting IPDBManager")
+        self.logger.info("exiting PDBManager")
         if e is not None:
             self.logger.info(f'handling exception {e} {m}')
             print(m.__repr__(), file=sys.stderr)
-            ipdb.post_mortem(tb)
+            pdb.post_mortem(tb)
 
 class Simulator:
     def __init__(self, gamestate, ui, dt:float=1/60, max_dt:Optional[float]=None) -> None:
@@ -138,6 +140,8 @@ class Simulator:
         next_tick = time.perf_counter()+self.dt
 
         while self.gamestate.keep_running:
+            if self.gamestate.should_raise:
+                raise Exception()
             now = time.perf_counter()
 
             if next_tick - now > self.min_tick_sleep:
@@ -156,7 +160,7 @@ class Simulator:
                     self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
                 self.behind_ticks = behind
                 self.behind_length += 1
-                self.logger.warning(f'behind by {behind} ticks dt: {self.dt} for {self.behind_length} ticks')
+                self.logger.warning(f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
             else:
                 self.behind_ticks = 0
                 self.behind_length = 0
@@ -171,20 +175,17 @@ class Simulator:
 
             now = time.perf_counter()
 
-            ticktime = now - starttime
-            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
-
             timeout = next_tick - now
             # only render a frame if there's enough time
             if timeout > self.min_ui_timeout:
                 if not self.gamestate.paused:
                     self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
-                try:
-                    self.ui.tick(timeout)
-                except interface.QuitError:
-                    self.logger.info("quitting")
-                    self.gamestate.quit()
+                self.ui.tick(timeout)
+
+            now = time.perf_counter()
+            ticktime = now - starttime
+            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
 
 def main() -> None:
     with contextlib.ExitStack() as context_stack:
@@ -202,7 +203,7 @@ def main() -> None:
         # turn warnings into exceptions
         warnings.filterwarnings("error")
 
-        mgr = context_stack.enter_context(IPDBManager())
+        mgr = context_stack.enter_context(PDBManager())
         gamestate = core.Gamestate()
 
         logging.info("generating universe...")
