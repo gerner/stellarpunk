@@ -340,6 +340,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
 
     #core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
 
+@write_history
 def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, simulator):
     """ Initial state is travelling along course west of a blocker, but ideal
     path is east. Do we travel to the east of the blocker, a smaller overall
@@ -349,22 +350,19 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     # add two ships in an offset (relative to desired course) arrangement
     # travel along course and observe no collision
 
-    # a "wall" of blockers to the left of our target
-    #generator.spawn_ship(sector, -300, 12000, v=(0,0), w=0, theta=0)
-    #generator.spawn_ship(sector, -300, 11000, v=(0,0), w=0, theta=0)
-    generator.spawn_ship(sector, -300, 10000, v=(0,0), w=0, theta=0)
-    generator.spawn_ship(sector, -300, 9000, v=(0,0), w=0, theta=0)
-    generator.spawn_ship(sector, -300, 6000, v=(0,0), w=0, theta=0)
-    generator.spawn_ship(sector, -300, 2000, v=(0,0), w=0, theta=0)
-    generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
-    #generator.spawn_ship(sector, -300, 500, v=(0,0), w=0, theta=0)
-
     ship_driver = generator.spawn_ship(sector, -400, 20000, v=(0.,0.), w=0., theta=0.)
     ship_driver.velocity = np.array((0., 0.))
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
+
+    # a "wall" of blockers to the left of our target
+    generator.spawn_ship(sector, -300, 10000, v=(0,0), w=0, theta=0)
+    generator.spawn_ship(sector, -300, 9000, v=(0,0), w=0, theta=0)
+    generator.spawn_ship(sector, -300, 6000, v=(0,0), w=0, theta=0)
+    generator.spawn_ship(sector, -300, 2000, v=(0,0), w=0, theta=0)
+    generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
 
     # d = v_i*t + 1/2 a * t**2
     # v_i = 0
@@ -375,26 +373,14 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     distance = np.linalg.norm(ship_driver.loc)
     eta = goto_order.eta()
 
-    starttime = gamestate.timestamp
-    def tick(timeout):
-        assert not simulator.collisions
+    testui.eta = eta*1.1
+    testui.orders = [goto_order]
+    testui.cannot_stop_orders = [goto_order]
+    testui.cannot_avoid_collision_orders = [goto_order]
+    testui.margin_neighbors = [ship_driver]
 
-        neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
-        #logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle}, {d:.2e} {neighbor}, {goto_order.collision_threat}')
-        assert neighbor_dist >= goto_order.collision_margin
-        if goto_order.is_complete():
-            gamestate.quit()
-
-        #TODO: we should not hit this condition!
-        #assert not goto_order.cannot_stop
-        assert not goto_order.cannot_avoid_collision
-        assert goto_order.collision_dv[0] >= 0.
-        assert gamestate.timestamp - starttime < eta*10
-
-    testui.tick = tick
     simulator.run()
     assert goto_order.is_complete()
-    core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
 
 @write_history
 def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulator):
@@ -649,9 +635,9 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta
     testui.orders = [goto_a]
-    #testui.cannot_avoid_collision_orders = [goto_a]
-    #testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
+    testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
+    testui.margin_neighbors = [ship_a, ship_b, ship_c]
 
     simulator.run()
     assert goto_a.is_complete()

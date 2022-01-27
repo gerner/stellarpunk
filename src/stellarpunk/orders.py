@@ -788,7 +788,7 @@ class GoToLocation(AbstractSteeringOrder):
             max_distance = np.inf
             self.logger.debug(f'cannot stop in time distance: {distance} v: {v}')
         else:
-            max_distance = distance-self.arrival_distance/self.safety_factor
+            max_distance = distance-self.arrival_distance+VELOCITY_EPS#/self.safety_factor
 
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
@@ -797,26 +797,16 @@ class GoToLocation(AbstractSteeringOrder):
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 
-        # accelerate to alpha * target_v + collision_dv where alpha is chosen
-        # so we've got enough acceleration to achieve collision_dv in
-        # approach_time seconds
-
-        # if we need to avoid a collision, divert all resources to that
-        #if distance_to_avoid_collision > VELOCITY_EPS:
-        #    self._accelerate_to(v + collision_dv, dt)
-        #else:
-        #    self._accelerate_to(self.target_v + collision_dv, dt)
-
-        #TODO: combine target_v with collision_dv
-        # this doesn't seem to work well in practice (both in terms of eta and
-        # collision avoidance) so we're not doing it
+        # combine target_v with collision_dv
+        # this is what we hope to accelerate to, but if we can't accomplish
+        # both, prioritize collision_db
         combined_v = self.target_v + collision_dv
         combined_r, combined_theta = util.cartesian_to_polar(combined_v[0], combined_v[1])
         rot_time = rotation_time(util.normalize_angle(combined_theta - self.ship.angle, shortest=True), self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
         if max_acceleration * (approach_time-rot_time) / self.safety_factor < distance_to_avoid_collision:
             self._accelerate_to(v + collision_dv, dt)
         else:
-            self._accelerate_to(self.target_v + collision_dv, dt)
+            self._accelerate_to(combined_v, dt)
 
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args, **kwargs):
