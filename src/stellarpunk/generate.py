@@ -3,6 +3,7 @@ import itertools
 from typing import Optional
 
 import numpy as np
+import numpy.typing as npt
 import pymunk
 
 from stellarpunk import util, core, orders
@@ -26,7 +27,7 @@ def order_fn_wait(ship, gamestate):
 
 def order_fn_goto_random_station(ship, gamestate):
     station = gamestate.random.choice(ship.sector.stations)
-    return orders.GoToLocation(station.loc, ship, gamestate)
+    return orders.GoToLocation(station.loc.copy(), ship, gamestate)
 
 class UniverseGenerator:
     def __init__(self, gamestate, seed=None, listener=None):
@@ -197,6 +198,7 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
         station = core.Station(np.array((x, y), dtype=np.float64), station_body, self._gen_station_name())
+        station.loc.flags.writeable = False
         station.resource = resource
 
         station_shape = pymunk.Circle(station_body, station_radius)
@@ -217,6 +219,7 @@ class UniverseGenerator:
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
         planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self._gen_planet_name())
+        planet.loc.flags.writeable = False
         planet.population = self.r.uniform(sector.resources*5, sector.resources*15)
 
         planet_shape = pymunk.Circle(planet_body, planet_radius)
@@ -231,7 +234,7 @@ class UniverseGenerator:
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[np.ndarray]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn=order_fn_null) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn=order_fn_null) -> core.Ship:
 
         #TODO: clean this up
         # set up physics stuff
@@ -305,6 +308,7 @@ class UniverseGenerator:
 
         ship.velocity = np.array(ship_body.velocity, dtype=np.float64)
         ship.angular_velocity = ship_body.angular_velocity
+        ship.angle = ship_body.angle
         sector.add_entity(ship)
 
         ship.default_order_fn = default_order_fn
@@ -318,6 +322,7 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
         asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self._gen_asteroid_name())
+        asteroid.loc.flags.writeable = False
         shape = pymunk.Circle(body, asteroid_radius)
         shape.friction=0.1
         shape.collision_type = asteroid.object_type

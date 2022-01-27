@@ -35,6 +35,7 @@ setuptools.setup(
     entry_points={
         'console_scripts': [
             'stellarpunk = stellarpunk.sim:main',
+            'hist_extract = stellarpunk.hist_extract:main',
         ],
     },
 )

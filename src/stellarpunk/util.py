@@ -4,6 +4,7 @@ import sys
 import math
 import bisect
 import logging
+import pdb
 
 import numpy as np
 from numba import jit # type: ignore
@@ -267,3 +268,19 @@ class NiceScale:
     def setMaxTicks(self, maxTicks):
         self.maxTicks = maxTicks;
         self.calculate()
+
+class PDBManager:
+    def __init__(self):
+        self.logger = logging.getLogger(fullname(self))
+
+    def __enter__(self):
+        self.logger.info("entering PDBManager")
+
+        return self
+
+    def __exit__(self, e, m, tb):
+        self.logger.info("exiting PDBManager")
+        if e is not None:
+            self.logger.info(f'handling exception {e} {m}')
+            print(m.__repr__(), file=sys.stderr)
+            pdb.post_mortem(tb)

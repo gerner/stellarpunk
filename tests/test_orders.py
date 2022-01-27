@@ -1,6 +1,7 @@
 """ Tests for ship orders and behaviors. """
 
 import logging
+import functools
 
 import pytest
 import pymunk
@@ -38,16 +39,24 @@ class MonitoringUI:
         assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
         for margin_neighbor in self.margin_neighbors:
             neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
-            #assert neighbor_dist >= 300 - orders.VELOCITY_EPS
             assert neighbor_dist >= 0 - orders.VELOCITY_EPS
 
         if all(map(lambda x: x.is_complete(), self.orders)):
             self.gamestate.quit()
 
-@pytest.fixture
-def history_writer(sector, request):
-    yield None
-    core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{request.node.name}.history.gz')
+def write_history(func):
+    """ Decorator that writes sector history to file when an exception is
+    raised in a test. """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        sector = kwargs["sector"]
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz')
+            raise
+    return wrapper
 
 @pytest.fixture
 def testui(gamestate, sector):
@@ -160,6 +169,7 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
 
     core.write_history_to_file(rotate_order.ship, "/tmp/stellarpunk_test.history")
 
+@write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
 
@@ -215,7 +225,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
 
 def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
-    ship_driver.velocity = np.array((0, -10)) * 50
+    ship_driver.velocity = np.array((0., -10.)) * 50.
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
@@ -241,7 +251,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
 
 def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, 0, 15000, v=(0,0), w=0, theta=0)
-    ship_driver.velocity = np.array((-4, -10)) * 50
+    ship_driver.velocity = np.array((-4., -10.)) * 50.
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
@@ -272,7 +282,8 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     simulator.run()
     assert goto_order.is_complete()
 
-def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog, history_writer):
+@write_history
+def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog):
     # set up a sector, including space
     # add two ships in an offset (relative to desired course) arrangement
     # travel along course and observe no collision
@@ -348,8 +359,8 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
     #generator.spawn_ship(sector, -300, 500, v=(0,0), w=0, theta=0)
 
-    ship_driver = generator.spawn_ship(sector, -400, 20000, v=(0,0), w=0, theta=0)
-    ship_driver.velocity = np.array((0, 0))
+    ship_driver = generator.spawn_ship(sector, -400, 20000, v=(0.,0.), w=0., theta=0.)
+    ship_driver.velocity = np.array((0., 0.))
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
@@ -385,7 +396,8 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     assert goto_order.is_complete()
     core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
 
-def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulator, history_writer):
+@write_history
+def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulator):
     ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
     ship_b = generator.spawn_ship(sector, 0, -5000, v=(0,0), w=0, theta=np.pi/2)
 
@@ -554,7 +566,8 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
 
     core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
 
-def test_double_threat(gamestate, generator, sector, testui, simulator, history_writer):
+@write_history
+def test_double_threat(gamestate, generator, sector, testui, simulator):
     """ Illustrates two threats close together on opposite sides of the desired
     vector. Collision detection will potentially ignore one and steer into it
     while trying to avoid the other."""
@@ -583,7 +596,8 @@ def test_double_threat(gamestate, generator, sector, testui, simulator, history_
     simulator.run()
     assert goto_a.is_complete()
 
-def test_ct_near_target(gamestate, generator, sector, testui, simulator, history_writer):
+@write_history
+def test_ct_near_target(gamestate, generator, sector, testui, simulator):
     # This case caused a collision while running, but I think it was because of
     # changing dt, perhaps because of a mouse click. it doesn't repro in test.
     a = {"eid": "a06358ed-5d1c-4026-b978-c6d05b65b971", "ts": 73.23596008924422, "loc": [33817.46867325524, -2802.702863489674], "a": 0.6501890587823068, "v": [-1516.455517907544, -865.0005079951259], "av": 1.4302311626798327, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 16950.413686796317, "t_loc": [19117.170259352486, -11241.763871430074], "t_v": [-1419.7763852577352, -815.0568917357202], "cs": False}}
@@ -612,3 +626,32 @@ def test_ct_near_target(gamestate, generator, sector, testui, simulator, history
     simulator.run()
     assert goto_a.is_complete()
 
+@write_history
+def test_many_threats(gamestate, generator, sector, testui, simulator):
+    a = {"eid": "c2066f5f-80b0-4972-be15-86731721d0ac", "ts": 181.00000000003618, "loc": [-156664.6196115718, 15103.774316939725], "a": 6.706346854557575, "v": [-566.413704366243, -427.2391616051364], "av": 0.22045526531291454, "f": [3991.7686372857047, 3010.943896252839], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-527.0746776061375, -397.5661987481488], "cs": False}}
+    b = {"eid": "efd8dd82-59e9-4f71-97fc-96d16be37101", "ts": 181.00000000003618, "loc": [-155648.10021655622, 14496.034982381125], "a": 6.631761022100543, "v": [-633.9212228300115, -355.10659725031456], "av": 0.2932266489261978, "f": [436220.52590004867, 244359.6791278892], "t": -233347.4140426577, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436],
+"t_v": [-607.3950624974589, -340.2473147486867], "cs": False}}
+    c = {"eid": "1688d213-9d49-4222-aa0b-95dc090c59fa", "ts": 181.00000000003618, "loc": [-161271.80180938027, 11201.79460589419], "a": 0.17012052360683455, "v": [-123.61634016109224, -57.03178938300922], "av": 0.04141546936831053, "f": [4540.10299648228, 2094.627599677953], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-120.13404078695115, -55.42519138620854], "cs": False}}
+    d = {"eid": "f9cb7b45-858e-4422-a3b1-9513343b2fb7", "ts": 0, "loc": [-162728.94555641068, 10529.524943379436], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
+
+
+    ship_a = ship_from_history(a, generator, sector)
+    ship_b = ship_from_history(b, generator, sector)
+    ship_c = ship_from_history(c, generator, sector)
+
+    goto_a = order_from_history(a, ship_a, gamestate)
+    goto_b = order_from_history(b, ship_b, gamestate)
+    goto_c = order_from_history(c, ship_c, gamestate)
+
+    station = station_from_history(d, generator, sector)
+
+    eta = goto_a.eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()

@@ -302,15 +302,15 @@ class SectorView(interface.View):
         if not isinstance(entity, core.Ship):
             return
 
-        heading_x, heading_y = util.polar_to_cartesian(self.meters_per_char_y*5, entity.phys.angle)
+        heading_x, heading_y = util.polar_to_cartesian(self.meters_per_char_y*5, entity.angle)
         d_x, d_y = util.sector_to_drawille(heading_x, heading_y, self.meters_per_char_x, self.meters_per_char_y)
         c = util.drawille_vector(d_x, d_y)
 
-        velocity_x, velocity_y = entity.phys.velocity
+        velocity_x, velocity_y = entity.velocity
         d_x, d_y = util.sector_to_drawille(velocity_x, velocity_y, self.meters_per_char_x, self.meters_per_char_y)
         util.drawille_vector(d_x, d_y, canvas=c)
 
-        accel_x, accel_y = entity.phys.force / entity.phys.mass
+        accel_x, accel_y = entity.phys.force / entity.mass
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
         util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x, bounds=self.interface.viewscreen_bounds)
 

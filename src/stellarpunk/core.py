@@ -164,7 +164,18 @@ class ObjectFlag(enum.IntFlag):
     ASTEROID = enum.auto()
 
 class HistoryEntry:
-    def __init__(self, entity_id:uuid.UUID, ts:int, loc:np.ndarray, angle:float, velocity:np.ndarray, angular_velocity:float, force:float, torque:float, order_hist:Optional[dict]=None) -> None:
+    def __init__(
+            self,
+            entity_id:uuid.UUID,
+            ts:int,
+            loc:np.ndarray,
+            angle:float,
+            velocity:np.ndarray,
+            angular_velocity:float,
+            force:tuple[float,float],
+            torque:float,
+            order_hist:Optional[dict]=None
+    ) -> None:
         self.entity_id = entity_id
         self.ts = ts
 
@@ -197,7 +208,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, *args, **kwargs) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, *args, history_length=60*60, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -215,17 +226,28 @@ class SectorEntity(Entity):
         #TODO: are all entities just circles?
         self.radius = 0.
 
+        self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
+
     def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
 
     def get_history(self) -> Iterable[HistoryEntry]:
+
         return (HistoryEntry(
                 self.entity_id, 0,
                 self.loc, self.angle,
                 self.velocity, self.angular_velocity,
-                0, 0,
+                (0.,0.), 0,
         ),)
+        return self.history
 
+    def to_history(self, timestamp) -> HistoryEntry:
+        return HistoryEntry(
+                self.entity_id, timestamp,
+                self.loc, self.angle,
+                self.velocity, self.angular_velocity,
+                (0.,0.), 0,
+        )
     def address_str(self) -> str:
         if self.sector:
             return f'{self.short_id()}@{self.sector.short_id()}'
@@ -255,10 +277,9 @@ class Ship(SectorEntity):
     id_prefix = "SHP"
     object_type = ObjectType.SHIP
 
-    def __init__(self, *args, history_length=60*60, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         # max thrust along heading vector
         self.max_thrust = 0.
@@ -279,8 +300,8 @@ class Ship(SectorEntity):
         order_hist = self.orders[0].to_history() if self.orders else None
         return HistoryEntry(
                 self.entity_id, timestamp,
-                self.loc, self.angle,
-                self.velocity, self.angular_velocity,
+                self.loc.copy(), self.angle,
+                self.velocity.copy(), self.angular_velocity,
                 self.phys.force, self.phys.torque,
                 order_hist,
         )

@@ -346,6 +346,7 @@ class AbstractSteeringOrder(core.Order):
         relative_position: np.ndarray = ZERO_VECTOR
         relative_velocity: np.ndarray  = ZERO_VECTOR
         minimum_separation = np.inf
+        collision_loc = ZERO_VECTOR
 
         pos = self.ship.loc
         v = self.ship.velocity
@@ -380,7 +381,7 @@ class AbstractSteeringOrder(core.Order):
             entity_pos = entity.loc
             entity_v = entity.velocity
 
-            rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance = _analyze_neighbor(
+            rel_dist, approach_t, rel_pos, rel_vel, min_sep, c_loc, collision_distance = _analyze_neighbor(
                     pos, v, entity.radius, entity_pos, entity_v, approach_time, self.ship.radius + margin)
 
             if not (min_sep < np.inf):
@@ -389,7 +390,7 @@ class AbstractSteeringOrder(core.Order):
             if collision_distance > max_distance:
                 continue
 
-            collision_threats.append((entity, collision_loc))
+            collision_threats.append((entity, c_loc))
             threat_count += 1
 
             if rel_dist < self.nearest_neighbor_dist:
@@ -401,6 +402,7 @@ class AbstractSteeringOrder(core.Order):
                 relative_position = rel_pos
                 relative_velocity = rel_vel
                 minimum_separation = float(min_sep)
+                collision_loc = c_loc
 
         self.collision_threat_count = threat_count
 
@@ -421,13 +423,14 @@ class AbstractSteeringOrder(core.Order):
         coalesced_threats = 0
         if neighbor is not None:
             threat_radius = neighbor.radius
-            threat_loc = neighbor.loc
+            threat_loc = collision_loc
             threat_velocity = neighbor.velocity
 
             # coalesce nearby threats
             # this avoids flapping in collision targets
             coalesced_threats = 1
             if threat_count > 1:
+                threat_loc = threat_loc.copy()
                 for t, t_loc in collision_threats:
                     if t == neighbor:
                         continue
@@ -501,6 +504,8 @@ class AbstractSteeringOrder(core.Order):
             distance = np.linalg.norm(relative_position)
         elif distance <= self.ship.radius + threat_radius + margin:
             self.logger.debug(f'already inside margin: {distance}')
+            relative_position = relative_position + relative_velocity * approach_time
+            distance = np.linalg.norm(relative_position)
 
         speed = np.linalg.norm(desired_direction)
 
@@ -603,7 +608,15 @@ class AbstractSteeringOrder(core.Order):
                 delta_speed = v_f1
                 delta_theta = dv_theta
 
-            exp_pos_them = threat_loc + threat_velocity*approach_time
+            # estimate if we're going to collide with the neighbor
+            # note, we use the neighbor in particular and not the coalesced
+            # threat because that might not actually be a collision and running
+            # into the neighbor would be. the neighbor is also the target we're
+            # threatened by soonest, so if there's a collision, it should be
+            # that one
+            collision_radius = self.ship.radius + neighbor.radius
+            exp_pos_them = neighbor.loc + neighbor.velocity * approach_time
+
             rot_time = rotation_time(util.normalize_angle(delta_theta - self.ship.angle, shortest=True), self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
             if rot_time > approach_time:
                 exp_avg_v = v
@@ -611,9 +624,10 @@ class AbstractSteeringOrder(core.Order):
                 exp_avg_v = (v * rot_time + delta_velocity/abs(delta_speed) * self.ship.max_acceleration() * (approach_time - rot_time)) / approach_time
             exp_pos_us = (self.ship.loc + approach_time * exp_avg_v)
             expected_rel_pos = exp_pos_them - exp_pos_us
-            if np.linalg.norm(exp_pos_them - exp_pos_us) < self.ship.radius + threat_radius:
+            if np.linalg.norm(exp_pos_them - exp_pos_us) < collision_radius:
                 self.cannot_avoid_collision = True
                 self.logger.debug(f'cannot avoid collision: {abs(v_f1)} and {abs(v_f2)} > {self.ship.max_thrust} / {self.ship.mass} * {approach_time}')
+
         elif abs(v_f1) > max_delta_v:
             # v_f1 is infeasible, but v_f2 is
             delta_velocity = delta_velocity2

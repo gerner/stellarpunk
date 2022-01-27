@@ -1,4 +1,5 @@
 import sys
+import gc
 import logging
 import contextlib
 import time
@@ -6,30 +7,14 @@ import math
 import curses
 import warnings
 from typing import List, Optional
-import pdb
 import collections
 
-#import ipdb # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
-class PDBManager:
-    def __init__(self):
-        self.logger = logging.getLogger(util.fullname(self))
-
-    def __enter__(self):
-        self.logger.info("entering PDBManager")
-
-        return self
-
-    def __exit__(self, e, m, tb):
-        self.logger.info("exiting PDBManager")
-        if e is not None:
-            self.logger.info(f'handling exception {e} {m}')
-            print(m.__repr__(), file=sys.stderr)
-            pdb.post_mortem(tb)
+ZERO_ONE = (0,1)
 
 class Simulator:
     def __init__(self, gamestate, ui, dt:float=1/60, max_dt:Optional[float]=None) -> None:
@@ -120,10 +105,12 @@ class Simulator:
 
             for ship in sector.ships:
                 # update ship positions from physics sim
-                ship.loc = np.array(ship.phys.position)
+                #ship.loc = np.array(ship.phys.position)
+                ship.loc.put(ZERO_ONE, ship.phys.position)
 
                 ship.angle = ship.phys.angle
-                ship.velocity = np.array(ship.phys.velocity)
+                #ship.velocity = np.array(ship.phys.velocity)
+                ship.velocity.put(ZERO_ONE, ship.phys.velocity)
                 ship.angular_velocity = ship.phys.angular_velocity
 
             for ship in sector.ships:
@@ -154,6 +141,7 @@ class Simulator:
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
             if now - next_tick > self.dt:
+                self.logger.debug(f'ticks: {self.gamestate.ticks} gc stats: {gc.get_stats()}')
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
@@ -164,7 +152,6 @@ class Simulator:
             else:
                 self.behind_ticks = 0
                 self.behind_length = 0
-
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
@@ -203,7 +190,7 @@ def main() -> None:
         # turn warnings into exceptions
         warnings.filterwarnings("error")
 
-        mgr = context_stack.enter_context(PDBManager())
+        mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
 
         logging.info("generating universe...")
@@ -225,6 +212,11 @@ def main() -> None:
         sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5)
         sim.initialize()
 
+        # experimentally chosen so that we don't get multiple gcs during a tick
+        # this helps a lot because there's lots of short lived objects during a
+        # tick and it's better if they stay in the youngest generation
+        #TODO: should we just disable a gc while we're doing a tick?
+        gc.set_threshold(700*4, 10*4, 10*4)
         sim.run()
 
         logging.info("done.")
