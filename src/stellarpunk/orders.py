@@ -128,6 +128,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
 
     rel_dist = np.linalg.norm(rel_pos)
 
+
     # check for parallel paths
     if rel_speed == 0:
         return rel_dist, np.inf, ZERO_VECTOR, ZERO_VECTOR, np.inf, ZERO_VECTOR, np.inf
@@ -219,7 +220,7 @@ def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int):
     return abs(oldest_bearing - latest_bearing) < ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
 class AbstractSteeringOrder(core.Order):
-    def __init__(self, *args, safety_factor:float=2, **kwargs):
+    def __init__(self, *args, safety_factor:float=2., **kwargs):
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
 
@@ -228,7 +229,7 @@ class AbstractSteeringOrder(core.Order):
 
         self.collision_threat:Optional[core.SectorEntity] = None
         self.collision_dv = ZERO_VECTOR
-        self.collision_threat_time = 0
+        self.collision_threat_time = 0.
         self.collision_relative_velocity = ZERO_VECTOR
         self.collision_relative_position = ZERO_VECTOR
         self.collision_approach_time = np.inf
@@ -236,12 +237,12 @@ class AbstractSteeringOrder(core.Order):
         self.collision_rel_pos_hist:Deque[np.ndarray] = collections.deque(maxlen=self.cbdr_ticks)
         self.collision_cbdr = False
         self.collision_cbdr_divert_angle = np.pi/4
-        self.collision_threat_count = 0
-        self.collision_coalesced_threats = 0
+        self.collision_threat_count = 0.
+        self.collision_coalesced_threats = 0.
 
         self.cannot_avoid_collision = False
 
-        self.collision_threat_max_age = 0
+        self.collision_threat_max_age = 0.
         self.high_awareness_dist = self.ship.max_speed() * self.collision_threat_max_age * 2 * self.safety_factor
 
     def to_history(self) -> dict:
@@ -701,7 +702,7 @@ class KillVelocityOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class GoToLocation(AbstractSteeringOrder):
-    def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1e3, min_distance:Optional[float]=None, **kwargs) -> None:
+    def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs) -> None:
         """ Creates an order to go to a specific location.
 
         The order will arrivate at the location approximately and with zero
@@ -848,7 +849,7 @@ class MineOrder(AbstractSteeringOrder):
         # grab resources from the asteroid and add to our cargo
         distance = np.linalg.norm(self.ship.loc - self.target.loc)
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation(self.target.loc, self.ship, self.gamestate))
+            self.ship.orders.appendleft(GoToLocation(self.target.loc.copy(), self.ship, self.gamestate))
             return
 
         #TODO: actually implement harvesting, taking time, maybe visual fx
