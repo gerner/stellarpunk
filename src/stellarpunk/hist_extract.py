@@ -42,7 +42,7 @@ def main():
                 target_ts[eid] = args.timestamp
 
         if args.input == "-":
-            f = sys.stdin
+            fin = sys.stdin
         elif args.input.endswith(".gz"):
             fin = context_stack.enter_context(gzip.open(args.input, "rt"))
         else:
