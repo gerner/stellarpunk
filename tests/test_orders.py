@@ -686,3 +686,36 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
 
     simulator.run()
     assert goto_a.is_complete()
+
+@write_history
+def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
+    """ Illustrates two threats, one is nearby and 90 deg from desired
+    direction. This might cause collision avoidance to steer into it, making a
+    collision unavoidable. Hopefully it recognizes this and avoids it.
+    """
+
+    a = {"eid": "4caeca9f-55a4-4506-86a1-60c9ac097b89", "ts": 4425.59586668641, "loc": [-31776.544065050453, -54412.2677790681], "a": -21.506125835205, "v": [0.0, 1.1102230246251565e-16], "av": -0.28222264587779555, "f": [-1205.3543123910688, 4852.537581678297], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-57942.647404913, 50927.712770622566], "t_v": [-241.07086247821385, 970.5075163356594], "cs": False}}
+    b = {"eid": "76f1873d-6ace-492e-b6ea-bffc254ef416", "ts": 4425.59586668641, "loc": [-23534.115217425642, -44324.10863108866], "a": 10.257188790090208, "v": [-673.1223862010328, -739.5311036021592], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-74064.09143095232, -99839.25690164384], "t_v": [-673.1223862010329, -739.5311036021593], "cs": False}}
+    c = {"eid": "d7d0cc2b-549b-4bf5-853d-ad35f3ba3c80", "ts": 0, "loc": [-30368.148687458197, -53914.09999586431], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
+
+    ship_a = ship_from_history(a, generator, sector)
+    ship_b = ship_from_history(b, generator, sector)
+
+    goto_a = order_from_history(a, ship_a, gamestate)
+    # make the target location close-ish to ship_a
+    goto_a.target_location = ship_a.loc + (goto_a.target_location - ship_a.loc)/5
+
+    goto_b = order_from_history(b, ship_b, gamestate)
+
+    station = station_from_history(c, generator, sector)
+
+    eta = goto_a.eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    testui.cannot_stop_orders = [goto_a, goto_b]
+    testui.margin_neighbors = [ship_a, ship_b]
+
+    simulator.run()
+    assert goto_a.is_complete()

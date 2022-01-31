@@ -269,6 +269,8 @@ class AbstractSteeringOrder(core.Order):
         self.collision_cbdr_divert_angle = np.pi/4
         self.collision_threat_count = 0.
         self.collision_coalesced_threats = 0.
+        self.collision_threat_loc = ZERO_VECTOR
+        self.collision_threat_radius = 0
 
         self.cannot_avoid_collision = False
 
@@ -285,6 +287,8 @@ class AbstractSteeringOrder(core.Order):
             history["ct_dv"] = self.collision_dv.tolist()
             history["ct_tc"] = self.collision_threat_count
             history["ct_ct"] = self.collision_coalesced_threats
+            history["ct_cloc"] = self.collision_threat_loc.tolist()
+            history["ct_cradius"] = self.collision_threat_radius
             history["cac"] = self.cannot_avoid_collision
             history["cbdr"] = self.collision_cbdr
         else:
@@ -469,6 +473,7 @@ class AbstractSteeringOrder(core.Order):
                     t_dist = np.linalg.norm(t_loc - threat_loc)
                     if t_dist < threat_radius + t.radius + 2*margin:
                         threat_loc += (t_loc - threat_loc)/2
+                        #TODO: shouldn't this be the max of the current radius and t.radius?
                         threat_radius += t_dist/2 + t.radius
                         threat_velocity = (threat_velocity * coalesced_threats + t.velocity)/(coalesced_threats + 1)
                         coalesced_threats += 1
@@ -477,6 +482,8 @@ class AbstractSteeringOrder(core.Order):
             threat_loc = ZERO_VECTOR
             threat_velocity = ZERO_VECTOR
         self.collision_coalesced_threats = coalesced_threats
+        self.collision_threat_loc = threat_loc
+        self.collision_threat_radius = threat_radius
 
         return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity
 
@@ -518,7 +525,10 @@ class AbstractSteeringOrder(core.Order):
             self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
 
-        distance, bearing = util.cartesian_to_polar(relative_position[0], relative_position[1])
+        distance_to_threat = np.linalg.norm(threat_loc - self.ship.loc)
+
+        relative_position = threat_loc - (self.ship.loc + self.ship.velocity * approach_time)
+        distance = np.linalg.norm(relative_position)
 
         if np.any(threat_velocity != ZERO_VECTOR) and detect_cbdr(self.collision_rel_pos_hist, self.cbdr_ticks):
             if not self.collision_cbdr:
@@ -526,22 +536,13 @@ class AbstractSteeringOrder(core.Order):
         else:
             self.collision_cbdr = False
 
-        #self.logger.debug(f'collision in {approach_time:.2f}s, {collision_distance}m, {relative_position + relative_velocity * approach_time}')
-
-        # if we're going to exactly collide or we're already inside of the
-        # desired margin, try to go directly away, other wise (this if) go away
-        # from the collision position
-        if minimum_separation > VELOCITY_EPS and distance > self.ship.radius + threat_radius + margin:
-            relative_position = relative_position + relative_velocity * approach_time
-            distance = np.linalg.norm(relative_position)
-        elif distance <= self.ship.radius + threat_radius + margin:
-            self.logger.debug(f'already inside margin: {distance}')
-            relative_position = relative_position + relative_velocity * approach_time
-            distance = np.linalg.norm(relative_position)
-
         speed = np.linalg.norm(desired_direction)
 
-        if speed < VELOCITY_EPS:
+        if distance_to_threat <= self.ship.radius + threat_radius + margin:
+            # if we're already inside the margin, just get away
+            self.logger.debug(f'already inside margin: {distance}')
+            dv = relative_position
+        elif speed < VELOCITY_EPS:
             # if desired speed is (effectively) zero, then just avoid in
             # direction of min sep.
             dv = relative_position
@@ -584,7 +585,10 @@ class AbstractSteeringOrder(core.Order):
         # in direction dv, under constant acceleration, given the current
         # relative velocity
 
+        #TODO: delta_dist assumes we continue on velocity v, but if we start
+        # accelerating to desired_direction for approach_time seconds we'll
         delta_dist = dv_r
+
         d1 = self.ship.radius + threat_radius + margin + margin_histeresis - delta_dist
         d2 = self.ship.radius + threat_radius + margin + margin_histeresis + delta_dist
 
