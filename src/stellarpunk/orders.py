@@ -151,6 +151,104 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
     return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
 
 @jit(cache=True, nopython=True)
+def _analyze_neighbors(
+        hits_l:npt.NDArray[np.float64],
+        hits_v:npt.NDArray[np.float64],
+        hits_r:npt.NDArray[np.float64],
+        pos:npt.NDArray[np.float64],
+        v:npt.NDArray[np.float64],
+        max_distance:float,
+        ship_radius:float,
+        margin:float) -> tuple[
+            int,
+            float,
+            npt.NDArray[np.float64],
+            npt.NDArray[np.float64],
+            float,
+            int,
+            int,
+            float,
+            npt.NDArray[np.float64],
+            npt.NDArray[np.float64],
+            float
+        ]:
+    """ Analyzes neighbors and determines collision threat parameters. """
+
+    approach_time = np.inf
+    idx = -1
+    relative_position = ZERO_VECTOR
+    relative_velocity: np.ndarray  = ZERO_VECTOR
+    minimum_separation = np.inf
+    collision_loc = ZERO_VECTOR
+    nearest_neighbor_dist = np.inf
+
+    collision_threats:list[tuple[int, tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float], npt.NDArray[np.float64]]] = []
+
+    threat_count = 0
+    for eidx in range(len(hits_l)):
+        entity_pos = hits_l[eidx]
+        entity_v = hits_v[eidx]
+        entity_radius = hits_r[eidx]
+
+        rel_dist, approach_t, rel_pos, rel_vel, min_sep, c_loc, collision_distance = _analyze_neighbor(
+                pos, v, entity_radius, entity_pos, entity_v, max_distance, np.inf, ship_radius + margin)
+
+        # this neighbor isn't going to collide with us
+        if not (min_sep < np.inf):
+            continue
+
+        # we need to keep track of all collision threats for coalescing later
+        collision_threats.append((eidx, (entity_pos, entity_v, entity_radius), c_loc))
+        threat_count += 1
+
+        if min_sep > entity_radius + ship_radius + margin:
+            continue
+
+        if rel_dist < nearest_neighbor_dist:
+            nearest_neighbor_dist = rel_dist
+
+        # most threatening is the soonest, so keep track of that one
+        if approach_t < approach_time:
+            approach_time = approach_t
+            idx = eidx
+            relative_position = rel_pos
+            relative_velocity = rel_vel
+            minimum_separation = float(min_sep)
+            collision_loc = c_loc
+
+    # Once we have a single most threatening future collision, coalesce nearby
+    # threats so we can avoid all of them at once, instead of avoiding one only
+    # to make another inevitable.
+    coalesced_threats = 0
+    if idx >= 0:
+        threat_radius = hits_r[idx]
+        threat_loc = collision_loc
+        threat_velocity = hits_v[idx]
+
+        # coalesce nearby threats
+        # this avoids flapping in collision targets
+        coalesced_threats = 1
+        if threat_count > 1:
+            threat_loc = threat_loc.copy()
+            for eidx, (t_loc, t_velocity, t_radius), t_loc in collision_threats:
+                if idx == eidx:
+                    continue
+                t_dist = np.linalg.norm(t_loc - threat_loc)
+                if t_dist < threat_radius + t_radius + 2*margin:
+                    threat_loc += (t_loc - threat_loc)/2
+                    #TODO: shouldn't this be the max of the current radius and t.radius?
+                    threat_radius += t_dist/2 + t_radius
+                    threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
+                    coalesced_threats += 1
+    else:
+        # no threat found, return some default values
+        threat_radius = 0.
+        threat_loc = ZERO_VECTOR
+        threat_velocity = ZERO_VECTOR
+
+    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist
+
+@jit(cache=True, nopython=True)
 def estimate_cost(
         delta_v:npt.NDArray[np.float64],
         desired_velocity:npt.NDArray[np.float64],
@@ -270,7 +368,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_threat_count = 0.
         self.collision_coalesced_threats = 0.
         self.collision_threat_loc = ZERO_VECTOR
-        self.collision_threat_radius = 0
+        self.collision_threat_radius = 0.
 
         self.cannot_avoid_collision = False
 
@@ -377,13 +475,6 @@ class AbstractSteeringOrder(core.Order):
             np.ndarray,
             np.ndarray]:
 
-        approach_time = np.inf
-        neighbor: Optional[core.SectorEntity] = None
-        relative_position: np.ndarray = ZERO_VECTOR
-        relative_velocity: np.ndarray  = ZERO_VECTOR
-        minimum_separation = np.inf
-        collision_loc = ZERO_VECTOR
-
         pos = self.ship.loc
         v = self.ship.velocity
 
@@ -391,7 +482,7 @@ class AbstractSteeringOrder(core.Order):
         #TODO: this seems unsatable, so I set max age to zero to avoid it
         # we cache the collision threat to avoid searching space
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
-            hits = (self.collision_threat,) if self.collision_threat else ()
+            hits = [self.collision_threat,] if self.collision_threat else []
         else:
             ll = self.ship.loc - neighborhood_dist
             ur = self.ship.loc + neighborhood_dist
@@ -404,43 +495,40 @@ class AbstractSteeringOrder(core.Order):
             self.cannot_avoid_collision = False
             self.collision_threat_time = self.gamestate.timestamp
             self.nearest_neighbor_dist = np.inf
-            hits = sector.spatial_query(bounds)
+            hits = list(e for e in sector.spatial_query(bounds) if e != self.ship)
 
-        threat_count = 0
-        collision_threats = []
-        for entity in hits:
+        if len(hits) > 0:
+            #TODO: this is really not ideal: we go into pymunk to get hits via
+            # cffi and then come back to python and then do some marshalling
+            # there and then back into numba. the perf win from numba here is
+            # actually fairly small since we're doing a lot of iteration in
+            # python
+            hits_l:npt.NDArray[np.float64] = np.ndarray((len(hits),2), np.float64)
+            hits_v:npt.NDArray[np.float64] = np.ndarray((len(hits),2), np.float64)
+            hits_r:npt.NDArray[np.float64] = np.ndarray((len(hits),), np.float64)
+            for i, e in enumerate(hits):
+                hits_l[i] = e.loc
+                hits_v[i] = e.velocity
+                hits_r[i] = e.radius
+            idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist = _analyze_neighbors(hits_l, hits_v, hits_r, pos, v, max_distance, self.ship.radius, margin)
+        else:
+            idx = -1
+            approach_time = np.inf
+            relative_position = ZERO_VECTOR
+            relative_velocity  = ZERO_VECTOR
+            minimum_separation = np.inf
+            collision_loc = ZERO_VECTOR
+            threat_count = 0
+            coalesced_threats = 0
+            nearest_neighbor_dist = np.inf
+            threat_loc = ZERO_VECTOR
+            threat_velocity = ZERO_VECTOR
+            threat_radius = 0.
 
-            # the query will include ourselves, so let's skip that
-            if entity == self.ship:
-                continue
-
-            entity_pos = entity.loc
-            entity_v = entity.velocity
-
-            rel_dist, approach_t, rel_pos, rel_vel, min_sep, c_loc, collision_distance = _analyze_neighbor(
-                    pos, v, entity.radius, entity_pos, entity_v, max_distance, np.inf, self.ship.radius + margin)
-
-            if not (min_sep < np.inf):
-                continue
-
-            collision_threats.append((entity, c_loc))
-            threat_count += 1
-
-            if min_sep > entity.radius + self.ship.radius + margin:
-                continue
-
-            if rel_dist < self.nearest_neighbor_dist:
-                self.nearest_neighbor_dist = rel_dist
-
-            if approach_t < approach_time:
-                approach_time = approach_t
-                neighbor = entity
-                relative_position = rel_pos
-                relative_velocity = rel_vel
-                minimum_separation = float(min_sep)
-                collision_loc = c_loc
-
-        self.collision_threat_count = threat_count
+        if idx < 0:
+            neighbor = None
+        else:
+            neighbor = hits[idx]
 
         if neighbor is not None and neighbor == last_collision_threat:
             self.collision_rel_pos_hist.append(relative_position)
@@ -456,31 +544,8 @@ class AbstractSteeringOrder(core.Order):
             self.collision_relative_position = relative_position
             self.collision_threat_time = self.gamestate.timestamp
 
-        coalesced_threats = 0
-        if neighbor is not None:
-            threat_radius = neighbor.radius
-            threat_loc = collision_loc
-            threat_velocity = neighbor.velocity
+        self.nearest_neighbor_dist = nearest_neighbor_dist
 
-            # coalesce nearby threats
-            # this avoids flapping in collision targets
-            coalesced_threats = 1
-            if threat_count > 1:
-                threat_loc = threat_loc.copy()
-                for t, t_loc in collision_threats:
-                    if t == neighbor:
-                        continue
-                    t_dist = np.linalg.norm(t_loc - threat_loc)
-                    if t_dist < threat_radius + t.radius + 2*margin:
-                        threat_loc += (t_loc - threat_loc)/2
-                        #TODO: shouldn't this be the max of the current radius and t.radius?
-                        threat_radius += t_dist/2 + t.radius
-                        threat_velocity = (threat_velocity * coalesced_threats + t.velocity)/(coalesced_threats + 1)
-                        coalesced_threats += 1
-        else:
-            threat_radius = 0.
-            threat_loc = ZERO_VECTOR
-            threat_velocity = ZERO_VECTOR
         self.collision_coalesced_threats = coalesced_threats
         self.collision_threat_loc = threat_loc
         self.collision_threat_radius = threat_radius
@@ -538,6 +603,7 @@ class AbstractSteeringOrder(core.Order):
 
         speed = np.linalg.norm(desired_direction)
 
+        dv:npt.NDArray[np.float64] = relative_position
         if distance_to_threat <= self.ship.radius + threat_radius + margin:
             # if we're already inside the margin, just get away
             self.logger.debug(f'already inside margin: {distance}')
@@ -657,7 +723,7 @@ class AbstractSteeringOrder(core.Order):
             else:
                 exp_avg_v = (v * rot_time + delta_velocity/abs(delta_speed) * self.ship.max_acceleration() * (approach_time - rot_time)) / approach_time
             exp_pos_us = (self.ship.loc + approach_time * exp_avg_v)
-            expected_rel_pos = exp_pos_them - exp_pos_us
+            expected_rel_pos:npt.NDArray[np.float64] = exp_pos_them - exp_pos_us
 
             # see if that avoids the collision
             if np.linalg.norm(exp_pos_them - exp_pos_us) < collision_radius:
@@ -803,7 +869,7 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, 5e4, self.collision_margin,
+                self.ship.sector, 1e4, self.collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

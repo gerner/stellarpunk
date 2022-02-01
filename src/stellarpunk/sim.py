@@ -45,6 +45,8 @@ class Simulator:
         self.min_tick_sleep = self.desired_dt/5
         self.min_ui_timeout = 0.
 
+        self.sleep_count = 0
+
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, float, float]] = []
 
     def _ship_collision_detected(self, arbiter, space, data):
@@ -136,12 +138,13 @@ class Simulator:
                     self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
                     self.logger.debug(f'dt: {self.dt}')
                 time.sleep(next_tick - now)
+                self.sleep_count += 1
             #TODO: what to do if we miss a tick (or a lot)
             # seems like we should run a tick with a longer dt to make up for
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
             if now - next_tick > self.dt:
-                self.logger.debug(f'ticks: {self.gamestate.ticks} gc stats: {gc.get_stats()}')
+                self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
