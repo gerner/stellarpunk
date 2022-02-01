@@ -192,7 +192,7 @@ class UniverseGenerator:
         if resource is None:
             resource = self.r.uniform(0, len(pchain.prices)-pchain.ranks[-1])
 
-        station_radius = 300
+        station_radius = 300.
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -214,7 +214,7 @@ class UniverseGenerator:
         return station
 
     def spawn_planet(self, sector, x, y):
-        planet_radius = 1000
+        planet_radius = 1000.
 
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
@@ -248,7 +248,7 @@ class UniverseGenerator:
         # shuttle orbiter: 37m long
         # spacex dragon: 6.1m
         # spacex starship: 120m long
-        ship_radius = 30
+        ship_radius = 30.
 
         # one raptor: 1.81 MN
         # one SSME: 2.279 MN
