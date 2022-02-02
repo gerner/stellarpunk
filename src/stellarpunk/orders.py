@@ -1,5 +1,7 @@
 """ Orders that can be given to ships. """
 
+from __future__ import annotations
+
 import logging
 import collections
 from typing import Optional, Deque
@@ -207,10 +209,10 @@ def _analyze_neighbors(
 
         # we need to keep track of all collision threats for coalescing later
         collision_threats.append((eidx, (entity_pos, entity_v, entity_radius), c_loc))
-        threat_count += 1
-
         if min_sep > entity_radius + ship_radius + margin:
             continue
+
+        threat_count += 1
 
         if rel_dist < nearest_neighbor_dist:
             nearest_neighbor_dist = rel_dist
@@ -227,6 +229,10 @@ def _analyze_neighbors(
     # Once we have a single most threatening future collision, coalesce nearby
     # threats so we can avoid all of them at once, instead of avoiding one only
     # to make another inevitable.
+    # this isn't exactly going to yield a circumcircle around the points. For
+    # one thing it's not clear there's an "optimal" way to choose the points to
+    # include.
+    # see https://github.com/marmakoide/miniball and https://github.com/weddige/miniball
     coalesced_threats = 0
     if idx >= 0:
         threat_radius = hits_r[idx]
@@ -508,19 +514,11 @@ class AbstractSteeringOrder(core.Order):
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = [self.collision_threat,] if self.collision_threat else []
         else:
-            #ll = self.ship.loc - neighborhood_dist
-            #ur = self.ship.loc + neighborhood_dist
-            #bounds = (
-            #        ll[0], ll[1],
-            #        ur[0], ur[1],
-            #)
-
             self.collision_threat = None
             self.cannot_avoid_collision = False
             self.collision_threat_time = self.gamestate.timestamp
             self.nearest_neighbor_dist = np.inf
-            #hits = list(e for e in sector.spatial_query(bounds) if e != self.ship)
-            hits = list(e for e in  sector.spatial_point(self.ship.loc, neighborhood_dist))
+            hits = list(e for e in  sector.spatial_point(self.ship.loc, neighborhood_dist) if e != self.ship)
 
         if len(hits) > 0:
             #TODO: this is really not ideal: we go into pymunk to get hits via
@@ -807,20 +805,22 @@ class KillVelocityOrder(AbstractSteeringOrder):
 class GoToLocation(AbstractSteeringOrder):
 
     @staticmethod
-    def choose_destination(
-            gamestate:core.Gamestate,
-            source_loc:npt.NDArray[np.float64],
+    def goto_entity(
             entity:core.SectorEntity,
+            ship:core.Ship,
+            gamestate:core.Gamestate,
             arrival_distance:float=1.5e3,
-            collision_margin:float=1e3):
-        """ Helper to choose a location if we want to "arrive" at the specified
-        entity. This adds a bit of randomness and targets a location outside
-        the collision margin. These should reduce collisions."""
-        _, angle = util.cartesian_to_polar(*(source_loc - entity.loc))
+            collision_margin:float=1e3) -> GoToLocation:
+
+        _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
         target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
-        target_arrival_distance = (arrival_distance - collision_margin)/2
-        target_loc = np.array(util.polar_to_cartesian(collision_margin + target_arrival_distance, target_angle))
-        return target_loc, target_arrival_distance
+        target_arrival_distance = (arrival_distance - entity.radius - collision_margin)/2
+        target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
+
+        return GoToLocation(
+                target_loc, ship, gamestate,
+                arrival_distance=target_arrival_distance,
+                min_distance=0.)
 
     def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs) -> None:
         """ Creates an order to go to a specific location.
@@ -968,7 +968,7 @@ class WaitOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class MineOrder(AbstractSteeringOrder):
-    def __init__(self, target: core.Asteroid, amount: float, *args, max_dist=1e3, **kwargs) -> None:
+    def __init__(self, target: core.Asteroid, amount: float, *args, max_dist=2e3, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
         self.max_dist = max_dist
@@ -984,7 +984,7 @@ class MineOrder(AbstractSteeringOrder):
         # grab resources from the asteroid and add to our cargo
         distance = np.linalg.norm(self.ship.loc - self.target.loc)
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation(self.target.loc.copy(), self.ship, self.gamestate))
+            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate))
             return
 
         #TODO: actually implement harvesting, taking time, maybe visual fx
@@ -993,7 +993,7 @@ class MineOrder(AbstractSteeringOrder):
         self.harvested += amount
 
 class TransferCargo(core.Order):
-    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args, max_dist=1e3, **kwargs) -> None:
+    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args, max_dist=2e3, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.target = target
@@ -1009,7 +1009,7 @@ class TransferCargo(core.Order):
         # if we're too far away, go to the target
         distance = np.linalg.norm(self.ship.loc - self.target.loc)
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation(self.target.loc))
+            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate))
             return
 
         # otherwise, transfer the goods

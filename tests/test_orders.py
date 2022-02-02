@@ -34,6 +34,7 @@ class MonitoringUI:
         assert not self.simulator.collisions
 
         assert self.gamestate.timestamp < self.eta
+        assert self.gamestate.timestamp < 55
 
         assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders))
         assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
@@ -128,12 +129,70 @@ def order_from_history(history_entry, ship, gamestate):
     ship.orders.append(order)
     return order
 
-# collision avoidance interesting cases:
-# no collision, just go wherever you're going
-# tangential collision, avoid
-# head-on collision, need to pick a side to avoid collision
-# tangential collision to one side, really want to go in that direction tho
-#   should have a way to express that an avoid in a helpful direction
+
+# test cases
+
+def test_coalesce():
+    """ Test that coalescing threats actually covers them. """
+
+    # set up: ship heading toward several static points all within twice the
+    # collision margin
+
+    pos = np.array((0.,0.))
+    v = np.array((10.,0.))
+
+    hits_l = np.array((
+        ((2000., 0.)),
+        ((2500., 500.)),
+        ((2500., -500.)),
+        ((5000., 0.)), # not part of the group, but a threat
+        ((2500., -5000.)), # not part of the group
+    ))
+    hits_v = np.array([(0.,0.)]*len(hits_l))
+    hits_r = np.array([30.]*len(hits_l))
+
+    (
+            idx,
+            approach_time,
+            rel_pos,
+            rel_vel,
+            min_sep,
+            threat_count,
+            coalesced_threats,
+            threat_radius,
+            threat_loc,
+            threat_velocity,
+            nearest_neighbor_dist,
+            neighborhood_density,
+    ) = orders._analyze_neighbors(
+            hits_l, hits_v, hits_r, pos, v,
+            max_distance=1e4,
+            ship_radius=30.,
+            margin=5e2,
+            neighborhood_radius=1e4)
+
+    assert idx == 0
+    assert np.allclose(rel_pos, (2000., 0.))
+    assert np.allclose(rel_vel, v*-1)
+    assert min_sep == 0.
+    assert threat_count == 4
+    assert coalesced_threats == 3
+
+    for i in range(coalesced_threats):
+        assert np.linalg.norm(hits_l[i] - threat_loc)+hits_r[i] <= threat_radius
+
+def test_goto_entity(gamestate, generator, sector):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    station = generator.spawn_station(sector, 0, 0, resource=0)
+
+    arrival_distance = 1.5e3
+    collision_margin = 1e3
+    goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate)
+
+    assert np.linalg.norm(station.loc - goto_order.target_location)+goto_order.arrival_distance <= arrival_distance + orders.VELOCITY_EPS
+    assert np.linalg.norm(station.loc - goto_order.target_location)-station.radius-goto_order.arrival_distance >= collision_margin - orders.VELOCITY_EPS
+    assert goto_order.arrival_distance >= (arrival_distance*0.1)/2 - orders.VELOCITY_EPS
+    assert goto_order.min_distance == 0.
 
 @write_history
 def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
@@ -759,6 +818,31 @@ def test_more_headon(gamestate, generator, sector, testui, simulator):
 
     goto_a = order_from_history(a, ship_a, gamestate)
     goto_b = order_from_history(b, ship_b, gamestate)
+
+    eta = goto_a.eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    testui.cannot_stop_orders = [goto_a, goto_b]
+    testui.margin_neighbors = [ship_a, ship_b]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_flyby_on_approach(gamestate, generator, sector, testui, simulator):
+    a = {"eid": "dee23864-c1cb-468f-9bde-71c5d56b8510", "ts": 70.03333333333065, "loc": [33220.85060106939, -16644.606340992468], "a": 15.667518257850288, "v": [614.0329444501658, 60.653102984943494], "av": -0.4694897969271224, "f": [0.0, 0.0], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nd": 9.549296585513722e-09, "nnd": 0.0, "t_loc": [63684.23996843206, -13635.485887001847], "t_v": [614.0329444501658, 60.653102984943494], "cs": False}}
+    b = {"eid": "8ee113b0-3b20-419f-9f8d-afcb69eb5d44", "ts": 70.03333333333065, "loc": [28596.040772564873, -7068.745200038832], "a": 4.828325439812333, "v": [778.4805625533279, -113.87569893397985], "av": 0.6845332006646083, "f": [1917.076138025665, -4617.8803666847625], "t": -755030.7784002506, "o": {"o": "stellarpunk.orders.GoToLocation", "nd": 5.5704230082163375e-09, "nnd": 0.0, "t_loc": [142350.15061972587, -29380.159347002304], "t_v": [796.0218975153209, -156.1295169851772], "cs": False}}
+    c = {"eid": "82811bb5-3590-4fc4-9fa4-c221acff7feb", "ts": 0, "loc": [63684.23996843206, -13635.485887001847], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
+
+    ship_a = ship_from_history(a, generator, sector)
+    ship_b = ship_from_history(b, generator, sector)
+
+    goto_a = order_from_history(a, ship_a, gamestate)
+    goto_b = order_from_history(b, ship_b, gamestate)
+
+    station = station_from_history(c, generator, sector)
 
     eta = goto_a.eta()
 

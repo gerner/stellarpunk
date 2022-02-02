@@ -27,8 +27,7 @@ def order_fn_wait(ship, gamestate):
 
 def order_fn_goto_random_station(ship, gamestate):
     station = gamestate.random.choice(ship.sector.stations)
-    loc, arrival_distance = orders.GoToLocation.choose_destination(gamestate, ship.loc, station)
-    return orders.GoToLocation(station.loc.copy(), ship, gamestate)
+    return orders.GoToLocation.goto_entity(station, ship, gamestate)
 
 class UniverseGenerator:
     def __init__(self, gamestate, seed=None, listener=None):
@@ -169,7 +168,7 @@ class UniverseGenerator:
 
     def _gen_sector_location(self, sector, unoccupied=True):
         loc = self.r.normal(0, 1, 2) * sector.radius
-        while unoccupied and sector.is_occupied(*loc):
+        while unoccupied and sector.is_occupied(*loc, eps=2e3):
             loc = self.r.normal(0, 1, 2) * sector.radius
 
         return loc

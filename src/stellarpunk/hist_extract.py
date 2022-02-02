@@ -7,6 +7,8 @@ import gzip
 import contextlib
 import logging
 
+import numpy as np
+
 from stellarpunk import util
 
 TS_EPS = 1/60/2
@@ -26,6 +28,8 @@ def main():
                 help="eids to extract")
         parser.add_argument("-t", "--timestamp", nargs="?", type=float, default=0.,
                 help="the timestamp to extract")
+        parser.add_argument("-l", "--location", nargs="?", type=str, default=None,
+                help="a point around which to grab all entities at timestamp")
         parser.add_argument("--pdb", action="store_true")
 
         args = parser.parse_args()
@@ -33,13 +37,30 @@ def main():
         if args.pdb:
             context_stack.enter_context(util.PDBManager())
 
+        global_loc = None
+        global_radius = 0
+        if args.location:
+            x,_,y = args.location.partition(",")
+            x = float(x)
+            y = float(y)
+            global_loc = np.array((x,y))
+            global_radius = 30000
+
+        static_loc = []
         target_ts = {}
         for pattern in args.eid:
-            eid, _, ts = pattern.partition(":")
-            if ts != "":
-                target_ts[eid] = float(ts)
+            if "," in pattern:
+                _,_,l = pattern.partition(":")
+                x,_,y = l.partition(",")
+                x = float(x)
+                y = float(y)
+                static_loc.append((x,y))
             else:
-                target_ts[eid] = args.timestamp
+                eid, _, ts = pattern.partition(":")
+                if ts != "":
+                    target_ts[eid] = float(ts)
+                else:
+                    target_ts[eid] = args.timestamp
 
         if args.input == "-":
             fin = sys.stdin
@@ -57,10 +78,20 @@ def main():
         eid_ts = {}
         for line in fin:
             entry = json.loads(line)
+
+            if entry["ts"] == 0:
+                for loc in static_loc:
+                    if np.linalg.norm(np.array(entry["loc"]) - np.array(loc)) < 1.5e3:
+                        fout.write(line)
+
             match = next(filter(lambda x: entry["eid"].startswith(x), target_ts.keys()), None)
 
             if match is None:
+                if global_radius > 0 and (entry["ts"] == 0 or abs(entry["ts"] - args.timestamp) < TS_EPS):
+                    if np.linalg.norm(np.array(entry["loc"]) - np.array(loc)) < global_radius:
+                        fout.write(line)
                 continue
+
 
             if match in eid_matches:
                 if eid_matches[match] != entry["eid"]:
