@@ -105,7 +105,7 @@ class Sector(Entity):
     def spatial_point(self, point, max_dist=None):
         if not max_dist:
             max_dist = self.radius*3
-        for hit in self.space.point_query(tuple(point), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
+        for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.shape.body.entity
 
     def is_occupied(self, x, y, eps=1e1):

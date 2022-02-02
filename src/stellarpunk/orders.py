@@ -57,7 +57,8 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
             desired_w = 0.
         else:
             # w_f**2 = w_i**2 + 2 * a (d_theta)
-            desired_w = np.sign(difference_angle) * np.sqrt(abs(difference_angle + w*dt) * max_torque / (0.5 * moment))/safety_factor
+            #desired_w = np.sign(difference_angle) * np.sqrt(abs(difference_angle + w*dt) * max_torque / (0.5 * moment))/safety_factor
+            desired_w =  np.sign(difference_angle) * np.sqrt(np.abs(difference_angle) * max_torque/moment * 2) * 0.90
 
         t = (desired_w - w)*moment/dt
 
@@ -159,7 +160,9 @@ def _analyze_neighbors(
         v:npt.NDArray[np.float64],
         max_distance:float,
         ship_radius:float,
-        margin:float) -> tuple[
+        margin:float,
+        neighborhood_radius:float,
+        ) -> tuple[
             int,
             float,
             npt.NDArray[np.float64],
@@ -170,6 +173,7 @@ def _analyze_neighbors(
             float,
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
+            float,
             float
         ]:
     """ Analyzes neighbors and determines collision threat parameters. """
@@ -184,6 +188,7 @@ def _analyze_neighbors(
 
     collision_threats:list[tuple[int, tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float], npt.NDArray[np.float64]]] = []
 
+    neighborhood_size = 0.
     threat_count = 0
     for eidx in range(len(hits_l)):
         entity_pos = hits_l[eidx]
@@ -192,6 +197,9 @@ def _analyze_neighbors(
 
         rel_dist, approach_t, rel_pos, rel_vel, min_sep, c_loc, collision_distance = _analyze_neighbor(
                 pos, v, entity_radius, entity_pos, entity_v, max_distance, np.inf, ship_radius + margin)
+
+        if rel_dist < neighborhood_radius:
+            neighborhood_size += 1.
 
         # this neighbor isn't going to collide with us
         if not (min_sep < np.inf):
@@ -233,11 +241,27 @@ def _analyze_neighbors(
             for eidx, (t_loc, t_velocity, t_radius), t_loc in collision_threats:
                 if idx == eidx:
                     continue
-                t_dist = np.linalg.norm(t_loc - threat_loc)
-                if t_dist < threat_radius + t_radius + 2*margin:
-                    threat_loc += (t_loc - threat_loc)/2
-                    #TODO: shouldn't this be the max of the current radius and t.radius?
-                    threat_radius += t_dist/2 + t_radius
+                t_rel_pos = (threat_loc - t_loc)
+                t_dist, t_angle = util.cartesian_to_polar(t_rel_pos[0], t_rel_pos[1])
+                if t_dist + t_radius < threat_radius:
+                    # the old radius completely covers the new one
+                    threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
+                    coalesced_threats += 1
+                elif t_dist < threat_radius + t_radius + 2*margin:
+                    # new is within coalesce dist, but not already covered
+                    # coalesced threat should just cover both
+                    # diameter = 2*threat_radius + 2*t_radius + (t_dist - threat_radius - t_radius)
+                    # diameter = t_dist + threat_radius + t_radius
+                    coalesced_radius = (t_dist + threat_radius + t_radius)/2
+
+                    c_rel_x, c_rel_y = util.polar_to_cartesian(coalesced_radius - threat_radius, t_angle+np.pi)
+
+                    #assert np.isclose(np.linalg.norm((c_rel_x, c_rel_y)) + threat_radius, coalesced_radius)
+                    #assert np.isclose(np.linalg.norm((threat_loc[0]+c_rel_x - t_loc[0], threat_loc[1]+c_rel_y - t_loc[1])) + t_radius, coalesced_radius)
+
+                    threat_loc[0] += c_rel_x
+                    threat_loc[1] += c_rel_y
+                    threat_radius = coalesced_radius
                     threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
                     coalesced_threats += 1
     else:
@@ -246,7 +270,7 @@ def _analyze_neighbors(
         threat_loc = ZERO_VECTOR
         threat_velocity = ZERO_VECTOR
 
-    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist
+    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2)
 
 @jit(cache=True, nopython=True)
 def estimate_cost(
@@ -375,6 +399,9 @@ class AbstractSteeringOrder(core.Order):
         self.collision_threat_max_age = 0.
         self.high_awareness_dist = self.ship.max_speed() * self.collision_threat_max_age * 2 * self.safety_factor
 
+        # how many neighbors per m^2
+        self.neighborhood_density = 0.
+
     def to_history(self) -> dict:
         history = super().to_history()
         if self.collision_threat:
@@ -389,8 +416,8 @@ class AbstractSteeringOrder(core.Order):
             history["ct_cradius"] = self.collision_threat_radius
             history["cac"] = self.cannot_avoid_collision
             history["cbdr"] = self.collision_cbdr
-        else:
-            assert not self.cannot_avoid_collision
+
+        history["nd"] = self.neighborhood_density
         history["nnd"] = self.nearest_neighbor_dist
         return history
 
@@ -406,7 +433,7 @@ class AbstractSteeringOrder(core.Order):
                 self.ship.max_torque, moment, dt,
                 self.safety_factor)
 
-        if t == 0:
+        if t == 0 and abs(util.normalize_angle(self.ship.angle - target_angle, shortest=True)) <= ANGLE_EPS:
             self.ship.phys.angle = target_angle
             self.ship.phys.angular_velocity = 0
         else:
@@ -432,18 +459,14 @@ class AbstractSteeringOrder(core.Order):
         )
 
         if force[0] == 0. and force[1] == 0.:
-            self.ship.phys.velocity = tuple(target_velocity)
+            self.ship.phys.velocity = (target_velocity[0], target_velocity[1])
         else:
             self.ship.phys.apply_force_at_world_point(
                     (force[0], force[1]),
                     (self.ship.loc[0], self.ship.loc[1])
             )
 
-        if torque == 0.:
-            #self.ship.phys.angle = target_angle
-            self.ship.phys.angular_velocity = 0
-        else:
-            self.ship.phys.torque = torque
+        self.ship.phys.torque = torque
 
         #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')
@@ -473,7 +496,8 @@ class AbstractSteeringOrder(core.Order):
             float,
             float,
             np.ndarray,
-            np.ndarray]:
+            np.ndarray,
+            float]:
 
         pos = self.ship.loc
         v = self.ship.velocity
@@ -484,18 +508,19 @@ class AbstractSteeringOrder(core.Order):
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = [self.collision_threat,] if self.collision_threat else []
         else:
-            ll = self.ship.loc - neighborhood_dist
-            ur = self.ship.loc + neighborhood_dist
-            bounds = (
-                    ll[0], ll[1],
-                    ur[0], ur[1],
-            )
+            #ll = self.ship.loc - neighborhood_dist
+            #ur = self.ship.loc + neighborhood_dist
+            #bounds = (
+            #        ll[0], ll[1],
+            #        ur[0], ur[1],
+            #)
 
             self.collision_threat = None
             self.cannot_avoid_collision = False
             self.collision_threat_time = self.gamestate.timestamp
             self.nearest_neighbor_dist = np.inf
-            hits = list(e for e in sector.spatial_query(bounds) if e != self.ship)
+            #hits = list(e for e in sector.spatial_query(bounds) if e != self.ship)
+            hits = list(e for e in  sector.spatial_point(self.ship.loc, neighborhood_dist))
 
         if len(hits) > 0:
             #TODO: this is really not ideal: we go into pymunk to get hits via
@@ -510,7 +535,7 @@ class AbstractSteeringOrder(core.Order):
                 hits_l[i] = e.loc
                 hits_v[i] = e.velocity
                 hits_r[i] = e.radius
-            idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist = _analyze_neighbors(hits_l, hits_v, hits_r, pos, v, max_distance, self.ship.radius, margin)
+            idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist, neighborhood_density = _analyze_neighbors(hits_l, hits_v, hits_r, pos, v, max_distance, self.ship.radius, margin, neighborhood_dist)
         else:
             idx = -1
             approach_time = np.inf
@@ -524,6 +549,7 @@ class AbstractSteeringOrder(core.Order):
             threat_loc = ZERO_VECTOR
             threat_velocity = ZERO_VECTOR
             threat_radius = 0.
+            neighborhood_density = 0.
 
         if idx < 0:
             neighbor = None
@@ -550,7 +576,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_threat_loc = threat_loc
         self.collision_threat_radius = threat_radius
 
-        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity
+        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density
 
     def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
@@ -582,7 +608,9 @@ class AbstractSteeringOrder(core.Order):
             neighbor_margin += margin_histeresis
 
         # find neighbor with soonest closest appraoch
-        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity,  = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, max_distance)
+        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density  = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, max_distance)
+
+        self.neighborhood_density = neighborhood_density
 
         if neighbor is None:
             self.cannot_avoid_collision = False
@@ -777,6 +805,23 @@ class KillVelocityOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class GoToLocation(AbstractSteeringOrder):
+
+    @staticmethod
+    def choose_destination(
+            gamestate:core.Gamestate,
+            source_loc:npt.NDArray[np.float64],
+            entity:core.SectorEntity,
+            arrival_distance:float=1.5e3,
+            collision_margin:float=1e3):
+        """ Helper to choose a location if we want to "arrive" at the specified
+        entity. This adds a bit of randomness and targets a location outside
+        the collision margin. These should reduce collisions."""
+        _, angle = util.cartesian_to_polar(*(source_loc - entity.loc))
+        target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
+        target_arrival_distance = (arrival_distance - collision_margin)/2
+        target_loc = np.array(util.polar_to_cartesian(collision_margin + target_arrival_distance, target_angle))
+        return target_loc, target_arrival_distance
+
     def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs) -> None:
         """ Creates an order to go to a specific location.
 
@@ -854,6 +899,18 @@ class GoToLocation(AbstractSteeringOrder):
         max_angular_acceleration = self.ship.max_angular_acceleration()
         max_speed = self.ship.max_speed()
 
+        # ramp down speed as nearby density increases
+        # ramp down with inverse of the density
+        # d_low, s_high is one point we want to hit
+        # d_high, s_low is another
+        d_low = 1/(np.pi*1e4**2)
+        s_high = max_speed
+        d_high = 30/(np.pi*1e4**2)
+        s_low = 100
+        b = (s_low * d_high - s_high * d_low)/(s_high - s_low)
+        m = s_high*(d_low + b)
+        max_speed = min(max_speed, m / (self.neighborhood_density + b))
+
         self.target_v, distance, self.distance_estimate, self.cannot_stop = _find_target_v(
                 self.target_location, self.arrival_distance, self.min_distance,
                 self.ship.loc, v, theta, omega,
@@ -869,7 +926,7 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, 1e4, self.collision_margin,
+                self.ship.sector, 2e4, self.collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

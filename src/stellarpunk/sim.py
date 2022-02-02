@@ -107,11 +107,8 @@ class Simulator:
 
             for ship in sector.ships:
                 # update ship positions from physics sim
-                #ship.loc = np.array(ship.phys.position)
                 ship.loc.put(ZERO_ONE, ship.phys.position)
-
                 ship.angle = ship.phys.angle
-                #ship.velocity = np.array(ship.phys.velocity)
                 ship.velocity.put(ZERO_ONE, ship.phys.velocity)
                 ship.angular_velocity = ship.phys.angular_velocity
 

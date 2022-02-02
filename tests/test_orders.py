@@ -135,6 +135,7 @@ def order_from_history(history_entry, ship, gamestate):
 # tangential collision to one side, really want to go in that direction tho
 #   should have a way to express that an avoid in a helpful direction
 
+@write_history
 def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
 
@@ -151,8 +152,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     assert ship_driver.angular_velocity == 0
     assert ship_driver.angle == np.pi
 
-    core.write_history_to_file(rotate_order.ship, "/tmp/stellarpunk_test.history")
-
+@write_history
 def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=-2, theta=0)
 
@@ -168,8 +168,6 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     assert rotate_order.is_complete()
     assert ship_driver.angular_velocity == 0
     assert ship_driver.angle == rotate_order.target_angle
-
-    core.write_history_to_file(rotate_order.ship, "/tmp/stellarpunk_test.history")
 
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
@@ -639,9 +637,18 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
 @write_history
 def test_followers(gamestate, generator, sector, testui, simulator):
-    a = {"eid": "c17c3726-a3d0-4734-9bb4-69e673b0ae5e", "ts": 2090.016666665668, "loc": [-8574.378687731325, -92946.33143588615], "a": -9.2819632330169, "v": [591.4913700392813, -46.297259041083194], "av": 0.14590014800404383, "f": [-4984.753723543476, 390.1670355366494], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-2280.7298265650393, -93438.9484145915], "t_v": [589.0932900475955, -46.10955633534738], "cs": False}}
-    b = {"eid": "527e4811-fca7-4e30-a259-d44fbc8f7bc2", "ts": 2090.016666665668, "loc": [-6951.495359661687, -93022.48310584611], "a": -3.1004619612519555, "v": [459.9857860425358, -41.01428792459363], "av": -0.2260183468057087, "f": [4980.242073810298, -444.0595525936751], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-2280.7298265650393, -93438.9484145915], "t_v": [477.8824725058597, -42.610032562310124], "cs": False}}
-    c = {"eid": "749a5424-31c7-4724-869b-bd2b17ff14b6", "ts": 0, "loc": [-2280.7298265650393, -93438.9484145915], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
+    """ Shows two ships following in the same track to the same destination.
+    Collision will happen when one slows down. """
+
+    # this test was pulled from a live run (commented out lines), I updated the
+    # position of the station to make the setup a little more forgiving.
+
+    #a = {"eid": "c17c3726-a3d0-4734-9bb4-69e673b0ae5e", "ts": 2090.016666665668, "loc": [-8574.378687731325, -92946.33143588615], "a": -9.2819632330169, "v": [591.4913700392813, -46.297259041083194], "av": 0.14590014800404383, "f": [-4984.753723543476, 390.1670355366494], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-2280.7298265650393, -93438.9484145915], "t_v": [589.0932900475955, -46.10955633534738], "cs": False}}
+    #b = {"eid": "527e4811-fca7-4e30-a259-d44fbc8f7bc2", "ts": 2090.016666665668, "loc": [-6951.495359661687, -93022.48310584611], "a": -3.1004619612519555, "v": [459.9857860425358, -41.01428792459363], "av": -0.2260183468057087, "f": [4980.242073810298, -444.0595525936751], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-2280.7298265650393, -93438.9484145915], "t_v": [477.8824725058597, -42.610032562310124], "cs": False}}
+    #c = {"eid": "749a5424-31c7-4724-869b-bd2b17ff14b6", "ts": 0, "loc": [-2280.7298265650393, -93438.9484145915], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
+    a = {"eid": "c17c3726-a3d0-4734-9bb4-69e673b0ae5e", "ts": 2090.016666665668, "loc": [-8574.378687731325, -92946.33143588615], "a": -9.2819632330169, "v": [591.4913700392813, -46.297259041083194], "av": 0.14590014800404383, "f": [-4984.753723543476, 390.1670355366494], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [0., -93438.9484145915], "t_v": [589.0932900475955, -46.10955633534738], "cs": False}}
+    b = {"eid": "527e4811-fca7-4e30-a259-d44fbc8f7bc2", "ts": 2090.016666665668, "loc": [-6951.495359661687, -93022.48310584611], "a": -3.1004619612519555, "v": [459.9857860425358, -41.01428792459363], "av": -0.2260183468057087, "f": [4980.242073810298, -444.0595525936751], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [0., -93438.9484145915], "t_v": [477.8824725058597, -42.610032562310124], "cs": False}}
+    c = {"eid": "749a5424-31c7-4724-869b-bd2b17ff14b6", "ts": 0, "loc": [0., -93438.9484145915], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
 
     ship_a = ship_from_history(a, generator, sector)
     ship_b = ship_from_history(b, generator, sector)
@@ -708,6 +715,50 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
     goto_b = order_from_history(b, ship_b, gamestate)
 
     station = station_from_history(c, generator, sector)
+
+    eta = goto_a.eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    testui.cannot_stop_orders = [goto_a, goto_b]
+    testui.margin_neighbors = [ship_a, ship_b]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
+    # this test is randomized and can be kind of flaky
+    ship_driver = generator.spawn_ship(sector, -1e4, 0., v=[0., 0.], w=0., theta=0.)
+
+    num_blockers = 20
+    generator.spawn_resource_field(sector, 0., 0., 0, num_blockers, width=5e3, mean_per_asteroid=1, variance_per_asteroid=0)
+
+    goto_order = orders.GoToLocation(np.array([0., 0.]), ship_driver, gamestate)
+    ship_driver.orders.append(goto_order)
+
+    eta = goto_order.eta()
+
+    testui.eta = eta*4
+    testui.orders = [goto_order]
+    testui.cannot_avoid_collision_orders = [goto_order]
+    testui.cannot_stop_orders = [goto_order]
+    testui.margin_neighbors = [ship_driver]
+
+    simulator.run()
+    assert goto_order.is_complete()
+
+@write_history
+def test_more_headon(gamestate, generator, sector, testui, simulator):
+    a = {"eid": "d876e0d8-ce5c-40ce-9411-dd52e92fd040", "ts": 531.4958666665119, "loc": [-8553.459552706245, 145290.59627284817], "a": 3.215596961832528, "v": [-997.2473217543096, -74.1470110918603], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-211457.22301090288, 130204.36112182347], "t_v": [-997.2473217543095, -74.14701109186028], "cs": False}}
+    b = {"eid": "a548766f-ab07-467e-a48b-eecd26050ec9", "ts": 531.4958666665119, "loc": [-128147.07960002865, 135773.3305332], "a": 0.08454138538747719, "v": [996.4189546142318, 84.55333751828712], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [72804.09083505644, 152825.48721870864], "t_v": [996.4189546142318, 84.55333751828721], "cs": False}}
+
+    ship_a = ship_from_history(a, generator, sector)
+    ship_b = ship_from_history(b, generator, sector)
+
+    goto_a = order_from_history(a, ship_a, gamestate)
+    goto_b = order_from_history(b, ship_b, gamestate)
 
     eta = goto_a.eta()
 

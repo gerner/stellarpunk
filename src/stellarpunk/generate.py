@@ -27,6 +27,7 @@ def order_fn_wait(ship, gamestate):
 
 def order_fn_goto_random_station(ship, gamestate):
     station = gamestate.random.choice(ship.sector.stations)
+    loc, arrival_distance = orders.GoToLocation.choose_destination(gamestate, ship.loc, station)
     return orders.GoToLocation(station.loc.copy(), ship, gamestate)
 
 class UniverseGenerator:
@@ -683,7 +684,7 @@ class UniverseGenerator:
         # quick hack to populate some ships
         for x,y in habitable_coordinates:
             sector = self.gamestate.sectors[(x,y)]
-            num_ships = self.r.integers(5,15)
+            num_ships = self.r.integers(15,35)
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
