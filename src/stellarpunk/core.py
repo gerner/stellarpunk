@@ -166,9 +166,11 @@ class ObjectFlag(enum.IntFlag):
 class HistoryEntry:
     def __init__(
             self,
+            prefix:str,
             entity_id:uuid.UUID,
             ts:int,
             loc:np.ndarray,
+            radius:float,
             angle:float,
             velocity:np.ndarray,
             angular_velocity:float,
@@ -182,7 +184,9 @@ class HistoryEntry:
         self.order_hist = order_hist
 
         self.loc = loc
+        self.radius = radius
         self.angle = angle
+        self.prefix = prefix
 
         self.velocity = velocity
         self.angular_velocity = angular_velocity
@@ -192,9 +196,11 @@ class HistoryEntry:
 
     def to_json(self):
         return {
+            "p": self.prefix,
             "eid": str(self.entity_id),
             "ts": self.ts,
             "loc": self.loc.tolist(),
+            "r": self.radius,
             "a": self.angle,
             "v": self.velocity.tolist(),
             "av": self.angular_velocity,
@@ -234,8 +240,9 @@ class SectorEntity(Entity):
     def get_history(self) -> Iterable[HistoryEntry]:
 
         return (HistoryEntry(
+                self.id_prefix,
                 self.entity_id, 0,
-                self.loc, self.angle,
+                self.loc, self.radius, self.angle,
                 self.velocity, self.angular_velocity,
                 (0.,0.), 0,
         ),)
@@ -243,9 +250,10 @@ class SectorEntity(Entity):
 
     def to_history(self, timestamp) -> HistoryEntry:
         return HistoryEntry(
+                self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc, self.angle,
-                self.velocity, self.angular_velocity,
+                self.loc.copy(), self.radius, self.angle,
+                self.velocity.copy(), self.angular_velocity,
                 (0.,0.), 0,
         )
     def address_str(self) -> str:
@@ -299,15 +307,16 @@ class Ship(SectorEntity):
     def to_history(self, timestamp) -> HistoryEntry:
         order_hist = self.orders[0].to_history() if self.orders else None
         return HistoryEntry(
+                self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc.copy(), self.angle,
+                self.loc.copy(), self.radius, self.angle,
                 self.velocity.copy(), self.angular_velocity,
-                self.phys.force, self.phys.torque,
+                tuple(self.phys.force), self.phys.torque,
                 order_hist,
         )
 
     def max_speed(self) -> float:
-        return self.max_thrust / self.mass * 4
+        return self.max_thrust / self.mass * 5
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
@@ -357,12 +366,13 @@ class Order:
                 ship,
                 logging.getLogger(util.fullname(self)),
         )
+        self.o_name = util.fullname(self)
 
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
 
     def to_history(self) -> dict:
-        return {"o": util.fullname(self)}
+        return {"o": self.o_name}
 
     def is_complete(self) -> bool:
         return False

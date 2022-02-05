@@ -254,13 +254,16 @@ class UniverseGenerator:
         # one SSME: 2.279 MN
         # OMS main engine: 26.7 kN
         # KTDU-80 main engine: 2.95 kN
-        max_thrust = 5e5
+        #max_thrust = 5e5
+        # 5e5 translates to 250m/s^2 which is over 25 gs
+        max_thrust = 2e5
 
         # one draco: 400 N (x16 on Dragon)
         # OMS aft RCS: 3.87 kN
         # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
         # some speculation that starship thrusters can do 100-200 kN
-        max_fine_thrust = 5e3
+        #max_fine_thrust = 5e3
+        max_fine_thrust = 1e4
 
         # note about g-forces:
         # assuming circle of radius 30m, mass 2e3 kg

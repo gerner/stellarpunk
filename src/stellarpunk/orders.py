@@ -14,8 +14,8 @@ from numba import jit # type: ignore
 from stellarpunk import util, core
 
 ANGLE_EPS = 1e-3
-PARALLEL_EPS = 1e-3
-VELOCITY_EPS = 1e-2
+PARALLEL_EPS = 0.5e-1
+VELOCITY_EPS = 1e-1
 
 CBDR_HIST_SEC = 0.5
 CBDR_DIST_EPS = 5
@@ -134,12 +134,18 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
 
     # check for parallel paths
     if rel_speed == 0:
-        return rel_dist, np.inf, rel_pos, rel_vel, rel_dist, entity_pos, np.inf
+        if rel_dist < margin + entity_radius:
+            # this can cause discontinuities in approach_time
+            return rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.
+        return rel_dist, np.inf, rel_pos, rel_vel, np.inf, ZERO_VECTOR, np.inf
 
     rel_tangent = rel_vel / rel_speed
     approach_t = -1 * rel_tangent.dot(rel_pos) / rel_speed
 
     if approach_t <= 0 or approach_t >= max_approach_time:
+        if rel_dist < margin + entity_radius:
+            # this can cause discontinuities in approach_time
+            return rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.
         return rel_dist, np.inf, rel_pos, rel_vel, np.inf, ZERO_VECTOR, np.inf
 
     # compute the closest approach within max_distance
@@ -153,7 +159,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
 
     return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
 
-@jit(cache=True, nopython=True)
+#@jit(cache=True, nopython=True)
 def _analyze_neighbors(
         hits_l:npt.NDArray[np.float64],
         hits_v:npt.NDArray[np.float64],
@@ -176,7 +182,8 @@ def _analyze_neighbors(
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
             float,
-            float
+            float,
+            npt.NDArray[np.int64],
         ]:
     """ Analyzes neighbors and determines collision threat parameters. """
 
@@ -234,6 +241,7 @@ def _analyze_neighbors(
     # include.
     # see https://github.com/marmakoide/miniball and https://github.com/weddige/miniball
     coalesced_threats = 0
+    ct = []
     if idx >= 0:
         threat_radius = hits_r[idx]
         threat_loc = collision_loc
@@ -242,6 +250,7 @@ def _analyze_neighbors(
         # coalesce nearby threats
         # this avoids flapping in collision targets
         coalesced_threats = 1
+        ct.append(idx)
         if threat_count > 1:
             threat_loc = threat_loc.copy()
             for eidx, (t_loc, t_velocity, t_radius), t_loc in collision_threats:
@@ -253,6 +262,7 @@ def _analyze_neighbors(
                     # the old radius completely covers the new one
                     threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
                     coalesced_threats += 1
+                    ct.append(eidx)
                 elif t_dist < threat_radius + t_radius + 2*margin:
                     # new is within coalesce dist, but not already covered
                     # coalesced threat should just cover both
@@ -262,21 +272,22 @@ def _analyze_neighbors(
 
                     c_rel_x, c_rel_y = util.polar_to_cartesian(coalesced_radius - threat_radius, t_angle+np.pi)
 
-                    #assert np.isclose(np.linalg.norm((c_rel_x, c_rel_y)) + threat_radius, coalesced_radius)
-                    #assert np.isclose(np.linalg.norm((threat_loc[0]+c_rel_x - t_loc[0], threat_loc[1]+c_rel_y - t_loc[1])) + t_radius, coalesced_radius)
+                    #assert np.linalg.norm((c_rel_x, c_rel_y)) + threat_radius < coalesced_radius + VELOCITY_EPS
+                    #assert np.linalg.norm((threat_loc[0]+c_rel_x - t_loc[0], threat_loc[1]+c_rel_y - t_loc[1])) + t_radius < coalesced_radius + VELOCITY_EPS
 
                     threat_loc[0] += c_rel_x
                     threat_loc[1] += c_rel_y
                     threat_radius = coalesced_radius
                     threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
                     coalesced_threats += 1
+                    ct.append(eidx)
     else:
         # no threat found, return some default values
         threat_radius = 0.
         threat_loc = ZERO_VECTOR
         threat_velocity = ZERO_VECTOR
 
-    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2)
+    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
 @jit(cache=True, nopython=True)
 def estimate_cost(
@@ -304,6 +315,101 @@ def estimate_cost(
     undo_time = np.linalg.norm(((desired_velocity - v) - delta_v)) / max_acceleration * safety_factor
 
     return rot_time + accelerate_time + remainder_rot_time + undo_time
+
+#@jit(cache=True, nopython=True)
+def _collision_dv(entity_pos, entity_v, pos, v, margin, v_d):
+    """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
+    collision by at least distance m. This divert will be of minimum size
+    relative to the desired velocity.
+
+    entity_pos: location of the threat
+    entity_pos: velocity of the threat
+    pos: our position
+    v: our velocity
+    v_d: the desired velocity
+    """
+
+
+    # rel pos
+    r = entity_pos - pos
+    # rel vel
+    v = entity_v - v
+    # margin, including radii
+    m = margin
+
+    # desired diversion from v
+    a = v_d - v
+
+    # convenient computation we'll reuse below
+    p = 2*r[0]*v[0]+2*r[1]*v[1]
+    q = r[0]**2+r[1]**2-m**2
+
+    # given divert (x,y):
+    # resulting_margin = (r[0]*x+r[1]*y+p)**2/((2*v[0]+x)**2+(2*v[1]+y)**2)-r[0]**2+r[1]**2
+    # this forms a pair of intersecting lines with viable diverts between them
+
+    # given divert (x,y):
+    # cost_from desired = (a[0]-x)**2 +(a[1]-y)**2
+
+    # we'll minimize the above by dropping perpeniculars from the viable divert
+    # lines to the center of the cost circle and finding the intersection with
+    # the divert lines.
+
+    # see https://www.desmos.com/calculator/ju4nrg5dba
+
+    # check if the desired divert is already viable
+    do_nothing_margin_sq = (r[0]*a[0]+r[1]*a[1]+p)**2/((2*v[0]+a[0])**2+(2*v[1]+a[1])**2)-r[0]**2+r[1]**2
+    if do_nothing_margin_sq > 0 and np.sqrt(do_nothing_margin_sq) >= m:
+        return ZERO_VECTOR
+
+    # first find the lines forming the viable divert region
+    # solving the above for x = 0 and y = 0 (x and y intercepts)
+    q_c = p**2-4*q*v[0]**2-4*q*v[1]**2
+
+    q_ax = r[0]**2-q
+    q_bx = 2*p*r[0]-4*q*v[0]
+
+    q_ay = r[1]**2-q
+    q_by = 2*p*r[1]-4*q*v[1]
+
+
+    i_1x = (-q_bx - np.sqrt(q_bx**2-4*q_ax*q_c))/(2*q_ax)
+    i_2x = (-q_bx + np.sqrt(q_bx**2-4*q_ax*q_c))/(2*q_ax)
+    i_1y = (-q_by - np.sqrt(q_by**2-4*q_ay*q_c))/(2*q_ay)
+    i_2y = (-q_by + np.sqrt(q_by**2-4*q_ay*q_c))/(2*q_ay)
+
+    # which pairs depends on the quadrant v is in
+    if np.sign(v[0]) == np.sign(v[1]):
+        # y = -i_1y/i_2x * x +i_y1
+        # perpendicular = i_2x/i_1y * (x - a[0]) + a[1]
+        slope1 = -i_1y/i_2x
+        intercept1 = i_y1
+        # y = -i_2y/i_1x * x +i_y1
+        # perpendicular = i_1x/i_2y * (x - a[0]) + a[1]
+        slope2 = -i_2y/i_1x
+        intercept2 = i_2y
+    else:
+        # y = -i_1y/i_1x * x +i_y1
+        # perpendicular = i_1x/i_1y * (x - a[0]) + a[1]
+        slope1 = -i_1y/i_1x
+        intercept1 = i_1y
+        # y = -i_1y/i_1x * x +i_y1
+        # perpendicular = i_1x/i_1y * (x - a[0]) + a[1]
+        slope2 = -i_2y/i_2x
+        intercept2 = i_2y
+
+     x1 = (a[1] - intercept1 - 1./slope1 * a[0]) / (slope1 - 1./slope1)
+     y1 = slope1 * x1 + intercept1
+     cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
+
+     x2 = (a[1] - intercept1 - 1./slope1 * a[0]) / (slope1 - 1./slope1)
+     y2 = slope1 * x1 + intercept1
+     cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
+
+     if cost1 < cost2:
+         return np.array((x1, y1))
+     else:
+         return np.array((x2, y2))
 
 # numba seems to have trouble with this method and recompiles it with some
 # frequency. So we explicitly specify types here to avoid that.
@@ -397,6 +503,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_cbdr_divert_angle = np.pi/4
         self.collision_threat_count = 0.
         self.collision_coalesced_threats = 0.
+        self.collision_coalesced_neighbors = []
         self.collision_threat_loc = ZERO_VECTOR
         self.collision_threat_radius = 0.
 
@@ -420,6 +527,7 @@ class AbstractSteeringOrder(core.Order):
             history["ct_ct"] = self.collision_coalesced_threats
             history["ct_cloc"] = self.collision_threat_loc.tolist()
             history["ct_cradius"] = self.collision_threat_radius
+            history["ct_cn"] = [cn.loc.tolist() for cn in self.collision_coalesced_neighbors]
             history["cac"] = self.cannot_avoid_collision
             history["cbdr"] = self.collision_cbdr
 
@@ -514,9 +622,9 @@ class AbstractSteeringOrder(core.Order):
         if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
             hits = [self.collision_threat,] if self.collision_threat else []
         else:
-            self.collision_threat = None
+            #self.collision_threat = None
             self.cannot_avoid_collision = False
-            self.collision_threat_time = self.gamestate.timestamp
+            #self.collision_threat_time = self.gamestate.timestamp
             self.nearest_neighbor_dist = np.inf
             hits = list(e for e in  sector.spatial_point(self.ship.loc, neighborhood_dist) if e != self.ship)
 
@@ -533,7 +641,25 @@ class AbstractSteeringOrder(core.Order):
                 hits_l[i] = e.loc
                 hits_v[i] = e.velocity
                 hits_r[i] = e.radius
-            idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist, neighborhood_density = _analyze_neighbors(hits_l, hits_v, hits_r, pos, v, max_distance, self.ship.radius, margin, neighborhood_dist)
+            (
+                    idx,
+                    approach_time,
+                    relative_position,
+                    relative_velocity,
+                    minimum_separation,
+                    threat_count,
+                    coalesced_threats,
+                    threat_radius,
+                    threat_loc,
+                    threat_velocity,
+                    nearest_neighbor_dist,
+                    neighborhood_density,
+                    coalesced_idx,
+            ) = _analyze_neighbors(
+                    hits_l, hits_v, hits_r,
+                    pos, v,
+                    max_distance, self.ship.radius, margin, neighborhood_dist)
+            coalesced_neighbors = [hits[i] for i in coalesced_idx]
         else:
             idx = -1
             approach_time = np.inf
@@ -548,6 +674,7 @@ class AbstractSteeringOrder(core.Order):
             threat_velocity = ZERO_VECTOR
             threat_radius = 0.
             neighborhood_density = 0.
+            coalesced_neighbors = []
 
         if idx < 0:
             neighbor = None
@@ -571,6 +698,7 @@ class AbstractSteeringOrder(core.Order):
         self.nearest_neighbor_dist = nearest_neighbor_dist
 
         self.collision_coalesced_threats = coalesced_threats
+        self.collision_coalesced_neighbors = coalesced_neighbors
         self.collision_threat_loc = threat_loc
         self.collision_threat_radius = threat_radius
 
@@ -618,6 +746,7 @@ class AbstractSteeringOrder(core.Order):
 
         distance_to_threat = np.linalg.norm(threat_loc - self.ship.loc)
 
+        """
         relative_position = threat_loc - (self.ship.loc + self.ship.velocity * approach_time)
         distance = np.linalg.norm(relative_position)
 
@@ -755,6 +884,115 @@ class AbstractSteeringOrder(core.Order):
             if np.linalg.norm(exp_pos_them - exp_pos_us) < collision_radius:
                 self.cannot_avoid_collision = True
                 self.logger.debug(f'cannot avoid collision: {abs(v_f1)} and {abs(v_f2)} > {self.ship.max_thrust} / {self.ship.mass} * {approach_time}')
+        """
+
+        rel_pos = neighbor.loc - self.ship.loc
+        rel_dist = np.linalg.norm(rel_pos)
+        if approach_time > 0.:
+            # this is the core of the collision avoidance algorithm
+            # everything else is to handle corner cases, in particular:
+            # * when the closest approach time varies a lot with diverts, which
+            #   happens when we're very close to the collision threat
+            # * when the threat is in line with our current velocity, which
+            #   leads to diverts towards (through) or away (which might be
+            #   contrary to desired direction)
+            import warnings
+            warnings.filterwarnings("error")
+
+            # TODO: consider the threat loc and the approach time as a function of
+            # x,y this would give us a better estimate of optimial diversion
+            c = threat_loc - (self.ship.loc + approach_time * self.ship.velocity)
+            a = desired_direction - self.ship.velocity
+            t = approach_time/self.safety_factor
+            m = self.ship.radius + threat_radius + margin + margin_histeresis
+
+            # find the diversion from our current course avoids a collision with
+            # minimum change from desired direction
+
+            # the possible diversions that avoid a collision lie on a circle in the
+            # x,y plane, the cost of the diversion is a paraboloid. We want the
+            # minimum intersection between that paraboloid and the cylinder
+            # perpendicular to the x,y plane that intersects in that circle.
+            # possible diversions:
+            #   (x-2*c[1]/t)**2 + (y-2*c[1]/t)**2 = (2m/t)**2
+            # cost of the diversion (c(x,y) = deltav^2)
+            #   (a[0]-x)**2 + (a[1]-y)**2 = c(x,y)
+            # see: https://www.desmos.com/calculator/rlkrdv2qpl
+
+            # to do this we draw a line between the center of the circle and the
+            # perpendicular center line of the paraboloid and find where this
+            # intersects the circle, these are the minimum and maximum cost points
+
+            p = (a[1] - 2*c[1]/t)/(a[0]-2*c[0]/t)
+
+            qa = p**2+1
+            qb = -4*c[0]/t*(p**2+1)
+            qc = 4 *(p**2*c[0]**2+c[0]-m**2)/t**2
+
+            # apply quadratic equation to get x1 and x2
+            x1 = (-qb - np.sqrt(qb**2 - 4*qa*qc))/(2*qa)
+            x2 = (-qb + np.sqrt(qb**2 - 4*qa*qc))/(2*qa)
+            # plug back into line to get y1 and y2
+            y1 = p*(x1-2*c[0]/t)+2*c[1]/t
+            y2 = p*(x2-2*c[0]/t)+2*c[1]/t
+
+            # check cost of (x1,y1) and (x2,y2), pick lowest
+            cost1 = x1**2 +y1**2 - 2*a[0]*x1-2*a[1]*y1+a[0]**2+a[1]**2
+            cost2 = x2**2 +y2**2 - 2*a[0]*x2-2*a[1]*y2+a[0]**2+a[1]**2
+
+            if(cost1 < cost2):
+                delta_velocity = np.array((x1,y1))
+            else:
+                delta_velocity = np.array((x2,y2))
+
+            #TODO: we're playing fast and loose with neighbor.loc vs threat_loc
+            # check for paralelness, which will give a bad choice in divert
+            speed = np.linalg.norm(v+delta_velocity)
+            parallelness = np.dot(rel_pos/rel_dist,(v+delta_velocity)/speed) if speed > 0. else 0.
+            #TODO: do we care about parallel away from threat?
+            if parallelness > 1-PARALLEL_EPS:
+                # rotate by an amount proportional to parallelness, this avoids
+                # a discontinuity in collision avoidance delta v
+                rot_frac = (parallelness - (1-PARALLEL_EPS))/PARALLEL_EPS
+                t_x = delta_velocity[0]-2*c[0]/t
+                t_y = delta_velocity[1]-2*c[1]/t
+                r_x=np.cos(np.pi/2 * rot_frac)*t_x - np.sin(np.pi/2*rot_frac)*t_y
+                r_y=np.sin(np.pi/2 * rot_frac)*t_x + np.cos(np.pi/2*rot_frac)*t_y
+                new_x = r_x + 2*c[0]/t
+                new_y = r_y + 2*c[1]/t
+                delta_velocity[0] = new_x
+                delta_velocity[1] = new_y
+
+            #u_rel_dist, u_approach_time, u_rel_pos, u_rel_vel, u_min_sep, u_collision_loc, u_collision_distance = _analyze_neighbor(self.ship.loc, (v+v+delta_velocity)/2, neighbor.radius, neighbor.loc, neighbor.velocity, max_distance, np.inf, neighbor_margin)
+        else:
+            delta_velocity = ZERO_VECTOR
+
+        # if we're inside the margin of a specific entity (not just the
+        # collision threat) let's just run away, depending on how close to the
+        # margin we are.
+        # do not do this if our closest approach will not violate the margin
+        if rel_dist < neighbor_margin+neighbor.radius+self.ship.radius and (minimum_separation < margin+neighbor.radius+self.ship.radius or self.gamestate.timestamp - self.collision_threat_time > 5):
+            # ranges from 1 to 0, 1 at margin, 0 at margin + margin_histeresis
+            # ranges from 1 to 0, 1 at 0, 0 at margin_histeresis
+            risk_factor = util.clip((margin_histeresis - (rel_dist - margin - neighbor.radius - self.ship.radius)) / margin_histeresis, 0, 1)
+            # if we're already inside the margin, then just try to get directly away
+            escape_velocity = rel_pos/rel_dist * (neighbor_margin + neighbor.radius + self.ship.radius) / self.ship.max_acceleration() * -10
+            delta_velocity = risk_factor * escape_velocity + (1-risk_factor)*delta_velocity
+        else:
+            # check if we're inside the margin of the collision threat
+            # this can happen because we might already be inside the margin
+            # histeresis of a specific neighbor, but won't violate the margin
+            rel_pos = threat_loc - self.ship.loc
+            rel_dist = np.linalg.norm(rel_pos)
+            if rel_dist < margin+threat_radius+self.ship.radius:
+                risk_factor = util.clip((margin_histeresis - (rel_dist - margin - threat_radius - self.ship.radius)) / margin_histeresis, 0, 1)
+                # if we're already inside the margin, then just try to get directly away
+                escape_velocity = rel_pos/rel_dist * (neighbor_margin + threat_radius + self.ship.radius) / self.ship.max_acceleration() * -10
+                delta_velocity = risk_factor * escape_velocity + (1-risk_factor)*delta_velocity
+
+        self.collision_dv = delta_velocity
+
+        return delta_velocity, approach_time, minimum_separation, self.ship.radius + neighbor.radius + margin - minimum_separation
 
         return delta_velocity, approach_time, minimum_separation, dist_to_avoid
 
@@ -809,7 +1047,7 @@ class GoToLocation(AbstractSteeringOrder):
             entity:core.SectorEntity,
             ship:core.Ship,
             gamestate:core.Gamestate,
-            arrival_distance:float=1.5e3,
+            arrival_distance:float=5e3,
             collision_margin:float=1e3) -> GoToLocation:
 
         _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
@@ -847,6 +1085,8 @@ class GoToLocation(AbstractSteeringOrder):
     def to_history(self) -> dict:
         data = super().to_history()
         data["t_loc"] = self.target_location.tolist()
+        data["ad"] = self.arrival_distance
+        data["md"] = self.min_distance
         data["t_v"] = self.target_v.tolist()
         data["cs"] = self.cannot_stop
 
@@ -921,14 +1161,20 @@ class GoToLocation(AbstractSteeringOrder):
             max_distance = np.inf
             self.logger.debug(f'cannot stop in time distance: {distance} v: {v}')
         else:
-            max_distance = distance-self.arrival_distance+VELOCITY_EPS#/self.safety_factor
+            max_distance = distance-self.min_distance#-self.arrival_distance+VELOCITY_EPS#/self.safety_factor
 
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, 2e4, self.collision_margin,
+                self.ship.sector, 1e4, self.collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
+
+        if np.allclose(collision_dv, ZERO_VECTOR):
+            self._accelerate_to(self.target_v, dt)
+        else:
+            self._accelerate_to(v + collision_dv, dt)
+        return
 
         # combine target_v with collision_dv
         # this is what we hope to accelerate to, but if we can't accomplish
@@ -942,7 +1188,7 @@ class GoToLocation(AbstractSteeringOrder):
         if max_acceleration * (approach_time-rot_time) / self.safety_factor < distance_to_avoid_collision:
             self._accelerate_to(v + collision_dv, dt)
         else:
-            self._accelerate_to(self.target_v + collision_dv, dt)
+            self._accelerate_to(combined_v, dt)
 
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args, **kwargs):

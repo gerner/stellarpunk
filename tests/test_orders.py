@@ -2,6 +2,8 @@
 
 import logging
 import functools
+import uuid
+import json
 
 import pytest
 import pymunk
@@ -14,6 +16,8 @@ class MonitoringUI:
         self.simulator = None
         self.gamestate = gamestate
         self.sector = sector
+        self.margin = 500.
+        self.min_neighbor_dist = np.inf
 
         self.orders = []
         self.cannot_stop_orders = []
@@ -34,13 +38,14 @@ class MonitoringUI:
         assert not self.simulator.collisions
 
         assert self.gamestate.timestamp < self.eta
-        assert self.gamestate.timestamp < 55
 
         assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders))
         assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
         for margin_neighbor in self.margin_neighbors:
             neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
-            assert neighbor_dist >= 0 - orders.VELOCITY_EPS
+            assert neighbor_dist >= self.margin - orders.VELOCITY_EPS
+            if neighbor_dist < self.min_neighbor_dist:
+                self.min_neighbor_dist = neighbor_dist
 
         if all(map(lambda x: x.is_complete(), self.orders)):
             self.gamestate.quit()
@@ -114,6 +119,8 @@ def ship_from_history(history_entry, generator, sector):
     theta = history_entry["a"]
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta)
     ship.name = history_entry["eid"]
+    ship.phys.force = history_entry.get("f", (0., 0.))
+    ship.phys.torque = history_entry.get("t", 0.)
     return ship
 
 def station_from_history(history_entry, generator, sector):
@@ -122,13 +129,38 @@ def station_from_history(history_entry, generator, sector):
     station.name = history_entry["eid"]
     return station
 
+def asteroid_from_history(history_entry, generator, sector):
+    x, y = history_entry["loc"]
+    asteroid = generator.spawn_asteroid(sector, x, y, 0, 1)
+    asteroid.name = history_entry["eid"]
+    return asteroid
+
 def order_from_history(history_entry, ship, gamestate):
     if history_entry["o"]["o"] != "stellarpunk.orders.GoToLocation":
         raise ValueError(f'can only support stellarpunk.orders.GoToLocation, not {history_entry["o"]["o"]}')
-    order = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate)
+
+    arrival_distance = history_entry["o"].get("ad", 1.5e3)
+    min_distance = history_entry["o"].get("md", None)
+    order = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
+    order.neighborhood_density = history_entry["o"].get("nd", 0.)
     ship.orders.append(order)
     return order
 
+def history_from_file(fname, generator, sector, gamestate):
+    entities = {}
+    with open(fname, "rt") as f:
+        for line in f:
+            entry = json.loads(line)
+            if entry["p"] == "STA":
+                entities[entry["eid"]] = station_from_history(entry, generator, sector)
+            elif entry["p"] == "AST":
+                entities[entry["eid"]] = asteroid_from_history(entry, generator, sector)
+            elif entry["p"] == "SHP":
+                entities[entry["eid"]] = ship = ship_from_history(entry, generator, sector)
+                order_from_history(entry, ship, gamestate)
+            else:
+                raise ValueError(f'unknown prefix {entry["p"]}')
+    return entities
 
 # test cases
 
@@ -164,6 +196,7 @@ def test_coalesce():
             threat_velocity,
             nearest_neighbor_dist,
             neighborhood_density,
+            coalesed_idx,
     ) = orders._analyze_neighbors(
             hits_l, hits_v, hits_r, pos, v,
             max_distance=1e4,
@@ -187,7 +220,7 @@ def test_goto_entity(gamestate, generator, sector):
 
     arrival_distance = 1.5e3
     collision_margin = 1e3
-    goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate)
+    goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate, arrival_distance, collision_margin)
 
     assert np.linalg.norm(station.loc - goto_order.target_location)+goto_order.arrival_distance <= arrival_distance + orders.VELOCITY_EPS
     assert np.linalg.norm(station.loc - goto_order.target_location)-station.radius-goto_order.arrival_distance >= collision_margin - orders.VELOCITY_EPS
@@ -253,8 +286,7 @@ def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert goto_order.is_complete()
 
-    core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
-
+@write_history
 def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
     ship_blocker = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
@@ -282,6 +314,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
     simulator.run()
     assert goto_order.is_complete()
 
+@write_history
 def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
     ship_driver.velocity = np.array((0., -10.)) * 50.
@@ -308,6 +341,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
     simulator.run()
     assert goto_order.is_complete()
 
+@write_history
 def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, 0, 15000, v=(0,0), w=0, theta=0)
     ship_driver.velocity = np.array((-4., -10.)) * 50.
@@ -381,10 +415,10 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
 
     eta = goto_order.eta()
 
-    testui.eta = eta*1.05
+    testui.eta = eta*1.2
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
-    testui.cannot_avoid_collision_orders = [goto_order]
+    #testui.cannot_avoid_collision_orders = [goto_order]
     testui.margin_neighbors = [ship_driver]
 
     simulator.run()
@@ -462,6 +496,7 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     assert any(False if hist_entry.order_hist is None else hist_entry.order_hist.get("cbdr", False) for hist_entry in ship_a.history)
     assert any(False if hist_entry.order_hist is None else hist_entry.order_hist.get("cbdr", False) for hist_entry in ship_b.history)
 
+@write_history
 def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulator):
     ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
     ship_b = generator.spawn_ship(sector, 5000, 0, v=(0,0), w=0, theta=np.pi)
@@ -496,16 +531,14 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
     assert goto_b.is_complete()
     assert not goto_b.collision_cbdr
 
-    core.write_history_to_file(goto_a.ship, "/tmp/stellarpunk_test.history")
-    core.write_history_to_file(goto_b.ship, "/tmp/stellarpunk_test.history", mode="a")
 @pytest.mark.skip(reason="this test is pretty slow because it takes a while to reach the destinations. test_simple_ships_intersecting basically covers this scenario")
 def test_ships_intersecting_collision(gamestate, generator, sector, testui, simulator):
     # two ships headed on intersecting courses collide
     # testcase from gameplay logs
 
-    a = {"eid": "bebefe43-24b3-4588-9b42-4f5504de5903", "ts": 9.833333333333401, "loc": [140973.20332888863, 37746.464152281136], "a": 3.697086234730296, "v": [-1517.033904995614, -872.3805171209457], "av": 0.016666666666666663, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "e5e92226-9c6b-4dd4-a9dd-8e90f4ce43f4", "ct_loc": [128406.45773998012, -4516.575837068859], "ct_ts": 9.816666666666734, "cac": False, "nnd": 44133.001729957134, "t_loc": [-132817.46981686977, -119690.80145835043], "cs": False}}
+    a = {"eid": "bebefe43-24b3-4588-9b42-4f5504de5903", "ts": 9.833333333333401, "loc": [140973.20332888863, 37746.464152281136], "a": 3.697086234730296, "v": [-1517.033904995614, -872.3805171209457], "av": 0.016666666666666663, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "e5e92226-9c6b-4dd4-a9dd-8e90f4ce43f4", "ct_loc": [128406.45773998012, -4516.575837068859], "ct_ts": 9.816666666666734, "cac": False, "nnd": 44133.001729957134, "t_loc": [-132817.46981686977, -119690.80145835043], "cs": False, "ad":1.5e3, "md":1.35e3}}
 
-    b = {"eid": "e5e92226-9c6b-4dd4-a9dd-8e90f4ce43f4", "ts": 9.833333333333401, "loc": [128406.45773998012, -4516.575837068859], "a": 2.0580617926511264, "v": [-795.4285804691448, 1491.5775925290025], "av": -0.016666666666666663, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "bebefe43-24b3-4588-9b42-4f5504de5903", "ct_loc": [140998.48779162427, 37761.003422847934], "ct_ts": 9.816666666666734, "cac": False, "nnd": 35079.805827675904, "t_loc": [18374.44894231548, 201848.06161807684], "cs": False}}
+    b = {"eid": "e5e92226-9c6b-4dd4-a9dd-8e90f4ce43f4", "ts": 9.833333333333401, "loc": [128406.45773998012, -4516.575837068859], "a": 2.0580617926511264, "v": [-795.4285804691448, 1491.5775925290025], "av": -0.016666666666666663, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "bebefe43-24b3-4588-9b42-4f5504de5903", "ct_loc": [140998.48779162427, 37761.003422847934], "ct_ts": 9.816666666666734, "cac": False, "nnd": 35079.805827675904, "t_loc": [18374.44894231548, 201848.06161807684], "cs": False, "ad":1.5e3, "md":1.35e3}}
 
     ship_a = ship_from_history(a, generator, sector)
     ship_b = ship_from_history(b, generator, sector)
@@ -536,9 +569,7 @@ def test_ships_intersecting_collision(gamestate, generator, sector, testui, simu
     assert goto_a.is_complete()
     assert goto_b.is_complete()
 
-    #core.write_history_to_file(goto_a.ship, "/tmp/stellarpunk_test.history")
-    #core.write_history_to_file(goto_b.ship, "/tmp/stellarpunk_test.history", mode="a")
-
+@write_history
 def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator):
     # ship headed in one direciton, wants to go 90 deg to it, almost collides
     # with a distant object
@@ -568,11 +599,12 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     simulator.run()
     assert goto_order.is_complete()
 
+@write_history
 def test_collision_flapping(gamestate, generator, sector, testui, simulator):
     """ Illustrates "flapping" in collision detection between the target and
     the collision threat, which makes avoiding the collision very slow. """
 
-    log_entry = {"eid": "54ac288f-f321-4a5d-b681-06304946c1c5", "ts": 24.316986544634826, "loc": [-33555.48438201977, 26908.30401095389], "a": -1.6033951624880438, "v": [-30.158483917339932, -196.17277081634103], "av": -0.303054933539972, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "5d23b4c8-7fcd-463c-b46e-bce1f5daf1ff", "ct_loc": [-40857.126658436646, -16386.73414552246], "ct_ts": 24.30031987796816, "cac": False, "cbdr": False, "nnd": 43909.734240760576, "t_loc": [-58968.88094427537, -50074.22099620187], "cs": False}}
+    log_entry = {"eid": "54ac288f-f321-4a5d-b681-06304946c1c5", "ts": 24.316986544634826, "loc": [-33555.48438201977, 26908.30401095389], "a": -1.6033951624880438, "v": [-30.158483917339932, -196.17277081634103], "av": -0.303054933539972, "o": {"o": "stellarpunk.orders.GoToLocation", "ct": "5d23b4c8-7fcd-463c-b46e-bce1f5daf1ff", "ct_loc": [-40857.126658436646, -16386.73414552246], "ct_ts": 24.30031987796816, "cac": False, "cbdr": False, "nnd": 43909.734240760576, "t_loc": [-58968.88094427537, -50074.22099620187], "cs": False, "ad":1.5e3, "md":1.35e3}}
 
     ship_driver = ship_from_history(log_entry, generator, sector)
     blocker = generator.spawn_station(sector, -40857.126658436646, -16386.73414552246, resource=0)
@@ -600,17 +632,15 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert goto_order.is_complete()
 
-    core.write_history_to_file(goto_order.ship, "/tmp/stellarpunk_test.history")
-
 @write_history
 def test_double_threat(gamestate, generator, sector, testui, simulator):
     """ Illustrates two threats close together on opposite sides of the desired
     vector. Collision detection will potentially ignore one and steer into it
     while trying to avoid the other."""
 
-    a = {"eid":"c99bf358-5ed8-45b6-94ae-c109de01fd6d","ts":173.88333333336385,"loc":[11238.533139689527,2642.1486435851307],"a":-4.462215755014741,"v":[8.673617379884035e-19,-1.734723475976807e-18],"av":-0.5601751626636616,"f":[-2171.128156091397,-4504.0207070824135],"t":900000,"o":{"o":"stellarpunk.orders.GoToLocation","ct":"230d82ca-b3a5-4d65-90c4-9ec4b561afa8","ct_loc":[10900.178689763814,1713.1145124524808],"ct_ts":173.88333333336385,"ct_dv":[9.1603417240449e-18,-4.415671492188985e-18],"cac":False,"cbdr":False,"nnd":988.7305753307772,"t_loc":[-88985.9230279687,-205274.1941428623],"t_v":[-434.22563121827943,-900.8041414164829],"cs":False}}
+    a = {"eid":"c99bf358-5ed8-45b6-94ae-c109de01fd6d","ts":173.88333333336385,"loc":[11238.533139689527,2642.1486435851307],"a":-4.462215755014741,"v":[8.673617379884035e-19,-1.734723475976807e-18],"av":-0.5601751626636616,"f":[-2171.128156091397,-4504.0207070824135],"t":900000,"o":{"o":"stellarpunk.orders.GoToLocation","ct":"230d82ca-b3a5-4d65-90c4-9ec4b561afa8","ct_loc":[10900.178689763814,1713.1145124524808],"ct_ts":173.88333333336385,"ct_dv":[9.1603417240449e-18,-4.415671492188985e-18],"cac":False,"cbdr":False,"nnd":988.7305753307772,"t_loc":[-88985.9230279687,-205274.1941428623],"t_v":[-434.22563121827943,-900.8041414164829],"cs":False, "ad":1.5e3, "md":1.35e3}}
 
-    b = {"eid":"8bba20d1-2f53-40b7-bea1-a758a1447a77","ts":173.88333333336385,"loc":[11885.659312275971,-629.4315137146432],"a":-1.0588787644372917,"v":[-97.96382930038575,232.86584616015844],"av":-0.09934969312887348,"f":[-1938.8568302904862,4608.7779499164335],"t":900000,"o":{"o":"stellarpunk.orders.GoToLocation","nnd":2541.396061628005,"t_loc":[10900.178689763814,1713.1145124524808],"t_v":[-115.13388981445071,273.6801007557891],"cs":False}}
+    b = {"eid":"8bba20d1-2f53-40b7-bea1-a758a1447a77","ts":173.88333333336385,"loc":[11885.659312275971,-629.4315137146432],"a":-1.0588787644372917,"v":[-97.96382930038575,232.86584616015844],"av":-0.09934969312887348,"f":[-1938.8568302904862,4608.7779499164335],"t":900000,"o":{"o":"stellarpunk.orders.GoToLocation","nnd":2541.396061628005,"t_loc":[10900.178689763814,1713.1145124524808],"t_v":[-115.13388981445071,273.6801007557891],"cs":False, "ad":1.5e3, "md":1.35e3}}
 
     c = {"eid":"230d82ca-b3a5-4d65-90c4-9ec4b561afa8","ts":0,"loc":[10900.178689763814,1713.1145124524808],"a":0,"v":[0,0],"av":0,"f":0,"t":0,"o":None}
 
@@ -619,26 +649,29 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     station = station_from_history(c, generator, sector)
 
     goto_a = order_from_history(a, ship_a, gamestate)
-    goto_a.target_location = ship_a.loc + (goto_a.target_location  - ship_a.loc)/10
+    goto_a.target_location = ship_a.loc + (goto_a.target_location  - ship_a.loc)/25
     goto_b = order_from_history(b, ship_b, gamestate)
 
     eta = goto_a.eta()
 
-    testui.eta = eta
+    testui.eta = eta*1.1
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.margin_neighbors = [ship_a]
+    testui.margin=500
+
     simulator.run()
     assert goto_a.is_complete()
+    assert testui.min_neighbor_dist > 500
 
 @write_history
 def test_ct_near_target(gamestate, generator, sector, testui, simulator):
     # This case caused a collision while running, but I think it was because of
     # changing dt, perhaps because of a mouse click. it doesn't repro in test.
-    a = {"eid": "a06358ed-5d1c-4026-b978-c6d05b65b971", "ts": 73.23596008924422, "loc": [33817.46867325524, -2802.702863489674], "a": 0.6501890587823068, "v": [-1516.455517907544, -865.0005079951259], "av": 1.4302311626798327, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 16950.413686796317, "t_loc": [19117.170259352486, -11241.763871430074], "t_v": [-1419.7763852577352, -815.0568917357202], "cs": False}}
-    b = {"eid": "30ece38b-26e7-470e-8791-9096b0a9fd33", "ts": 73.23596008924422, "loc": [15113.769651997736, -3413.9408398308624], "a": 7.021124149518508, "v": [1540.1197961995574, -830.7283085974165], "av": -0.6830200566843943, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 8792.157291416223, "t_loc": [62361.39816239622, -27754.575109759873], "t_v": [1555.6927812270774, -801.4486698709783], "cs": False}}
-    c = {"eid": "41c3a7aa-6d60-420a-b89d-362792d74283", "ts": 73.23596008924422, "loc": [57385.92081958368, -25954.613633593606], "a": 2.821461155469132, "v": [1098.0665620846898, -397.24379669298503], "av": 0.03190852110518538, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 5291.052457169889, "t_loc": [62361.39816239622, -27754.575109759873], "t_v": [1091.9167479758394, -395.0189994084582], "cs": False}}
+    a = {"eid": "a06358ed-5d1c-4026-b978-c6d05b65b971", "ts": 73.23596008924422, "loc": [33817.46867325524, -2802.702863489674], "a": 0.6501890587823068, "v": [-1516.455517907544, -865.0005079951259], "av": 1.4302311626798327, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 16950.413686796317, "t_loc": [19117.170259352486, -11241.763871430074], "t_v": [-1419.7763852577352, -815.0568917357202], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    b = {"eid": "30ece38b-26e7-470e-8791-9096b0a9fd33", "ts": 73.23596008924422, "loc": [15113.769651997736, -3413.9408398308624], "a": 7.021124149518508, "v": [1540.1197961995574, -830.7283085974165], "av": -0.6830200566843943, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 8792.157291416223, "t_loc": [62361.39816239622, -27754.575109759873], "t_v": [1555.6927812270774, -801.4486698709783], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    c = {"eid": "41c3a7aa-6d60-420a-b89d-362792d74283", "ts": 73.23596008924422, "loc": [57385.92081958368, -25954.613633593606], "a": 2.821461155469132, "v": [1098.0665620846898, -397.24379669298503], "av": 0.03190852110518538, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": 5291.052457169889, "t_loc": [62361.39816239622, -27754.575109759873], "t_v": [1091.9167479758394, -395.0189994084582], "cs": False, "ad":1.5e3, "md":1.35e3}}
 
 
     ship_a = ship_from_history(a, generator, sector)
@@ -656,18 +689,23 @@ def test_ct_near_target(gamestate, generator, sector, testui, simulator):
     testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
-    testui.cannot_stop_orders = [goto_a]
+    # the setup for this test predates the latest thrust settings, so it's very
+    # hard for it to slow down in time, but it should avoid collisions
+    #testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
+    # this test starts off at a very high speed that we should not have in
+    # practice, so we allow violating the margin a bit
+    testui.margin = 400
 
     simulator.run()
     assert goto_a.is_complete()
 
 @write_history
 def test_many_threats(gamestate, generator, sector, testui, simulator):
-    a = {"eid": "c2066f5f-80b0-4972-be15-86731721d0ac", "ts": 181.00000000003618, "loc": [-156664.6196115718, 15103.774316939725], "a": 6.706346854557575, "v": [-566.413704366243, -427.2391616051364], "av": 0.22045526531291454, "f": [3991.7686372857047, 3010.943896252839], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-527.0746776061375, -397.5661987481488], "cs": False}}
+    a = {"eid": "c2066f5f-80b0-4972-be15-86731721d0ac", "ts": 181.00000000003618, "loc": [-156664.6196115718, 15103.774316939725], "a": 6.706346854557575, "v": [-566.413704366243, -427.2391616051364], "av": 0.22045526531291454, "f": [3991.7686372857047, 3010.943896252839], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-527.0746776061375, -397.5661987481488], "cs": False, "ad":1.5e3, "md":1.35e3}}
     b = {"eid": "efd8dd82-59e9-4f71-97fc-96d16be37101", "ts": 181.00000000003618, "loc": [-155648.10021655622, 14496.034982381125], "a": 6.631761022100543, "v": [-633.9212228300115, -355.10659725031456], "av": 0.2932266489261978, "f": [436220.52590004867, 244359.6791278892], "t": -233347.4140426577, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436],
-"t_v": [-607.3950624974589, -340.2473147486867], "cs": False}}
-    c = {"eid": "1688d213-9d49-4222-aa0b-95dc090c59fa", "ts": 181.00000000003618, "loc": [-161271.80180938027, 11201.79460589419], "a": 0.17012052360683455, "v": [-123.61634016109224, -57.03178938300922], "av": 0.04141546936831053, "f": [4540.10299648228, 2094.627599677953], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-120.13404078695115, -55.42519138620854], "cs": False}}
+"t_v": [-607.3950624974589, -340.2473147486867], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    c = {"eid": "1688d213-9d49-4222-aa0b-95dc090c59fa", "ts": 181.00000000003618, "loc": [-161271.80180938027, 11201.79460589419], "a": 0.17012052360683455, "v": [-123.61634016109224, -57.03178938300922], "av": 0.04141546936831053, "f": [4540.10299648228, 2094.627599677953], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-120.13404078695115, -55.42519138620854], "cs": False, "ad":1.5e3, "md":1.35e3}}
     d = {"eid": "f9cb7b45-858e-4422-a3b1-9513343b2fb7", "ts": 0, "loc": [-162728.94555641068, 10529.524943379436], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
 
 
@@ -686,8 +724,9 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
     testui.eta = eta
     testui.orders = [goto_a, goto_b, goto_c]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
-    testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
+    #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
     testui.margin_neighbors = [ship_a, ship_b, ship_c]
+    testui.margin=200
 
     simulator.run()
     assert goto_a.is_complete()
@@ -705,8 +744,8 @@ def test_followers(gamestate, generator, sector, testui, simulator):
     #a = {"eid": "c17c3726-a3d0-4734-9bb4-69e673b0ae5e", "ts": 2090.016666665668, "loc": [-8574.378687731325, -92946.33143588615], "a": -9.2819632330169, "v": [591.4913700392813, -46.297259041083194], "av": 0.14590014800404383, "f": [-4984.753723543476, 390.1670355366494], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-2280.7298265650393, -93438.9484145915], "t_v": [589.0932900475955, -46.10955633534738], "cs": False}}
     #b = {"eid": "527e4811-fca7-4e30-a259-d44fbc8f7bc2", "ts": 2090.016666665668, "loc": [-6951.495359661687, -93022.48310584611], "a": -3.1004619612519555, "v": [459.9857860425358, -41.01428792459363], "av": -0.2260183468057087, "f": [4980.242073810298, -444.0595525936751], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-2280.7298265650393, -93438.9484145915], "t_v": [477.8824725058597, -42.610032562310124], "cs": False}}
     #c = {"eid": "749a5424-31c7-4724-869b-bd2b17ff14b6", "ts": 0, "loc": [-2280.7298265650393, -93438.9484145915], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
-    a = {"eid": "c17c3726-a3d0-4734-9bb4-69e673b0ae5e", "ts": 2090.016666665668, "loc": [-8574.378687731325, -92946.33143588615], "a": -9.2819632330169, "v": [591.4913700392813, -46.297259041083194], "av": 0.14590014800404383, "f": [-4984.753723543476, 390.1670355366494], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [0., -93438.9484145915], "t_v": [589.0932900475955, -46.10955633534738], "cs": False}}
-    b = {"eid": "527e4811-fca7-4e30-a259-d44fbc8f7bc2", "ts": 2090.016666665668, "loc": [-6951.495359661687, -93022.48310584611], "a": -3.1004619612519555, "v": [459.9857860425358, -41.01428792459363], "av": -0.2260183468057087, "f": [4980.242073810298, -444.0595525936751], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [0., -93438.9484145915], "t_v": [477.8824725058597, -42.610032562310124], "cs": False}}
+    a = {"eid": "c17c3726-a3d0-4734-9bb4-69e673b0ae5e", "ts": 2090.016666665668, "loc": [-8574.378687731325, -92946.33143588615], "a": -9.2819632330169, "v": [591.4913700392813, -46.297259041083194], "av": 0.14590014800404383, "f": [-4984.753723543476, 390.1670355366494], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [0., -93438.9484145915], "t_v": [589.0932900475955, -46.10955633534738], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    b = {"eid": "527e4811-fca7-4e30-a259-d44fbc8f7bc2", "ts": 2090.016666665668, "loc": [-6951.495359661687, -93022.48310584611], "a": -3.1004619612519555, "v": [459.9857860425358, -41.01428792459363], "av": -0.2260183468057087, "f": [4980.242073810298, -444.0595525936751], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [0., -93438.9484145915], "t_v": [477.8824725058597, -42.610032562310124], "cs": False, "ad":1.5e3, "md":1.35e3}}
     c = {"eid": "749a5424-31c7-4724-869b-bd2b17ff14b6", "ts": 0, "loc": [0., -93438.9484145915], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
 
     ship_a = ship_from_history(a, generator, sector)
@@ -730,8 +769,8 @@ def test_followers(gamestate, generator, sector, testui, simulator):
 
 @write_history
 def test_complicated_approach(gamestate, generator, sector, testui, simulator):
-    a = {"eid": "c4c9abf9-6ab9-49d0-8521-5c213d84b649", "ts": 4014.000000023499, "loc": [77333.26634645685, -87886.94054689727], "a": -18.482272340387922, "v": [933.3460037580764, 358.9780456641165], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [172664.93589409246, -51221.0349917073], "t_v": [933.3460037580766, 358.9780456641166], "cs": False}}
-    b = {"eid": "384be8ba-5b7e-4c72-bacb-c71ffc2741d5", "ts": 4014.000000023499, "loc": [85952.11093122436, -81661.92484174395], "a": -3.476194829731272, "v": [337.9608980594086, -222.67825369389368], "av": 0.08982571339053197, "f": [4175.180969873127, -2750.9750760065594], "t":900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [89663.85581987163, -84107.54761854198], "t_v": [339.01440182054654, -223.3723942857104], "cs": False}}
+    a = {"eid": "c4c9abf9-6ab9-49d0-8521-5c213d84b649", "ts": 4014.000000023499, "loc": [77333.26634645685, -87886.94054689727], "a": -18.482272340387922, "v": [933.3460037580764, 358.9780456641165], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [172664.93589409246, -51221.0349917073], "t_v": [933.3460037580766, 358.9780456641166], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    b = {"eid": "384be8ba-5b7e-4c72-bacb-c71ffc2741d5", "ts": 4014.000000023499, "loc": [85952.11093122436, -81661.92484174395], "a": -3.476194829731272, "v": [337.9608980594086, -222.67825369389368], "av": 0.08982571339053197, "f": [4175.180969873127, -2750.9750760065594], "t":900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [89663.85581987163, -84107.54761854198], "t_v": [339.01440182054654, -223.3723942857104], "cs": False, "ad":1.5e3, "md":1.35e3}}
     c = {"eid": "34eb3bbd-8bae-4214-a18d-dc5495826f34", "ts": 0, "loc": [89663.85581987163, -84107.54761854198], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
 
     ship_a = ship_from_history(a, generator, sector)
@@ -747,7 +786,7 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
     testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
-    testui.cannot_stop_orders = [goto_a, goto_b]
+    testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
@@ -760,8 +799,8 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
     collision unavoidable. Hopefully it recognizes this and avoids it.
     """
 
-    a = {"eid": "4caeca9f-55a4-4506-86a1-60c9ac097b89", "ts": 4425.59586668641, "loc": [-31776.544065050453, -54412.2677790681], "a": -21.506125835205, "v": [0.0, 1.1102230246251565e-16], "av": -0.28222264587779555, "f": [-1205.3543123910688, 4852.537581678297], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-57942.647404913, 50927.712770622566], "t_v": [-241.07086247821385, 970.5075163356594], "cs": False}}
-    b = {"eid": "76f1873d-6ace-492e-b6ea-bffc254ef416", "ts": 4425.59586668641, "loc": [-23534.115217425642, -44324.10863108866], "a": 10.257188790090208, "v": [-673.1223862010328, -739.5311036021592], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-74064.09143095232, -99839.25690164384], "t_v": [-673.1223862010329, -739.5311036021593], "cs": False}}
+    a = {"eid": "4caeca9f-55a4-4506-86a1-60c9ac097b89", "ts": 4425.59586668641, "loc": [-31776.544065050453, -54412.2677790681], "a": -21.506125835205, "v": [0.0, 1.1102230246251565e-16], "av": -0.28222264587779555, "f": [-1205.3543123910688, 4852.537581678297], "t": -900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-57942.647404913, 50927.712770622566], "t_v": [-241.07086247821385, 970.5075163356594], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    b = {"eid": "76f1873d-6ace-492e-b6ea-bffc254ef416", "ts": 4425.59586668641, "loc": [-23534.115217425642, -44324.10863108866], "a": 10.257188790090208, "v": [-673.1223862010328, -739.5311036021592], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-74064.09143095232, -99839.25690164384], "t_v": [-673.1223862010329, -739.5311036021593], "cs": False, "ad":1.5e3, "md":1.35e3}}
     c = {"eid": "d7d0cc2b-549b-4bf5-853d-ad35f3ba3c80", "ts": 0, "loc": [-30368.148687458197, -53914.09999586431], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
 
     ship_a = ship_from_history(a, generator, sector)
@@ -810,8 +849,8 @@ def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
 
 @write_history
 def test_more_headon(gamestate, generator, sector, testui, simulator):
-    a = {"eid": "d876e0d8-ce5c-40ce-9411-dd52e92fd040", "ts": 531.4958666665119, "loc": [-8553.459552706245, 145290.59627284817], "a": 3.215596961832528, "v": [-997.2473217543096, -74.1470110918603], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-211457.22301090288, 130204.36112182347], "t_v": [-997.2473217543095, -74.14701109186028], "cs": False}}
-    b = {"eid": "a548766f-ab07-467e-a48b-eecd26050ec9", "ts": 531.4958666665119, "loc": [-128147.07960002865, 135773.3305332], "a": 0.08454138538747719, "v": [996.4189546142318, 84.55333751828712], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [72804.09083505644, 152825.48721870864], "t_v": [996.4189546142318, 84.55333751828721], "cs": False}}
+    a = {"eid": "d876e0d8-ce5c-40ce-9411-dd52e92fd040", "ts": 531.4958666665119, "loc": [-8553.459552706245, 145290.59627284817], "a": 3.215596961832528, "v": [-997.2473217543096, -74.1470110918603], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-211457.22301090288, 130204.36112182347], "t_v": [-997.2473217543095, -74.14701109186028], "cs": False, "ad":1.5e3, "md":1.35e3}}
+    b = {"eid": "a548766f-ab07-467e-a48b-eecd26050ec9", "ts": 531.4958666665119, "loc": [-128147.07960002865, 135773.3305332], "a": 0.08454138538747719, "v": [996.4189546142318, 84.55333751828712], "av": 0.0, "f": [0.0, 0.0], "t": 0.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [72804.09083505644, 152825.48721870864], "t_v": [996.4189546142318, 84.55333751828721], "cs": False, "ad":1.5e3, "md":1.35e3}}
 
     ship_a = ship_from_history(a, generator, sector)
     ship_b = ship_from_history(b, generator, sector)
@@ -831,26 +870,21 @@ def test_more_headon(gamestate, generator, sector, testui, simulator):
     assert goto_a.is_complete()
 
 @write_history
-def test_flyby_on_approach(gamestate, generator, sector, testui, simulator):
-    a = {"eid": "dee23864-c1cb-468f-9bde-71c5d56b8510", "ts": 70.03333333333065, "loc": [33220.85060106939, -16644.606340992468], "a": 15.667518257850288, "v": [614.0329444501658, 60.653102984943494], "av": -0.4694897969271224, "f": [0.0, 0.0], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nd": 9.549296585513722e-09, "nnd": 0.0, "t_loc": [63684.23996843206, -13635.485887001847], "t_v": [614.0329444501658, 60.653102984943494], "cs": False}}
-    b = {"eid": "8ee113b0-3b20-419f-9f8d-afcb69eb5d44", "ts": 70.03333333333065, "loc": [28596.040772564873, -7068.745200038832], "a": 4.828325439812333, "v": [778.4805625533279, -113.87569893397985], "av": 0.6845332006646083, "f": [1917.076138025665, -4617.8803666847625], "t": -755030.7784002506, "o": {"o": "stellarpunk.orders.GoToLocation", "nd": 5.5704230082163375e-09, "nnd": 0.0, "t_loc": [142350.15061972587, -29380.159347002304], "t_v": [796.0218975153209, -156.1295169851772], "cs": False}}
-    c = {"eid": "82811bb5-3590-4fc4-9fa4-c221acff7feb", "ts": 0, "loc": [63684.23996843206, -13635.485887001847], "a": 0.0, "v": [0.0, 0.0], "av": 0.0, "f": [0.0, 0.0], "t": 0, "o": None}
+def test_another_perpendicular(gamestate, generator, sector, testui, simulator):
+    entities = history_from_file("/tmp/test.history", generator, sector, gamestate)
 
-    ship_a = ship_from_history(a, generator, sector)
-    ship_b = ship_from_history(b, generator, sector)
-
-    goto_a = order_from_history(a, ship_a, gamestate)
-    goto_b = order_from_history(b, ship_b, gamestate)
-
-    station = station_from_history(c, generator, sector)
+    ship_a = entities["a474e63d-1abd-4d33-bc24-71fc88094ed7"]
+    logging.warning(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
 
     eta = goto_a.eta()
 
     testui.eta = eta
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
-    testui.cannot_stop_orders = [goto_a, goto_b]
-    testui.margin_neighbors = [ship_a, ship_b]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
+
