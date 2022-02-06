@@ -707,7 +707,6 @@ def test_ct_near_target(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert goto_a.is_complete()
 
-@pytest.mark.skip(reason="this is a really tough case, one of these ships cannot make it through two others and there's some flapping with coalesing threats. not sure what to do here.")
 @write_history
 def test_many_threats(gamestate, generator, sector, testui, simulator):
     a = {"eid": "c2066f5f-80b0-4972-be15-86731721d0ac", "ts": 181.00000000003618, "loc": [-156664.6196115718, 15103.774316939725], "a": 6.706346854557575, "v": [-566.413704366243, -427.2391616051364], "av": 0.22045526531291454, "f": [3991.7686372857047, 3010.943896252839], "t": 900000.0, "o": {"o": "stellarpunk.orders.GoToLocation", "nnd": np.inf, "t_loc": [-162728.94555641068, 10529.524943379436], "t_v": [-527.0746776061375, -397.5661987481488], "cs": False, "ad":1.5e3, "md":1.35e3}}
@@ -727,14 +726,14 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(d, generator, sector)
 
-    eta = max(goto_a.eta(),goto_b.eta(),goto_c.eta())
+    eta = max(goto_a.eta(),goto_b.eta(),goto_c.eta())*1.1
 
     testui.eta = eta
     testui.orders = [goto_a, goto_b, goto_c]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
     testui.margin_neighbors = [ship_a, ship_b, ship_c]
-    testui.margin=200
+    testui.margin=300
 
     simulator.run()
     assert goto_a.is_complete()
@@ -878,10 +877,15 @@ def test_more_headon(gamestate, generator, sector, testui, simulator):
     assert goto_a.is_complete()
 
 @write_history
-def test_another_perpendicular(gamestate, generator, sector, testui, simulator):
+def test_either_side(gamestate, generator, sector, testui, simulator):
+    """ Illustrates flapping between two threats on either side of the velocity
+    direction. The issue is that sometimes we try to avoid one (into the other)
+    and vice versa and sometimes they are coalesced. All of that creates
+    discontinuities that cause the avoidance direction to flip dramatically."""
+
     entities = history_from_file("/tmp/test.history", generator, sector, gamestate)
 
-    ship_a = entities["a474e63d-1abd-4d33-bc24-71fc88094ed7"]
+    ship_a = entities["8ccb3abc-b940-453c-82f8-2d108117312e"]
     logging.warning(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 
@@ -895,4 +899,3 @@ def test_another_perpendicular(gamestate, generator, sector, testui, simulator):
 
     simulator.run()
     assert goto_a.is_complete()
-

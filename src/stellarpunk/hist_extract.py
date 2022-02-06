@@ -88,7 +88,7 @@ def main():
 
             if match is None:
                 if global_radius > 0 and (entry["ts"] == 0 or abs(entry["ts"] - args.timestamp) < TS_EPS):
-                    if np.linalg.norm(np.array(entry["loc"]) - np.array(loc)) < global_radius:
+                    if np.linalg.norm(np.array(entry["loc"]) - np.array(global_loc)) < global_radius:
                         fout.write(line)
                 continue
 

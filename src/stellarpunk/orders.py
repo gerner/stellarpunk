@@ -24,6 +24,10 @@ CBDR_DIST_EPS = 5
 # pi/16 is ~11 degrees
 COARSE_ANGLE_MATCH = np.pi/16
 
+# the scale (per tick) we use to scale down threat radii if the new threat is
+# still covered by the previous threat radius
+THREAT_RADIUS_SCALE_FACTOR = 0.99
+
 # a convenient zero vector to avoid needless array creations
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
@@ -687,6 +691,34 @@ class AbstractSteeringOrder(core.Order):
                     pos, v,
                     max_distance, self.ship.radius, margin, neighborhood_dist)
             coalesced_neighbors = [hits[i] for i in coalesced_idx]
+
+            # we want to avoid nearby, dicontinuous changes to threat loc and
+            # radius. this can happen when two threats are near each other.
+            if self.collision_threat_radius - threat_radius > VELOCITY_EPS:
+                new_old_dist = np.linalg.norm(threat_loc - self.collision_threat_loc)
+                if new_old_dist + threat_radius < self.collision_threat_radius + VELOCITY_EPS:
+                    # the new threat is smaller than the old one and completely
+                    # contained in the old one. let's scale and translate the old
+                    # one toward the new one so that it still contains it, but
+                    # asymptotically approaches it. this will avoid
+                    # discontinuities.
+                    new_radius = np.clip(
+                        self.collision_threat_radius * THREAT_RADIUS_SCALE_FACTOR,
+                        threat_radius,
+                        self.collision_threat_radius
+                    )
+                    if np.isclose(new_old_dist, 0.):
+                        new_loc = self.collision_threat_loc
+                    else:
+                        new_loc = (
+                            (threat_loc - self.collision_threat_loc)/new_old_dist
+                            * (self.collision_threat_radius-new_radius)
+                            + self.collision_threat_loc
+                        )
+                    # useful assert during testing
+                    #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
+                    threat_loc = new_loc
+                    threat_radius = new_radius
         else:
             idx = -1
             approach_time = np.inf
