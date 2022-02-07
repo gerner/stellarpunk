@@ -29,6 +29,10 @@ def order_fn_goto_random_station(ship, gamestate):
     station = gamestate.random.choice(ship.sector.stations)
     return orders.GoToLocation.goto_entity(station, ship, gamestate)
 
+def order_fn_disembark_to_random_station(ship, gamestate):
+    station = gamestate.random.choice(ship.sector.stations)
+    return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
+
 class UniverseGenerator:
     def __init__(self, gamestate, seed=None, listener=None):
         self.logger = logging.getLogger(util.fullname(self))

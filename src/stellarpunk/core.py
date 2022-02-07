@@ -311,7 +311,7 @@ class Ship(SectorEntity):
                 self.entity_id, timestamp,
                 self.loc.copy(), self.radius, self.angle,
                 self.velocity.copy(), self.angular_velocity,
-                tuple(self.phys.force), self.phys.torque,
+                self.phys.force, self.phys.torque,
                 order_hist,
         )
 
@@ -367,6 +367,8 @@ class Order:
                 logging.getLogger(util.fullname(self)),
         )
         self.o_name = util.fullname(self)
+        self.started_at = gamestate.timestamp
+        self.init_eta = np.inf
 
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'

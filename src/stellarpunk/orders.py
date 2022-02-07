@@ -185,6 +185,7 @@ def _analyze_neighbors(
             float,
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
+            int,
             float,
             float,
             npt.NDArray[np.int64],
@@ -197,6 +198,7 @@ def _analyze_neighbors(
     relative_velocity: np.ndarray  = ZERO_VECTOR
     minimum_separation = np.inf
     collision_loc = ZERO_VECTOR
+    nearest_neighbor_idx = -1
     nearest_neighbor_dist = np.inf
 
     collision_threats:list[tuple[int, tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float], npt.NDArray[np.float64]]] = []
@@ -226,6 +228,7 @@ def _analyze_neighbors(
         threat_count += 1
 
         if rel_dist < nearest_neighbor_dist:
+            nearest_neighbor_idx = eidx
             nearest_neighbor_dist = rel_dist
 
         # most threatening is the soonest, so keep track of that one
@@ -291,7 +294,7 @@ def _analyze_neighbors(
         threat_loc = ZERO_VECTOR
         threat_velocity = ZERO_VECTOR
 
-    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
+    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
 @jit(cache=True, nopython=True)
 def estimate_cost(
@@ -520,6 +523,7 @@ class AbstractSteeringOrder(core.Order):
         self.safety_factor = safety_factor
 
         self.collision_margin = 5e2
+        self.nearest_neighbor:Optional[core.SectorEntity] = None
         self.nearest_neighbor_dist = np.inf
 
         self.collision_threat:Optional[core.SectorEntity] = None
@@ -534,14 +538,15 @@ class AbstractSteeringOrder(core.Order):
         self.collision_cbdr_divert_angle = np.pi/4
         self.collision_threat_count = 0.
         self.collision_coalesced_threats = 0.
-        self.collision_coalesced_neighbors = []
+        self.collision_coalesced_neighbors:list[core.SectorEntity] = []
         self.collision_threat_loc = ZERO_VECTOR
         self.collision_threat_radius = 0.
 
         self.cannot_avoid_collision = False
 
-        self.collision_threat_max_age = 0.
-        self.high_awareness_dist = self.ship.max_speed() * self.collision_threat_max_age * 2 * self.safety_factor
+        self.collision_hits:list[core.SectorEntity] = []
+        self.collision_hits_age = 0
+        self.collision_hits_max_age = 1./10.
 
         # how many neighbors per m^2
         self.neighborhood_density = 0.
@@ -550,15 +555,15 @@ class AbstractSteeringOrder(core.Order):
         history = super().to_history()
         if self.collision_threat:
             history["ct"] = str(self.collision_threat.entity_id)
-            history["ct_loc"] = self.collision_threat.loc.tolist()
-            history["ct_v"] = self.collision_threat.velocity.tolist()
+            history["ct_loc"] = (self.collision_threat.loc[0], self.collision_threat.loc[1])
+            history["ct_v"] = (self.collision_threat.velocity[0], self.collision_threat.velocity[1])
             history["ct_ts"] = self.collision_threat_time
-            history["ct_dv"] = self.collision_dv.tolist()
+            history["ct_dv"] = (self.collision_dv[0], self.collision_dv[1])
             history["ct_tc"] = self.collision_threat_count
             history["ct_ct"] = self.collision_coalesced_threats
-            history["ct_cloc"] = self.collision_threat_loc.tolist()
+            history["ct_cloc"] = (self.collision_threat_loc[0], self.collision_threat_loc[1])
             history["ct_cradius"] = self.collision_threat_radius
-            history["ct_cn"] = [cn.loc.tolist() for cn in self.collision_coalesced_neighbors]
+            history["ct_cn"] = [(cn.loc[0], cn.loc[1]) for cn in self.collision_coalesced_neighbors]
             history["cac"] = self.cannot_avoid_collision
             history["cbdr"] = self.collision_cbdr
 
@@ -648,16 +653,20 @@ class AbstractSteeringOrder(core.Order):
         v = self.ship.velocity
 
         last_collision_threat = self.collision_threat
-        #TODO: this seems unsatable, so I set max age to zero to avoid it
-        # we cache the collision threat to avoid searching space
-        if self.nearest_neighbor_dist > self.high_awareness_dist and self.gamestate.timestamp - self.collision_threat_time < self.collision_threat_max_age:
-            hits = [self.collision_threat,] if self.collision_threat else []
+
+        # cache the neighborhood for a short period. note we cache the entities
+        # (not the locations or velocities) since we want to get updated
+        # loc/vel data for the neighbors.
+
+        if self.gamestate.timestamp - self.collision_hits_age < self.collision_hits_max_age:
+            #TODO: what to do if the neighbor isn't in this sector any more?
+            hits = self.collision_hits
         else:
-            #self.collision_threat = None
-            self.cannot_avoid_collision = False
-            #self.collision_threat_time = self.gamestate.timestamp
-            self.nearest_neighbor_dist = np.inf
             hits = list(e for e in  sector.spatial_point(self.ship.loc, neighborhood_dist) if e != self.ship)
+            self.collision_hits_age = self.gamestate.timestamp
+            self.collision_hits = hits
+        self.cannot_avoid_collision = False
+        self.nearest_neighbor_dist = np.inf
 
         if len(hits) > 0:
             #TODO: this is really not ideal: we go into pymunk to get hits via
@@ -683,6 +692,7 @@ class AbstractSteeringOrder(core.Order):
                     threat_radius,
                     threat_loc,
                     threat_velocity,
+                    nearest_neighbor_idx,
                     nearest_neighbor_dist,
                     neighborhood_density,
                     coalesced_idx,
@@ -728,6 +738,7 @@ class AbstractSteeringOrder(core.Order):
             collision_loc = ZERO_VECTOR
             threat_count = 0
             coalesced_threats = 0
+            nearest_neighbor_idx = -1
             nearest_neighbor_dist = np.inf
             threat_loc = ZERO_VECTOR
             threat_velocity = ZERO_VECTOR
@@ -754,6 +765,10 @@ class AbstractSteeringOrder(core.Order):
             self.collision_relative_position = relative_position
             self.collision_threat_time = self.gamestate.timestamp
 
+        if nearest_neighbor_idx < 0:
+            self.nearest_neighbor = None
+        else:
+            self.nearest_neighbor = hits[nearest_neighbor_idx]
         self.nearest_neighbor_dist = nearest_neighbor_dist
 
         self.collision_coalesced_threats = coalesced_threats
@@ -874,18 +889,46 @@ class GoToLocation(AbstractSteeringOrder):
             entity:core.SectorEntity,
             ship:core.Ship,
             gamestate:core.Gamestate,
-            arrival_distance:float=5e3,
+            surface_distance:float=2e3,
             collision_margin:float=1e3) -> GoToLocation:
 
+        # pick a point on this side of the target entity that is midway in the
+        # "viable" arrival band: the space between the collision margin and
+        # surface distance away from the radius
         _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
         target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
-        target_arrival_distance = (arrival_distance - entity.radius - collision_margin)/2
+        target_arrival_distance = (surface_distance - collision_margin)/2
         target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
 
         return GoToLocation(
                 target_loc, ship, gamestate,
                 arrival_distance=target_arrival_distance,
                 min_distance=0.)
+
+    @staticmethod
+    def compute_eta(ship:core.Ship, target_location:npt.NDArray[np.float64], safety_factor:float=2.0) -> float:
+        course = target_location - (ship.loc)
+        distance, target_angle = util.cartesian_to_polar(course[0], course[1])
+        rotate_towards = rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration(), safety_factor)
+
+        # we cap at max_speed, so need to account for that by considering a
+        # "cruise" period where we travel at max_speed, but only if we have
+        # enough distance to make it to cruise speed
+        if np.sqrt(2. * ship.max_acceleration() * distance/2.) < ship.max_speed():
+            accelerate_up = np.sqrt( 2. * (distance/2.) / ship.max_acceleration()) * safety_factor
+            cruise = 0.
+        else:
+            # v_f**2 = 2 * a * d
+            # d = v_f**2 / (2*a)
+            d_accelerate = ship.max_speed()**2 / (2*ship.max_acceleration())
+            accelerate_up = ship.max_speed() / ship.max_acceleration() * safety_factor
+
+            d_cruise = distance - 2*d_accelerate
+            cruise = d_cruise / ship.max_speed() * safety_factor
+
+        rotate_away = rotation_time(np.pi, 0, ship.max_angular_acceleration(), safety_factor)
+        accelerate_down = accelerate_up
+        return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
 
     def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs) -> None:
         """ Creates an order to go to a specific location.
@@ -909,12 +952,14 @@ class GoToLocation(AbstractSteeringOrder):
 
         self.distance_estimate = 0.
 
+        self.init_eta = self.eta()
+
     def to_history(self) -> dict:
         data = super().to_history()
-        data["t_loc"] = self.target_location.tolist()
+        data["t_loc"] = (self.target_location[0], self.target_location[1])
         data["ad"] = self.arrival_distance
         data["md"] = self.min_distance
-        data["t_v"] = self.target_v.tolist()
+        data["t_v"] = (self.target_v[0], self.target_v[1])
         data["cs"] = self.cannot_stop
 
         return data
@@ -945,6 +990,7 @@ class GoToLocation(AbstractSteeringOrder):
         rotate_away = rotation_time(np.pi, 0, self.ship.max_angular_acceleration(), self.safety_factor)
         accelerate_down = accelerate_up
         return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
+
     def is_complete(self) -> bool:
         # computing this is expensive, so don't if we can avoid it
         if self.distance_estimate > self.arrival_distance*5:
@@ -988,7 +1034,7 @@ class GoToLocation(AbstractSteeringOrder):
             max_distance = np.inf
             self.logger.debug(f'cannot stop in time distance: {distance} v: {v}')
         else:
-            max_distance = distance-self.min_distance#-self.arrival_distance+VELOCITY_EPS#/self.safety_factor
+            max_distance = distance-self.min_distance
 
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
@@ -1002,20 +1048,6 @@ class GoToLocation(AbstractSteeringOrder):
         else:
             self._accelerate_to(v + collision_dv, dt)
         return
-
-        # combine target_v with collision_dv
-        # this is what we hope to accelerate to, but if we can't accomplish
-        # both, prioritize collision_db
-        #TODO: the theta we need to get to is the difference between the
-        # desired velocity and v right?
-        #combined_v = (self.target_v + collision_dv) - v
-        combined_v = self.target_v + collision_dv
-        combined_r, combined_theta = util.cartesian_to_polar(combined_v[0], combined_v[1])
-        rot_time = rotation_time(util.normalize_angle(combined_theta - self.ship.angle, shortest=True), self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
-        if max_acceleration * (approach_time-rot_time) / self.safety_factor < distance_to_avoid_collision:
-            self._accelerate_to(v + collision_dv, dt)
-        else:
-            self._accelerate_to(combined_v, dt)
 
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args, **kwargs):
@@ -1134,3 +1166,52 @@ class HarvestOrder(core.Order):
         #TODO: choose amount to harvest
         # push mining order
         self.ship.orders.appendleft(MineOrder(nearest, 1e3, self.ship, self.gamestate))
+
+class DisembarkToEntity(core.Order):
+    @staticmethod
+    def disembark_to(embark_to:core.SectorEntity, ship:core.Ship, gamestate:core.Gamestate, disembark_dist:float=5e3, disembark_margin:float=5e2) -> DisembarkToEntity:
+        if ship.sector is None:
+            raise Exception("ship must be in a sector to disembark to")
+        hits = ship.sector.spatial_point(ship.loc, max_dist=disembark_dist)
+        nearest_dist = np.inf
+        nearest = None
+        for entity in hits:
+            if np.allclose(entity.velocity, ZERO_VECTOR):
+                dist = np.linalg.norm(entity.loc - ship.loc)-entity.radius
+                if dist < nearest_dist:
+                    nearest_dist = dist
+                    nearest = entity
+
+        return DisembarkToEntity(nearest, embark_to, ship, gamestate, disembark_dist=disembark_dist, disembark_margin=disembark_margin)
+
+    def __init__(self, disembark_from: Optional[core.SectorEntity], embark_to: core.SectorEntity, *args, disembark_dist:float=5e3, disembark_margin:float=5e2, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.disembark_dist = disembark_dist
+        self.disembark_margin = disembark_margin
+
+        self.disembark_from = disembark_from
+        self.embark_to = embark_to
+
+        self.embark_order:Optional[core.Order] = None
+
+        self.init_eta = GoToLocation.compute_eta(self.ship, embark_to.loc)
+
+    def is_complete(self):
+        return self.embark_order is not None and self.embark_order.is_complete()
+
+    def act(self, dt:float) -> None:
+        self.embark_order = GoToLocation.goto_entity(self.embark_to, self.ship, self.gamestate)
+        self.ship.orders.appendleft(self.embark_order)
+        if self.disembark_from and np.linalg.norm(self.disembark_from.loc - self.ship.loc)-self.disembark_from.radius < self.disembark_dist:
+            # choose a location which is outside disembark_dist
+            _, angle = util.cartesian_to_polar(*(self.ship.loc - self.disembark_from.loc))
+            target_angle = angle + self.gamestate.random.uniform(-np.pi/2, np.pi/2)
+            target_disembark_distance = self.disembark_from.radius+self.disembark_dist+self.disembark_margin
+            target_loc = self.embark_to.loc + util.polar_to_cartesian(target_disembark_distance, target_angle)
+
+            self.ship.orders.appendleft(GoToLocation(
+                    target_loc, self.ship, self.gamestate,
+                    arrival_distance=self.disembark_margin,
+                    min_distance=0.
+            ))

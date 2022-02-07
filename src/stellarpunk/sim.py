@@ -14,6 +14,7 @@ import numpy as np
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
+TICKS_PER_HIST_SAMPLE = 10
 ZERO_ONE = (0,1)
 
 class Simulator:
@@ -77,7 +78,7 @@ class Simulator:
 
         order = ship.orders[0]
         if order.is_complete():
-            self.logger.debug(f'{ship.entity_id} completed {order}')
+            self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta - self.gamestate.timestamp:.2f}')
             ship.orders.popleft()
         else:
             order.act(dt)
@@ -114,7 +115,8 @@ class Simulator:
 
             for ship in sector.ships:
                 self.tick_order(ship, dt)
-                ship.history.append(ship.to_history(self.gamestate.timestamp))
+                if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == ship.entity_id.int % TICKS_PER_HIST_SAMPLE:
+                    ship.history.append(ship.to_history(self.gamestate.timestamp))
 
             #TODO: do resource and production stuff
             #TODO: do AI stuff

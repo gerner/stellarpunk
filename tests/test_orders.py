@@ -12,6 +12,8 @@ import numpy as np
 
 from stellarpunk import core, sim, generate, orders, util
 
+TESTDIR = os.path.dirname(__file__)
+
 class MonitoringUI:
     def __init__(self, gamestate, sector):
         self.simulator = None
@@ -200,6 +202,7 @@ def test_coalesce():
             threat_radius,
             threat_loc,
             threat_velocity,
+            nearest_neighbor_idx,
             nearest_neighbor_dist,
             neighborhood_density,
             coalesed_idx,
@@ -226,7 +229,7 @@ def test_goto_entity(gamestate, generator, sector):
 
     arrival_distance = 1.5e3
     collision_margin = 1e3
-    goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate, arrival_distance, collision_margin)
+    goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate, arrival_distance - station.radius, collision_margin)
 
     assert np.linalg.norm(station.loc - goto_order.target_location)+goto_order.arrival_distance <= arrival_distance + orders.VELOCITY_EPS
     assert np.linalg.norm(station.loc - goto_order.target_location)-station.radius-goto_order.arrival_distance >= collision_margin - orders.VELOCITY_EPS
@@ -883,9 +886,28 @@ def test_either_side(gamestate, generator, sector, testui, simulator):
     and vice versa and sometimes they are coalesced. All of that creates
     discontinuities that cause the avoidance direction to flip dramatically."""
 
-    entities = history_from_file("/tmp/test.history", generator, sector, gamestate)
+    entities = history_from_file(os.path.join(TESTDIR, "data/collision_either_side.history"), generator, sector, gamestate)
 
     ship_a = entities["8ccb3abc-b940-453c-82f8-2d108117312e"]
+    logging.warning(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_complicated_departure(gamestate, generator, sector, testui, simulator):
+    entities = history_from_file(os.path.join(TESTDIR, "data/collision_complicated_departure.history"), generator, sector, gamestate)
+
+    ship_a = entities["951081e3-6253-4a9c-8be7-6a21cbf31feb"]
     logging.warning(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 
