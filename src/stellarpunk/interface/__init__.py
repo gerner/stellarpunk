@@ -14,6 +14,7 @@ import math
 import collections.abc
 import cProfile
 import pstats
+import abc
 
 from stellarpunk import util, generate, core
 
@@ -260,7 +261,16 @@ class GenerationUI(generate.GenerationListener):
         #self.ui.universe_mode()
         pass
 
-class Interface:
+class AbstractInterface(abc.ABC):
+    @abc.abstractmethod
+    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:float, ke:float) -> None:
+        pass
+
+    @abc.abstractmethod
+    def tick(self, timeout:float) -> None:
+        pass
+
+class Interface(AbstractInterface):
     def __init__(self, gamestate, generator):
         self.stdscr = None
         self.logger = logging.getLogger(util.fullname(self))
@@ -503,22 +513,27 @@ class Interface:
                 self.logscreen_x+self.logscreen_width-1
         )
 
+    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:float, ke:float) -> None:
+        self.status_message(
+                f'collision detected {entity_a.address_str()}, {entity_b.address_str()}',
+                attr=self.get_color(Color.ERROR)
+        )
 
-    def log_message(self, message):
+    def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """
         self.logscreen.addstr(self.logscreen_height,0, message+"\n")
         self.refresh_logscreen()
 
-    def status_message(self, message="", attr=0):
+    def status_message(self, message:str="", attr:int=0) -> None:
         """ Adds a status message. """
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
 
-    def diagnostics_message(self, message, attr=0):
+    def diagnostics_message(self, message:str, attr:int=0) -> None:
 
         self.stdscr.addstr(self.screen_height-1, self.screen_width-len(message)-1, message, attr)
 
-    def show_diagnostics(self):
+    def show_diagnostics(self) -> None:
         attr = 0
         diagnostics = []
         if self.show_fps:
@@ -529,7 +544,7 @@ class Interface:
 
         self.diagnostics_message(" ".join(diagnostics), attr)
 
-    def show_date(self):
+    def show_date(self) -> None:
         date_string = self.gamestate.current_time().strftime("%c")
         date_string = " "+date_string+" "
         self.stdscr.addstr(
@@ -538,7 +553,7 @@ class Interface:
                 date_string
         )
 
-    def generation_listener(self):
+    def generation_listener(self) -> generate.GenerationListener:
         return GenerationUI(self)
 
     def open_view(self, view):
@@ -571,7 +586,7 @@ class Interface:
                 "profile": profile,
         }
 
-    def tick(self, timeout):
+    def tick(self, timeout:float) -> None:
         # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
         start_time = time.perf_counter()
         self.frame_history.append(start_time)

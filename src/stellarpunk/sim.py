@@ -18,7 +18,7 @@ TICKS_PER_HIST_SAMPLE = 10
 ZERO_ONE = (0,1)
 
 class Simulator:
-    def __init__(self, gamestate, ui, dt:float=1/60, max_dt:Optional[float]=None) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
@@ -101,10 +101,8 @@ class Simulator:
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
                 self.gamestate.paused = True
-                self.ui.status_message(
-                        f'collision detected {self.collisions[0][0].address_str()}, {self.collisions[0][1].address_str()}',
-                        attr=self.ui.get_color(interface.Color.ERROR)
-                )
+                for entity_a, entity_b, impulse, ke in self.collisions:
+                    self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
             for ship in sector.ships:
                 # update ship positions from physics sim

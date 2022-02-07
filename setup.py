@@ -18,6 +18,8 @@ setuptools.setup(
 
     package_data={
         #'datascience': ['logging.ini'],
+        'stellarpunk': ['py.typed'],
+        'stellarpunk.interface': ['py.typed'],
     },
     classifiers=[
         "Programming Language :: Python :: 3",

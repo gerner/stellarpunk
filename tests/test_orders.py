@@ -1,174 +1,17 @@
 """ Tests for ship orders and behaviors. """
 
 import logging
-import functools
 import uuid
 import json
 import os
 
 import pytest
-import pymunk
 import numpy as np
 
 from stellarpunk import core, sim, generate, orders, util
+from . import write_history, nearest_neighbor, ship_from_history, station_from_history, asteroid_from_history, order_from_history, history_from_file, MonitoringUI
 
 TESTDIR = os.path.dirname(__file__)
-
-class MonitoringUI:
-    def __init__(self, gamestate, sector):
-        self.simulator = None
-        self.gamestate = gamestate
-        self.sector = sector
-        self.margin = 500.
-        self.min_neighbor_dist = np.inf
-
-        self.orders = []
-        self.cannot_stop_orders = []
-        self.cannot_avoid_collision_orders = []
-        self.margin_neighbors = []
-        self.eta = np.inf
-
-    def status_message(self, string, attr=None):
-        pass
-
-    def get_color(self, color):
-        return None
-
-    def margin_neighbors(self, margin_neighbors):
-        self.margin_neighbors = margin_neighbors
-
-    def tick(self, timeout):
-        assert not self.simulator.collisions
-
-        assert self.gamestate.timestamp < self.eta
-
-        assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders))
-        assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
-        for margin_neighbor in self.margin_neighbors:
-            neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
-            assert neighbor_dist >= self.margin - orders.VELOCITY_EPS
-            if neighbor_dist < self.min_neighbor_dist:
-                self.min_neighbor_dist = neighbor_dist
-
-        if all(map(lambda x: x.is_complete(), self.orders)):
-            self.gamestate.quit()
-
-def write_history(func):
-    """ Decorator that writes sector history to file when an exception is
-    raised in a test. """
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        sector = kwargs["sector"]
-        wrote=False
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz')
-            wrote=True
-            raise
-        finally:
-            if not wrote and os.environ.get("WRITE_HIST"):
-                core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz')
-    return wrapper
-
-@pytest.fixture
-def testui(gamestate, sector):
-    return MonitoringUI(gamestate, sector)
-
-@pytest.fixture
-def gamestate():
-    return core.Gamestate()
-
-@pytest.fixture
-def simulator(gamestate, testui):
-    simulation = sim.Simulator(gamestate, testui)
-    testui.simulator = simulation
-    simulation.min_tick_sleep = np.inf
-    simulation.min_ui_timeout = -np.inf
-
-    simulation.initialize()
-
-    return simulation
-
-@pytest.fixture
-def generator(gamestate):
-    ug = generate.UniverseGenerator(gamestate, seed=0)
-    gamestate.random = ug.r
-    return ug
-
-@pytest.fixture
-def sector(gamestate):
-    sector_radius=1e5
-    sector_name = "Sector"
-
-    sector = core.Sector(0, 0, sector_radius, sector_name)
-    sector.space = pymunk.Space()
-    gamestate.sectors[(0,0)] = sector
-
-    return sector
-
-def nearest_neighbor(sector, entity):
-    neighbor_distance = np.inf
-    neighbor = None
-    for hit in sector.spatial_point(entity.loc):
-        if hit == entity:
-            continue
-        d = np.linalg.norm(entity.loc - hit.loc) - hit.radius - entity.radius
-        if d < neighbor_distance:
-            neighbor_distance = d
-            neighbor = hit
-    return neighbor, neighbor_distance
-
-def ship_from_history(history_entry, generator, sector):
-    x, y = history_entry["loc"]
-    v = history_entry["v"]
-    w = history_entry["av"]
-    theta = history_entry["a"]
-    ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta)
-    ship.name = history_entry["eid"]
-    ship.phys.force = history_entry.get("f", (0., 0.))
-    ship.phys.torque = history_entry.get("t", 0.)
-    return ship
-
-def station_from_history(history_entry, generator, sector):
-    x, y = history_entry["loc"]
-    station = generator.spawn_station(sector, x, y, 0)
-    station.name = history_entry["eid"]
-    return station
-
-def asteroid_from_history(history_entry, generator, sector):
-    x, y = history_entry["loc"]
-    asteroid = generator.spawn_asteroid(sector, x, y, 0, 1)
-    asteroid.name = history_entry["eid"]
-    return asteroid
-
-def order_from_history(history_entry, ship, gamestate):
-    if history_entry["o"]["o"] != "stellarpunk.orders.GoToLocation":
-        raise ValueError(f'can only support stellarpunk.orders.GoToLocation, not {history_entry["o"]["o"]}')
-
-    arrival_distance = history_entry["o"].get("ad", 1.5e3)
-    min_distance = history_entry["o"].get("md", None)
-    order = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
-    order.neighborhood_density = history_entry["o"].get("nd", 0.)
-    ship.orders.append(order)
-    return order
-
-def history_from_file(fname, generator, sector, gamestate):
-    entities = {}
-    with open(fname, "rt") as f:
-        for line in f:
-            entry = json.loads(line)
-            if entry["p"] == "STA":
-                entities[entry["eid"]] = station_from_history(entry, generator, sector)
-            elif entry["p"] == "AST":
-                entities[entry["eid"]] = asteroid_from_history(entry, generator, sector)
-            elif entry["p"] == "SHP":
-                entities[entry["eid"]] = ship = ship_from_history(entry, generator, sector)
-                order_from_history(entry, ship, gamestate)
-            else:
-                raise ValueError(f'unknown prefix {entry["p"]}')
-    return entities
 
 # test cases
 
@@ -889,7 +732,7 @@ def test_either_side(gamestate, generator, sector, testui, simulator):
     entities = history_from_file(os.path.join(TESTDIR, "data/collision_either_side.history"), generator, sector, gamestate)
 
     ship_a = entities["8ccb3abc-b940-453c-82f8-2d108117312e"]
-    logging.warning(f'{ship_a.entity_id}')
+    logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 
     eta = goto_a.eta()
@@ -908,7 +751,7 @@ def test_complicated_departure(gamestate, generator, sector, testui, simulator):
     entities = history_from_file(os.path.join(TESTDIR, "data/collision_complicated_departure.history"), generator, sector, gamestate)
 
     ship_a = entities["951081e3-6253-4a9c-8be7-6a21cbf31feb"]
-    logging.warning(f'{ship_a.entity_id}')
+    logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 
     eta = goto_a.eta()

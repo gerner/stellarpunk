@@ -25,7 +25,9 @@ def order_fn_null(ship, gamestate):
 def order_fn_wait(ship, gamestate):
     return orders.WaitOrder(ship, gamestate)
 
-def order_fn_goto_random_station(ship, gamestate):
+def order_fn_goto_random_station(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
+    if ship.sector is None:
+        raise Exception("cannot go to location if ship isn't in a sector")
     station = gamestate.random.choice(ship.sector.stations)
     return orders.GoToLocation.goto_entity(station, ship, gamestate)
 
