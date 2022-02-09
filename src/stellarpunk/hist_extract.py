@@ -14,7 +14,7 @@ from stellarpunk import util
 
 TS_EPS = 1/60/2*10
 
-def main():
+def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
     logger = logging.getLogger(util.fullname(__name__))
 

@@ -70,7 +70,7 @@ def screen_to_sector(
         screen_loc_x:int, screen_loc_y:int,
         ul_x:float, ul_y:float,
         meters_per_char_x:float, meters_per_char_y:float,
-        screen_offset_x=0, screen_offset_y=0) -> Tuple[float, float]:
+        screen_offset_x:int=0, screen_offset_y:int=0) -> Tuple[float, float]:
     """ converts from screen coordinates to sector coordinates. """
     return (
             (screen_loc_x-screen_offset_x) * meters_per_char_x + ul_x,
@@ -119,10 +119,10 @@ def clip(x:float, min_x:float, max_x:float) -> float:
     return min_x if x < min_x else max_x if x > max_x else x
 
 @jit(cache=True, nopython=True)
-def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08):
+def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 
-def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tick_size=3) -> drawille.Canvas:
+def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tick_size:int=3) -> drawille.Canvas:
     """ Draws a vector (x,y) on a drawille canvas and returns it.
 
     x and y are expressed as drawille canvas coordinates. """
@@ -149,7 +149,7 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
-def draw_line(y:int, x:int, line:str, screen:curses.window, attr=0, bounds=(0,0,sys.maxsize,sys.maxsize)) -> None:
+def draw_line(y:int, x:int, line:str, screen:curses.window, attr:int=0, bounds:Tuple[int, int, int, int]=(0,0,sys.maxsize,sys.maxsize)) -> None:
     if y < bounds[1] or y >= bounds[3]:
         return
     for i, c in enumerate(line):
@@ -159,7 +159,7 @@ def draw_line(y:int, x:int, line:str, screen:curses.window, attr=0, bounds=(0,0,
                 continue
             screen.addch(y, x+i, c, attr)
 
-def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, attr=0, bounds=(0,0,sys.maxsize,sys.maxsize)) -> None:
+def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, attr:int=0, bounds:Tuple[int, int, int, int]=(0,0,sys.maxsize,sys.maxsize)) -> None:
     """ Draws canvas to screen with canvas origin appearing at y,x.
 
     Notice the curses based convention of y preceeding x here. """
@@ -199,7 +199,7 @@ def tab_complete(partial:str, current:str, options:Iterable[str]) -> str:
 
 def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
     options = list(options)
-    def completer(partial, command):
+    def completer(partial:str, command:str)->str:
         p = partial.split(' ')[-1]
         c = command.split(' ')[-1]
         o = tab_complete(p, c, options) or p
@@ -213,7 +213,7 @@ class NiceScale:
     from https://stackoverflow.com/a/16959142/553580
     """
 
-    def __init__(self, minv:float, maxv:float, maxTicks:int=10, constrain_to_range=False, tickSpacing=None) -> None:
+    def __init__(self, minv:float, maxv:float, maxTicks:int=10, constrain_to_range:bool=False, tickSpacing:float=0.) -> None:
         self.maxTicks = maxTicks
         self.tickSpacing = tickSpacing
         self.lst = 10.
@@ -225,7 +225,7 @@ class NiceScale:
         self.calculate()
 
     def calculate(self) -> None:
-        if self.tickSpacing is None:
+        if self.tickSpacing == 0.:
             self.lst = self.niceNum(self.maxPoint - self.minPoint, False)
             self.tickSpacing = self.niceNum(self.lst / (self.maxTicks - 1), True)
 

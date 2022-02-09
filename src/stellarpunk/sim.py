@@ -6,10 +6,11 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional
+from typing import List, Optional, Mapping, Any, Tuple
 import collections
 
 import numpy as np
+import pymunk
 
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
@@ -48,9 +49,9 @@ class Simulator:
 
         self.sleep_count = 0
 
-        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, float, float]] = []
+        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
 
-    def _ship_collision_detected(self, arbiter, space, data):
+    def _ship_collision_detected(self, arbiter:pymunk.Arbiter, space:pymunk.Space, data:Mapping[str, Any]) -> None:
         # which ship(s) are colliding?
 
         (shape_a, shape_b) = arbiter.shapes

@@ -101,12 +101,12 @@ class MonitoringUI(interface.AbstractInterface):
         self.margin_neighbors:List[core.SectorEntity] = []
         self.eta = np.inf
 
-        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, float, float]] = []
+        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
         self.complete_orders:List[core.Order] = []
 
         self.done = False
 
-    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:float, ke:float) -> None:
+    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
 
     def order_complete(self, order:core.Order) -> None:

@@ -1,12 +1,13 @@
 import logging
 import curses
 from curses import textpad
+from typing import Any
 
-from stellarpunk import interface, util
+from stellarpunk import interface, util, core
 from stellarpunk.interface import sector as sector_interface
 
 class UniverseView(interface.View):
-    def __init__(self, gamestate, *args, **kwargs):
+    def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
 
         self.gamestate = gamestate
@@ -20,20 +21,20 @@ class UniverseView(interface.View):
         self.in_sector = False
 
     @property
-    def viewscreen(self):
+    def viewscreen(self) -> curses.window:
         return self.interface.viewscreen
 
-    def initialize(self):
+    def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
         self.pan_camera()
         self.interface.reinitialize_screen(name="Universe Map")
 
-    def focus(self):
+    def focus(self) -> None:
         super().focus()
         self.in_sector = False
         self.interface.reinitialize_screen(name="Universe Map")
 
-    def pan_camera(self):
+    def pan_camera(self) -> None:
         view_y = self.ucursor_y*(interface.Settings.UMAP_SECTOR_HEIGHT+interface.Settings.UMAP_SECTOR_YSEP)
         view_x = self.ucursor_x*(interface.Settings.UMAP_SECTOR_WIDTH+interface.Settings.UMAP_SECTOR_XSEP)
 
@@ -49,7 +50,7 @@ class UniverseView(interface.View):
         elif view_y > self.interface.camera_y + self.interface.viewscreen_height - interface.Settings.UMAP_SECTOR_HEIGHT:
             self.interface.camera_y = view_y - self.interface.viewscreen_height + interface.Settings.UMAP_SECTOR_HEIGHT
 
-    def move_ucursor(self, direction):
+    def move_ucursor(self, direction:int) -> None:
         old_x = self.ucursor_x
         old_y = self.ucursor_y
 
@@ -78,7 +79,7 @@ class UniverseView(interface.View):
             self.ucursor_y = self.sector_maxy
             self.interface.status_message("no more sectors downward", curses.color_pair(1))
 
-    def draw_umap_sector(self, y, x, sector):
+    def draw_umap_sector(self, y:int, x:int, sector:core.Sector) -> None:
         """ Draws a single sector to viewscreen starting at position (y,x) """
 
         if self.in_sector:
@@ -101,7 +102,7 @@ class UniverseView(interface.View):
 
         self.viewscreen.addstr(y+interface.Settings.UMAP_SECTOR_HEIGHT-2, x+1, f'{len(sector.entities)} objects')
 
-    def update_display(self):
+    def update_display(self) -> None:
         """ Draws a map of all sectors. """
 
         self.viewscreen.erase()
@@ -119,7 +120,7 @@ class UniverseView(interface.View):
         self.pan_camera()
         self.interface.refresh_viewscreen()
 
-    def handle_input(self, key):
+    def handle_input(self, key:int) -> bool:
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_ucursor(key)
         elif key in (ord('\n'), ord('\r')):

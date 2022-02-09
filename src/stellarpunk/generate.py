@@ -1,6 +1,6 @@
 import logging
 import itertools
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence
 
 import numpy as np
 import numpy.typing as npt
@@ -13,16 +13,16 @@ from stellarpunk import util, core, orders
 #   ship products
 
 class GenerationListener:
-    def production_chain_complete(self, production_chain):
+    def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
         pass
 
-    def sectors_complete(self, sectors):
+    def sectors_complete(self, sectors:Mapping[Tuple[int,int], core.Sector]) -> None:
         pass
 
-def order_fn_null(ship, gamestate:core.Gamestate) -> core.Order:
+def order_fn_null(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     return core.Order(ship, gamestate)
 
-def order_fn_wait(ship, gamestate:core.Gamestate) -> core.Order:
+def order_fn_wait(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     return orders.WaitOrder(ship, gamestate)
 
 def order_fn_goto_random_station(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
@@ -31,8 +31,10 @@ def order_fn_goto_random_station(ship:core.Ship, gamestate:core.Gamestate) -> co
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.GoToLocation.goto_entity(station, ship, gamestate)
 
-def order_fn_disembark_to_random_station(ship, gamestate:core.Gamestate) -> core.Order:
-    station = gamestate.random.choice(ship.sector.stations)
+def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
+    if ship.sector is None:
+        raise Exception("cannot disembark to if ship isn't in a sector")
+    station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
 class UniverseGenerator:
@@ -57,7 +59,7 @@ class UniverseGenerator:
             n:int, m:int, k:int,
             max_out:int, max_in:int,
             total_w:float, min_w:float, max_w:float,
-            min_out=1, min_in=1) -> npt.NDArray[np.float64]:
+            min_out:int=1, min_in:int=1) -> npt.NDArray[np.float64]:
         """ Creates a bipartite, weighted graph according to model parameters.
 
         n: number of top nodes
@@ -83,7 +85,7 @@ class UniverseGenerator:
         if total_w < k*min_w or total_w > k*max_w:
             raise ValueError("total_w must be >= k*min_w and <= k*max_w")
 
-        def choose_seq(n, k, min_deg, max_deg):
+        def choose_seq(n:int, k:int, min_deg:int, max_deg:int) -> npt.NDArray[np.int64]:
             """ Generates a sequence of integers from [0,n) of length k where
             each number occurs at least once and at most max_deg """
 
@@ -139,7 +141,7 @@ class UniverseGenerator:
 
         return adj_matrix
 
-    def _gen_sector_location(self, sector:core.Sector, unoccupied=True)->npt.NDArray[np.float64]:
+    def _gen_sector_location(self, sector:core.Sector, unoccupied:bool=True)->npt.NDArray[np.float64]:
         loc = self.r.normal(0, 1, 2) * sector.radius
         while unoccupied and sector.is_occupied(loc[0], loc[1], eps=2e3):
             loc = self.r.normal(0, 1, 2) * sector.radius
@@ -210,7 +212,7 @@ class UniverseGenerator:
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn=order_fn_null) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null) -> core.Ship:
 
         #TODO: clean this up
         # set up physics stuff
@@ -388,16 +390,16 @@ class UniverseGenerator:
 
     def generate_chain(
             self,
-            n_ranks=3,
-            min_per_rank=(3,6,5), max_per_rank=(6,10,7),
-            max_outputs=4, max_inputs=4,
-            min_input_per_output=2, max_input_per_output=10,
-            min_raw_price=1, max_raw_price=20,
-            min_markup=1.05, max_markup=2.5,
-            min_final_inputs=3, max_final_inputs=5,
-            min_final_prices=(1e6, 1e7, 1e5),
-            max_final_prices=(3*1e6, 4*1e7, 3*1e5),
-            sink_names=["ships", "stations", "consumers"]) -> core.ProductionChain:
+            n_ranks:int=3,
+            min_per_rank:Sequence[int]=(3,6,5), max_per_rank:Sequence[int]=(6,10,7),
+            max_outputs:int=4, max_inputs:int=4,
+            min_input_per_output:int=2, max_input_per_output:int=10,
+            min_raw_price:float=1., max_raw_price:float=20.,
+            min_markup:float=1.05, max_markup:float=2.5,
+            min_final_inputs:int=3, max_final_inputs:int=5,
+            min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
+            max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
+            sink_names:Sequence[str]=["ships", "stations", "consumers"]) -> core.ProductionChain:
         """ Generates a random production chain.
 
         Products are divided into ranks with links only between consecutive
@@ -539,11 +541,11 @@ class UniverseGenerator:
         return chain
 
     def generate_sectors(self,
-            width=6, height=6,
-            sector_radius=1e5,
-            n_habitable_sectors=5,
-            mean_habitable_resources=1e9,
-            mean_uninhabitable_resources=1e7) -> None:
+            width:int=6, height:int=6,
+            sector_radius:float=1e5,
+            n_habitable_sectors:int=5,
+            mean_habitable_resources:float=1e9,
+            mean_uninhabitable_resources:float=1e7) -> None:
         # set up pre-expansion sectors, resources
 
         RESOURCE_REL_SHIP = 0

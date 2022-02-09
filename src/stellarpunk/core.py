@@ -9,7 +9,7 @@ import logging
 import collections
 import gzip
 import json
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, IO, Tuple, Iterator
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias
 
 import graphviz # type: ignore
 import numpy as np
@@ -31,13 +31,13 @@ class ProductionChain:
         # how much each product is priced (sum_inputs(input cost * input amount) * markup)
         self.prices = np.zeros((0,))
 
-        self.sink_names:List[str] = []
+        self.sink_names:Sequence[str] = []
 
     @property
-    def shape(self):
+    def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
 
-    def viz(self):
+    def viz(self) -> graphviz.Graph:
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})
         g.attr(compound="true", ranksep="1.5")
 
@@ -111,10 +111,10 @@ class Sector(Entity):
         for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.shape.body.entity # type: ignore[union-attr]
 
-    def is_occupied(self, x, y, eps=1e1):
+    def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
 
-    def add_entity(self, entity):
+    def add_entity(self, entity:SectorEntity) -> None:
         #TODO: worry about collisions at location?
 
         if isinstance(entity, Planet):
@@ -132,7 +132,7 @@ class Sector(Entity):
         entity.sector = self
         self.entities[entity.entity_id] = entity
 
-    def remove_entity(self, entity):
+    def remove_entity(self, entity:SectorEntity) -> None:
 
         if entity.entity_id not in self.entities:
             raise ValueError(f'entity {entity.entity_id} not in this sector')
@@ -171,7 +171,7 @@ class HistoryEntry:
             self,
             prefix:str,
             entity_id:uuid.UUID,
-            ts:int,
+            ts:float,
             loc:np.ndarray,
             radius:float,
             angle:float,
@@ -197,7 +197,7 @@ class HistoryEntry:
         self.force = force
         self.torque = torque
 
-    def to_json(self):
+    def to_json(self) -> Mapping[str, Any]:
         return {
             "p": self.prefix,
             "eid": str(self.entity_id),
@@ -217,7 +217,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, num_products:int, *args, history_length:int=60*60, **kwargs) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -253,7 +253,7 @@ class SectorEntity(Entity):
         ),)
         return self.history
 
-    def to_history(self, timestamp) -> HistoryEntry:
+    def to_history(self, timestamp:float) -> HistoryEntry:
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
@@ -272,7 +272,7 @@ class Planet(SectorEntity):
     id_prefix = "PLT"
     object_type = ObjectType.PLANET
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.population = 0.
 
@@ -281,16 +281,17 @@ class Station(SectorEntity):
     id_prefix = "STA"
     object_type = ObjectType.STATION
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
 
 class Ship(SectorEntity):
+    DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
 
     id_prefix = "SHP"
     object_type = ObjectType.SHIP
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
 
@@ -302,14 +303,14 @@ class Ship(SectorEntity):
         self.max_torque = 0.
 
         self.orders: Deque[Order] = collections.deque()
-        self.default_order_fn: Callable[[Ship, Gamestate], Order] = lambda ship, gamestate: Order(ship, gamestate)
+        self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
 
     def get_history(self) -> Iterable[HistoryEntry]:
         return self.history
 
-    def to_history(self, timestamp) -> HistoryEntry:
+    def to_history(self, timestamp:float) -> HistoryEntry:
         order_hist = self.orders[0].to_history() if self.orders else None
         return HistoryEntry(
                 self.id_prefix,
@@ -340,27 +341,25 @@ class Asteroid(SectorEntity):
     id_prefix = "AST"
     object_type = ObjectType.ASTEROID
 
-    def __init__(self, resource, amount, *args, **kwargs):
+    def __init__(self, resource:int, amount:float, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.amount = amount
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.amount}'
 
 class Character(Entity):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
 
-    def choose_action(self, game_state):
-        pass
-
 class OrderLoggerAdapter(logging.LoggerAdapter):
-    def __init__(self, ship, *args, **kwargs):
+    def __init__(self, ship:Ship, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
         self.ship = ship
 
-    def process(self, msg, kwargs):
+    def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
+        assert self.ship.sector is not None
         return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
 class Order:
@@ -397,7 +396,7 @@ class Gamestate:
         self.production_chain = ProductionChain()
 
         # the universe is a set of sectors, indexed by coordinate
-        self.sectors:Dict[tuple[float,float], Sector] = {}
+        self.sectors:Dict[tuple[int,int], Sector] = {}
         self.entities:Dict[uuid.UUID, Entity] = {}
 
         #self.characters = []
@@ -417,22 +416,23 @@ class Gamestate:
         self.paused = False
         self.should_raise= False
 
-    def current_time(self):
+    def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
         # increment the ticks even though we don't process them?
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.timestamp)
 
-    def quit(self):
+    def quit(self) -> None:
         self.keep_running = False
 
-def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, IO], mode="w"):
+def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextIO], mode:str="w") -> None:
+    fout:TextIO
     if isinstance(f, str):
         needs_close = True
         if f.endswith(".gz"):
-            fout = gzip.open(f, mode+"t")
+            fout = gzip.open(f, mode+"t") # type: ignore[assignment]
         else:
-            fout = open(f, mode)
+            fout = open(f, mode) # type: ignore[assignment]
     else:
         needs_close = False
         fout = f

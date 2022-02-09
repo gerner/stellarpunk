@@ -97,7 +97,7 @@ class Icons:
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
 
     @staticmethod
-    def angle_to_ship(angle):
+    def angle_to_ship(angle:float) -> str:
         """ Returns ship icon pointing in angle (radians) direction. """
 
         # pos x is E
@@ -117,7 +117,7 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
-    def sector_entity_icon(entity):
+    def sector_entity_icon(entity:core.SectorEntity) -> str:
         if isinstance(entity, core.Ship):
             icon = Icons.angle_to_ship(entity.angle)
         elif isinstance(entity, core.Station):
@@ -131,7 +131,7 @@ class Icons:
         return icon
 
     @staticmethod
-    def sector_entity_attr(entity):
+    def sector_entity_attr(entity:core.SectorEntity) -> int:
         if isinstance(entity, core.Asteroid):
             return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
         else:
@@ -161,15 +161,15 @@ class View(abc.ABC):
         pass
 
 class ColorDemo(View):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def focus(self):
+    def focus(self) -> None:
         super().focus()
         self.interface.camera_x = 0
         self.interface.camera_y = 0
 
-    def update_display(self):
+    def update_display(self) -> None:
         self.interface.camera_x = 0
         self.interface.camera_y = 0
         self.interface.viewscreen.erase()
@@ -180,7 +180,7 @@ class ColorDemo(View):
         self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
         self.interface.refresh_viewscreen()
 
-    def handle_input(self, key):
+    def handle_input(self, key:int) -> bool:
         return key == -1
 
 class CommandInput(View):
@@ -268,19 +268,19 @@ class CommandInput(View):
 class GenerationUI(generate.GenerationListener):
     """ Handles the UI during universe generation. """
 
-    def __init__(self, ui):
+    def __init__(self, ui:Interface) -> None:
         self.ui = ui
 
-    def production_chain_complete(self, production_chain):
+    def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
         pass
 
-    def sectors_complete(self, sectors):
+    def sectors_complete(self, sectors:Mapping[Tuple[int,int], core.Sector]) -> None:
         #self.ui.universe_mode()
         pass
 
 class AbstractInterface(abc.ABC):
     @abc.abstractmethod
-    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:float, ke:float) -> None:
+    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         pass
 
     @abc.abstractmethod
@@ -473,7 +473,7 @@ class Interface(AbstractInterface):
         self.logger.info(f'viewscreen (x,y) {(self.viewscreen_y, self.viewscreen_x)} (h,w): {(self.viewscreen_height, self.viewscreen_width)}')
         self.logger.info(f'logscreen (x,y) {(self.logscreen_y, self.logscreen_x)} (h,w): {(self.logscreen_height, self.logscreen_width)}')
 
-    def reinitialize_screen(self, name="Main Viewscreen") -> None:
+    def reinitialize_screen(self, name:str="Main Viewscreen") -> None:
         self.logger.debug(f'reinitializing the screen')
         self.choose_viewport_sizes()
         textpad.rectangle(
@@ -534,7 +534,7 @@ class Interface(AbstractInterface):
                 self.logscreen_x+self.logscreen_width-1
         )
 
-    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:float, ke:float) -> None:
+    def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.status_message(
                 f'collision detected {entity_a.address_str()}, {entity_b.address_str()}',
                 attr=self.get_color(Color.ERROR)
@@ -589,12 +589,12 @@ class Interface(AbstractInterface):
         self.views.append(view)
 
     def command_list(self) -> Mapping[str, Callable[[Sequence[str]], None]]:
-        def pause(args): self.gamestate.paused = not self.gamestate.paused
-        def fps(args): self.show_fps = not self.show_fps
-        def quit(args): self.gamestate.quit()
-        def raise_exception(args): self.gamestate.should_raise = True
-        def colordemo(args): self.open_view(ColorDemo(self))
-        def profile(args):
+        def pause(args:Sequence[str]) -> None: self.gamestate.paused = not self.gamestate.paused
+        def fps(args:Sequence[str]) -> None: self.show_fps = not self.show_fps
+        def quit(args:Sequence[str]) -> None: self.gamestate.quit()
+        def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
+        def colordemo(args:Sequence[str]) -> None: self.open_view(ColorDemo(self))
+        def profile(args:Sequence[str]) -> None:
             if self.profiler:
                 self.profiler.disable()
                 pstats.Stats(self.profiler).dump_stats("/tmp/profile.prof")

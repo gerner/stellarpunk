@@ -132,7 +132,7 @@ class SectorView(interface.View):
 
         return (meters_per_char_x, meters_per_char_y)
 
-    def select_target(self, target_id, entity):
+    def select_target(self, target_id:Optional[uuid.UUID], entity:Optional[core.SectorEntity]) -> None:
         if target_id == self.selected_target:
             # no-op selecting the same target
             return
@@ -147,7 +147,7 @@ class SectorView(interface.View):
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
-    def _compute_grid(self, max_ticks=10) -> None:
+    def _compute_grid(self, max_ticks:int=10) -> None:
         # choose ticks
         #TODO: should choose maxTicks based on resolution
 
@@ -252,13 +252,10 @@ class SectorView(interface.View):
         ticks = util.NiceScale(-1*radius, radius, constrain_to_range=True)
         stepsize = ticks.tickSpacing
 
-        def polar_to_rectangular(r, theta):
-            return (r*math.cos(theta), r*math.sin(theta))
-
         c = drawille.Canvas()
 
         # draw a cross
-        i = 0
+        i = 0.
         while i < radius:
             drawille_x,_ = util.sector_to_drawille(
                     i, 0, self.meters_per_char_x, self.meters_per_char_y)
@@ -276,7 +273,7 @@ class SectorView(interface.View):
         while r < math.sqrt(2*radius*radius):
             theta = 0.
             while theta < 2*math.pi:
-                s_x, s_y = polar_to_rectangular(r, theta)
+                s_x, s_y = util.polar_to_cartesian(r, theta)
                 if abs(s_x) < radius and abs(s_y) < radius:
                     d_x, d_y = util.sector_to_drawille(
                             s_x, s_y, self.meters_per_char_x, self.meters_per_char_y)
@@ -316,7 +313,7 @@ class SectorView(interface.View):
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, self.meters_per_char_x, self.meters_per_char_y)
         util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.viewscreen, y, x, bounds=self.interface.viewscreen_bounds)
 
-    def draw_entity_debug_info(self, y, x, entity, description_attr):
+    def draw_entity_debug_info(self, y:int, x:int, entity:core.SectorEntity, description_attr:int) -> None:
         if isinstance(entity, core.Ship):
             self.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
             self.viewscreen.addstr(y+1, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
@@ -327,7 +324,7 @@ class SectorView(interface.View):
         else:
             self.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
 
-    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr=0) -> None:
+    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """
 
         #TODO: handle shapes not circles?
@@ -452,7 +449,7 @@ class SectorView(interface.View):
         self.interface.refresh_viewscreen()
 
     def command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
-        def target(args):
+        def target(args:Sequence[str])->None:
             if not args:
                 raise interface.CommandInput.UserError("need a valid target")
             try:
@@ -463,7 +460,7 @@ class SectorView(interface.View):
                 raise interface.CommandInput.UserError("{args[0]} not found in sector")
             self.select_target(target_id, self.sector.entities[target_id])
 
-        def goto(args):
+        def goto(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise interface.CommandInput.UserError(f'order only valid on a ship target')
             if len(args) < 2:
@@ -476,13 +473,13 @@ class SectorView(interface.View):
             self.selected_entity.orders.clear()
             self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
 
-        def wait(args):
+        def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise interface.CommandInput.UserError(f'order only valid on a ship target')
             self.selected_entity.orders.clear()
             self.selected_entity.orders.append(orders.WaitOrder(self.selected_entity, self.interface.gamestate))
 
-        def harvest(args):
+        def harvest(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise interface.CommandInput.UserError(f'order only valid on a ship target')
             self.logger.info('adding harvest order to {self.selected_entity}')
@@ -490,21 +487,21 @@ class SectorView(interface.View):
             self.selected_entity.orders.clear()
             self.selected_entity.orders.append(orders.HarvestOrder(base, 0, self.selected_entity, self.interface.gamestate))
 
-        def debug_entity(args): self.debug_entity = not self.debug_entity
-        def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
-        def debug_write_history(args):
+        def debug_entity(args:Sequence[str])->None: self.debug_entity = not self.debug_entity
+        def debug_vectors(args:Sequence[str])->None: self.debug_entity_vectors = not self.debug_entity_vectors
+        def debug_write_history(args:Sequence[str])->None:
             if not self.selected_entity:
                 raise interface.CommandInput.UserError(f'can only write history for a selected target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
             core.write_history_to_file(self.selected_entity, filename)
 
-        def debug_write_sector(args):
+        def debug_write_sector(args:Sequence[str])->None:
             filename = "/tmp/stellarpunk.history.gz"
             self.logger.info(f'writing history for sector {self.sector.short_id()} to {filename}')
             core.write_history_to_file(self.sector, filename)
 
-        def spawn_ship(args):
+        def spawn_ship(args:Sequence[str])->None:
             if len(args) < 2:
                 x,y = self.scursor_x, self.scursor_y
             else:
@@ -515,11 +512,11 @@ class SectorView(interface.View):
 
             self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
 
-        def spawn_collision(args):
+        def spawn_collision(args:Sequence[str])->None:
             self.interface.generator.spawn_ship(self.sector, 0, 1100, v=np.array((0,0)), w=0)
             self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
 
-        def spawn_resources(args):
+        def spawn_resources(args:Sequence[str])->None:
             x,y = self.scursor_x, self.scursor_y
             self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
 
@@ -537,7 +534,7 @@ class SectorView(interface.View):
                 "harvest": harvest,
         }
 
-    def handle_input(self, key):
+    def handle_input(self, key:int) -> bool:
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_scursor(key)
         elif key in (ord("+"), ord("-")):

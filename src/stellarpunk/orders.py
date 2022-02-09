@@ -324,7 +324,7 @@ def estimate_cost(
     return rot_time + accelerate_time + remainder_rot_time + undo_time
 
 @jit(cache=True, nopython=True)
-def _collision_dv(entity_pos, entity_vel, pos, vel, margin, v_d, cbdr):
+def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
     relative to the desired velocity.
@@ -534,7 +534,7 @@ def _find_target_v(
 
         return target_v, distance, distance_estimate, cannot_stop
 
-def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int):
+def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int) -> bool:
     if len(rel_pos_hist) < min_hist:
         return False
 
@@ -650,7 +650,7 @@ class AbstractSteeringOrder(core.Order):
         #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')
 
-    def _clear_collision_info(self):
+    def _clear_collision_info(self) -> None:
         self.collision_threat = None
         self.collision_dv = ZERO_VECTOR
         self.collision_threat_time = 0.
@@ -1088,7 +1088,7 @@ class WaitOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class MineOrder(AbstractSteeringOrder):
-    def __init__(self, target: core.Asteroid, amount: float, *args: Any, max_dist=2e3, **kwargs: Any) -> None:
+    def __init__(self, target: core.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
         self.max_dist = max_dist
@@ -1113,7 +1113,7 @@ class MineOrder(AbstractSteeringOrder):
         self.harvested += amount
 
 class TransferCargo(core.Order):
-    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist=2e3, **kwargs: Any) -> None:
+    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.target = target
@@ -1137,7 +1137,7 @@ class TransferCargo(core.Order):
         self.transferred = self.amount
 
 class HarvestOrder(core.Order):
-    def __init__(self, base: core.SectorEntity, resource: int, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, base:core.SectorEntity, resource:int, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.base = base
