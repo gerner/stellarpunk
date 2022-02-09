@@ -11,6 +11,15 @@ from . import write_history, nearest_neighbor, ship_from_history, station_from_h
 
 TESTDIR = os.path.dirname(__file__)
 
+def test_collision_dv_divide_by_zero():
+    current_threat_loc = np.array((-12310.625184027258, 9487.81873642772))
+    threat_velocity = np.array([0., 0.])
+    loc = np.array((-12906.842476951013, 4147.6723812594155))
+    velocity = np.array((-0.2308075001768678, 1.6506076685996232))
+    desired_margin = 1330.0
+    desired_direction = np.array((26.758595729673026, 390.97727873264216))
+    collision_cbdr = False
+    delta_velocity = -1 * orders._collision_dv(current_threat_loc, threat_velocity, loc, velocity, desired_margin, -1 * desired_direction, collision_cbdr)
 
 @write_history
 def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog):
@@ -92,7 +101,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     # expect path to be accelerate half-way, turn around, decelerate
     # this is approximate
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
+    eta = goto_order.eta()*1.1
 
     testui.eta = eta
     testui.orders = [goto_order]
@@ -541,7 +550,7 @@ def test_complicated_departure(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.eta()
 
-    testui.eta = eta
+    testui.eta = eta*1.3
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]

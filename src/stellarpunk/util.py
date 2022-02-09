@@ -114,6 +114,10 @@ def normalize_angle(angle:float, shortest:bool=False) -> float:
 def clip(x:float, min_x:float, max_x:float) -> float:
     return min_x if x < min_x else max_x if x > max_x else x
 
+@jit(cache=True, nopython=True)
+def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08):
+    return np.abs(a-b) <= (atol + rtol * np.abs(b))
+
 def drawille_vector(x, y, canvas=None, tick_size=3):
     """ Draws a vector (x,y) on a drawille canvas and returns it.
 

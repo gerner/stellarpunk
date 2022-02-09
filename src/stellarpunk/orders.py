@@ -346,115 +346,144 @@ def _collision_dv(entity_pos, entity_vel, pos, vel, margin, v_d, cbdr):
     # desired diversion from v
     a = v_d + vel
 
-    # convenient computation we'll reuse below
-    p = 2*r[0]*v[0]+2*r[1]*v[1]
-    q = r[0]**2+r[1]**2-m**2
-
-    # given divert (x,y):
-    # resulting_margin = (r[0]*x+r[1]*y+p)**2/((2*v[0]+x)**2+(2*v[1]+y)**2)-r[0]**2+r[1]**2
-    # this forms a pair of intersecting lines with viable diverts between them
-
-    # given divert (x,y):
-    # cost_from desired = (a[0]-x)**2 +(a[1]-y)**2
-
-    # we'll minimize the above by dropping perpeniculars from the viable divert
-    # lines to the center of the cost circle and finding the intersection with
-    # the divert lines.
-
-    # see https://www.desmos.com/calculator/ju4nrg5dba
-
     # check if the desired divert is already viable
     x = a[0]
     y = a[1]
-    do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+p)**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
-    if do_nothing_margin_sq > 0 and np.sqrt(do_nothing_margin_sq) >= m:
+    do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
+    if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
         return ZERO_VECTOR
 
     if np.linalg.norm(r) <= margin:
         raise Exception()
 
-    # first find the lines forming the viable divert region
-    # solving the above for x = 0 and y = 0 (x and y intercepts)
-    q_c = p**2-4*q*v[0]**2-4*q*v[1]**2
+    # given divert (x,y):
+    # (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2) > m**2
+    # this forms a pair of intersecting lines with viable diverts between them
 
-    q_ax = r[0]**2-q
-    q_bx = 2*p*r[0]-4*q*v[0]
+    # given divert (x,y):
+    # cost_from desired = (a[0]-x)**2 +(a[1]-y)**2
+    # see https://www.desmos.com/calculator/qvk8fpbw3k
 
-    q_ay = r[1]**2-q
-    q_by = 2*p*r[1]-4*q*v[1]
+    # to understand the margin, we end up with two circles whose intersection
+    # points are points on the tangent lines that form the boundary of our
+    # viable diverts
+    # (x+2*v[0])**2 + (y+2*v[1])**2 = r[0]**2+r[1]**2-m**2
+    # (x+2*v[0]-r[0])**2 + (y+2*v[1]-r[1])**2 = m**2
+    # a couple of simlifying substitutions:
+    # we can translate the whole system to the origin:
+    # let s_x,s_y = (x + 2*v[0], y + 2*v[1])
+    # let p = r[0]**2 + r[1]**2 - m**2
+    # having done this we can subtract the one from the other, solve for y,
+    # plug back into one of the equations
+    # solve the resulting quadratic eq for x (two roots)
+    # plug back into one of the equations to get y (two sets of two roots)
+    # for the y roots, only one will satisfy the other equation, pick that one
+    # also, we'll divide by r[1] below. So if that's zero we have an alternate
+    # form where there's a single value for x
 
+    p = r[0]**2 + r[1]**2 - m**2
 
-    # note, given the form of the viable region, we divide by:
-    #   ((2*v[0]+x)**2+(2*v[1]+y)**2)
-    # while solving for y=0 or x=0 we might get a zero in the denominator
-    # if this happens then x must equal -2*v[0] or y must equal -2*v[1]
-    if q_bx**2-4*q_ax*q_c < 0:
-        i_1x = i_2x = -2*v[0]
+    if util.isclose(r[1], 0):
+        # this case would cause a divide by zero when computing the
+        # coefficients of the quadratic equation below
+        s_1x = s_2x = p/r[0]
     else:
-        i_1x = (-q_bx - np.sqrt(q_bx**2-4*q_ax*q_c))/(2*q_ax)
-        i_2x = (-q_bx + np.sqrt(q_bx**2-4*q_ax*q_c))/(2*q_ax)
-    if q_by**2-4*q_ay*q_c < 0:
-        i_1y = i_2y = -2*v[1]
-    else:
-        i_1y = (-q_by - np.sqrt(q_by**2-4*q_ay*q_c))/(2*q_ay)
-        i_2y = (-q_by + np.sqrt(q_by**2-4*q_ay*q_c))/(2*q_ay)
+        # note that r[0] and r[1] cannot both be zero (assuming m>0)
+        q_a = r[0]**2/r[1]**2+1
+        q_b = -2*p*r[0]/r[1]**2
+        q_c = p**2/r[1]**2 - p
+        # quadratic formula
+        # note that we get real roots as long as the problem is feasible (i.e.
+        # we're not already inside the margin
+        s_1x = (-q_b-np.sqrt(q_b**2-4*q_a*q_c)) / (2*q_a)
+        s_2x = (-q_b+np.sqrt(q_b**2-4*q_a*q_c)) / (2*q_a)
 
-    # which pairs depends on the quadrant v is in
-    if np.sign(v[0]) == np.sign(v[1]):
-        # y = -i_1y/i_2x * x +i_y1
-        # perpendicular = i_2x/i_1y * (x - a[0]) + a[1]
-        slope1 = -i_1y/i_2x
-        intercept1 = i_1y
-        # y = -i_2y/i_1x * x +i_y1
-        # perpendicular = i_1x/i_2y * (x - a[0]) + a[1]
-        slope2 = -i_2y/i_1x
-        intercept2 = i_2y
-    else:
-        # y = -i_1y/i_1x * x +i_y1
-        # perpendicular = i_1x/i_1y * (x - a[0]) + a[1]
-        slope1 = -i_1y/i_1x
-        intercept1 = i_1y
-        # y = -i_1y/i_1x * x +i_y1
-        # perpendicular = i_1x/i_1y * (x - a[0]) + a[1]
-        slope2 = -i_2y/i_2x
-        intercept2 = i_2y
+    # y roots are y_i and -y_i, but only one each for i=0,1 will be on the curve
+    s_1y = np.sqrt(p-s_1x**2)
+    if not util.isclose((s_1x - r[0])**2 + (s_1y - r[1])**2, m**2):
+        s_1y = -s_1y
+    s_2y = np.sqrt(p-s_2x**2)
+    if not util.isclose((s_2x - r[0])**2 + (s_2y - r[1])**2, m**2):
+        s_2y = -s_2y
 
-    x1 = (a[0]/slope1 + a[1] - intercept1) / (slope1 + 1/slope1)
-    y1 = slope1 * x1 + intercept1
+    # subbing back in our x_hat,y_hat above,
+    # these determine the slope of the boundry lines of our viable region
+    # (1) y+2*v[1] = s_iy/s_ix * (x+2*v[0]) for i = 0,1 (careful if x_i = 0)
+    # with perpendiculars going through the desired_divert point
+    # (2) y-a[1] = -s_ix/s_iy * (x-a[0]) (careful if y_i == 0)
+    # so find the intersection of each of these pairs of equations
+
+    if util.isclose(s_1x, 0):
+        # tangent line is vertical
+        # implies perpendicular is horizontal
+        y1 = a[1]
+        x1 = 0
+    elif util.isclose(s_1y, 0):
+        # tangent line is horizontal
+        # implies perpendicular is vertical
+        x1 = a[0]
+        y1 = 0
+    else:
+        # solve (1) for y in terms of x and plug into (2), solve for x
+        x1 = (s_1x/s_1y*a[0]+a[1] - s_1y/s_1x*2*v[0] + 2*v[1]) / (s_1y/s_1x + s_1x/s_1y)
+        # plug back into (1)
+        y1 = s_1y/s_1x * (x1+2*v[0]) - 2*v[1]
+
+    if util.isclose(s_2x, 0):
+        y2 = a[1]
+        x2 = 0
+    elif util.isclose(s_2y, 0):
+        x2 = a[0]
+        y2 = 0
+    else:
+        x2 = (s_2x/s_2y*a[0]+a[1] - s_2y/s_2x*2*v[0] + 2*v[1]) / (s_2y/s_2x + s_2x/s_2y)
+        y2 = s_2y/s_2x * (x2+2*v[0]) - 2*v[1]
+
     cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
-
-    x2 = (a[0]/slope2 + a[1] - intercept2) / (slope2 + 1/slope2)
-    y2 = slope2 * x2 + intercept2
     cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
 
     if cost1 < cost2:
         x = x1
         y = y1
-
-        if cbdr:
-            x += cost1
-            y = slope1 * (x) + intercept1
+        s_x = s_1x
+        s_y = s_1y
+        cost = cost1
     else:
         x = x2
         y = y2
+        s_x = s_2x
+        s_y = s_2y
+        cost = cost2
 
-        if cbdr:
-            x += cost2
-            y = slope2 * (x) + intercept2
+    if cbdr:
+        if util.isclose(s_x, 0):
+            dx = 0
+            dy = np.sqrt(cost*2)
+            y += np.sqrt(cost*2)
+        elif util.isclose(s_y, 0):
+            dx = np.sqrt(cost*2)
+            dy = 0
+            x += dx
+        else:
+            dx = np.sqrt(cost*2 / ((s_y/s_x)**2 + 1))
+            dy = s_y/s_x * dx
+            x += dx
+            y += dy
+
     # useful assert when testing
-    #assert np.isclose(r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+p)**2/((2*v[0]+x)**2+(2*v[1]+y)**2), m**2)
+    assert util.isclose((r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2), m**2)
     return np.array((x, y))
 
 # numba seems to have trouble with this method and recompiles it with some
 # frequency. So we explicitly specify types here to avoid that.
-@jit(
-        nb.types.Tuple(
-            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
-        )(
-            nb.float64[::1], nb.float64, nb.float64,
-            nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
-            nb.float64, nb.float64, nb.float64, nb.float64
-        ), cache=True, nopython=True)
+#@jit(
+#        nb.types.Tuple(
+#            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
+#        )(
+#            nb.float64[::1], nb.float64, nb.float64,
+#            nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
+#            nb.float64, nb.float64, nb.float64, nb.float64
+#        ), cache=True, nopython=True)
 def _find_target_v(
         target_location:np.ndarray, arrival_distance:float, min_distance:float,
         current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
@@ -924,10 +953,17 @@ class GoToLocation(AbstractSteeringOrder):
             accelerate_up = ship.max_speed() / ship.max_acceleration() * safety_factor
 
             d_cruise = distance - 2*d_accelerate
-            cruise = d_cruise / ship.max_speed() * safety_factor
+            cruise = d_cruise / ship.max_speed()# * safety_factor
 
         rotate_away = rotation_time(np.pi, 0, ship.max_angular_acceleration(), safety_factor)
         accelerate_down = accelerate_up
+
+        assert rotate_towards >= 0.
+        assert accelerate_up >= 0.
+        assert cruise >= 0.
+        assert accelerate_down >= 0.
+        assert rotate_away >= 0.
+
         return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
 
     def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs) -> None:
@@ -968,28 +1004,7 @@ class GoToLocation(AbstractSteeringOrder):
         return f'GoToLocation: {self.target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
 
     def eta(self) -> float:
-        course = self.target_location - (self.ship.loc)
-        distance, target_angle = util.cartesian_to_polar(course[0], course[1])
-        rotate_towards = rotation_time(util.normalize_angle(target_angle-self.ship.angle, shortest=True), self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
-
-        # we cap at max_speed, so need to account for that by considering a
-        # "cruise" period where we travel at max_speed, but only if we have
-        # enough distance to make it to cruise speed
-        if np.sqrt(2. * self.ship.max_acceleration() * distance/2.) < self.ship.max_speed():
-            accelerate_up = np.sqrt( 2. * (distance/2.) / self.ship.max_acceleration()) * self.safety_factor
-            cruise = 0.
-        else:
-            # v_f**2 = 2 * a * d
-            # d = v_f**2 / (2*a)
-            d_accelerate = self.ship.max_speed()**2 / (2*self.ship.max_acceleration())
-            accelerate_up = self.ship.max_speed() / self.ship.max_acceleration() * self.safety_factor
-
-            d_cruise = distance - 2*d_accelerate
-            cruise = d_cruise / self.ship.max_speed() * self.safety_factor
-
-        rotate_away = rotation_time(np.pi, 0, self.ship.max_angular_acceleration(), self.safety_factor)
-        accelerate_down = accelerate_up
-        return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
+        return GoToLocation.compute_eta(self.ship, self.target_location, self.safety_factor)
 
     def is_complete(self) -> bool:
         # computing this is expensive, so don't if we can avoid it
@@ -1176,6 +1191,8 @@ class DisembarkToEntity(core.Order):
         nearest_dist = np.inf
         nearest = None
         for entity in hits:
+            if entity == ship:
+                continue
             if np.allclose(entity.velocity, ZERO_VECTOR):
                 dist = np.linalg.norm(entity.loc - ship.loc)-entity.radius
                 if dist < nearest_dist:
@@ -1195,7 +1212,9 @@ class DisembarkToEntity(core.Order):
 
         self.embark_order:Optional[core.Order] = None
 
-        self.init_eta = GoToLocation.compute_eta(self.ship, embark_to.loc)
+        # should be upper bound
+        disembark_loc = self.ship.loc + util.polar_to_cartesian(self.disembark_dist, -self.ship.angle)
+        self.init_eta = GoToLocation.compute_eta(self.ship, disembark_loc) + GoToLocation.compute_eta(self.ship, embark_to.loc)
 
     def is_complete(self):
         return self.embark_order is not None and self.embark_order.is_complete()
@@ -1208,7 +1227,7 @@ class DisembarkToEntity(core.Order):
             _, angle = util.cartesian_to_polar(*(self.ship.loc - self.disembark_from.loc))
             target_angle = angle + self.gamestate.random.uniform(-np.pi/2, np.pi/2)
             target_disembark_distance = self.disembark_from.radius+self.disembark_dist+self.disembark_margin
-            target_loc = self.embark_to.loc + util.polar_to_cartesian(target_disembark_distance, target_angle)
+            target_loc = self.disembark_from.loc + util.polar_to_cartesian(target_disembark_distance, target_angle)
 
             self.ship.orders.appendleft(GoToLocation(
                     target_loc, self.ship, self.gamestate,

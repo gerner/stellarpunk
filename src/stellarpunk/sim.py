@@ -78,8 +78,9 @@ class Simulator:
 
         order = ship.orders[0]
         if order.is_complete():
-            self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta - self.gamestate.timestamp:.2f}')
+            self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
             ship.orders.popleft()
+            self.ui.order_complete(order)
         else:
             order.act(dt)
 

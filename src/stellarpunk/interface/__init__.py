@@ -267,6 +267,10 @@ class AbstractInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def order_complete(self, order:core.Order) -> None:
+        pass
+
+    @abc.abstractmethod
     def tick(self, timeout:float) -> None:
         pass
 
@@ -518,6 +522,9 @@ class Interface(AbstractInterface):
                 f'collision detected {entity_a.address_str()}, {entity_b.address_str()}',
                 attr=self.get_color(Color.ERROR)
         )
+
+    def order_complete(self, order:core.Order) -> None:
+        return
 
     def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """

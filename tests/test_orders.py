@@ -75,6 +75,12 @@ def test_goto_entity(gamestate, generator, sector):
     assert goto_order.arrival_distance >= (arrival_distance*0.1)/2 - orders.VELOCITY_EPS
     assert goto_order.min_distance == 0.
 
+def test_compute_eta(generator, sector):
+    ship = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=-2, theta=0)
+    assert orders.GoToLocation.compute_eta(ship, np.array((10000,0)), 2.0) > 0
+    assert orders.GoToLocation.compute_eta(ship, np.array((100000,0)), 2.0) > 0
+    assert orders.GoToLocation.compute_eta(ship, np.array((1000000,0)), 2.0) > 0
+
 @write_history
 def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
@@ -222,3 +228,50 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     testui.tick = tick
     simulator.run()
     assert goto_order.is_complete()
+
+@write_history
+def test_disembark_skip_disembark(gamestate, generator, sector, testui, simulator):
+    # ship starts near nothing, go to an entity
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    blocker = generator.spawn_station(sector, 0, 0, resource=0)
+
+    disembark_order = orders.DisembarkToEntity.disembark_to(blocker, ship_driver, gamestate)
+    ship_driver.orders.append(disembark_order)
+
+    eta = disembark_order.init_eta
+
+    testui.eta = eta
+    testui.orders = [disembark_order]
+    testui.margin_neighbors = [ship_driver]
+
+    simulator.run()
+    assert disembark_order.is_complete()
+    assert np.linalg.norm(blocker.loc - ship_driver.loc) < 2.3e3
+    assert disembark_order in testui.complete_orders
+    assert len(testui.complete_orders) == 2
+
+@write_history
+def test_basic_disembark(gamestate, generator, sector, testui, simulator):
+    # ship starts near an entity, go to another
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    start_blocker = generator.spawn_station(sector, -8500, -300, resource=0)
+    blocker = generator.spawn_station(sector, 5000, 0, resource=0)
+
+    disembark_order = orders.DisembarkToEntity.disembark_to(blocker, ship_driver, gamestate)
+    ship_driver.orders.append(disembark_order)
+
+    eta = disembark_order.init_eta
+
+    testui.eta = eta
+    testui.orders = [disembark_order]
+    testui.margin_neighbors = [ship_driver]
+
+    simulator.run()
+    assert disembark_order.is_complete()
+    assert np.linalg.norm(blocker.loc - ship_driver.loc) < 2.3e3
+    assert len(testui.complete_orders) == 3
+    assert disembark_order.disembark_from == start_blocker
+    assert disembark_order.embark_to == blocker
+    first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0].target_location) - start_blocker.radius
+    assert first_dist >= disembark_order.disembark_dist - orders.VELOCITY_EPS
+    assert first_dist <= disembark_order.disembark_dist + disembark_order.disembark_margin + orders.VELOCITY_EPS

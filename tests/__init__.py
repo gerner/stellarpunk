@@ -102,11 +102,20 @@ class MonitoringUI(interface.AbstractInterface):
         self.eta = np.inf
 
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, float, float]] = []
+        self.complete_orders:List[core.Order] = []
+
+        self.done = False
 
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:float, ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
 
+    def order_complete(self, order:core.Order) -> None:
+        self.complete_orders.append(order)
+        if len(set(self.orders) - set(self.complete_orders)) == 0:
+            self.done = True
+
     def tick(self, timeout:float) -> None:
+
         assert not self.collisions
 
         assert self.gamestate.timestamp < self.eta
@@ -119,6 +128,5 @@ class MonitoringUI(interface.AbstractInterface):
             if neighbor_dist < self.min_neighbor_dist:
                 self.min_neighbor_dist = neighbor_dist
 
-        if all(map(lambda x: x.is_complete(), self.orders)):
+        if self.done:
             self.gamestate.quit()
-

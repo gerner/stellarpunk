@@ -696,7 +696,7 @@ class UniverseGenerator:
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
-                self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_goto_random_station)
+                self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_disembark_to_random_station)
 
     def generate_universe(self):
         self.gamestate.random = self.r
