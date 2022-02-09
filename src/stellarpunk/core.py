@@ -9,7 +9,7 @@ import logging
 import collections
 import gzip
 import json
-from typing import Optional, Deque, Callable, Iterable
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, IO, Tuple, Iterator
 
 import graphviz # type: ignore
 import numpy as np
@@ -21,17 +21,21 @@ from stellarpunk import util
 class ProductionChain:
     """ A production chain of resources/products interconnected in a DAG. """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # how many nodes per rank
-        self.ranks = None
+        self.ranks = np.zeros((0,), dtype=np.int64)
         # adjacency matrix for the production chain
-        self.adj_matrix = None
+        self.adj_matrix = np.zeros((0,0))
         # how much each product is marked up over base input price
-        self.markup = None
+        self.markup = np.zeros((0,))
         # how much each product is priced (sum_inputs(input cost * input amount) * markup)
-        self.prices = None
+        self.prices = np.zeros((0,))
 
-        self.sink_names = []
+        self.sink_names:List[str] = []
+
+    @property
+    def shape(self):
+        return self.adj_matrix.shape
 
     def viz(self):
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})
@@ -56,18 +60,18 @@ class ProductionChain:
 class Entity:
     id_prefix = "ENT"
 
-    def __init__(self, name, entity_id=None):
+    def __init__(self, name:str, entity_id:Optional[uuid.UUID]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self.name = name
 
-    def short_id(self):
+    def short_id(self) -> str:
         """ first 32 bits as hex """
         return f'{self.id_prefix}-{self.entity_id.hex[:8]}'
 
-    def short_id_int(self):
+    def short_id_int(self) -> int:
         return int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.short_id()}'
 
 class Sector(Entity):
@@ -75,7 +79,7 @@ class Sector(Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, x, y, radius, *args, **kwargs):
+    def __init__(self, x:int, y:int, radius:float, space:pymunk.Space, *args: Any, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
         # sector's position in the universe
         self.x = x
@@ -84,29 +88,28 @@ class Sector(Entity):
         # one standard deviation
         self.radius = radius
 
-        self.planets = []
-        self.stations = []
-        self.ships = []
-        self.asteroids = collections.defaultdict(list)
-        self.resources = []
+        self.planets:List[Planet] = []
+        self.stations:List[Station] = []
+        self.ships:List[Ship] = []
+        self.asteroids:Dict[int, List[Asteroid]] = collections.defaultdict(list)
 
         # id -> entity for all entities in the sector
-        self.entities = {}
+        self.entities:Dict[uuid.UUID, SectorEntity] = {}
 
         # physics space for this sector
         # we don't manage this, just have a pointer to it
         # we do rely on this to provide a spatial index of the sector
-        self.space = None
+        self.space:pymunk.Space = space
 
-    def spatial_query(self, bbox):
-        for hit in self.space.bb_query(bbox, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
+    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
+        for hit in self.space.bb_query(pymunk.BB(*bbox), pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.body.entity
 
-    def spatial_point(self, point, max_dist=None):
+    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
         if not max_dist:
             max_dist = self.radius*3
         for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
-            yield hit.shape.body.entity
+            yield hit.shape.body.entity # type: ignore[union-attr]
 
     def is_occupied(self, x, y, eps=1e1):
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
@@ -214,7 +217,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, *args, history_length=60*60, **kwargs) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, num_products:int, *args, history_length:int=60*60, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -233,6 +236,8 @@ class SectorEntity(Entity):
         self.radius = 0.
 
         self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
+
+        self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
 
     def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
@@ -384,28 +389,28 @@ class Order:
         pass
 
 class Gamestate:
-    def __init__(self):
+    def __init__(self) -> None:
 
-        self.random = None
+        self.random = np.random.default_rng()
 
         # the production chain of resources (ingredients
-        self.production_chain = None
+        self.production_chain = ProductionChain()
 
         # the universe is a set of sectors, indexed by coordinate
-        self.sectors = {}
-        self.entities = {}
+        self.sectors:Dict[tuple[float,float], Sector] = {}
+        self.entities:Dict[uuid.UUID, Entity] = {}
 
-        self.characters = []
+        #self.characters = []
 
         self.keep_running = True
 
         self.base_date = datetime.datetime(2234, 4, 3)
-        self.timestamp = 0
+        self.timestamp = 0.
 
         self.dt = 1/60
         self.ticks = 0
-        self.ticktime = 0
-        self.timeout = 0
+        self.ticktime = 0.
+        self.timeout = 0.
         self.missed_ticks = 0
 
         self.keep_running = True
@@ -421,24 +426,26 @@ class Gamestate:
     def quit(self):
         self.keep_running = False
 
-def write_history_to_file(entity, f, mode="w"):
+def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, IO], mode="w"):
     if isinstance(f, str):
         needs_close = True
         if f.endswith(".gz"):
-            f = gzip.open(f, mode+"t")
+            fout = gzip.open(f, mode+"t")
         else:
-            f = open(f, mode)
+            fout = open(f, mode)
     else:
         needs_close = False
+        fout = f
 
-    if isinstance(entity, Ship):
-        entities = [entity]
-    elif isinstance(entity, Sector):
+    entities:Iterable[SectorEntity]
+    if isinstance(entity, Sector):
         entities = entity.entities.values()
+    else:
+        entities = [entity]
 
     for ent in entities:
         for entry in ent.get_history():
-            f.write(json.dumps(entry.to_json()))
-            f.write("\n")
+            fout.write(json.dumps(entry.to_json()))
+            fout.write("\n")
     if needs_close:
-        f.close()
+        fout.close()

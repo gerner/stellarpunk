@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import collections
-from typing import Optional, Deque
+from typing import Optional, Deque, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -547,7 +547,7 @@ def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int):
     return abs(oldest_bearing - latest_bearing) < ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
 class AbstractSteeringOrder(core.Order):
-    def __init__(self, *args, safety_factor:float=2., **kwargs):
+    def __init__(self, *args: Any, safety_factor:float=2., **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
 
@@ -574,7 +574,7 @@ class AbstractSteeringOrder(core.Order):
         self.cannot_avoid_collision = False
 
         self.collision_hits:list[core.SectorEntity] = []
-        self.collision_hits_age = 0
+        self.collision_hits_age = 0.
         self.collision_hits_max_age = 1./10.
 
         # how many neighbors per m^2
@@ -651,9 +651,9 @@ class AbstractSteeringOrder(core.Order):
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')
 
     def _clear_collision_info(self):
-        self.collision_threat:Optional[core.SectorEntity] = None
+        self.collision_threat = None
         self.collision_dv = ZERO_VECTOR
-        self.collision_threat_time = 0
+        self.collision_threat_time = 0.
         self.collision_relative_velocity = ZERO_VECTOR
         self.collision_relative_position = ZERO_VECTOR
         self.collision_approach_time = np.inf
@@ -868,7 +868,7 @@ class AbstractSteeringOrder(core.Order):
         return delta_velocity, approach_time, minimum_separation, self.ship.radius + neighbor.radius + margin - minimum_separation
 
 class KillRotationOrder(core.Order):
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
     def is_complete(self) -> bool:
@@ -886,7 +886,7 @@ class KillRotationOrder(core.Order):
             self.ship.phys.torque = np.clip(t, -9000, 9000)
 
 class RotateOrder(AbstractSteeringOrder):
-    def __init__(self, target_angle: float, *args, **kwargs) -> None:
+    def __init__(self, target_angle: float, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target_angle = util.normalize_angle(target_angle)
 
@@ -902,7 +902,7 @@ class KillVelocityOrder(AbstractSteeringOrder):
     Rotates to opposite direction of current velocity and applies thrust to
     zero out velocity. """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
     def is_complete(self) -> bool:
@@ -966,7 +966,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
 
-    def __init__(self, target_location: npt.NDArray[np.float64], *args, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs) -> None:
+    def __init__(self, target_location: npt.NDArray[np.float64], *args: Any, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
         The order will arrivate at the location approximately and with zero
@@ -1065,7 +1065,7 @@ class GoToLocation(AbstractSteeringOrder):
         return
 
 class WaitOrder(AbstractSteeringOrder):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
 
     def is_complete(self) -> bool:
@@ -1088,7 +1088,7 @@ class WaitOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class MineOrder(AbstractSteeringOrder):
-    def __init__(self, target: core.Asteroid, amount: float, *args, max_dist=2e3, **kwargs) -> None:
+    def __init__(self, target: core.Asteroid, amount: float, *args: Any, max_dist=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
         self.max_dist = max_dist
@@ -1113,7 +1113,7 @@ class MineOrder(AbstractSteeringOrder):
         self.harvested += amount
 
 class TransferCargo(core.Order):
-    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args, max_dist=2e3, **kwargs) -> None:
+    def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.target = target
@@ -1137,18 +1137,23 @@ class TransferCargo(core.Order):
         self.transferred = self.amount
 
 class HarvestOrder(core.Order):
-    def __init__(self, base: core.SectorEntity, resource: int, *args, **kwargs) -> None:
+    def __init__(self, base: core.SectorEntity, resource: int, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.base = base
         self.resource = resource
         self.keep_harvesting = True
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         #TODO: harvest forever?
         return not self.keep_harvesting
 
-    def act(self, dt):
+    def act(self, dt:float) -> None:
+        if self.ship.sector is None:
+            #TODO: shouldn't we be able to target harvesting at a particular
+            # sector and it'll go there?
+            raise Exception("ship must be in a sector to harvest")
+
         # if our cargo is full, send it back to home base
         cargo_full = False
         if cargo_full:
@@ -1173,7 +1178,7 @@ class HarvestOrder(core.Order):
                 nearest_dist = dist
 
         if nearest is None:
-            self.logger.info(f'could not find asteroid of type {self.resource} in {self.sector}, stopping harvest')
+            self.logger.info(f'could not find asteroid of type {self.resource} in {self.ship.sector}, stopping harvest')
             self.keep_harvesting = False
             return
 
@@ -1201,7 +1206,7 @@ class DisembarkToEntity(core.Order):
 
         return DisembarkToEntity(nearest, embark_to, ship, gamestate, disembark_dist=disembark_dist, disembark_margin=disembark_margin)
 
-    def __init__(self, disembark_from: Optional[core.SectorEntity], embark_to: core.SectorEntity, *args, disembark_dist:float=5e3, disembark_margin:float=5e2, **kwargs) -> None:
+    def __init__(self, disembark_from: Optional[core.SectorEntity], embark_to: core.SectorEntity, *args: Any, disembark_dist:float=5e3, disembark_margin:float=5e2, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.disembark_dist = disembark_dist
@@ -1216,7 +1221,7 @@ class DisembarkToEntity(core.Order):
         disembark_loc = self.ship.loc + util.polar_to_cartesian(self.disembark_dist, -self.ship.angle)
         self.init_eta = GoToLocation.compute_eta(self.ship, disembark_loc) + GoToLocation.compute_eta(self.ship, embark_to.loc)
 
-    def is_complete(self):
+    def is_complete(self) -> bool:
         return self.embark_order is not None and self.embark_order.is_complete()
 
     def act(self, dt:float) -> None:

@@ -1,5 +1,7 @@
 """ Curses based interface for Stellar Punk. """
 
+from __future__ import annotations
+
 import logging
 import curses
 import curses.ascii
@@ -15,6 +17,7 @@ import collections.abc
 import cProfile
 import pstats
 import abc
+from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping
 
 from stellarpunk import util, generate, core
 
@@ -134,26 +137,27 @@ class Icons:
         else:
             return 0
 
-class View:
-    def __init__(self, interface):
+class View(abc.ABC):
+    def __init__(self, interface: Interface) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.interface = interface
 
-    def initialize(self):
+    def initialize(self) -> None:
         pass
 
-    def focus(self):
+    def focus(self) -> None:
         self.logger.debug(f'{self} got focus')
         self.has_focus = True
 
-    def unfocus(self):
+    def unfocus(self) -> None:
         self.has_focus = False
 
-    def update_display(self):
+    def update_display(self) -> None:
         pass
 
-    def handle_input(self, key):
+    @abc.abstractmethod
+    def handle_input(self, key:int) -> bool:
         pass
 
 class ColorDemo(View):
@@ -182,35 +186,51 @@ class ColorDemo(View):
 class CommandInput(View):
     """ Command mode: typing in a command to execute. """
 
+    CommandSig = Union[
+            Callable[[Sequence[str]], None],
+            Tuple[
+                Callable[[Sequence[str]], None],
+                Callable[[str, str], str]]
+    ]
+
     class UserError(Exception):
         pass
 
-    def __init__(self, *args, commands=None, **kwargs):
+    def __init__(self, *args:Any, commands:Mapping[str, CommandSig]={}, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.commands = commands or {}
+
+        self.commands:MutableMapping[str, Callable[[Sequence[str]], None]] = {}
+        self.completers:MutableMapping[str, Callable[[str, str], str]] = {}
+        for c, carg in commands.items():
+            if isinstance(carg, tuple):
+                self.commands[c] = carg[0]
+                self.completers[c] = carg[1]
+            else:
+                self.commands[c] = carg
+
         self.partial = ""
         self.command = ""
 
-    def _command_name(self):
+    def _command_name(self) -> str:
         i = self.command.strip(" ").find(" ")
         if i < 0:
             return self.command.strip()
         else:
             return self.command.strip()[0:i]
 
-    def _command_args(self):
+    def _command_args(self) -> Sequence[str]:
         return self.command.strip().split()[1:]
 
-    def initialize(self):
+    def initialize(self) -> None:
         for c, f in self.interface.command_list().items():
             if c not in self.commands:
                 self.commands[c] = f
         self.logger.info("entering command mode")
 
-    def update_display(self):
+    def update_display(self) -> None:
         self.interface.status_message(f':{self.command}')
 
-    def handle_input(self, key):
+    def handle_input(self, key:int) -> bool:
         if key in (ord('\n'), ord('\r')):
             self.logger.debug(f'read command {self.command}')
             self.interface.status_message()
@@ -219,10 +239,7 @@ class CommandInput(View):
             if command_name in self.commands:
                 self.logger.info(f'executing {self.command}')
                 try:
-                    if isinstance(self.commands[command_name], collections.abc.Sequence):
-                        self.commands[command_name][0](self._command_args())
-                    else:
-                        self.commands[command_name](self._command_args())
+                    self.commands[command_name](self._command_args())
                 except CommandInput.UserError as e:
                     self.logger.info(f'user error executing {self.command}: {e}')
                     self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
@@ -238,8 +255,8 @@ class CommandInput(View):
         elif key == curses.ascii.TAB:
             if " " not in self.command:
                 self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial
-            elif self._command_name() in self.commands and isinstance(self.commands[self._command_name()], collections.abc.Sequence):
-                self.command = self.commands[self._command_name()][1](self.partial, self.command) or ""
+            elif self._command_name() in self.completers:
+                self.command = self.completers[self._command_name()](self.partial, self.command) or ""
         elif key == curses.ascii.ESC:
             self.interface.status_message()
             return False
@@ -275,8 +292,8 @@ class AbstractInterface(abc.ABC):
         pass
 
 class Interface(AbstractInterface):
-    def __init__(self, gamestate, generator):
-        self.stdscr = None
+    def __init__(self, gamestate: core.Gamestate, generator: generate.UniverseGenerator):
+        self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
         # the size of the global screen, containing other viewports
@@ -284,19 +301,19 @@ class Interface(AbstractInterface):
         self.screen_height = 0
 
         # width/height of the font in pixels
-        self.font_width = 0
-        self.font_height = 0
+        self.font_width = 0.
+        self.font_height = 0.
 
         # viewport sizes and positions in the global screen
         # this is what's visible
-        self.viewscreen = None
+        self.viewscreen:curses.window = None # type: ignore[assignment]
         self.viewscreen_width = 0
         self.viewscreen_height = 0
         self.viewscreen_x = 0
         self.viewscreen_y = 0
         self.viewscreen_bounds = (0,0,0,0)
 
-        self.logscreen = None
+        self.logscreen:curses.window = None # type: ignore[assignment]
         self.logscreen_width = 0
         self.logscreen_height = 0
         self.logscreen_x = 0
@@ -311,20 +328,20 @@ class Interface(AbstractInterface):
         self.generator = generator
 
         # last view has focus for input handling
-        self.views = []
+        self.views:List[View] = []
 
         # list of frame times
-        self.frame_history = collections.deque()
+        self.frame_history:Deque[float] = collections.deque()
         # max frame history to keep in seconds
-        self.max_frame_history = 1
+        self.max_frame_history = 1.
 
         self.show_fps = True
 
         self.step = False
 
-        self.profiler = None
+        self.profiler:Optional[cProfile.Profile] = None
 
-    def __enter__(self):
+    def __enter__(self) -> Interface:
         """ Does most simple interface initialization.
 
         In particular, this does enought initialization of the curses interface
@@ -356,7 +373,7 @@ class Interface(AbstractInterface):
 
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type:Any, value:Any, traceback:Any) -> None:
         """ Cleans up the interface as much as possible so the terminal, etc.
         is returned to its original state
 
@@ -366,16 +383,16 @@ class Interface(AbstractInterface):
         # Set everything back to normal
         if self.stdscr:
             self.logger.info("resetting screen")
-            self.stdscr.keypad(0)
+            self.stdscr.keypad(False)
             curses.echo()
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
 
-    def fps(self):
+    def fps(self) -> float:
         return len(self.frame_history) / self.max_frame_history
 
-    def choose_viewport_sizes(self):
+    def choose_viewport_sizes(self) -> None:
         """ Chooses viewport sizes and locations for viewscreen and the log."""
 
         # first get some basic terminal screen dimensions
@@ -456,7 +473,7 @@ class Interface(AbstractInterface):
         self.logger.info(f'viewscreen (x,y) {(self.viewscreen_y, self.viewscreen_x)} (h,w): {(self.viewscreen_height, self.viewscreen_width)}')
         self.logger.info(f'logscreen (x,y) {(self.logscreen_y, self.logscreen_x)} (h,w): {(self.logscreen_height, self.logscreen_width)}')
 
-    def reinitialize_screen(self, name="Main Viewscreen"):
+    def reinitialize_screen(self, name="Main Viewscreen") -> None:
         self.logger.debug(f'reinitializing the screen')
         self.choose_viewport_sizes()
         textpad.rectangle(
@@ -485,7 +502,7 @@ class Interface(AbstractInterface):
         self.refresh_logscreen()
         #self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
-    def initialize(self):
+    def initialize(self) -> None:
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
         #curses.mouseinterval(200)
         curses.set_escdelay(1)
@@ -501,7 +518,7 @@ class Interface(AbstractInterface):
         else:
             raise ValueError(f'unknown color {color}')
 
-    def refresh_viewscreen(self):
+    def refresh_viewscreen(self) -> None:
         self.viewscreen.noutrefresh(
                 self.camera_y, self.camera_x,
                 self.viewscreen_y, self.viewscreen_x,
@@ -509,7 +526,7 @@ class Interface(AbstractInterface):
                 self.viewscreen_x+self.viewscreen_width-1
         )
 
-    def refresh_logscreen(self):
+    def refresh_logscreen(self) -> None:
         self.logscreen.noutrefresh(
                 0, 0,
                 self.logscreen_y, self.logscreen_x,
@@ -563,7 +580,7 @@ class Interface(AbstractInterface):
     def generation_listener(self) -> generate.GenerationListener:
         return GenerationUI(self)
 
-    def open_view(self, view):
+    def open_view(self, view:View) -> None:
         self.logger.debug(f'opening view {view}')
         if len(self.views):
             self.views[-1].unfocus()
@@ -571,7 +588,7 @@ class Interface(AbstractInterface):
         view.focus()
         self.views.append(view)
 
-    def command_list(self):
+    def command_list(self) -> Mapping[str, Callable[[Sequence[str]], None]]:
         def pause(args): self.gamestate.paused = not self.gamestate.paused
         def fps(args): self.show_fps = not self.show_fps
         def quit(args): self.gamestate.quit()

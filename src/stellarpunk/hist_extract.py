@@ -6,6 +6,7 @@ import json
 import gzip
 import contextlib
 import logging
+from typing import Dict
 
 import numpy as np
 
@@ -74,8 +75,8 @@ def main():
         else:
             fout = context_stack.enter_context(open(args.output, "wt"))
 
-        eid_matches = {}
-        eid_ts = {}
+        eid_matches:Dict[str, str] = {}
+        eid_ts:Dict[str, float] = {}
         for line in fin:
             entry = json.loads(line)
 

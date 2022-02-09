@@ -8,8 +8,10 @@ import curses.textpad
 import curses.ascii
 import time
 import uuid
+from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union
 
 import drawille # type: ignore
+import numpy as np
 
 from stellarpunk import util, core, interface, orders
 
@@ -23,7 +25,7 @@ class SectorView(interface.View):
     pilot mode. Can return to universe mode or enter command mode.
     """
 
-    def __init__(self, sector, *args, **kwargs):
+    def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         #TODO: this circular dependency feels odd
@@ -32,20 +34,20 @@ class SectorView(interface.View):
         self.sector = sector
 
         # where the sector map is centered in sector coordinates
-        self.scursor_x = 0
-        self.scursor_y = 0
+        self.scursor_x = 0.
+        self.scursor_y = 0.
 
         # entity id of the currently selected target
-        self.selected_target = None
-        self.selected_entity = None
+        self.selected_target:Optional[uuid.UUID] = None
+        self.selected_entity:Optional[core.SectorEntity] = None
 
         # sector zoom level, expressed in meters to fit on screen
         self.szoom = self.sector.radius*2
-        self.meters_per_char_x = 0
-        self.meters_per_char_y = 0
+        self.meters_per_char_x = 0.
+        self.meters_per_char_y = 0.
 
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
-        self.bbox = (0,0,0,0)
+        self.bbox = (0.,0.,0.,0.)
 
         self.cached_grid = None
 
@@ -53,23 +55,23 @@ class SectorView(interface.View):
         self.debug_entity_vectors = False
 
     @property
-    def viewscreen(self):
+    def viewscreen(self) -> curses.window:
         return self.interface.viewscreen
 
-    def initialize(self):
+    def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
         self.interface.camera_x = 0
         self.interface.camera_y = 0
         self.update_bbox()
         self.interface.reinitialize_screen(name="Sector Map")
 
-    def focus(self):
+    def focus(self) -> None:
         super().focus()
         self.interface.camera_x = 0
         self.interface.camera_y = 0
         self.interface.reinitialize_screen(name="Sector Map")
 
-    def update_bbox(self):
+    def update_bbox(self) -> None:
         self.meters_per_char_x, self.meters_per_char_y = self.meters_per_char()
 
         vsw = self.interface.viewscreen_width
@@ -86,13 +88,13 @@ class SectorView(interface.View):
 
         #self.logger.debug(f'viewing sector {self.sector.entity_id} with bounding box ({(ul_x, ul_y)}, {(lr_x, lr_y)}) with per {self.meters_per_char_x:.0f}m x {self.meters_per_char_y:.0f}m char')
 
-    def set_scursor(self, x, y):
+    def set_scursor(self, x:float, y:float) -> None:
         self.scursor_x = x
         self.scursor_y = y
 
         self.update_bbox()
 
-    def move_scursor(self, direction):
+    def move_scursor(self, direction:int) -> None:
         old_x = self.scursor_x
         old_y = self.scursor_y
 
@@ -111,7 +113,7 @@ class SectorView(interface.View):
 
         self.update_bbox()
 
-    def zoom_scursor(self, direction):
+    def zoom_scursor(self, direction:int) -> None:
         if direction == ord('+'):
             self.szoom *= 0.9
         elif direction == ord('-'):
@@ -121,7 +123,7 @@ class SectorView(interface.View):
 
         self.update_bbox()
 
-    def meters_per_char(self):
+    def meters_per_char(self) -> Tuple[float, float]:
         meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
         meters_per_char_y = meters_per_char_x / self.interface.font_width * self.interface.font_height
 
@@ -145,7 +147,7 @@ class SectorView(interface.View):
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
 
-    def _compute_grid(self, max_ticks=10):
+    def _compute_grid(self, max_ticks=10) -> None:
         # choose ticks
         #TODO: should choose maxTicks based on resolution
 
@@ -205,13 +207,13 @@ class SectorView(interface.View):
                 text
         )
 
-    def draw_grid(self):
+    def draw_grid(self) -> None:
         """ Draws a grid at tick lines. """
 
         major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, text = self._cached_grid
 
-        for i, line in enumerate(text):
-            self.viewscreen.addstr(i, 0, line, curses.color_pair(29))
+        for lineno, line in enumerate(text):
+            self.viewscreen.addstr(lineno, 0, line, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -243,7 +245,7 @@ class SectorView(interface.View):
         pos_y = self.interface.viewscreen_height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
-    def draw_radar(self, radius):
+    def draw_radar(self, y:int, x:int, radius:float) -> None:
         """ Draws a radar graphic to get sense of scale centered at y, x. """
 
         # choose ticks
@@ -272,7 +274,7 @@ class SectorView(interface.View):
         r = stepsize
         theta_step = math.pi/16
         while r < math.sqrt(2*radius*radius):
-            theta = 0
+            theta = 0.
             while theta < 2*math.pi:
                 s_x, s_y = polar_to_rectangular(r, theta)
                 if abs(s_x) < radius and abs(s_y) < radius:
@@ -294,9 +296,9 @@ class SectorView(interface.View):
 
         # draw distance indicators
         for r in range(int(stepsize), int(ticks.niceMax), int(stepsize)):
-            self.viewscreen.addstr(y+int(r/meters_per_char_y), x, util.human_distance(r), curses.color_pair(29))
+            self.viewscreen.addstr(y+int(r/self.meters_per_char_y), x, util.human_distance(r), curses.color_pair(29))
 
-    def draw_entity_vectors(self, y, x, entity):
+    def draw_entity_vectors(self, y:int, x:int, entity:core.SectorEntity) -> None:
         """ Draws heading, velocity, force vectors for the entity. """
 
         if not isinstance(entity, core.Ship):
@@ -325,7 +327,7 @@ class SectorView(interface.View):
         else:
             self.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
 
-    def draw_entity(self, y, x, entity, icon_attr=0):
+    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """
 
         #TODO: handle shapes not circles?
@@ -333,7 +335,7 @@ class SectorView(interface.View):
         if entity.radius > 0 and self.meters_per_char_x < entity.radius:
             c = drawille.Canvas()
             r = entity.radius
-            theta = 0
+            theta = 0.
             step = 2/r*self.meters_per_char_x
             while theta < 2*math.pi:
                 c_x, c_y = util.polar_to_cartesian(r, theta)
@@ -361,7 +363,7 @@ class SectorView(interface.View):
         if self.debug_entity:
             self.draw_entity_debug_info(y+1, x, entity, description_attr)
 
-    def draw_multiple_entities(self, y, x, entities):
+    def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.SectorEntity]) -> None:
 
         icons = set(map(interface.Icons.sector_entity_icon, entities))
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
@@ -375,7 +377,7 @@ class SectorView(interface.View):
         self.viewscreen.addstr(y, x, icon, icon_attr)
         self.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
-    def draw_cells(self, occupied, collision_threats):
+    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.SectorEntity]], collision_threats:Sequence[core.SectorEntity]) -> None:
         for loc, entities in occupied.items():
             if len(entities) > 1:
                 self.draw_multiple_entities(
@@ -387,7 +389,7 @@ class SectorView(interface.View):
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
-    def draw_sector_map(self):
+    def draw_sector_map(self) -> None:
         """ Draws a map of a sector. """
 
         self.viewscreen.erase()
@@ -409,7 +411,7 @@ class SectorView(interface.View):
                 collision_threats.append(ship.collision_threat)
 
         last_loc = None
-        occupied = {}
+        occupied:Dict[Tuple[int,int], List[core.SectorEntity]] = {}
 
         # sort the entities so we draw left to right, top to bottom
         # this ensures any annotations down and to the right of an entity on
@@ -443,13 +445,13 @@ class SectorView(interface.View):
 
         self.interface.refresh_viewscreen()
 
-    def update_display(self):
+    def update_display(self) -> None:
         self.interface.camera_x = 0
         self.interface.camera_y = 0
         self.draw_sector_map()
         self.interface.refresh_viewscreen()
 
-    def command_list(self):
+    def command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
         def target(args):
             if not args:
                 raise interface.CommandInput.UserError("need a valid target")
@@ -491,6 +493,8 @@ class SectorView(interface.View):
         def debug_entity(args): self.debug_entity = not self.debug_entity
         def debug_vectors(args): self.debug_entity_vectors = not self.debug_entity_vectors
         def debug_write_history(args):
+            if not self.selected_entity:
+                raise interface.CommandInput.UserError(f'can only write history for a selected target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
             core.write_history_to_file(self.selected_entity, filename)
@@ -509,11 +513,11 @@ class SectorView(interface.View):
                 except Exception:
                     raise interface.CommandInput.UserError("need two int args for x,y pos")
 
-            self.interface.generator.spawn_ship(self.sector, x, y, v=(0,0), w=0)
+            self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
 
         def spawn_collision(args):
-            self.interface.generator.spawn_ship(self.sector, 0, 1100, v=(0,0), w=0)
-            self.interface.generator.spawn_ship(self.sector, 0, 2200, v=(0,0), w=0)
+            self.interface.generator.spawn_ship(self.sector, 0, 1100, v=np.array((0,0)), w=0)
+            self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
 
         def spawn_resources(args):
             x,y = self.scursor_x, self.scursor_y
@@ -524,7 +528,7 @@ class SectorView(interface.View):
                 "debug_vectors": debug_vectors,
                 "debug_write_history": debug_write_history,
                 "debug_write_sector": debug_write_sector,
-                "target": (target, util.tab_completer(self.sector.entities.keys())),
+                "target": (target, util.tab_completer(map(str, self.sector.entities.keys()))),
                 "spawn_ship": spawn_ship,
                 "spawn_collision": spawn_collision,
                 "spawn_resources": spawn_resources,
@@ -581,8 +585,7 @@ class SectorView(interface.View):
                 self.selected_entity.orders.append(orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate))
         elif key == ord("o"):
             for ship in self.sector.ships:
-                station = self.interface.generator.r.choice(self.sector.stations)
-                self.selected_entity.orders.clear()
+                station = self.interface.generator.r.choice(np.array((self.sector.stations)))
                 ship.orders.append(orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate))
         elif key == ord(":"):
             self.interface.open_view(interface.CommandInput(
