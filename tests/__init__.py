@@ -6,6 +6,7 @@ from typing import Optional, List, Tuple
 import numpy as np
 
 from stellarpunk import core, sim, orders, interface
+from stellarpunk.orders import steering
 
 def write_history(func):
     """ Decorator that writes sector history to file when an exception is
@@ -97,7 +98,7 @@ class MonitoringUI(interface.AbstractInterface):
 
         self.orders:List[core.Order] = []
         self.cannot_stop_orders:List[orders.GoToLocation] = []
-        self.cannot_avoid_collision_orders:List[orders.AbstractSteeringOrder] = []
+        self.cannot_avoid_collision_orders:List[steering.AbstractSteeringOrder] = []
         self.margin_neighbors:List[core.SectorEntity] = []
         self.eta = np.inf
 
@@ -127,7 +128,7 @@ class MonitoringUI(interface.AbstractInterface):
         assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
         for margin_neighbor in self.margin_neighbors:
             neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
-            assert neighbor_dist >= self.margin - orders.VELOCITY_EPS
+            assert neighbor_dist >= self.margin - steering.VELOCITY_EPS
             if neighbor_dist < self.min_neighbor_dist:
                 self.min_neighbor_dist = neighbor_dist
 

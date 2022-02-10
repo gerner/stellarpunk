@@ -7,6 +7,7 @@ import pytest
 import numpy as np
 
 from stellarpunk import core, sim, generate, orders, util
+from stellarpunk.orders import steering
 from . import write_history, nearest_neighbor, ship_from_history, station_from_history, asteroid_from_history, order_from_history, history_from_file
 
 TESTDIR = os.path.dirname(__file__)
@@ -19,7 +20,7 @@ def test_collision_dv_divide_by_zero():
     desired_margin = 1330.0
     desired_direction = np.array((26.758595729673026, 390.97727873264216))
     collision_cbdr = False
-    delta_velocity = -1 * orders._collision_dv(current_threat_loc, threat_velocity, loc, velocity, desired_margin, -1 * desired_direction, collision_cbdr)
+    delta_velocity = -1 * steering._collision_dv(current_threat_loc, threat_velocity, loc, velocity, desired_margin, -1 * desired_direction, collision_cbdr)
 
 @write_history
 def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog):

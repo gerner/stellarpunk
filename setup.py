@@ -20,6 +20,7 @@ setuptools.setup(
         #'datascience': ['logging.ini'],
         'stellarpunk': ['py.typed'],
         'stellarpunk.interface': ['py.typed'],
+        'stellarpunk.orders': ['py.typed'],
     },
     classifiers=[
         "Programming Language :: Python :: 3",
