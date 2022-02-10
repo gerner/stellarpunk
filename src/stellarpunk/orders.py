@@ -163,7 +163,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
 
     return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
 
-#@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True)
 def _analyze_neighbors(
         hits_l:npt.NDArray[np.float64],
         hits_v:npt.NDArray[np.float64],
@@ -476,14 +476,14 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 
 # numba seems to have trouble with this method and recompiles it with some
 # frequency. So we explicitly specify types here to avoid that.
-#@jit(
-#        nb.types.Tuple(
-#            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
-#        )(
-#            nb.float64[::1], nb.float64, nb.float64,
-#            nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
-#            nb.float64, nb.float64, nb.float64, nb.float64
-#        ), cache=True, nopython=True)
+@jit(
+        nb.types.Tuple(
+            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
+        )(
+            nb.float64[::1], nb.float64, nb.float64,
+            nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
+            nb.float64, nb.float64, nb.float64, nb.float64
+        ), cache=True, nopython=True)
 def _find_target_v(
         target_location:np.ndarray, arrival_distance:float, min_distance:float,
         current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
@@ -1092,13 +1092,13 @@ class MineOrder(AbstractSteeringOrder):
         super().__init__(*args, **kwargs)
         self.target = target
         self.max_dist = max_dist
-        self.amount = 0
+        self.amount = amount
         self.harvested = 0
 
     def is_complete(self) -> bool:
         # we're full or asteroid is empty or we're too far away
         #TODO: actually check that we've harvested enough
-        return self.target.amount <= 0 or self.harvested < self.amount
+        return self.target.amount <= 0 or self.harvested >= self.amount
 
     def act(self, dt: float) -> None:
         # grab resources from the asteroid and add to our cargo
@@ -1111,6 +1111,7 @@ class MineOrder(AbstractSteeringOrder):
         amount = np.clip(self.amount, 0, self.target.amount)
         self.target.amount -= amount
         self.harvested += amount
+        self.ship.cargo[self.target.resource] += amount
 
 class TransferCargo(core.Order):
     def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
@@ -1123,7 +1124,7 @@ class TransferCargo(core.Order):
         self.max_dist = max_dist
 
     def is_complete(self) -> bool:
-        return self.transferred == self.amount
+        return self.transferred >= self.amount
 
     def act(self, dt:float) -> None:
         # if we're too far away, go to the target
@@ -1132,9 +1133,12 @@ class TransferCargo(core.Order):
             self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate))
             return
 
+        #TODO: check that we have enough of the resource and/or enough space
+
         # otherwise, transfer the goods
-        #TODO: transfer?
         self.transferred = self.amount
+        self.ship.cargo[self.resource] -= self.amount
+        self.target.cargo[self.resource] += self.amount
 
 class HarvestOrder(core.Order):
     def __init__(self, base:core.SectorEntity, resource:int, *args:Any, **kwargs:Any) -> None:
@@ -1170,6 +1174,8 @@ class HarvestOrder(core.Order):
             if not isinstance(hit, core.Asteroid):
                 continue
             if hit.resource != self.resource:
+                continue
+            if hit.amount <= 0:
                 continue
 
             dist = np.linalg.norm(self.ship.loc - hit.loc)
