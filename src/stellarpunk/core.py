@@ -371,20 +371,64 @@ class Order:
                 logging.getLogger(util.fullname(self)),
         )
         self.o_name = util.fullname(self)
-        self.started_at = gamestate.timestamp
+        self.started_at = -1.
+        self.completed_at = -1.
         self.init_eta = np.inf
+        self.child_orders:Deque[Order] = collections.deque()
 
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
+
+    def add_child(self, order:Order) -> None:
+        self.child_orders.appendleft(order)
+        self.ship.orders.appendleft(order)
 
     def to_history(self) -> dict:
         return {"o": self.o_name}
 
     def is_complete(self) -> bool:
+        """ Indicates that this Order is ready to complete and be removed from
+        the order queue. """
         return False
 
+    def _begin(self) -> None:
+        pass
+
+    def _complete(self) -> None:
+        pass
+
+    def _cancel(self) -> None:
+        pass
+
+    def begin_order(self) -> None:
+        """ Called when an order is ready to start acting, at the front of the
+        order queue, before the first call to act. This is a good time to
+        compute the eta for the order."""
+        self.started_at = self.gamestate.timestamp
+        self._begin()
+
+    def complete_order(self) -> None:
+        """ Called when an order is_complete and about to be removed from the
+        order queue. """
+        self.completed_at = self.gamestate.timestamp
+        self._complete()
+
+    def cancel_order(self) -> None:
+        """ Called when an order is removed from the order queue, but not
+        because it's complete. Note the order _might_ be complete in this case.
+        """
+        for order in self.child_orders:
+            order.cancel_order()
+            try:
+                self.ship.orders.remove(order)
+            except ValueError:
+                # order might already have been removed from the queue
+                pass
+
+        self._cancel()
+
     def act(self, dt:float) -> None:
-        """ Performs one immediate tick's of action for this order """
+        """ Performs one immediate tick's worth of action for this order """
         pass
 
 class Gamestate:

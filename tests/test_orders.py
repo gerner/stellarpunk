@@ -123,7 +123,7 @@ def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
     starttime = gamestate.timestamp
     def tick(timeout):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
@@ -149,7 +149,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
 
     starttime = gamestate.timestamp
     def tick(timeout):
@@ -178,7 +178,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
     starttime = gamestate.timestamp
     def tick(timeout):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
@@ -205,7 +205,7 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
 
     starttime = gamestate.timestamp
     def tick(timeout):
@@ -238,9 +238,6 @@ def test_disembark_skip_disembark(gamestate, generator, sector, testui, simulato
     disembark_order = orders.DisembarkToEntity.disembark_to(blocker, ship_driver, gamestate)
     ship_driver.orders.append(disembark_order)
 
-    eta = disembark_order.init_eta
-
-    testui.eta = eta
     testui.orders = [disembark_order]
     testui.margin_neighbors = [ship_driver]
 
@@ -260,9 +257,6 @@ def test_basic_disembark(gamestate, generator, sector, testui, simulator):
     disembark_order = orders.DisembarkToEntity.disembark_to(blocker, ship_driver, gamestate)
     ship_driver.orders.append(disembark_order)
 
-    eta = disembark_order.init_eta
-
-    testui.eta = eta
     testui.orders = [disembark_order]
     testui.margin_neighbors = [ship_driver]
 

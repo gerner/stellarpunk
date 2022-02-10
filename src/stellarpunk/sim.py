@@ -78,8 +78,12 @@ class Simulator:
             ship.orders.append(ship.default_order(self.gamestate))
 
         order = ship.orders[0]
+        if order.started_at < 0:
+            order.begin_order()
+
         if order.is_complete():
             self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
+            order.complete_order()
             ship.orders.popleft()
             self.ui.order_complete(order)
         else:
@@ -108,9 +112,13 @@ class Simulator:
 
             for ship in sector.ships:
                 # update ship positions from physics sim
-                ship.loc.put(ZERO_ONE, ship.phys.position)
+                #ship.loc.put(ZERO_ONE, ship.phys.position)
+                ship.loc[0] = ship.phys.position[0]
+                ship.loc[1] = ship.phys.position[1]
                 ship.angle = ship.phys.angle
-                ship.velocity.put(ZERO_ONE, ship.phys.velocity)
+                #ship.velocity.put(ZERO_ONE, ship.phys.velocity)
+                ship.velocity[0] = ship.phys.velocity[0]
+                ship.velocity[1] = ship.phys.velocity[1]
                 ship.angular_velocity = ship.phys.angular_velocity
 
             for ship in sector.ships:

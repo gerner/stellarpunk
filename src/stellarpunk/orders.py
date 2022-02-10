@@ -988,8 +988,6 @@ class GoToLocation(AbstractSteeringOrder):
 
         self.distance_estimate = 0.
 
-        self.init_eta = self.eta()
-
     def to_history(self) -> dict:
         data = super().to_history()
         data["t_loc"] = (self.target_location[0], self.target_location[1])
@@ -1003,7 +1001,7 @@ class GoToLocation(AbstractSteeringOrder):
     def __str__(self) -> str:
         return f'GoToLocation: {self.target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
 
-    def eta(self) -> float:
+    def estimate_eta(self) -> float:
         return GoToLocation.compute_eta(self.ship, self.target_location, self.safety_factor)
 
     def is_complete(self) -> bool:
@@ -1012,6 +1010,9 @@ class GoToLocation(AbstractSteeringOrder):
             return False
         else:
             return bool(np.linalg.norm(self.target_location - self.ship.loc) < self.arrival_distance + VELOCITY_EPS and np.allclose(self.ship.velocity, ZERO_VECTOR))
+
+    def _begin(self) -> None:
+        self.init_eta = self.estimate_eta()
 
     def act(self, dt: float) -> None:
         if self.ship.sector is None:
@@ -1221,18 +1222,24 @@ class DisembarkToEntity(core.Order):
         self.disembark_from = disembark_from
         self.embark_to = embark_to
 
-        self.embark_order:Optional[core.Order] = None
+        self.disembark_order:Optional[GoToLocation] = None
+        self.embark_order:Optional[GoToLocation] = None
 
-        # should be upper bound
-        disembark_loc = self.ship.loc + util.polar_to_cartesian(self.disembark_dist, -self.ship.angle)
-        self.init_eta = GoToLocation.compute_eta(self.ship, disembark_loc) + GoToLocation.compute_eta(self.ship, embark_to.loc)
 
     def is_complete(self) -> bool:
         return self.embark_order is not None and self.embark_order.is_complete()
 
+    def _begin(self) -> None:
+        # should be upper bound of distance to the disembarkation point
+        disembark_loc = self.ship.loc + util.polar_to_cartesian(self.disembark_dist, -self.ship.angle)
+        self.init_eta = (
+                GoToLocation.compute_eta(self.ship, disembark_loc)
+                + GoToLocation.compute_eta(self.ship, self.embark_to.loc)
+        )
+
     def act(self, dt:float) -> None:
         self.embark_order = GoToLocation.goto_entity(self.embark_to, self.ship, self.gamestate)
-        self.ship.orders.appendleft(self.embark_order)
+        self.add_child(self.embark_order)
         if self.disembark_from and np.linalg.norm(self.disembark_from.loc - self.ship.loc)-self.disembark_from.radius < self.disembark_dist:
             # choose a location which is outside disembark_dist
             _, angle = util.cartesian_to_polar(*(self.ship.loc - self.disembark_from.loc))
@@ -1240,8 +1247,9 @@ class DisembarkToEntity(core.Order):
             target_disembark_distance = self.disembark_from.radius+self.disembark_dist+self.disembark_margin
             target_loc = self.disembark_from.loc + util.polar_to_cartesian(target_disembark_distance, target_angle)
 
-            self.ship.orders.appendleft(GoToLocation(
+            self.disembark_order = GoToLocation(
                     target_loc, self.ship, self.gamestate,
                     arrival_distance=self.disembark_margin,
                     min_distance=0.
-            ))
+            )
+            self.add_child(self.disembark_order)

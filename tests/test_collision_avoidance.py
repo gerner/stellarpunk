@@ -40,9 +40,7 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
     # expect path to be accelerate half-way, turn around, decelerate
     # this is approximate
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
 
-    testui.eta = eta
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
     testui.cannot_avoid_collision_orders = [goto_order]
@@ -59,9 +57,6 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
-    eta = goto_order.eta()
-
-    testui.eta = eta
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
     #testui.cannot_avoid_collision_orders = [goto_order]
@@ -94,14 +89,8 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     generator.spawn_ship(sector, -300, 2000, v=(0,0), w=0, theta=0)
     generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
 
-    # d = v_i*t + 1/2 a * t**2
-    # v_i = 0
-    # d = 1/2 a * t**2
-    # t = sqrt( 2*d/a )
-    # expect path to be accelerate half-way, turn around, decelerate
-    # this is approximate
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()*1.1
+    eta = goto_order.estimate_eta()*1.1
 
     testui.eta = eta
     testui.orders = [goto_order]
@@ -125,9 +114,6 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     a_cbdr = False
     b_cbdr = False
 
-    eta = max(goto_a.eta(), goto_b.eta())
-
-    testui.eta = eta
     testui.orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
@@ -152,7 +138,7 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
     goto_b = orders.GoToLocation(np.array((-10000.,0.)), ship_b, gamestate)
     ship_b.orders.append(goto_b)
 
-    eta = max(goto_a.eta(), goto_b.eta())
+    eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
     def tick(timeout):
         assert not simulator.collisions
@@ -193,7 +179,7 @@ def test_ships_intersecting_collision(gamestate, generator, sector, testui, simu
     goto_a = order_from_history(a, ship_a, gamestate)
     goto_b = order_from_history(b, ship_b, gamestate)
 
-    eta = max(goto_a.eta(), goto_b.eta())
+    eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
     def tick(timeout):
         assert not simulator.collisions
@@ -229,7 +215,7 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     ship_driver.orders.append(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
 
     def tick(timeout):
         assert not simulator.collisions
@@ -260,7 +246,7 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
 
     starttime = gamestate.timestamp
     distance = np.linalg.norm(ship_driver.loc - goto_order.target_location)
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
 
     def tick(timeout):
         assert not simulator.collisions
@@ -299,9 +285,6 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     goto_a.target_location = ship_a.loc + (goto_a.target_location  - ship_a.loc)/25
     goto_b = order_from_history(b, ship_b, gamestate)
 
-    eta = goto_a.eta()
-
-    testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
@@ -331,7 +314,7 @@ def test_ct_near_target(gamestate, generator, sector, testui, simulator):
 
     blocker = generator.spawn_station(sector, 19117.170259352486, -11241.763871430074, resource=0)
 
-    eta = goto_a.eta()
+    eta = goto_a.estimate_eta()
 
     testui.eta = eta*1.2
     testui.orders = [goto_a]
@@ -366,7 +349,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(d, generator, sector)
 
-    eta = max(goto_a.eta(),goto_b.eta(),goto_c.eta())*1.1
+    eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.1
 
     testui.eta = eta
     testui.orders = [goto_a, goto_b, goto_c]
@@ -403,9 +386,6 @@ def test_followers(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(c, generator, sector)
 
-    eta = goto_a.eta()
-
-    testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
@@ -428,9 +408,6 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(c, generator, sector)
 
-    eta = goto_a.eta()
-
-    testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a]
@@ -461,9 +438,6 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(c, generator, sector)
 
-    eta = goto_a.eta()
-
-    testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
@@ -483,7 +457,7 @@ def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
     goto_order = orders.GoToLocation(np.array([0., 0.]), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
-    eta = goto_order.eta()
+    eta = goto_order.estimate_eta()
 
     testui.eta = eta*4
     testui.orders = [goto_order]
@@ -505,9 +479,6 @@ def test_more_headon(gamestate, generator, sector, testui, simulator):
     goto_a = order_from_history(a, ship_a, gamestate)
     goto_b = order_from_history(b, ship_b, gamestate)
 
-    eta = goto_a.eta()
-
-    testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
@@ -529,9 +500,6 @@ def test_either_side(gamestate, generator, sector, testui, simulator):
     logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 
-    eta = goto_a.eta()
-
-    testui.eta = eta
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
@@ -548,7 +516,7 @@ def test_complicated_departure(gamestate, generator, sector, testui, simulator):
     logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 
-    eta = goto_a.eta()
+    eta = goto_a.estimate_eta()
 
     testui.eta = eta*1.3
     testui.orders = [goto_a]
