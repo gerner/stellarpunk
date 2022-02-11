@@ -270,3 +270,142 @@ def test_basic_disembark(gamestate, generator, sector, testui, simulator):
     first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0].target_location) - start_blocker.radius
     assert first_dist >= disembark_order.disembark_dist - steering.VELOCITY_EPS
     assert first_dist <= disembark_order.disembark_dist + disembark_order.disembark_margin + steering.VELOCITY_EPS
+
+@write_history
+def test_basic_mining_order(gamestate, generator, sector, testui, simulator):
+    # ship and asteroid
+    resource = 0
+    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    asteroid = generator.spawn_asteroid(sector, 0, 0, resource, 5e2)
+    # ship mines the asteroid
+    mining_order = orders.MineOrder(asteroid, 3.5e2, ship, gamestate)
+    ship.orders.append(mining_order)
+
+    testui.orders = [mining_order]
+    testui.margin_neighbors = [ship]
+
+    assert ship.cargo[0] == 0.
+    assert np.isclose(asteroid.amount, 5e2)
+
+    simulator.run()
+    assert mining_order.is_complete()
+
+    # make sure ship ends up near enough to the asteroid
+    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + steering.VELOCITY_EPS
+    # make sure we got the resources
+    assert np.isclose(ship.cargo[0], 3.5e2)
+    # make sure asteroid lost the resources
+    assert np.isclose(asteroid.amount, 5e2 - 3.5e2)
+
+@write_history
+def test_over_mine(gamestate, generator, sector, testui, simulator):
+    # ship and asteroid
+    resource = 0
+    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    asteroid = generator.spawn_asteroid(sector, 0, 0, resource, 2.5e2)
+    # ship mines the asteroid
+    mining_order = orders.MineOrder(asteroid, 3.5e2, ship, gamestate)
+    ship.orders.append(mining_order)
+
+    testui.orders = [mining_order]
+    testui.margin_neighbors = [ship]
+
+    assert ship.cargo[0] == 0.
+    assert np.isclose(asteroid.amount, 2.5e2)
+
+    simulator.run()
+    assert mining_order.is_complete()
+
+    # make sure ship ends up near enough to the asteroid
+    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + steering.VELOCITY_EPS
+    # make sure we got the resources
+    assert np.isclose(ship.cargo[0], 2.5e2)
+    # make sure asteroid lost the resources
+    assert np.isclose(asteroid.amount, 0)
+
+@write_history
+def test_basic_transfer_order(gamestate, generator, sector, testui, simulator):
+    # two ships
+    resource = 0
+    ship_a = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    ship_b = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    ship_a.cargo[0] = 5e2
+
+    # ship mines the asteroid
+    transfer_order = orders.TransferCargo(ship_b, 0, 3.5e2, ship_a, gamestate)
+    ship_a.orders.append(transfer_order)
+
+    testui.orders = [transfer_order]
+    testui.margin_neighbors = [ship_a]
+
+    assert ship_a.cargo[0] == 5e2
+    assert ship_b.cargo[0] == 0.
+
+    simulator.run()
+    assert transfer_order.is_complete()
+
+    # make sure ship ends up near enough to the asteroid
+    assert np.linalg.norm(ship_a.loc - ship_b.loc) < 2e3 + steering.VELOCITY_EPS
+    # make sure we transferred cargo
+    assert np.isclose(ship_b.cargo[0], 3.5e2)
+    assert np.isclose(ship_a.cargo[0], 5e2 - 3.5e2)
+
+@write_history
+def test_over_transfer(gamestate, generator, sector, testui, simulator):
+    # two ships
+    resource = 0
+    ship_a = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    ship_b = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    ship_a.cargo[0] = 2.5e2
+
+    transfer_order = orders.TransferCargo(ship_b, 0, 3.5e2, ship_a, gamestate)
+    ship_a.orders.append(transfer_order)
+
+    testui.orders = [transfer_order]
+    testui.margin_neighbors = [ship_a]
+
+    assert ship_a.cargo[0] == 2.5e2
+    assert ship_b.cargo[0] == 0.
+
+    simulator.run()
+    assert transfer_order.is_complete()
+
+    # make sure ship ends up near enough to the asteroid
+    assert np.linalg.norm(ship_a.loc - ship_b.loc) < 2e3 + steering.VELOCITY_EPS
+    # make sure we transferred cargo
+    assert np.isclose(ship_b.cargo[0], 2.5e2)
+    assert np.isclose(ship_a.cargo[0], 0)
+
+@write_history
+def test_basic_harvest(gamestate, generator, sector, testui, simulator):
+    # two ships
+    resource = 0
+    ship_a = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    ship_a.cargo_capacity = 5e2
+    ship_b = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    ship_b.cargo_capacity = 5e3
+
+    sector.radius = 3000.
+
+    asteroid = generator.spawn_asteroid(sector, 0, 5000, resource, 12.5e2)
+
+    harvest_order = orders.HarvestOrder(ship_b, 0, ship_a, gamestate, max_trips=2)
+    ship_a.orders.append(harvest_order)
+
+    testui.orders = [harvest_order]
+    testui.margin_neighbors = [ship_a]
+    testui.eta = 200
+
+    assert ship_a.cargo[0] == 0.
+    assert ship_b.cargo[0] == 0.
+    assert asteroid.amount == 12.5e2
+
+    simulator.run()
+    assert harvest_order.init_eta < 200
+    assert harvest_order.is_complete()
+    assert harvest_order.trips == 2
+
+    # make sure we transferred cargo
+    assert np.isclose(ship_b.cargo[0], 10e2)
+    assert np.isclose(ship_a.cargo[0], 0)
+    assert np.isclose(asteroid.amount, 12.5e2 - 10e2)

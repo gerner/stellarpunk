@@ -82,9 +82,6 @@ class UniverseView(interface.View):
     def draw_umap_sector(self, y:int, x:int, sector:core.Sector) -> None:
         """ Draws a single sector to viewscreen starting at position (y,x) """
 
-        if self.in_sector:
-            return
-
         textpad.rectangle(self.viewscreen, y, x, y+interface.Settings.UMAP_SECTOR_HEIGHT-1, x+interface.Settings.UMAP_SECTOR_WIDTH-1)
 
         if (self.ucursor_x, self.ucursor_y) == (sector.x, sector.y):
@@ -104,6 +101,9 @@ class UniverseView(interface.View):
 
     def update_display(self) -> None:
         """ Draws a map of all sectors. """
+
+        if self.in_sector:
+            return
 
         self.viewscreen.erase()
         self.sector_maxx = -1
@@ -128,6 +128,7 @@ class UniverseView(interface.View):
             sector_view = sector_interface.SectorView(
                     sector, self.interface)
             self.interface.open_view(sector_view)
+            # suspend input until we get focus again
             self.in_sector = True
         elif key == ord(":"):
             command_input = interface.CommandInput(self.interface)

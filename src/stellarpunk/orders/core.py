@@ -17,8 +17,14 @@ class MineOrder(core.Order):
         self.target = target
         self.max_dist = max_dist
         self.amount = amount
-        self.harvested = 0
         self.mining_effect:Optional[effects.MiningEffect] = None
+        self.mining_rate = 2e1
+
+    def _begin(self) -> None:
+        self.init_eta = (
+                GoToLocation.compute_eta(self.ship, self.target.loc)
+                + self.amount / self.mining_rate
+        )
 
     def _cancel(self) -> None:
         if self.mining_effect:
@@ -37,7 +43,7 @@ class MineOrder(core.Order):
         if not self.mining_effect:
             assert self.ship.sector is not None
             self.mining_effect = effects.MiningEffect(
-                    self.target.resource, self.amount, self.target, self.ship)
+                    self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, mining_rate=self.mining_rate)
             self.ship.sector.effects.append(self.mining_effect)
         # else wait for the mining effect
 
@@ -50,8 +56,15 @@ class TransferCargo(core.Order):
         self.amount = amount
         self.transferred = 0.
         self.max_dist = max_dist
+        self.transfer_rate = 1e2
 
         self.transfer_effect:Optional[effects.TransferCargoEffect] = None
+
+    def _begin(self) -> None:
+        self.init_eta = (
+                GoToLocation.compute_eta(self.ship, self.target.loc)
+                + self.amount / self.transfer_rate
+        )
 
     def _cancel(self) -> None:
         if self.transfer_effect:
@@ -71,17 +84,37 @@ class TransferCargo(core.Order):
         if not self.transfer_effect:
             assert self.ship.sector is not None
             self.transfer_effect = effects.TransferCargoEffect(
-                    self.resource, self.amount, self.target, self.ship)
+                    self.resource, self.amount, self.ship, self.target,
+                    self.ship.sector, self.gamestate,
+                    transfer_rate=self.transfer_rate)
             self.ship.sector.effects.append(self.transfer_effect)
         # else wait for the transfer effect
 
 class HarvestOrder(core.Order):
-    def __init__(self, base:core.SectorEntity, resource:int, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, base:core.SectorEntity, resource:int, *args:Any, max_trips:int=0, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.base = base
         self.resource = resource
+        self.trips = 0
+        self.max_trips = max_trips
         self.keep_harvesting = True
+
+        self.mining_order:Optional[MineOrder] = None
+        self.transfer_order:Optional[TransferCargo] = None
+
+    def _begin(self) -> None:
+        if self.max_trips > 0:
+            assert self.ship.sector is not None
+            # travel to an asteroid, mine, travel to base, transfer, repeat
+            mining_loc = util.polar_to_cartesian(self.ship.sector.radius*2, 0)
+            mining_rate = 2e1
+            transfer_rate = 6e1
+            self.init_eta = self.max_trips * (
+                2*GoToLocation.compute_eta(self.ship, mining_loc)
+                + self.ship.cargo_capacity / mining_rate
+                + self.ship.cargo_capacity / transfer_rate
+            )
 
     def is_complete(self) -> bool:
         #TODO: harvest forever?
@@ -93,15 +126,22 @@ class HarvestOrder(core.Order):
             # sector and it'll go there?
             raise Exception("ship must be in a sector to harvest")
 
+        if self.transfer_order is not None and self.transfer_order.is_complete():
+            self.trips += 1
+            self.transfer_order = None
+            if self.max_trips > 0 and self.trips >= self.max_trips:
+                self.keep_harvesting = False
+                return
+
         # if our cargo is full, send it back to home base
-        cargo_full = False
-        if cargo_full:
+        if self.ship.cargo_full():
             self.logger.debug("cargo full, heading to {self.base} to dump cargo")
-            self.ship.orders.appendleft(TransferCargo(self.base, self.resource, 1, self.ship, self.gamestate))
+            self.transfer_order = TransferCargo(self.base, self.resource, self.ship.cargo[self.resource], self.ship, self.gamestate)
+            self.ship.orders.appendleft(self.transfer_order)
             return
 
         # choose an asteroid to harvest
-        self.logger.debug("searching for next asteroid")
+        self.logger.debug(f'searching for next asteroid {self.ship.cargo_capacity - np.sum(self.ship.cargo)} space left')
         #TODO: how should we find the nearest asteroid? point_query_nearest with ShipFilter?
         nearest = None
         nearest_dist = np.inf
@@ -126,7 +166,8 @@ class HarvestOrder(core.Order):
         #TODO: worry about other people harvesting asteroids
         #TODO: choose amount to harvest
         # push mining order
-        self.ship.orders.appendleft(MineOrder(nearest, 1e3, self.ship, self.gamestate))
+        self.mining_order = MineOrder(nearest, 1e3, self.ship, self.gamestate)
+        self.ship.orders.appendleft(self.mining_order)
 
 class DisembarkToEntity(core.Order):
     @staticmethod
@@ -158,7 +199,6 @@ class DisembarkToEntity(core.Order):
 
         self.disembark_order:Optional[GoToLocation] = None
         self.embark_order:Optional[GoToLocation] = None
-
 
     def is_complete(self) -> bool:
         return self.embark_order is not None and self.embark_order.is_complete()

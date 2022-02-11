@@ -233,6 +233,8 @@ class SectorEntity(Entity):
         self.angle = 0.
         self.angular_velocity = 0.
 
+        self.cargo_capacity = 5e3
+
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = phys
         #TODO: are all entities just circles?
@@ -244,6 +246,9 @@ class SectorEntity(Entity):
 
     def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+
+    def cargo_full(self) -> bool:
+        return np.sum(self.cargo) == self.cargo_capacity
 
     def get_history(self) -> Iterable[HistoryEntry]:
 
@@ -392,6 +397,7 @@ class Effect(abc.ABC):
         self._complete()
 
     def cancel_effect(self) -> None:
+        raise Exception()
         try:
             self.sector.effects.remove(self)
         except ValueError:

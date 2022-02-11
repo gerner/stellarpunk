@@ -6,7 +6,7 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional, Mapping, Any, Tuple
+from typing import List, Optional, Mapping, Any, Tuple, Deque
 import collections
 
 import numpy as np
@@ -90,17 +90,22 @@ class Simulator:
             order.act(dt)
 
     def tick_effect(self, sector:core.Sector, dt:float) -> None:
+        effects_complete:Deque[core.Effect] = collections.deque()
         for effect in sector.effects:
             if effect.started_at < 0:
                 effect.begin_effect()
 
             if effect.is_complete():
-                self.logger.debug(f'effect {effect} in {sector.short_id()} complete in {self.gamestate.timestamp - effect.started_at:.2f}')
-                effect.complete_effect()
-                sector.effects.remove(effect)
-                self.ui.effect_complete(effect)
+                # defer completion/removal until other effects have a chance to act
+                effects_complete.append(effect)
             else:
                 effect.act(dt)
+
+        for effect in effects_complete:
+            self.logger.debug(f'effect {effect} in {sector.short_id()} complete in {self.gamestate.timestamp - effect.started_at:.2f}')
+            effect.complete_effect()
+            sector.effects.remove(effect)
+            self.ui.effect_complete(effect)
 
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
@@ -140,6 +145,7 @@ class Simulator:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
 
             #TODO: do resource and production stuff
+            self.tick_effect(sector, dt)
             #TODO: do AI stuff
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt

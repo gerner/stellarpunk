@@ -638,7 +638,6 @@ class Interface(AbstractInterface):
 
         curses.doupdate()
 
-
         #TODO: this can block in the case of mouse clicks
         # maybe we should offload getch to another thread that can always block
         # and read stuff from it from a queue? it's not clear about

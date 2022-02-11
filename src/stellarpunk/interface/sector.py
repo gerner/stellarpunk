@@ -324,6 +324,14 @@ class SectorView(interface.View):
         else:
             self.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
 
+    def draw_entity_info(self, y:int, x:int, entity:core.SectorEntity, description_attr:int) -> None:
+        self.viewscreen.addstr(y, x+1, ' cargo:', description_attr)
+        non_zero_cargo = 0
+        for i in range(len(entity.cargo)):
+            if entity.cargo[i] > 0.:
+                self.viewscreen.addstr(y, x+1+non_zero_cargo, f' {i}: {entity.cargo[i]:.0f}', description_attr)
+                non_zero_cargo+=1
+
     def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """
 
@@ -380,6 +388,8 @@ class SectorView(interface.View):
 
         if self.debug_entity:
             self.draw_entity_debug_info(y+2, x, entity, description_attr)
+        elif entity.entity_id == self.selected_target:
+            self.draw_entity_info(y+2, x, entity, description_attr)
 
     def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.SectorEntity]) -> None:
 

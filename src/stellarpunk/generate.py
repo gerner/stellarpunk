@@ -439,7 +439,7 @@ class UniverseGenerator:
                 raise ValueError("min_per_rank and max_per_rank must both be ints or sequences")
             if len(min_per_rank) != len(max_per_rank):
                 raise ValueError("min_per_rank and max_per_rank must be the same length")
-            ranks = self.r.integers(min_per_rank, max_per_rank)
+            ranks = self.r.integers(min_per_rank, np.asarray(max_per_rank)+1)
         else:
             raise ValueError("min_per_rank and max_per_rank must both be ints or sequences")
 
@@ -461,7 +461,7 @@ class UniverseGenerator:
                     nodes_from*nodes_to,
                     nodes_from*max_outputs,
                     nodes_to*max_inputs
-                ))
+                ))+1
             )
             target_weight = np.mean((min_input_per_output, max_input_per_output)) * target_edges
             rank_production = self._random_bipartite_graph(
@@ -488,7 +488,7 @@ class UniverseGenerator:
                     ranks[-2]*ranks[-1],
                     ranks[-2]*max_outputs,
                     ranks[-1]*max_final_inputs
-                ))
+                ))+1
         )
 
         target_weight = np.mean((min_input_per_output, max_input_per_output)) * target_edges

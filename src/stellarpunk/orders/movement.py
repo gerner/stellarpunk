@@ -173,7 +173,7 @@ class GoToLocation(AbstractSteeringOrder):
         max_speed = self.ship.max_speed()
 
         # ramp down speed as nearby density increases
-        # ramp down with inverse of the density
+        # ramp down with inverse of the density: max_speed = m / (density + b)
         # d_low, s_high is one point we want to hit
         # d_high, s_low is another
         d_low = 1/(np.pi*1e4**2)
