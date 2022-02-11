@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Tuple
 
 import numpy as np
 
@@ -18,6 +18,12 @@ class MiningEffect(core.Effect):
 
         self.source = source
         self.destination = destination
+
+    def bbox(self) -> Tuple[float, float, float, float]:
+        locs = np.asarray((self.source.loc, self.destination.loc))
+        min_x, min_y = np.min(locs, axis=0)
+        max_x, max_y = np.max(locs, axis=0)
+        return (min_x, max_y, max_x, min_y)
 
     def is_complete(self) -> bool:
         #TODO: max cargo space?
@@ -42,6 +48,12 @@ class TransferCargoEffect(core.Effect):
 
         self.source = source
         self.destination = destination
+
+    def bbox(self) -> Tuple[float, float, float, float]:
+        locs = np.asarray((self.source, self.destination))
+        min_x, min_y = np.min(locs, axis=0)
+        max_x, max_y = np.max(locs, axis=0)
+        return (min_x, max_y, max_x, min_y)
 
     def is_complete(self) -> bool:
         #TODO: distance between source and dest?

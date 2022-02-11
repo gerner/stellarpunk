@@ -13,7 +13,7 @@ from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, C
 import drawille # type: ignore
 import numpy as np
 
-from stellarpunk import util, core, interface, orders
+from stellarpunk import util, core, interface, orders, effects
 
 class SectorView(interface.View):
     """ Sector mode: interacting with the sector map.
@@ -355,6 +355,8 @@ class SectorView(interface.View):
         # draw a "tail" from the entity's history
         i=len(entity.history)-1
         cutoff_time = self.interface.gamestate.timestamp - 5.
+        last_x = -1
+        last_y = -1
         while i > 0:
             entry = entity.history[i]
             if entry.ts < cutoff_time:
@@ -362,8 +364,10 @@ class SectorView(interface.View):
             hist_x, hist_y = util.sector_to_screen(
                     entry.loc[0], entry.loc[1], self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
-            if (hist_x != x or hist_y != y) and hist_x >= 0 and hist_y >= 0:
+            if (hist_x != x or hist_y != y) and (hist_x != last_x or hist_y != last_y) and hist_x >= 0 and hist_y >= 0:
                 self.viewscreen.addstr(hist_y, hist_x, interface.Icons.sector_entity_icon(entity, angle=entry.angle), (icon_attr | curses.A_DIM) & (~curses.A_STANDOUT))
+            last_x = hist_x
+            last_y = hist_y
             i-=1
 
         if not isinstance(entity, core.Asteroid):
@@ -403,9 +407,15 @@ class SectorView(interface.View):
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
-    def draw_effect(self, effect) -> None:
+    def draw_effect(self, effect:core.Effect) -> None:
         """ Draws an effect (if visible) on the map. """
-        pass
+        for effect in self.sector.effects:
+            if isinstance(effect, effects.MiningEffect):
+                #TODO: draw some stuff coming from the asteroid to the ship
+                pass
+            elif isinstance(effect, effects.TransferCargoEffect):
+                #TODO: draw some stuff transferring between the two
+                pass
 
     def draw_sector_map(self) -> None:
         """ Draws a map of a sector. """
@@ -432,7 +442,8 @@ class SectorView(interface.View):
         occupied:Dict[Tuple[int,int], List[core.SectorEntity]] = {}
 
         for effect in self.sector.effects:
-            self.draw_effect(effect)
+            if util.intersects(effect.bbox(), self.bbox):
+                self.draw_effect(effect)
 
         for entity in self.sector.spatial_query(self.bbox):
             screen_x, screen_y = util.sector_to_screen(

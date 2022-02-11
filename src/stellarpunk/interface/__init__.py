@@ -92,6 +92,17 @@ class Icons:
     "" \u25F1 white square with lower left quadrant
     "" \u25F2 white square with lower right quadrant
     "" \u25F3 white square with upper right quadrant
+
+    "∵" therefore
+    "∴" because
+    "✨" sparkles
+    "✦" black four pointed star
+    "✧" white four pointed star
+    "✻" teardrop spoked asterisk
+    "⌧" X in a rectangle box
+    "⌬" benzene ring
+    "⬡" white hexagon
+    "⬢" black hexagon
     """
 
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]

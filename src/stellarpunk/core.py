@@ -10,6 +10,7 @@ import collections
 import gzip
 import json
 from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias
+import abc
 
 import graphviz # type: ignore
 import numpy as np
@@ -358,7 +359,7 @@ class Character(Entity):
     def __init__(self, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
 
-class Effect:
+class Effect(abc.ABC):
     def __init__(self, sector:Sector, gamestate:Gamestate) -> None:
         self.sector = sector
         self.gamestate = gamestate
@@ -372,6 +373,11 @@ class Effect:
         pass
 
     def _cancel(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    def bbox(self) -> Tuple[float, float, float, float]:
+        """ returns a 4-tuple bounding box ul_x, ul_y, lr_x, lr_y """
         pass
 
     def is_complete(self) -> bool:

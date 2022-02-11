@@ -122,6 +122,15 @@ def clip(x:float, min_x:float, max_x:float) -> float:
 def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 
+def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> bool:
+    """ returns true iff a and b overlap. """
+
+    # separating axis theorem: if the rectangles do not intersect then a right
+    # side will be left of a left side or a top side will be below a bottom
+    # side.
+
+    return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+
 def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tick_size:int=3) -> drawille.Canvas:
     """ Draws a vector (x,y) on a drawille canvas and returns it.
 
