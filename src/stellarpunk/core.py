@@ -101,6 +101,8 @@ class Sector(Entity):
         # we do rely on this to provide a spatial index of the sector
         self.space:pymunk.Space = space
 
+        self.effects: Deque[Effect] = collections.deque()
+
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(pymunk.BB(*bbox), pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.body.entity
@@ -253,6 +255,9 @@ class SectorEntity(Entity):
         ),)
         return self.history
 
+    def speed(self) -> float:
+        return util.magnitude(self.velocity[0], self.velocity[1])
+
     def to_history(self, timestamp:float) -> HistoryEntry:
         return HistoryEntry(
                 self.id_prefix,
@@ -353,6 +358,45 @@ class Character(Entity):
     def __init__(self, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
 
+class Effect:
+    def __init__(self, sector:Sector, gamestate:Gamestate) -> None:
+        self.sector = sector
+        self.gamestate = gamestate
+        self.started_at = -1.
+        self.completed_at = -1.
+
+    def _begin(self) -> None:
+        pass
+
+    def _complete(self) -> None:
+        pass
+
+    def _cancel(self) -> None:
+        pass
+
+    def is_complete(self) -> bool:
+        return True
+
+    def begin_effect(self) -> None:
+        self.started_at = self.gamestate.timestamp
+        self._begin()
+
+    def complete_effect(self) -> None:
+        self.completed_at = self.gamestate.timestamp
+        self._complete()
+
+    def cancel_effect(self) -> None:
+        try:
+            self.sector.effects.remove(self)
+        except ValueError:
+            # effect might already have been removed from the queue
+            pass
+
+        self._cancel()
+
+    def act(self, dt:float) -> None:
+        pass
+
 class OrderLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, ship:Ship, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
@@ -424,6 +468,12 @@ class Order:
             except ValueError:
                 # order might already have been removed from the queue
                 pass
+
+        try:
+            self.ship.orders.remove(self)
+        except ValueError:
+            # order might already have been removed from the queue
+            pass
 
         self._cancel()
 

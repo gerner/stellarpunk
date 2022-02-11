@@ -117,9 +117,9 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
-    def sector_entity_icon(entity:core.SectorEntity) -> str:
+    def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
         if isinstance(entity, core.Ship):
-            icon = Icons.angle_to_ship(entity.angle)
+            icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
         elif isinstance(entity, core.Station):
             icon = Icons.STATION
         elif isinstance(entity, core.Planet):
@@ -279,12 +279,13 @@ class GenerationUI(generate.GenerationListener):
         pass
 
 class AbstractInterface(abc.ABC):
-    @abc.abstractmethod
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         pass
 
-    @abc.abstractmethod
     def order_complete(self, order:core.Order) -> None:
+        pass
+
+    def effect_complete(self, effect:core.Effect) -> None:
         pass
 
     @abc.abstractmethod
@@ -539,9 +540,6 @@ class Interface(AbstractInterface):
                 f'collision detected {entity_a.address_str()}, {entity_b.address_str()}',
                 attr=self.get_color(Color.ERROR)
         )
-
-    def order_complete(self, order:core.Order) -> None:
-        return
 
     def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """

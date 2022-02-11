@@ -89,6 +89,19 @@ class Simulator:
         else:
             order.act(dt)
 
+    def tick_effect(self, sector:core.Sector, dt:float) -> None:
+        for effect in sector.effects:
+            if effect.started_at < 0:
+                effect.begin_effect()
+
+            if effect.is_complete():
+                self.logger.debug(f'effect {effect} in {sector.short_id()} complete in {self.gamestate.timestamp - effect.started_at:.2f}')
+                effect.complete_effect()
+                sector.effects.remove(effect)
+                self.ui.effect_complete(effect)
+            else:
+                effect.act(dt)
+
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 

@@ -51,7 +51,7 @@ class SectorView(interface.View):
 
         self.cached_grid = None
 
-        self.debug_entity = True
+        self.debug_entity = False
         self.debug_entity_vectors = False
 
     @property
@@ -345,20 +345,37 @@ class SectorView(interface.View):
         icon_attr |= interface.Icons.sector_entity_attr(entity)
 
         description_attr = interface.Icons.sector_entity_attr(entity)
-        #description_attr |= curses.A_DIM#curses.color_pair(9)
         if entity.entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
-            description_attr |= curses.A_STANDOUT
         else:
             description_attr |= curses.A_DIM
 
         self.viewscreen.addstr(y, x, icon, icon_attr)
 
+        # draw a "tail" from the entity's history
+        i=len(entity.history)-1
+        cutoff_time = self.interface.gamestate.timestamp - 5.
+        while i > 0:
+            entry = entity.history[i]
+            if entry.ts < cutoff_time:
+                break
+            hist_x, hist_y = util.sector_to_screen(
+                    entry.loc[0], entry.loc[1], self.bbox[0], self.bbox[1],
+                    self.meters_per_char_x, self.meters_per_char_y)
+            if (hist_x != x or hist_y != y) and hist_x >= 0 and hist_y >= 0:
+                self.viewscreen.addstr(hist_y, hist_x, interface.Icons.sector_entity_icon(entity, angle=entry.angle), (icon_attr | curses.A_DIM) & (~curses.A_STANDOUT))
+            i-=1
+
         if not isinstance(entity, core.Asteroid):
-            self.viewscreen.addstr(y, x+1, f' {entity.short_id()}', description_attr)
+            speed = entity.speed()
+            if speed > 0.:
+                name_tag = f' {entity.short_id()} {speed:.0f}'
+            else:
+                name_tag = f' {entity.short_id()}'
+            self.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
 
         if self.debug_entity:
-            self.draw_entity_debug_info(y+1, x, entity, description_attr)
+            self.draw_entity_debug_info(y+2, x, entity, description_attr)
 
     def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.SectorEntity]) -> None:
 
@@ -386,6 +403,10 @@ class SectorView(interface.View):
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
+    def draw_effect(self, effect) -> None:
+        """ Draws an effect (if visible) on the map. """
+        pass
+
     def draw_sector_map(self) -> None:
         """ Draws a map of a sector. """
 
@@ -410,10 +431,9 @@ class SectorView(interface.View):
         last_loc = None
         occupied:Dict[Tuple[int,int], List[core.SectorEntity]] = {}
 
-        # sort the entities so we draw left to right, top to bottom
-        # this ensures any annotations down and to the right of an entity on
-        # the sector map will not cover up the icon for an entity
-        # this assumes any extra annotations are down and to the right
+        for effect in self.sector.effects:
+            self.draw_effect(effect)
+
         for entity in self.sector.spatial_query(self.bbox):
             screen_x, screen_y = util.sector_to_screen(
                     entity.loc[0], entity.loc[1], self.bbox[0], self.bbox[1],

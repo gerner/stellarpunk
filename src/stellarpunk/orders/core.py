@@ -6,7 +6,7 @@ from typing import Optional, Any
 
 import numpy as np
 
-from stellarpunk import util, core
+from stellarpunk import util, core, effects
 
 from .movement import GoToLocation
 from .steering import ZERO_VECTOR
@@ -18,24 +18,28 @@ class MineOrder(core.Order):
         self.max_dist = max_dist
         self.amount = amount
         self.harvested = 0
+        self.mining_effect:Optional[effects.MiningEffect] = None
+
+    def _cancel(self) -> None:
+        if self.mining_effect:
+            self.mining_effect.cancel_effect()
 
     def is_complete(self) -> bool:
-        # we're full or asteroid is empty or we're too far away
-        #TODO: actually check that we've harvested enough
-        return self.target.amount <= 0 or self.harvested >= self.amount
+        return self.mining_effect is not None and self.mining_effect.is_complete()
 
     def act(self, dt: float) -> None:
         # grab resources from the asteroid and add to our cargo
-        distance = np.linalg.norm(self.ship.loc - self.target.loc)
+        distance = np.linalg.norm(self.ship.loc - self.target.loc) - self.target.radius
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate))
+            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return
 
-        #TODO: actually implement harvesting, taking time, maybe visual fx
-        amount = np.clip(self.amount, 0, self.target.amount)
-        self.target.amount -= amount
-        self.harvested += amount
-        self.ship.cargo[self.target.resource] += amount
+        if not self.mining_effect:
+            assert self.ship.sector is not None
+            self.mining_effect = effects.MiningEffect(
+                    self.target.resource, self.amount, self.target, self.ship)
+            self.ship.sector.effects.append(self.mining_effect)
+        # else wait for the mining effect
 
 class TransferCargo(core.Order):
     def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
@@ -47,22 +51,29 @@ class TransferCargo(core.Order):
         self.transferred = 0.
         self.max_dist = max_dist
 
+        self.transfer_effect:Optional[effects.TransferCargoEffect] = None
+
+    def _cancel(self) -> None:
+        if self.transfer_effect:
+            self.transfer_effect.cancel_effect()
+
     def is_complete(self) -> bool:
-        return self.transferred >= self.amount
+        return self.transfer_effect is not None and self.transfer_effect.is_complete()
 
     def act(self, dt:float) -> None:
         # if we're too far away, go to the target
-        distance = np.linalg.norm(self.ship.loc - self.target.loc)
+        distance = np.linalg.norm(self.ship.loc - self.target.loc) - self.target.radius
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate))
+            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return
 
-        #TODO: check that we have enough of the resource and/or enough space
-
-        # otherwise, transfer the goods
-        self.transferred = self.amount
-        self.ship.cargo[self.resource] -= self.amount
-        self.target.cargo[self.resource] += self.amount
+        #TODO: multiple goods? transfer from us to them?
+        if not self.transfer_effect:
+            assert self.ship.sector is not None
+            self.transfer_effect = effects.TransferCargoEffect(
+                    self.resource, self.amount, self.target, self.ship)
+            self.ship.sector.effects.append(self.transfer_effect)
+        # else wait for the transfer effect
 
 class HarvestOrder(core.Order):
     def __init__(self, base:core.SectorEntity, resource:int, *args:Any, **kwargs:Any) -> None:
