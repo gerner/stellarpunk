@@ -108,8 +108,8 @@ class HarvestOrder(core.Order):
             assert self.ship.sector is not None
             # travel to an asteroid, mine, travel to base, transfer, repeat
             mining_loc = util.polar_to_cartesian(self.ship.sector.radius*2, 0)
-            mining_rate = 2e1
-            transfer_rate = 6e1
+            mining_rate = 8e1
+            transfer_rate = 5e2
             self.init_eta = self.max_trips * (
                 2*GoToLocation.compute_eta(self.ship, mining_loc)
                 + self.ship.cargo_capacity / mining_rate
@@ -117,7 +117,6 @@ class HarvestOrder(core.Order):
             )
 
     def is_complete(self) -> bool:
-        #TODO: harvest forever?
         return not self.keep_harvesting
 
     def act(self, dt:float) -> None:

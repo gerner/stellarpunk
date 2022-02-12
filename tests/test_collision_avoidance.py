@@ -12,6 +12,19 @@ from . import write_history, nearest_neighbor, ship_from_history, station_from_h
 
 TESTDIR = os.path.dirname(__file__)
 
+def test_almost_inside_margin():
+    """ things become numerically unstable as we approach the margin, so we
+    should just bail if that happens. """
+    current_threat_loc = np.array([-37933.63562144, -50542.59548545])
+    threat_velocity = np.array([-114.31045936,  203.93840995])
+    loc = np.array([-38493.63894912, -50543.04692326])
+    velocity = np.array([-114.21718855,  226.59102292])
+    desired_margin = 560.0017548193941
+    desired_direction = np.array([-86.1857445 , 225.20988737])
+    collision_cbdr = False
+    with pytest.raises(ValueError):
+        delta_velocity = -1 * steering._collision_dv(current_threat_loc, threat_velocity, loc, velocity, desired_margin, -1 * desired_direction, collision_cbdr)
+
 def test_collision_dv_divide_by_zero():
     current_threat_loc = np.array((-12310.625184027258, 9487.81873642772))
     threat_velocity = np.array([0., 0.])
@@ -357,7 +370,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
     testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
     testui.margin_neighbors = [ship_a, ship_b, ship_c]
-    testui.margin=300
+    testui.margin=125.
 
     simulator.run()
     assert goto_a.is_complete()
@@ -413,6 +426,8 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a, ship_b]
+    # somewhat tough case, we might exceed the margin
+    testui.margin = 300.
 
     simulator.run()
     assert goto_a.is_complete()

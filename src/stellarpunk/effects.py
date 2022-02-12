@@ -26,25 +26,31 @@ class MiningEffect(core.Effect):
         return (min_x, max_y, max_x, min_y)
 
     def is_complete(self) -> bool:
-        #TODO: max cargo space?
+        #TODO: distance between source and target
         return self.sofar == self.amount or self.source.amount <= 0. or self.destination.cargo_full()
 
     def act(self, dt:float) -> None:
         assert self.source.resource == self.resource
         #TODO: distance between source and dest?
-        #TODO: max cargo space?
-        amount = min(self.destination.cargo_capacity - np.sum(self.destination.cargo), np.clip(self.amount-self.sofar, 0, self.source.amount)) / (self.mining_rate * dt)
+        amount = min(
+                self.destination.cargo_capacity - np.sum(self.destination.cargo),
+                np.clip(self.amount-self.sofar, 0, self.source.amount)
+        )
+        amount = min((self.mining_rate * dt), amount)
         self.source.amount -= amount
+        if np.isclose(self.source.amount, 0.):
+            self.source.amount = 0.
+        assert self.source.amount >= 0.
         self.sofar += amount
         self.destination.cargo[self.resource] += amount
 
 class TransferCargoEffect(core.Effect):
-    def __init__(self, resource:int, amount:float, source:core.SectorEntity, destination:core.SectorEntity, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, resource:int, amount:float, source:core.SectorEntity, destination:core.SectorEntity, *args: Any, transfer_rate:float=1e2, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.amount = amount
         self.sofar = 0.
-        self.transfer_rate = 1e2
+        self.transfer_rate = transfer_rate
 
         self.source = source
         self.destination = destination
@@ -57,17 +63,18 @@ class TransferCargoEffect(core.Effect):
 
     def is_complete(self) -> bool:
         #TODO: distance between source and dest?
-        #TODO: max cargo space?
         return self.sofar == self.amount or self.source.cargo[self.resource] <= 0. or self.destination.cargo_full()
 
     def act(self, dt:float) -> None:
-        #TODO: max cargo space?
-        amount = (
-            min(
+        #TODO: distance between source and dest?
+        amount = min(
                 self.destination.cargo_capacity - np.sum(self.destination.cargo),
                 np.clip(self.amount-self.sofar, 0, self.source.cargo[self.resource])
-            )
-        ) / (self.transfer_rate * dt)
+        )
+        amount = min((self.transfer_rate * dt), amount)
         self.source.cargo[self.resource] -= amount
+        if np.isclose(self.source.cargo[self.resource], 0.):
+            self.source.cargo[self.resource] = 0.
+        assert self.source.cargo[self.resource] >= 0.
         self.sofar += amount
         self.destination.cargo[self.resource] += amount

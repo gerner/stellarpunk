@@ -422,7 +422,22 @@ class SectorView(interface.View):
         for effect in self.sector.effects:
             if isinstance(effect, effects.MiningEffect):
                 #TODO: draw some stuff coming from the asteroid to the ship
-                pass
+                icon = interface.Icons.EFFECT_MINING
+                icon_attr = curses.color_pair(interface.Icons.RESOURCE_COLORS[effect.source.resource])
+                s_x, s_y = util.sector_to_screen(
+                        effect.source.loc[0], effect.source.loc[1],
+                        self.bbox[0], self.bbox[1],
+                        self.meters_per_char_x, self.meters_per_char_y)
+                d_x, d_y = util.sector_to_screen(
+                        effect.destination.loc[0], effect.destination.loc[1],
+                        self.bbox[0], self.bbox[1],
+                        self.meters_per_char_x, self.meters_per_char_y)
+
+                if s_x != d_x or s_y != d_y:
+                    for y,x in np.linspace((s_y,s_x), (d_y,d_x), 10, dtype=int):
+                        if (y == s_y and x == s_x) or (y == d_y and x == d_x):
+                            continue
+                        self.viewscreen.addstr(y, x, icon, icon_attr)
             elif isinstance(effect, effects.TransferCargoEffect):
                 #TODO: draw some stuff transferring between the two
                 pass

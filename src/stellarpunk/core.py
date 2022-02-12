@@ -333,7 +333,7 @@ class Ship(SectorEntity):
         )
 
     def max_speed(self) -> float:
-        return self.max_thrust / self.mass * 5
+        return self.max_thrust / self.mass * 10
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass

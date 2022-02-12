@@ -46,7 +46,6 @@ class Settings:
 class Color(enum.Enum):
     ERROR = enum.auto()
 
-
 class Icons:
 
     SHIP_N = "\u25B2" # black up pointing triangle
@@ -64,6 +63,9 @@ class Icons:
     ASTEROID = "\u25C7" # "◇" \u25C7 white diamond
 
     MULTIPLE = "*"
+
+    EFFECT_MINING = "\u2726" # "✦" \u2726 black four pointed star
+    EFFECT_TRANSFER = "\u2327" # "⌧" \u2327 X in a rectangle box
 
     """
     "△" \u25B3 white up pointing triangle
@@ -96,10 +98,10 @@ class Icons:
     "∵" therefore
     "∴" because
     "✨" sparkles
-    "✦" black four pointed star
+    "✦" \u2726 black four pointed star
     "✧" white four pointed star
     "✻" teardrop spoked asterisk
-    "⌧" X in a rectangle box
+    "⌧" \u2327 X in a rectangle box
     "⌬" benzene ring
     "⬡" white hexagon
     "⬢" black hexagon

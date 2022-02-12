@@ -63,13 +63,15 @@ def asteroid_from_history(history_entry, generator, sector):
     return asteroid
 
 def order_from_history(history_entry, ship, gamestate):
-    if history_entry["o"]["o"] != "stellarpunk.orders.GoToLocation":
-        raise ValueError(f'can only support stellarpunk.orders.GoToLocation, not {history_entry["o"]["o"]}')
+    order_type = history_entry["o"]["o"]
+    if order_type in ("stellarpunk.orders.GoToLocation", "stellarpunk.orders.movement.GoToLocation"):
+        arrival_distance = history_entry["o"].get("ad", 1.5e3)
+        min_distance = history_entry["o"].get("md", None)
+        order = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
+        order.neighborhood_density = history_entry["o"].get("nd", 0.)
+    else:
+        raise ValueError(f'can not load {history_entry["o"]["o"]}')
 
-    arrival_distance = history_entry["o"].get("ad", 1.5e3)
-    min_distance = history_entry["o"].get("md", None)
-    order = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
-    order.neighborhood_density = history_entry["o"].get("nd", 0.)
     ship.orders.append(order)
     return order
 

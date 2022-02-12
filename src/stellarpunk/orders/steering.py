@@ -12,11 +12,12 @@ from numba import jit # type: ignore
 
 from stellarpunk import util, core
 
-ANGLE_EPS = 1e-3
+ANGLE_EPS = 1e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
 VELOCITY_EPS = 1e-1
 
 CBDR_HIST_SEC = 0.5
+CBDR_ANGLE_EPS = 1e-1 # about 6 degrees
 CBDR_DIST_EPS = 5
 
 # think of this as the gimballing angle (?)
@@ -295,7 +296,7 @@ def _analyze_neighbors(
 
     return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
-@jit(cache=True, nopython=True)
+#@jit(cache=True, nopython=True)
 def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
@@ -325,8 +326,8 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
         return ZERO_VECTOR
 
-    if np.linalg.norm(r) <= margin:
-        raise Exception()
+    if np.linalg.norm(r) <= margin + VELOCITY_EPS:
+        raise ValueError()
 
     # given divert (x,y):
     # (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2) > m**2
@@ -448,14 +449,14 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 
 # numba seems to have trouble with this method and recompiles it with some
 # frequency. So we explicitly specify types here to avoid that.
-@jit(
-        nb.types.Tuple(
-            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
-        )(
-            nb.float64[::1], nb.float64, nb.float64,
-            nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
-            nb.float64, nb.float64, nb.float64, nb.float64
-        ), cache=True, nopython=True)
+#@jit(
+#        nb.types.Tuple(
+#            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
+#        )(
+#            nb.float64[::1], nb.float64, nb.float64,
+#            nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
+#            nb.float64, nb.float64, nb.float64, nb.float64
+#        ), cache=True, nopython=True)
 def find_target_v(
         target_location:np.ndarray, arrival_distance:float, min_distance:float,
         current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
@@ -469,7 +470,8 @@ def find_target_v(
 
         # if we were to cancel the velocity component in the direction of the
         # target, will we travel enough so that we cross min_distance?
-        d = np.dot(v, course) / distance / (2* max_acceleration)
+        d = (np.dot(v, course) / distance)**2 / (2* max_acceleration)
+
         if d > distance-min_distance:
             cannot_stop = True
         else:
@@ -827,7 +829,7 @@ class AbstractSteeringOrder(core.Order):
         desired_margin = margin + threat_radius + self.ship.radius
         current_threat_loc = threat_loc-threat_velocity*approach_time
         distance_to_threat = np.linalg.norm(current_threat_loc - self.ship.loc)
-        if distance_to_threat <= desired_margin:
+        if distance_to_threat <= desired_margin + VELOCITY_EPS:
             delta_velocity = (current_threat_loc - self.ship.loc) / distance_to_threat * self.ship.max_speed() * -1
         else:
             desired_margin += np.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
