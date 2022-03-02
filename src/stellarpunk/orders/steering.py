@@ -296,7 +296,7 @@ def _analyze_neighbors(
 
     return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
-#@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True)
 def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
@@ -326,7 +326,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
         return ZERO_VECTOR
 
-    if np.linalg.norm(r) <= margin + VELOCITY_EPS:
+    if np.linalg.norm(r) <= margin:
         raise ValueError()
 
     # given divert (x,y):

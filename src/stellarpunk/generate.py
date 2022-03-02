@@ -37,6 +37,17 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
+def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
+    if ship.sector is None:
+        raise Exception("cannot harvest if ship isn't in a sector")
+    # choose a station to mine for. this is the resource we'll mine
+    station = gamestate.random.choice(np.array(list(filter(
+        lambda x: x.resource < gamestate.production_chain.ranks[0],
+        ship.sector.stations
+    ))))
+
+    return orders.HarvestOrder(station, station.resource, ship, gamestate)
+
 class UniverseGenerator:
     def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None, listener:Optional[GenerationListener]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
@@ -654,7 +665,7 @@ class UniverseGenerator:
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
-                self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_disembark_to_random_station)
+                self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_harvest_random_resource)
 
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r

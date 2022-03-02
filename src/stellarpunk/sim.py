@@ -89,7 +89,7 @@ class Simulator:
         else:
             order.act(dt)
 
-    def tick_effect(self, sector:core.Sector, dt:float) -> None:
+    def tick_sector(self, sector:core.Sector, dt:float) -> None:
         effects_complete:Deque[core.Effect] = collections.deque()
         for effect in sector.effects:
             if effect.started_at < 0:
@@ -145,7 +145,7 @@ class Simulator:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
 
             #TODO: do resource and production stuff
-            self.tick_effect(sector, dt)
+            self.tick_sector(sector, dt)
             #TODO: do AI stuff
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt

@@ -437,6 +437,8 @@ class SectorView(interface.View):
                     for y,x in np.linspace((s_y,s_x), (d_y,d_x), 10, dtype=int):
                         if (y == s_y and x == s_x) or (y == d_y and x == d_x):
                             continue
+                        if y < 0 or x < 0 or y > self.interface.viewscreen_height or x > self.interface.viewscreen_width:
+                            continue
                         self.viewscreen.addstr(y, x, icon, icon_attr)
             elif isinstance(effect, effects.TransferCargoEffect):
                 #TODO: draw some stuff transferring between the two

@@ -12,19 +12,6 @@ from . import write_history, nearest_neighbor, ship_from_history, station_from_h
 
 TESTDIR = os.path.dirname(__file__)
 
-def test_almost_inside_margin():
-    """ things become numerically unstable as we approach the margin, so we
-    should just bail if that happens. """
-    current_threat_loc = np.array([-37933.63562144, -50542.59548545])
-    threat_velocity = np.array([-114.31045936,  203.93840995])
-    loc = np.array([-38493.63894912, -50543.04692326])
-    velocity = np.array([-114.21718855,  226.59102292])
-    desired_margin = 560.0017548193941
-    desired_direction = np.array([-86.1857445 , 225.20988737])
-    collision_cbdr = False
-    with pytest.raises(ValueError):
-        delta_velocity = -1 * steering._collision_dv(current_threat_loc, threat_velocity, loc, velocity, desired_margin, -1 * desired_direction, collision_cbdr)
-
 def test_collision_dv_divide_by_zero():
     current_threat_loc = np.array((-12310.625184027258, 9487.81873642772))
     threat_velocity = np.array([0., 0.])
