@@ -538,12 +538,20 @@ class UniverseGenerator:
         prices = prices.round()
         assert not np.any(np.isnan(prices))
 
+        # set up production times and batch sizes
+        # in one minute produce a batch of enough goods to produce a batch of
+        # 10 of the next stuff in the production chain
+        production_times = np.full((total_nodes,), 60.)
+        batch_sizes = 10. * np.mean(adj_matrix, axis=1)
+
         chain = core.ProductionChain()
         chain.ranks = ranks
         chain.adj_matrix = adj_matrix
         chain.markup = markup
         chain.prices = prices
         chain.sink_names = sink_names
+        chain.production_times = production_times
+        chain.batch_sizes = batch_sizes
 
         for i, (price, name) in enumerate(zip(prices[s_final_products], sink_names), len(prices)-len(min_final_prices)):
             self.logger.info(f'price {name}:\t${price}')

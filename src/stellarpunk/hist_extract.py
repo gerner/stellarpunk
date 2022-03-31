@@ -12,7 +12,7 @@ import numpy as np
 
 from stellarpunk import util
 
-TS_EPS = 1/60/2*10
+TS_EPS = 0.4#1/60/2*10
 
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -101,6 +101,8 @@ def main() -> None:
                 eid_matches[match] = entry["eid"]
 
             if abs(entry["ts"] - target_ts[match]) < TS_EPS:
+                if match in eid_ts:
+                    raise Exception(f'already have ts {eid_ts[match]} for {match}, duplicate at {entry["ts"]}')
                 eid_ts[match] = entry["ts"]
                 fout.write(line)
 

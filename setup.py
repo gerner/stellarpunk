@@ -1,5 +1,5 @@
 import os.path
-import setuptools
+import setuptools # type: ignore
 
 with open(os.path.join(os.path.dirname(__file__), "README.md"), "r") as fh:
     long_description = fh.read()

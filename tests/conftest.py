@@ -14,8 +14,8 @@ def gamestate() -> core.Gamestate:
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
     gamestate.random = ug.r
-    gamestate.production_chain = ug.generate_chain(
-            n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
+    gamestate.production_chain = ug.generate_chain()
+    #        n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
     return ug
 
 @pytest.fixture

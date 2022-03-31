@@ -206,6 +206,11 @@ class GoToLocation(AbstractSteeringOrder):
         if abs(collision_dv[0]) < VELOCITY_EPS and abs(collision_dv[1]) < VELOCITY_EPS:
             self._accelerate_to(self.target_v, dt)
         else:
+            # if we're over max speed, let's slow down in addition to avoiding
+            # collision
+            v_mag = util.magnitude(v[0], v[1])
+            if v_mag > max_speed:
+                v = v / v_mag * max_speed
             self._accelerate_to(v + collision_dv, dt)
         return
 

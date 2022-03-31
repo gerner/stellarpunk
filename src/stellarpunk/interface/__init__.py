@@ -19,6 +19,8 @@ import pstats
 import abc
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping
 
+import numpy as np
+
 from stellarpunk import util, generate, core
 
 class Layout(enum.Enum):
@@ -42,6 +44,9 @@ class Settings:
 
     VIEWSCREEN_BUFFER_WIDTH = 500
     VIEWSCREEN_BUFFER_HEIGHT = 500
+
+    MAX_TIME_ACCEL = 5.0
+    MIN_TIME_ACCEL = 0.25
 
 class Color(enum.Enum):
     ERROR = enum.auto()
@@ -351,7 +356,7 @@ class Interface(AbstractInterface):
 
         self.show_fps = True
 
-        self.step = False
+        self.one_time_step = False
 
         self.profiler:Optional[cProfile.Profile] = None
 
@@ -582,6 +587,8 @@ class Interface(AbstractInterface):
     def show_date(self) -> None:
         date_string = self.gamestate.current_time().strftime("%c")
         date_string = " "+date_string+" "
+        if not np.isclose(self.gamestate.time_accel_rate, 1.0):
+            date_string += f'({self.gamestate.time_accel_rate:.2f}) '
         self.stdscr.addstr(
                 self.viewscreen_y-1,
                 self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
@@ -599,8 +606,24 @@ class Interface(AbstractInterface):
         view.focus()
         self.views.append(view)
 
+    def c_pause(self, args:Sequence[str]) -> None:
+        self.gamestate.paused = not self.gamestate.paused
+
+    def c_time_accel(self, args:Sequence[str]) -> None:
+        self.gamestate.time_accel_rate = self.gamestate.time_accel_rate * 1.25
+        if np.isclose(self.gamestate.time_accel_rate, 1.0, atol=0.1):
+            self.gamestate.time_accel_rate = 1.0
+        if self.gamestate.time_accel_rate >= Settings.MAX_TIME_ACCEL:
+            self.gamestate.time_accel_rate = Settings.MAX_TIME_ACCEL
+
+    def c_time_decel(self, args:Sequence[str]) -> None:
+        self.gamestate.time_accel_rate = self.gamestate.time_accel_rate / 1.25
+        if np.isclose(self.gamestate.time_accel_rate, 1.0, atol=0.1):
+            self.gamestate.time_accel_rate = 1.0
+        if self.gamestate.time_accel_rate <= Settings.MIN_TIME_ACCEL:
+            self.gamestate.time_accel_rate = Settings.MIN_TIME_ACCEL
+
     def command_list(self) -> Mapping[str, Callable[[Sequence[str]], None]]:
-        def pause(args:Sequence[str]) -> None: self.gamestate.paused = not self.gamestate.paused
         def fps(args:Sequence[str]) -> None: self.show_fps = not self.show_fps
         def quit(args:Sequence[str]) -> None: self.gamestate.quit()
         def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
@@ -613,7 +636,9 @@ class Interface(AbstractInterface):
                 self.profiler = cProfile.Profile()
                 self.profiler.enable()
         return {
-                "pause": pause,
+                "pause": self.c_pause,
+                "t_accel" : self.c_time_accel,
+                "t_decel" : self.c_time_decel,
                 "fps": fps,
                 "quit": quit,
                 "raise": raise_exception,
@@ -628,9 +653,9 @@ class Interface(AbstractInterface):
         while self.frame_history[0] < start_time - self.max_frame_history:
             self.frame_history.popleft()
 
-        if self.step:
+        if self.one_time_step:
             self.gamestate.paused = True
-            self.step = False
+            self.one_time_step = False
 
         for view in self.views:
             view.update_display()
@@ -655,8 +680,12 @@ class Interface(AbstractInterface):
             for view in self.views:
                 view.initialize()
         elif key == ord("."):
-            self.gamestate.paused = False
-            self.step = True
+            self.c_pause(())
+            self.one_time_step = True
+        elif key == ord(">"):
+            self.c_time_accel(())
+        elif key == ord("<"):
+            self.c_time_decel(())
         elif key >= 0:
             self.status_message()
             v = self.views[-1]

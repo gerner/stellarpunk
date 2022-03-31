@@ -89,7 +89,23 @@ class Simulator:
         else:
             order.act(dt)
 
+    def produce_at_station(self, station:core.Station) -> None:
+        if station.next_batch_time > 0:
+            # check if the batch is ready
+            if station.next_batch_time <= self.gamestate.timestamp:
+                # add the batch to cargo
+                station.cargo[station.resource] += self.gamestate.production_chain.batch_sizes[station.resource]
+                station.next_batch_time = 0.
+        else:
+            # check if we have enough resource to start a batch
+            resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]
+            if np.all(station.cargo >= resources_needed):
+                station.cargo -= resources_needed
+                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource]
+
     def tick_sector(self, sector:core.Sector, dt:float) -> None:
+
+        # do effects
         effects_complete:Deque[core.Effect] = collections.deque()
         for effect in sector.effects:
             if effect.started_at < 0:
@@ -101,11 +117,20 @@ class Simulator:
             else:
                 effect.act(dt)
 
+        # notify effect completion
         for effect in effects_complete:
             self.logger.debug(f'effect {effect} in {sector.short_id()} complete in {self.gamestate.timestamp - effect.started_at:.2f}')
             effect.complete_effect()
             sector.effects.remove(effect)
             self.ui.effect_complete(effect)
+
+        # produce goods
+        # every batch_time seconds we produce one batch of resource from inputs
+        # reset production timer
+        # if production timer is off, start producting a batch if we have it,
+        # setting production timer
+        for station in sector.stations:
+            self.produce_at_station(station)
 
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
@@ -187,7 +212,7 @@ class Simulator:
                 self.tick(self.dt)
 
             last_tick = next_tick
-            next_tick = next_tick + self.dt
+            next_tick = next_tick + self.dt / self.gamestate.time_accel_rate
 
             now = time.perf_counter()
 

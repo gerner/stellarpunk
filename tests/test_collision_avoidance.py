@@ -356,8 +356,8 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a, goto_b, goto_c]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
-    testui.margin_neighbors = [ship_a, ship_b, ship_c]
-    testui.margin=125.
+    # we might exceed the margin, but we just want to avoid collisions
+    #testui.margin_neighbors = [ship_a, ship_b, ship_c]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -412,9 +412,8 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a, ship_b]
     # somewhat tough case, we might exceed the margin
-    testui.margin = 300.
+    #testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -529,3 +528,23 @@ def test_complicated_departure(gamestate, generator, sector, testui, simulator):
 
     simulator.run()
     assert goto_a.is_complete()
+
+@write_history
+def test_20220331(gamestate, generator, sector, testui, simulator):
+    entities = history_from_file(os.path.join(TESTDIR, "data/collision_20220331.history"), generator, sector, gamestate)
+
+    ship_a = entities["670fff17-7333-4b69-be59-98d00286dc6f"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta * 1.3
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+

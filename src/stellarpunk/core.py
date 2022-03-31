@@ -32,6 +32,9 @@ class ProductionChain:
         # how much each product is priced (sum_inputs(input cost * input amount) * markup)
         self.prices = np.zeros((0,))
 
+        self.production_times = np.zeros((0,))
+        self.batch_sizes = np.zeros((0,))
+
         self.sink_names:Sequence[str] = []
 
     @property
@@ -295,6 +298,7 @@ class Station(SectorEntity):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
+        self.next_batch_time = 0.
 
 class Ship(SectorEntity):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
@@ -513,6 +517,8 @@ class Gamestate:
         self.timestamp = 0.
 
         self.dt = 1/60
+        # how many seconds of simulation (as in dt) should elapse per second
+        self.time_accel_rate = 1.0
         self.ticks = 0
         self.ticktime = 0.
         self.timeout = 0.
