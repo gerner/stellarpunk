@@ -99,7 +99,7 @@ class MonitoringUI(interface.AbstractInterface):
     def __init__(self, gamestate:core.Gamestate, sector:core.Sector) -> None:
         self.gamestate = gamestate
         self.sector = sector
-        self.margin = 500.
+        self.margin = 2e2
         self.min_neighbor_dist = np.inf
 
         self.orders:List[core.Order] = []

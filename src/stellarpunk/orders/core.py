@@ -134,7 +134,7 @@ class HarvestOrder(core.Order):
 
         # if our cargo is full, send it back to home base
         if self.ship.cargo_full():
-            self.logger.debug("cargo full, heading to {self.base} to dump cargo")
+            self.logger.debug(f'cargo full, heading to {self.base} to dump cargo')
             self.transfer_order = TransferCargo(self.base, self.resource, self.ship.cargo[self.resource], self.ship, self.gamestate)
             self.ship.orders.appendleft(self.transfer_order)
             return

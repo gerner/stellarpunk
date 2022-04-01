@@ -290,8 +290,6 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     testui.cannot_stop_orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.margin_neighbors = [ship_a]
-    # this is a tough initial setup
-    testui.margin=425
 
     simulator.run()
     assert goto_a.is_complete()

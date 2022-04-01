@@ -444,7 +444,12 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
             y += dy
 
     # useful assert when testing
-    assert util.isclose((r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2), m**2)
+    # this asserts that the resulting x,y point matches the the contraint on
+    # the margin
+    assert util.isclose(
+            (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2),
+            m**2,
+            rtol=1e-4)
     return np.array((x, y))
 
 # numba seems to have trouble with this method and recompiles it with some
@@ -525,7 +530,7 @@ class AbstractSteeringOrder(core.Order):
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
 
-        self.collision_margin = 5e2
+        self.collision_margin = 2e2
         self.nearest_neighbor:Optional[core.SectorEntity] = None
         self.nearest_neighbor_dist = np.inf
 
