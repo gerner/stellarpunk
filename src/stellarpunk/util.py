@@ -122,6 +122,13 @@ def clip(x:float, min_x:float, max_x:float) -> float:
 def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 
+#@jit(cache=True, nopython=True)
+def interpolate(x1:float, y1:float, x2:float, y2:float, x:float) -> float:
+    """ interpolates the y given x and two points on a line. """
+    m = (y2 - y1) / (x2 - x1)
+    b = y1 - m * x1
+    return m * x + b
+
 def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> bool:
     """ returns true iff a and b overlap. """
 

@@ -174,15 +174,25 @@ class GoToLocation(AbstractSteeringOrder):
 
         # ramp down speed as nearby density increases
         # ramp down with inverse of the density: max_speed = m / (density + b)
-        # d_low, s_high is one point we want to hit
-        # d_high, s_low is another
+        # d_low, s_high is one point we want to hit (speed at low density)
+        # d_high, s_low is another (speed at high density
         d_low = 1/(np.pi*1e4**2)
         s_high = max_speed
         d_high = 30/(np.pi*1e4**2)
         s_low = 100
-        b = (s_low * d_high - s_high * d_low)/(s_high - s_low)
-        m = s_high*(d_low + b)
-        max_speed = min(max_speed, m / (self.neighborhood_density + b))
+        density_max_speed = util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density)
+
+        # also ramp down speed with distance to nearest neighbor
+        # nn_d_high, nn_speed_high is one point
+        # nn_d_low, nn_speed_low is another
+        nn_d_high = 5e3
+        nn_s_high = max_speed
+        nn_d_low = 5e2
+        nn_s_low = 100
+        nn_max_speed = util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist)
+
+        max_speed = min(max_speed, density_max_speed, nn_max_speed)
+
 
         self.target_v, distance, self.distance_estimate, self.cannot_stop = find_target_v(
                 self.target_location, self.arrival_distance, self.min_distance,

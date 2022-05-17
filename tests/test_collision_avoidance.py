@@ -91,7 +91,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.estimate_eta()*1.1
+    eta = goto_order.estimate_eta()*1.7
 
     testui.eta = eta
     testui.orders = [goto_order]
@@ -286,6 +286,9 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     goto_a.target_location = ship_a.loc + (goto_a.target_location  - ship_a.loc)/25
     goto_b = order_from_history(b, ship_b, gamestate)
 
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta * 1.1
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
@@ -348,7 +351,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(d, generator, sector)
 
-    eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.1
+    eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.2
 
     testui.eta = eta
     testui.orders = [goto_a, goto_b, goto_c]
@@ -407,11 +410,13 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(c, generator, sector)
 
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta * 1.3
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a]
-    # somewhat tough case, we might exceed the margin
-    #testui.margin_neighbors = [ship_a, ship_b]
+    testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()

@@ -216,6 +216,10 @@ def _analyze_neighbors(
         if rel_dist < neighborhood_radius:
             neighborhood_size += 1.
 
+        if rel_dist < nearest_neighbor_dist:
+            nearest_neighbor_idx = eidx
+            nearest_neighbor_dist = rel_dist
+
         # this neighbor isn't going to collide with us
         if not (min_sep < np.inf):
             continue
@@ -226,10 +230,6 @@ def _analyze_neighbors(
             continue
 
         threat_count += 1
-
-        if rel_dist < nearest_neighbor_dist:
-            nearest_neighbor_idx = eidx
-            nearest_neighbor_dist = rel_dist
 
         # most threatening is the soonest, so keep track of that one
         if approach_t < approach_time:
