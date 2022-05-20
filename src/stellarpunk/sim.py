@@ -90,12 +90,14 @@ class Simulator:
             order.act(dt)
 
     def produce_at_station(self, station:core.Station) -> None:
+        # waiting for production to finish case
         if station.next_batch_time > 0:
             # check if the batch is ready
             if station.next_batch_time <= self.gamestate.timestamp:
                 # add the batch to cargo
                 station.cargo[station.resource] += self.gamestate.production_chain.batch_sizes[station.resource]
                 station.next_batch_time = 0.
+        # waiting for enough cargo to produce case
         else:
             # check if we have enough resource to start a batch
             resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]

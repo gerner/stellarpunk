@@ -20,7 +20,10 @@ import pymunk
 from stellarpunk import util
 
 class ProductionChain:
-    """ A production chain of resources/products interconnected in a DAG. """
+    """ A production chain of resources/products interconnected in a DAG.
+
+    The first rank are raw resources. The second rank are processed forms for
+    each of these called "first products." The last rank are final products."""
 
     def __init__(self) -> None:
         # how many nodes per rank
@@ -40,6 +43,15 @@ class ProductionChain:
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
+
+    def inputs_of(self, product_id:int) -> npt.NDArray[np.float64]:
+        return np.nonzero(self.adj_matrix[:,product_id])[0]
+
+    def first_product_ids(self) -> npt.NDArray[np.int64]:
+        return np.arange(self.ranks[0], self.ranks[1]+self.ranks[0])
+
+    def final_product_ids(self) -> npt.NDArray[np.int64]:
+        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.adj_matrix.shape[0])
 
     def viz(self) -> graphviz.Graph:
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})
@@ -236,7 +248,7 @@ class SectorEntity(Entity):
         self.angle = 0.
         self.angular_velocity = 0.
 
-        self.cargo_capacity = 5e3
+        self.cargo_capacity = 1e3
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = phys
@@ -249,6 +261,9 @@ class SectorEntity(Entity):
 
     def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+
+    def distance_to(self, other:SectorEntity) -> float:
+        return np.linalg.norm(self.loc - other.loc) - self.radius - other.radius
 
     def cargo_full(self) -> bool:
         return np.sum(self.cargo) == self.cargo_capacity
@@ -299,6 +314,7 @@ class Station(SectorEntity):
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
         self.next_batch_time = 0.
+        self.cargo_capacity = 1e5
 
 class Ship(SectorEntity):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"

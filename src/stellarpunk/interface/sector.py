@@ -146,6 +146,9 @@ class SectorView(interface.View):
                     self.interface.log_message(f'queued: {order}')
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
+            for i in range(entity.cargo.shape[0]):
+                if entity.cargo[i] > 0.:
+                    self.interface.log_message(f'cargo {i}: {entity.cargo[i]}')
 
     def _compute_grid(self, max_ticks:int=10) -> None:
         # choose ticks
@@ -329,8 +332,8 @@ class SectorView(interface.View):
         non_zero_cargo = 0
         for i in range(len(entity.cargo)):
             if entity.cargo[i] > 0.:
-                self.viewscreen.addstr(y, x+1+non_zero_cargo, f' {i}: {entity.cargo[i]:.0f}', description_attr)
-                non_zero_cargo+=1
+                self.viewscreen.addstr(y+1+non_zero_cargo, x, f' {i}: {entity.cargo[i]:.0f}', description_attr)
+                non_zero_cargo += 1
 
     def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """

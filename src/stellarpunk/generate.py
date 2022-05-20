@@ -42,11 +42,14 @@ def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -
         raise Exception("cannot harvest if ship isn't in a sector")
     # choose a station to mine for. this is the resource we'll mine
     station = gamestate.random.choice(np.array(list(filter(
-        lambda x: x.resource < gamestate.production_chain.ranks[0],
+        lambda x: x.resource in gamestate.production_chain.first_product_ids(),
         ship.sector.stations
     ))))
 
-    return orders.HarvestOrder(station, station.resource, ship, gamestate)
+    # find the id of the raw resource input for this station
+    resource = gamestate.production_chain.inputs_of(station.resource)[0]
+
+    return orders.HarvestOrder(station, resource, ship, gamestate)
 
 class UniverseGenerator:
     def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None, listener:Optional[GenerationListener]=None) -> None:
@@ -459,13 +462,21 @@ class UniverseGenerator:
         if len(sink_names) != len(min_final_prices):
             raise ValueError("sink_names and min_final_prices must be same length")
 
-        total_nodes = np.sum(ranks)
+        # set up a rank of raw resources that mirrors the first product rank
+        # these will feed 1:1 from raw resources to the first products
+        ranks = np.pad(ranks, (1,0), mode="edge")
 
+        total_nodes = np.sum(ranks)
 
         # generate production chain subject to target total value for each
         adj_matrix = np.zeros((total_nodes+len(min_final_prices),total_nodes+len(min_final_prices)))
-        so_far = 0
-        for (nodes_from, nodes_to) in zip(ranks, ranks[1:]):
+
+        # set up 1:1 production from raw resources to first products
+        adj_matrix[0:ranks[0], ranks[0]:ranks[0]+ranks[1]] = np.eye(ranks[0])
+
+        # set up production for rest of products
+        so_far = ranks[0]
+        for (nodes_from, nodes_to) in zip(ranks[1:], ranks[2:]):
             target_edges = self.r.integers(
                 np.max((nodes_from, nodes_to)),
                 np.min((
@@ -627,7 +638,9 @@ class UniverseGenerator:
             #TODO: production and population
             # set up production stations according to resources
             # every inhabited sector should have a complete production chain
-            for i in range(len(pchain.prices)-pchain.ranks[-1]):
+            # exclude raw resources and final products, they are not produced
+            # at stations
+            for i in range(pchain.ranks[0], len(pchain.prices)-pchain.ranks[-1]):
                 entity_loc = self._gen_sector_location(sector)
 
                 # deplete enough resources from asteroids to pay for this station

@@ -449,7 +449,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     assert util.isclose(
             (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2),
             m**2,
-            rtol=1e-4)
+            rtol=1e-3)
     return np.array((x, y))
 
 # numba seems to have trouble with this method and recompiles it with some
