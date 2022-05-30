@@ -113,6 +113,7 @@ class Icons:
     """
 
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
+    COLOR_CARGO = 243
 
     @staticmethod
     def angle_to_ship(angle:float) -> str:
