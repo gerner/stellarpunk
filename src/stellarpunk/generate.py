@@ -391,13 +391,13 @@ class UniverseGenerator:
             i = self.r.choice(len(asteroids), p=asteroid_probs)
             asteroid = asteroids[i]
 
-            amount_to_mine = min(amount, asteroid.amount)
-            asteroid.amount -= amount_to_mine
+            amount_to_mine = min(amount, asteroid.cargo[asteroid.resource])
+            asteroid.cargo[asteroid.resource] -= amount_to_mine
             amount -= amount_to_mine
 
             # if we've used up this one, remove it from the sector
             # set its prob to zero and renormalize
-            if asteroid.amount == 0:
+            if asteroid.cargo[asteroid.resource] == 0:
                 sector.remove_entity(asteroid)
                 asteroid_probs[i] = 0
                 asteroid_probs = asteroid_probs/asteroid_probs.sum()

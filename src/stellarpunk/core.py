@@ -378,10 +378,10 @@ class Asteroid(SectorEntity):
     def __init__(self, resource:int, amount:float, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource = resource
-        self.amount = amount
+        self.cargo[self.resource] = amount
 
     def __str__(self) -> str:
-        return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.amount}'
+        return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.cargo[self.resource]}'
 
 class Character(Entity):
     def __init__(self, *args:Any, **kwargs:Any):

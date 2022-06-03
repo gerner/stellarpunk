@@ -285,7 +285,7 @@ def test_basic_mining_order(gamestate, generator, sector, testui, simulator):
     testui.margin_neighbors = [ship]
 
     assert ship.cargo[0] == 0.
-    assert np.isclose(asteroid.amount, 5e2)
+    assert np.isclose(asteroid.cargo[asteroid.resource], 5e2)
 
     simulator.run()
     assert mining_order.is_complete()
@@ -295,7 +295,7 @@ def test_basic_mining_order(gamestate, generator, sector, testui, simulator):
     # make sure we got the resources
     assert np.isclose(ship.cargo[0], 3.5e2)
     # make sure asteroid lost the resources
-    assert np.isclose(asteroid.amount, 5e2 - 3.5e2)
+    assert np.isclose(asteroid.cargo[asteroid.resource], 5e2 - 3.5e2)
 
 @write_history
 def test_over_mine(gamestate, generator, sector, testui, simulator):
@@ -311,7 +311,7 @@ def test_over_mine(gamestate, generator, sector, testui, simulator):
     testui.margin_neighbors = [ship]
 
     assert ship.cargo[0] == 0.
-    assert np.isclose(asteroid.amount, 2.5e2)
+    assert np.isclose(asteroid.cargo[asteroid.resource], 2.5e2)
 
     simulator.run()
     assert mining_order.is_complete()
@@ -321,7 +321,7 @@ def test_over_mine(gamestate, generator, sector, testui, simulator):
     # make sure we got the resources
     assert np.isclose(ship.cargo[0], 2.5e2)
     # make sure asteroid lost the resources
-    assert np.isclose(asteroid.amount, 0)
+    assert np.isclose(asteroid.cargo[asteroid.resource], 0)
 
 @write_history
 def test_basic_transfer_order(gamestate, generator, sector, testui, simulator):
@@ -398,7 +398,7 @@ def test_basic_harvest(gamestate, generator, sector, testui, simulator):
 
     assert ship_a.cargo[0] == 0.
     assert ship_b.cargo[0] == 0.
-    assert asteroid.amount == 12.5e2
+    assert asteroid.cargo[asteroid.resource] == 12.5e2
 
     simulator.run()
     assert harvest_order.init_eta < 200
@@ -408,4 +408,4 @@ def test_basic_harvest(gamestate, generator, sector, testui, simulator):
     # make sure we transferred cargo
     assert np.isclose(ship_b.cargo[0], 10e2)
     assert np.isclose(ship_a.cargo[0], 0)
-    assert np.isclose(asteroid.amount, 12.5e2 - 10e2)
+    assert np.isclose(asteroid.cargo[asteroid.resource], 12.5e2 - 10e2)

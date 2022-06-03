@@ -43,7 +43,7 @@ class MineOrder(core.Order):
         if not self.mining_effect:
             assert self.ship.sector is not None
             self.mining_effect = effects.MiningEffect(
-                    self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, mining_rate=self.mining_rate)
+                    self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate)
             self.ship.sector.effects.append(self.mining_effect)
         # else wait for the mining effect
 
@@ -149,7 +149,7 @@ class HarvestOrder(core.Order):
                 continue
             if hit.resource != self.resource:
                 continue
-            if hit.amount <= 0:
+            if hit.cargo[hit.resource] <= 0:
                 continue
 
             dist = np.linalg.norm(self.ship.loc - hit.loc)
