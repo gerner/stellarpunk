@@ -85,7 +85,7 @@ def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:flo
 
 @jit(cache=True, nopython=True)
 def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, moment:float, angle:float, w:float, v:np.ndarray, max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float, dt:float, safety_factor:float) -> tuple[np.ndarray, float, np.ndarray]:
-    target_speed = np.linalg.norm(target_velocity)
+    target_speed = util.magnitude(target_velocity[0], target_velocity[1])
     if target_speed > max_speed:
         target_velocity = target_velocity / target_speed * max_speed
 
@@ -93,7 +93,7 @@ def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, mome
     difference_mag, difference_angle = util.cartesian_to_polar(dv[0], dv[1])
 
     if difference_mag < VELOCITY_EPS and abs(w) < ANGLE_EPS:
-        return ZERO_VECTOR, 0., target_velocity
+        return ZERO_VECTOR, 0., target_velocity, difference_mag
 
     delta_heading = util.normalize_angle(angle-difference_angle, shortest=True)
     rot_time = rotation_time(delta_heading, w, max_torque/moment, safety_factor)
@@ -124,7 +124,7 @@ def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, mome
 
         force = force_for_delta_velocity(dv, max_thrust, mass, dt)
 
-    return force, torque, target_velocity
+    return force, torque, target_velocity, difference_mag
 
 @jit(cache=True, nopython=True)
 def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
@@ -356,7 +356,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 
     p = r[0]**2 + r[1]**2 - m**2
 
-    if util.isclose(r[1], 0):
+    if util.isclose(r[1]**2, 0, atol=1e-5):
         # this case would cause a divide by zero when computing the
         # coefficients of the quadratic equation below
         s_1x = s_2x = p/r[0]
@@ -609,22 +609,23 @@ class AbstractSteeringOrder(core.Order):
         max_thrust = self.ship.max_thrust
         max_fine_thrust = self.ship.max_fine_thrust
 
-        force, torque, target_velocity = force_torque_for_delta_velocity(
+        force, torque, target_velocity, difference_mag = force_torque_for_delta_velocity(
                 target_velocity,
                 mass, moment, angle, w, v,
                 max_speed, max_torque, max_thrust, max_fine_thrust,
                 dt, self.safety_factor
         )
 
-        if force[0] == 0. and force[1] == 0.:
-            self.ship.phys.velocity = (target_velocity[0], target_velocity[1])
-        else:
+        if force[0] != 0. or force[1] != 0.:
             self.ship.phys.apply_force_at_world_point(
                     (force[0], force[1]),
                     (self.ship.loc[0], self.ship.loc[1])
             )
+        elif difference_mag > 0.:
+            self.ship.phys.velocity = (target_velocity[0], target_velocity[1])
 
-        self.ship.phys.torque = torque
+        if torque != 0.:
+            self.ship.phys.torque = torque
 
         #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')

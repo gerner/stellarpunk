@@ -97,13 +97,17 @@ class Simulator:
                 # add the batch to cargo
                 station.cargo[station.resource] += self.gamestate.production_chain.batch_sizes[station.resource]
                 station.next_batch_time = 0.
+                station.next_prod_start = 0.
         # waiting for enough cargo to produce case
-        else:
+        elif station.next_production_time <= self.gamestate.timestamp:
             # check if we have enough resource to start a batch
             resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]
             if np.all(station.cargo >= resources_needed):
                 station.cargo -= resources_needed
                 station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource]
+            else:
+                # wait a cooling off period to avoid needlesss expensive checks
+                station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
 
     def tick_sector(self, sector:core.Sector, dt:float) -> None:
 

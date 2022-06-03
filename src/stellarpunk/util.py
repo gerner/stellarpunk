@@ -11,6 +11,7 @@ import curses
 from typing import Any, Tuple, Optional, Callable, Sequence, Iterable
 
 import numpy as np
+import numpy.typing as npt
 from numba import jit # type: ignore
 import drawille # type: ignore
 
@@ -82,6 +83,10 @@ def magnitude(x:float, y:float) -> float:
     return np.sqrt(x*x + y*y)
 
 @jit(cache=True, nopython=True)
+def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
+    return magnitude((s - t)[0], (s - t)[1])
+
+@jit(cache=True, nopython=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
     r = np.sqrt(x*x + y*y)
     if x == 0:
@@ -120,6 +125,9 @@ def clip(x:float, min_x:float, max_x:float) -> float:
 
 @jit(cache=True, nopython=True)
 def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
+    return np.abs(a-b) <= (atol + rtol * np.abs(b))
+
+def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 
 #@jit(cache=True, nopython=True)

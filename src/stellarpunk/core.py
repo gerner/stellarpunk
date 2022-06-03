@@ -36,6 +36,7 @@ class ProductionChain:
         self.prices = np.zeros((0,))
 
         self.production_times = np.zeros((0,))
+        self.production_coolingoff_time = 5.
         self.batch_sizes = np.zeros((0,))
 
         self.sink_names:Sequence[str] = []
@@ -78,6 +79,7 @@ class Entity:
 
     def __init__(self, name:str, entity_id:Optional[uuid.UUID]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
+        self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
         self.name = name
 
     def short_id(self) -> str:
@@ -85,7 +87,7 @@ class Entity:
         return f'{self.id_prefix}-{self.entity_id.hex[:8]}'
 
     def short_id_int(self) -> int:
-        return int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
+        return self._entity_id_short_int
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
@@ -263,7 +265,7 @@ class SectorEntity(Entity):
         return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
 
     def distance_to(self, other:SectorEntity) -> float:
-        return np.linalg.norm(self.loc - other.loc) - self.radius - other.radius
+        return util.distance(self.loc, other.loc) - self.radius - other.radius
 
     def cargo_full(self) -> bool:
         return np.sum(self.cargo) == self.cargo_capacity
@@ -314,6 +316,7 @@ class Station(SectorEntity):
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
         self.next_batch_time = 0.
+        self.next_production_time = 0.
         self.cargo_capacity = 1e5
 
 class Ship(SectorEntity):
@@ -390,6 +393,8 @@ class Effect(abc.ABC):
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
+
+        self.logger = logging.getLogger(util.fullname(self))
 
     def _begin(self) -> None:
         pass

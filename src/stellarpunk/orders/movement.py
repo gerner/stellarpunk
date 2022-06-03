@@ -132,6 +132,11 @@ class GoToLocation(AbstractSteeringOrder):
 
         self.distance_estimate = 0.
 
+        # after taking into account collision avoidance
+        self._desired_velocity = ZERO_VECTOR
+        # the next time we should do a costly computation of desired velocity
+        self._next_compute_ts = 0.
+
     def to_history(self) -> dict:
         data = super().to_history()
         data["t_loc"] = (self.target_location[0], self.target_location[1])
@@ -161,6 +166,12 @@ class GoToLocation(AbstractSteeringOrder):
     def act(self, dt: float) -> None:
         if self.ship.sector is None:
             raise Exception(f'{self.ship} not in any sector')
+
+        #TODO: check if it's time for us to do a careful calculation or a simple one
+        if self.gamestate.timestamp < self._next_compute_ts:
+           self._accelerate_to(self._desired_velocity, dt)
+           return
+
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
 
@@ -215,6 +226,19 @@ class GoToLocation(AbstractSteeringOrder):
 
         if abs(collision_dv[0]) < VELOCITY_EPS and abs(collision_dv[1]) < VELOCITY_EPS:
             self._accelerate_to(self.target_v, dt)
+            self._desired_velocity = self.target_v
+
+            # compute a time delta for our next desired velocity computation
+            nts_low = 1/70.
+            nts_high = 1.0
+            nts_nnd_low = 2e3
+            nts_nnd_high = 1e4
+            nts_nnd = util.interpolate(nts_nnd_low, nts_low, nts_nnd_high, nts_high, self.nearest_neighbor_dist)
+
+            nts_dist_low = 1e3
+            nts_dist_high = 1e4
+            nts_dist = util.interpolate(nts_dist_low, nts_low, nts_dist_high, nts_high, distance)
+            nts = min(min(nts_nnd, nts_dist), nts_high)
         else:
             # if we're over max speed, let's slow down in addition to avoiding
             # collision
@@ -222,6 +246,12 @@ class GoToLocation(AbstractSteeringOrder):
             if v_mag > max_speed:
                 v = v / v_mag * max_speed
             self._accelerate_to(v + collision_dv, dt)
+            self._desired_velocity = v + collision_dv
+
+            nts = 1/70.
+
+        self._next_compute_ts = self.gamestate.timestamp + nts
+
         return
 
 class WaitOrder(AbstractSteeringOrder):
