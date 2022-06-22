@@ -242,7 +242,7 @@ class SectorEntity(Entity):
 
         self.sector: Optional[Sector] = None
 
-        # some physical properties
+        # some physical properties (in SI units)
         self.mass = 0.
         self.moment = 0.
         self.loc = loc
@@ -329,11 +329,12 @@ class Ship(SectorEntity):
         super().__init__(*args, **kwargs)
 
 
+        # SI units (newtons and newton-meters)
         # max thrust along heading vector
         self.max_thrust = 0.
         # max thrust in any direction
         self.max_fine_thrust = 0.
-        # max torque for turning
+        # max torque for turning (in newton-meters)
         self.max_torque = 0.
 
         self.orders: Deque[Order] = collections.deque()
@@ -549,6 +550,8 @@ class Gamestate:
         self.paused = False
         self.should_raise= False
 
+        self.player = Player()
+
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
@@ -582,3 +585,8 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
             fout.write("\n")
     if needs_close:
         fout.close()
+
+class Player:
+    def __init__(self):
+        # which ship the player is in command of, if any
+        self.ship: Optional[Ship] = None

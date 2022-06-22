@@ -14,6 +14,7 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, orders, effects
+from stellarpunk.interface import pilot as pilot_interface
 
 class SectorView(interface.View):
     """ Sector mode: interacting with the sector map.
@@ -49,14 +50,10 @@ class SectorView(interface.View):
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0.,0.,0.,0.)
 
-        self.cached_grid = None
+        self._cached_grid = None
 
         self.debug_entity = False
         self.debug_entity_vectors = False
-
-    @property
-    def viewscreen(self) -> curses.window:
-        return self.interface.viewscreen
 
     def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
@@ -67,6 +64,7 @@ class SectorView(interface.View):
 
     def focus(self) -> None:
         super().focus()
+        self.active = True
         self.interface.camera_x = 0
         self.interface.camera_y = 0
         self.interface.reinitialize_screen(name="Sector Map")
@@ -151,64 +149,8 @@ class SectorView(interface.View):
                     self.interface.log_message(f'cargo {i}: {entity.cargo[i]}')
 
     def _compute_grid(self, max_ticks:int=10) -> None:
-        # choose ticks
-        #TODO: should choose maxTicks based on resolution
-
-        major_ticks_x = util.NiceScale(
-                self.bbox[0], self.bbox[2],
-                maxTicks=max_ticks, constrain_to_range=True)
-        minor_ticks_y = util.NiceScale(
-                self.bbox[1], self.bbox[3],
-                maxTicks=max_ticks*4, constrain_to_range=True)
-        major_ticks_y = util.NiceScale(
-                self.bbox[1], self.bbox[3],
-                maxTicks=max_ticks, constrain_to_range=True,
-                tickSpacing=major_ticks_x.tickSpacing)
-        minor_ticks_x = util.NiceScale(
-                self.bbox[0], self.bbox[2],
-                maxTicks=max_ticks*4, constrain_to_range=True,
-                tickSpacing=minor_ticks_y.tickSpacing)
-
-        c = drawille.Canvas()
-
-        # draw the vertical lines
-        i = major_ticks_x.niceMin
-        while i < self.bbox[2]:
-            j = minor_ticks_y.niceMin
-            while j < self.bbox[3]:
-                d_x, d_y = util.sector_to_drawille(
-                        i, j,
-                        self.meters_per_char_x, self.meters_per_char_y)
-                c.set(d_x, d_y)
-                j += minor_ticks_y.tickSpacing
-            i += major_ticks_x.tickSpacing
-
-        # draw the horizonal lines
-        j = major_ticks_y.niceMin
-        while j < self.bbox[3]:
-            i = minor_ticks_x.niceMin
-            while i < self.bbox[2]:
-                d_x, d_y = util.sector_to_drawille(
-                        i, j,
-                        self.meters_per_char_x, self.meters_per_char_y)
-                c.set(d_x, d_y)
-                i += minor_ticks_x.tickSpacing
-            j += major_ticks_y.tickSpacing
-
-        # get upper left corner position so drawille canvas fills the screen
-        (d_x, d_y) = util.sector_to_drawille(
-                self.bbox[0], self.bbox[1],
-                self.meters_per_char_x, self.meters_per_char_y)
-        # draw the grid to the screen
-        text = c.rows(d_x, d_y)
-
-        self._cached_grid = (
-                major_ticks_x,
-                minor_ticks_y,
-                major_ticks_y,
-                minor_ticks_x,
-                text
-        )
+        self._cached_grid = util.compute_uigrid(
+                self.bbox, self.meters_per_char_x, self.meters_per_char_y)
 
     def draw_grid(self) -> None:
         """ Draws a grid at tick lines. """
@@ -596,6 +538,14 @@ class SectorView(interface.View):
             x,y = self.scursor_x, self.scursor_y
             self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
 
+        def pilot(args:Sequence[str])->None:
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise interface.CommandInput.UserError(f'can only pilot a selected ship target')
+            pilot_view = pilot_interface.PilotView(self.selected_entity, self.interface)
+            self.interface.open_view(pilot_view)
+            # suspend input until we get focus again
+            self.active = False
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
@@ -608,6 +558,7 @@ class SectorView(interface.View):
                 "goto": goto,
                 "wait": wait,
                 "harvest": harvest,
+                "pilot": pilot,
         }
 
     def handle_input(self, key:int) -> bool:

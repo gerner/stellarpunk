@@ -231,6 +231,156 @@ def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
         return " ".join(command.split(' ')[:-1]) + " " + o
     return completer
 
+def compute_uigrid(
+        bbox:Tuple[float, float, float, float],
+        meters_per_char_x:float, meters_per_char_y:float, max_ticks:int=10
+    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, str]:
+    """ Materializes a grid, in text, that fits in a bounding box.
+
+    returns a tuple of major/minor x/y tics and the grid itself in text. """
+
+    # choose ticks
+
+    major_ticks_x = NiceScale(
+            bbox[0], bbox[2],
+            maxTicks=max_ticks, constrain_to_range=True)
+    minor_ticks_y = NiceScale(
+            bbox[1], bbox[3],
+            maxTicks=max_ticks*4, constrain_to_range=True)
+    major_ticks_y = NiceScale(
+            bbox[1], bbox[3],
+            maxTicks=max_ticks, constrain_to_range=True,
+            tickSpacing=major_ticks_x.tickSpacing)
+    minor_ticks_x = NiceScale(
+            bbox[0], bbox[2],
+            maxTicks=max_ticks*4, constrain_to_range=True,
+            tickSpacing=minor_ticks_y.tickSpacing)
+
+    c = drawille.Canvas()
+
+    # draw the vertical lines
+    i = major_ticks_x.niceMin
+    while i < bbox[2]:
+        j = minor_ticks_y.niceMin
+        while j < bbox[3]:
+            d_x, d_y = sector_to_drawille(
+                    i, j,
+                    meters_per_char_x, meters_per_char_y)
+            c.set(d_x, d_y)
+            j += minor_ticks_y.tickSpacing
+        i += major_ticks_x.tickSpacing
+
+    # draw the horizonal lines
+    j = major_ticks_y.niceMin
+    while j < bbox[3]:
+        i = minor_ticks_x.niceMin
+        while i < bbox[2]:
+            d_x, d_y = sector_to_drawille(
+                    i, j,
+                    meters_per_char_x, meters_per_char_y)
+            c.set(d_x, d_y)
+            i += minor_ticks_x.tickSpacing
+        j += major_ticks_y.tickSpacing
+
+    # get upper left corner position so drawille canvas fills the screen
+    (d_x, d_y) = sector_to_drawille(
+            bbox[0], bbox[1],
+            meters_per_char_x, meters_per_char_y)
+    # draw the grid to the screen
+    text = c.rows(d_x, d_y)
+
+    return (
+        major_ticks_x,
+        minor_ticks_y,
+        major_ticks_y,
+        minor_ticks_x,
+        text
+    )
+
+def compute_uiradar(
+        center:Tuple[float, float],
+        bbox:Tuple[float, float, float, float],
+        meters_per_char_x:float, meters_per_char_y:float, max_ticks:int=10
+    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, str]:
+    """ Materializes a radar in text that fits in bbox. """
+
+    # choose ticks based on x size, y is forced to that, but we still want the
+    # min/max
+    # we also convert to a bbox relative to the center point (so we can get a
+    # a major axis on that center point
+    # we also want enough rings to fill the bbox (including partial rings on
+    # the diagonals)
+    major_ticks_x = NiceScale(
+            bbox[0]-center[0], bbox[2]-center[0],
+            maxTicks=max_ticks, constrain_to_range=True)
+    minor_ticks_y = NiceScale(
+            bbox[1]-center[1], bbox[3]-center[1],
+            maxTicks=max_ticks*4, constrain_to_range=True)
+    major_ticks_y = NiceScale(
+            bbox[1]-center[1], bbox[3]-center[1],
+            maxTicks=max_ticks, constrain_to_range=True,
+            tickSpacing=major_ticks_x.tickSpacing)
+    minor_ticks_x = NiceScale(
+            bbox[0]-center[0], bbox[2]-center[0],
+            maxTicks=max_ticks*4, constrain_to_range=True,
+            tickSpacing=minor_ticks_y.tickSpacing)
+
+    c = drawille.Canvas()
+
+    # draw a cross over the center point
+
+    # horizonal
+    i = bbox[0]
+    while i < bbox[2]:
+        d_x, d_y = sector_to_drawille(i, center[1],
+                meters_per_char_x, meters_per_char_y)
+        c.set(d_x, d_y)
+        i += minor_ticks_x.tickSpacing
+
+    # vertical
+    i = bbox[1]
+    while i < bbox[3]:
+        d_x, d_y = sector_to_drawille(center[0], i,
+                meters_per_char_x, meters_per_char_y)
+        c.set(d_x, d_y)
+        i += minor_ticks_y.tickSpacing
+
+    # draw rings centered on the center point
+    # should be enough rings to fill bbox (including partial rings 
+
+    # iterate over rings at major tickSpacing
+    max_radius = magnitude(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    for r in np.linspace(major_ticks_x.tickSpacing, max_radius, int(max_radius/major_ticks_x.tickSpacing), endpoint=False):
+        # perfect arc length is minor tick spacing, but we want an arc length
+        # closest to that which will divide the circle into a whole number of
+        # pieces divisible by 4 (so the circle dots match the cross)
+        theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (minor_ticks_x.tickSpacing / r) / 4))
+        for theta in np.linspace(0., 2*np.pi, int((2*np.pi)/theta_tick), endpoint=False):
+            if np.isclose(theta % (math.pi/2), 0.):
+                continue
+            dot_x, dot_y = polar_to_cartesian(r, theta)
+            d_x, d_y = sector_to_drawille(
+                    dot_x + center[0], dot_y + center[1],
+                    meters_per_char_x, meters_per_char_y)
+            c.set(d_x, d_y)
+
+    # get upper left corner position so drawille canvas fills the screen
+    (d_x, d_y) = sector_to_drawille(
+            bbox[0], bbox[1],
+            meters_per_char_x, meters_per_char_y)
+
+    # draw the grid to the screen
+    text = c.rows(d_x, d_y)
+
+    return (
+        major_ticks_x,
+        minor_ticks_y,
+        major_ticks_y,
+        minor_ticks_x,
+        text
+    )
+
+
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
 

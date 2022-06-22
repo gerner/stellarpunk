@@ -157,10 +157,21 @@ class Icons:
             return 0
 
 class View(abc.ABC):
-    def __init__(self, interface: Interface) -> None:
+    def __init__(self,
+            interface: Interface,
+            input_keys:MutableMapping[str, Callable[[], None]] = {}
+        ) -> None:
+
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
+        self.active = True
         self.interface = interface
+
+        self.input_keys = input_keys
+
+    @property
+    def viewscreen(self) -> curses.window:
+        return self.interface.viewscreen
 
     def initialize(self) -> None:
         pass
@@ -175,9 +186,11 @@ class View(abc.ABC):
     def update_display(self) -> None:
         pass
 
-    @abc.abstractmethod
     def handle_input(self, key:int) -> bool:
-        pass
+        if key in input_keys:
+            return input_keys[key]()
+        else:
+            return True
 
 class ColorDemo(View):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -659,7 +672,8 @@ class Interface(AbstractInterface):
             self.one_time_step = False
 
         for view in self.views:
-            view.update_display()
+            if view.active:
+                view.update_display()
         self.show_date()
         self.show_diagnostics()
         self.stdscr.noutrefresh()

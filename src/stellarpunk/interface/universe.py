@@ -18,12 +18,6 @@ class UniverseView(interface.View):
         self.sector_maxx = 0
         self.sector_maxy = 0
 
-        self.in_sector = False
-
-    @property
-    def viewscreen(self) -> curses.window:
-        return self.interface.viewscreen
-
     def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
         self.pan_camera()
@@ -31,7 +25,7 @@ class UniverseView(interface.View):
 
     def focus(self) -> None:
         super().focus()
-        self.in_sector = False
+        self.active = True
         self.interface.reinitialize_screen(name="Universe Map")
 
     def pan_camera(self) -> None:
@@ -102,9 +96,6 @@ class UniverseView(interface.View):
     def update_display(self) -> None:
         """ Draws a map of all sectors. """
 
-        if self.in_sector:
-            return
-
         self.viewscreen.erase()
         self.sector_maxx = -1
         self.sector_maxy = -1
@@ -129,7 +120,7 @@ class UniverseView(interface.View):
                     sector, self.interface)
             self.interface.open_view(sector_view)
             # suspend input until we get focus again
-            self.in_sector = True
+            self.active = False
         elif key == ord(":"):
             command_input = interface.CommandInput(self.interface)
             self.interface.open_view(command_input)
