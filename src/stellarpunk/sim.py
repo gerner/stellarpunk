@@ -97,7 +97,7 @@ class Simulator:
                 # add the batch to cargo
                 station.cargo[station.resource] += self.gamestate.production_chain.batch_sizes[station.resource]
                 station.next_batch_time = 0.
-                station.next_prod_start = 0.
+                station.next_production_time = 0.
         # waiting for enough cargo to produce case
         elif station.next_production_time <= self.gamestate.timestamp:
             # check if we have enough resource to start a batch

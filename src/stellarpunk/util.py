@@ -396,7 +396,8 @@ class NiceScale:
         self.minPoint = minv
         self.maxPoint = maxv
         self.constrain_to_range = constrain_to_range
-        self.calculate()
+        if self.minPoint != self.maxPoint:
+            self.calculate()
 
     def calculate(self) -> None:
         if self.tickSpacing == 0.:

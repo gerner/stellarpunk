@@ -12,7 +12,13 @@ AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 0.5
 
 class TransferCargoEffect(core.Effect):
-    def __init__(self, resource:int, amount:float, source:core.SectorEntity, destination:core.SectorEntity, *args: Any, transfer_rate:float=1e2, max_distance=2.5e3, **kwargs: Any) -> None:
+    def __init__(
+            self,
+            resource:int, amount:float, source:core.SectorEntity,
+            destination:core.SectorEntity,
+            *args: Any,
+            transfer_rate:float=1e2, max_distance:float=2.5e3,
+            **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.amount = amount

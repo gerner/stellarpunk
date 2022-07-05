@@ -84,7 +84,11 @@ def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:flo
     return np.array((x,y))
 
 @jit(cache=True, nopython=True)
-def force_torque_for_delta_velocity(target_velocity:np.ndarray, mass:float, moment:float, angle:float, w:float, v:np.ndarray, max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float, dt:float, safety_factor:float) -> tuple[np.ndarray, float, np.ndarray]:
+def force_torque_for_delta_velocity(
+        target_velocity:np.ndarray, mass:float, moment:float, angle:float,
+        w:float, v:np.ndarray, max_speed:float, max_torque:float,
+        max_thrust:float, max_fine_thrust:float, dt:float,
+        safety_factor:float) -> tuple[np.ndarray, float, np.ndarray, float]:
     target_speed = util.magnitude(target_velocity[0], target_velocity[1])
     if target_speed > max_speed:
         target_velocity = target_velocity / target_speed * max_speed

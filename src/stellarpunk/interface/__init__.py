@@ -159,7 +159,7 @@ class Icons:
 class View(abc.ABC):
     def __init__(self,
             interface: Interface,
-            input_keys:MutableMapping[str, Callable[[], None]] = {}
+            input_keys:MutableMapping[int, Callable[[], bool]]={}
         ) -> None:
 
         self.logger = logging.getLogger(util.fullname(self))
@@ -172,6 +172,14 @@ class View(abc.ABC):
     @property
     def viewscreen(self) -> curses.window:
         return self.interface.viewscreen
+
+    @property
+    def viewscreen_dimensions(self) -> Tuple[int, int]:
+        return (self.interface.viewscreen_width, self.interface.viewscreen_height)
+
+    @property
+    def viewscreen_bounds(self) -> Tuple[int, int, int, int]:
+        return self.interface.viewscreen_bounds
 
     def initialize(self) -> None:
         pass

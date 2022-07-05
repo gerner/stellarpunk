@@ -15,9 +15,11 @@ class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, input_keys = self._input_keys(), **kwargs)
+        super().__init__(*args, **dict(kwargs, input_keys=self._input_keys()))
 
         self.ship = ship
+        if self.ship.sector is None:
+            raise ValueError("ship must be in a sector to pilot")
 
         # where the sector map is centered in sector coordinates
         self.scursor_x = 0.
@@ -31,9 +33,9 @@ class PilotView(interface.View):
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0.,0.,0.,0.)
 
-        self_cached_radar = None
+        self._cached_radar = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), "")
 
-        self.presenter = presenter.Presenter(self.interface, self.viewscreen, self.ship.sector, self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.ship.sector, self.bbox, self.meters_per_char_x, self.meters_per_char_y)
 
     def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
         return {}
@@ -59,7 +61,17 @@ class PilotView(interface.View):
         # rotate to the right
         return True
 
-    def _input_keys(self) -> MutableMapping[str, Callable[[], None]]:
+    def _zoom_in(self) -> bool:
+        self.szoom *= 0.9
+        self._update_bbox()
+        return True
+
+    def _zoom_out(self) -> bool:
+        self.szoom *= 1.1
+        self._update_bbox()
+        return True
+
+    def _input_keys(self) -> MutableMapping[int, Callable[[], bool]]:
         return {
             curses.ascii.ESC: lambda: False,
             ord(":"): self._open_command_prompt,
@@ -68,6 +80,8 @@ class PilotView(interface.View):
             ord("a"): self._drive_turn_left,
             ord("s"): self._drive_stop,
             ord("d"): self._drive_turn_right,
+            ord("+"): self._zoom_in,
+            ord("-"): self._zoom_out,
 
             #ord("i"):
             #ord("j"):
@@ -109,7 +123,6 @@ class PilotView(interface.View):
         self.presenter.bbox = self.bbox
         self.presenter.meters_per_char_x = self.meters_per_char_x
         self.presenter.meters_per_char_y = self.meters_per_char_y
-        self.presenter.viewscreen = self.viewscreen
 
     def _auto_pan(self) -> None:
         """ Pans the viewscreen to center on the ship, but only if the ship has
