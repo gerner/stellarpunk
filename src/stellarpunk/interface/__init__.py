@@ -157,17 +157,12 @@ class Icons:
             return 0
 
 class View(abc.ABC):
-    def __init__(self,
-            interface: Interface,
-            input_keys:MutableMapping[int, Callable[[], bool]]={}
-        ) -> None:
+    def __init__(self, interface: Interface) -> None:
 
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.active = True
         self.interface = interface
-
-        self.input_keys = input_keys
 
     @property
     def viewscreen(self) -> curses.window:
@@ -198,10 +193,7 @@ class View(abc.ABC):
         pass
 
     def handle_input(self, key:int) -> bool:
-        if key in self.input_keys:
-            return self.input_keys[key]()
-        else:
-            return True
+        return True
 
 class ColorDemo(View):
     def __init__(self, *args:Any, **kwargs:Any) -> None:

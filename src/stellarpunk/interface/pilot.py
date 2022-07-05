@@ -15,7 +15,7 @@ class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **dict(kwargs, input_keys=self._input_keys()))
+        super().__init__(*args, **kwargs)
 
         self.ship = ship
         if self.ship.sector is None:
@@ -37,6 +37,10 @@ class PilotView(interface.View):
 
         self.presenter = presenter.Presenter(self.interface.gamestate, self, self.ship.sector, self.bbox, self.meters_per_char_x, self.meters_per_char_y)
 
+        # indicates if the ship should follow its orders, or direct player
+        # control
+        self.auto_pilot_on = False
+
     def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
         return {}
 
@@ -45,49 +49,36 @@ class PilotView(interface.View):
             self.interface, commands=self._command_list()))
         return True
 
-    def _drive_forward(self) -> bool:
-        # add thrust
+    def _toggle_autopilot(self) -> bool:
+        """ Toggles autopilot state.
+
+        If autopilot is on, we follow normal orders for the ship. Otherwise we
+        suspend the current order queue and follow the user's input directly.
+        """
+
+        self.auto_pilot_on = not self.auto_pilot_on
         return True
 
-    def _drive_stop(self) -> bool:
-        # come to a stop
+    def _drive(self, key:int) -> bool:
         return True
 
-    def _drive_turn_left(self) -> bool:
-        # rotate to the left
-        return True
-
-    def _drive_turn_right(self) -> bool:
-        # rotate to the right
-        return True
-
-    def _zoom_in(self) -> bool:
-        self.szoom *= 0.9
+    def _zoom_scursor(self, key:int) -> bool:
+        if key == ord("+"):
+            self.szoom *= 0.9
+        elif key == ord("-"):
+            self.szoom *= 1.1
+        else:
+            raise ValueError("can only zoom + or -")
         self._update_bbox()
         return True
 
-    def _zoom_out(self) -> bool:
-        self.szoom *= 1.1
-        self._update_bbox()
-        return True
-
-    def _input_keys(self) -> MutableMapping[int, Callable[[], bool]]:
-        return {
-            curses.ascii.ESC: lambda: False,
-            ord(":"): self._open_command_prompt,
-
-            ord("w"): self._drive_forward,
-            ord("a"): self._drive_turn_left,
-            ord("s"): self._drive_stop,
-            ord("d"): self._drive_turn_right,
-            ord("+"): self._zoom_in,
-            ord("-"): self._zoom_out,
-
-            #ord("i"):
-            #ord("j"):
-            #ord("k"):
-            #ord("l"):
-        }
+    def handle_input(self, key:int) -> bool:
+        if key == curses.ascii.ESC: return False
+        elif key == ord(":"): return self._open_command_prompt()
+        elif key in (ord("+"), ord("-")): return self._zoom_scursor(key)
+        elif key == ord("p"): return self._toggle_autopilot()
+        elif key in (ord("w"), ord("a"), ord("s"), ord("d")): return self._drive(key)
+        else: return True
 
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar = util.compute_uiradar(
