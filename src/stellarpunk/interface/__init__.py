@@ -176,6 +176,9 @@ class View(abc.ABC):
     def initialize(self) -> None:
         pass
 
+    def terminate(self) -> None:
+        pass
+
     def focus(self) -> None:
         self.logger.debug(f'{self} got focus')
         self.has_focus = True
@@ -187,8 +190,8 @@ class View(abc.ABC):
         pass
 
     def handle_input(self, key:int) -> bool:
-        if key in input_keys:
-            return input_keys[key]()
+        if key in self.input_keys:
+            return self.input_keys[key]()
         else:
             return True
 
@@ -620,6 +623,12 @@ class Interface(AbstractInterface):
         view.focus()
         self.views.append(view)
 
+    def close_view(self, view:View) -> None:
+        self.logger.debug(f'closing view {view}')
+        view.terminate()
+        self.views.remove(view)
+        self.views[-1].focus()
+
     def c_pause(self, args:Sequence[str]) -> None:
         self.gamestate.paused = not self.gamestate.paused
 
@@ -705,6 +714,4 @@ class Interface(AbstractInterface):
             self.status_message()
             v = self.views[-1]
             if not v.handle_input(key):
-                self.logger.debug(f'closing view {v}')
-                self.views.remove(v)
-                self.views[-1].focus()
+                self.close_view(v)

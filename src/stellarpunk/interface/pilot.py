@@ -6,15 +6,16 @@ Sits within a sector view.
 import math
 import curses
 
-from typing import Tuple, Optional, Any, Callable
+from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping
 
 from stellarpunk import core, interface, util
+from stellarpunk.interface import presenter
 
 class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, input_keys = self._input_keys(), **kwargs)
 
         self.ship = ship
 
@@ -32,13 +33,55 @@ class PilotView(interface.View):
 
         self_cached_radar = None
 
+        self.presenter = presenter.Presenter(self.interface, self.viewscreen, self.ship.sector, self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+
+    def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
+        return {}
+
+    def _open_command_prompt(self) -> bool:
+        self.interface.open_view(interface.CommandInput(
+            self.interface, commands=self._command_list()))
+        return True
+
+    def _drive_forward(self) -> bool:
+        # add thrust
+        return True
+
+    def _drive_stop(self) -> bool:
+        # come to a stop
+        return True
+
+    def _drive_turn_left(self) -> bool:
+        # rotate to the left
+        return True
+
+    def _drive_turn_right(self) -> bool:
+        # rotate to the right
+        return True
+
+    def _input_keys(self) -> MutableMapping[str, Callable[[], None]]:
+        return {
+            curses.ascii.ESC: lambda: False,
+            ord(":"): self._open_command_prompt,
+
+            ord("w"): self._drive_forward,
+            ord("a"): self._drive_turn_left,
+            ord("s"): self._drive_stop,
+            ord("d"): self._drive_turn_right,
+
+            #ord("i"):
+            #ord("j"):
+            #ord("k"):
+            #ord("l"):
+        }
+
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar = util.compute_uiradar(
                 (self.scursor_x, self.scursor_y),
                 self.bbox, self.meters_per_char_x, self.meters_per_char_y)
 
 
-    def meters_per_char(self) -> Tuple[float, float]:
+    def _meters_per_char(self) -> Tuple[float, float]:
         meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
         meters_per_char_y = meters_per_char_x / self.interface.font_width * self.interface.font_height
 
@@ -48,8 +91,8 @@ class PilotView(interface.View):
         return (meters_per_char_x, meters_per_char_y)
 
 
-    def update_bbox(self) -> None:
-        self.meters_per_char_x, self.meters_per_char_y = self.meters_per_char()
+    def _update_bbox(self) -> None:
+        self.meters_per_char_x, self.meters_per_char_y = self._meters_per_char()
 
         vsw = self.interface.viewscreen_width
         vsh = self.interface.viewscreen_height
@@ -63,7 +106,25 @@ class PilotView(interface.View):
 
         self._compute_radar()
 
-    def draw_radar(self) -> None:
+        self.presenter.bbox = self.bbox
+        self.presenter.meters_per_char_x = self.meters_per_char_x
+        self.presenter.meters_per_char_y = self.meters_per_char_y
+        self.presenter.viewscreen = self.viewscreen
+
+    def _auto_pan(self) -> None:
+        """ Pans the viewscreen to center on the ship, but only if the ship has
+        moved enough. Avoid's updating the bbox on every tick. """
+
+        # exit early if recentering won't move by half a display cell
+        if (abs(self.ship.loc[0] - self.scursor_x) < self.meters_per_char_x/2.
+            and abs(self.ship.loc[1] - self.scursor_y) < self.meters_per_char_y/2.):
+            return
+
+        self.scursor_x = self.ship.loc[0]
+        self.scursor_y = self.ship.loc[1]
+        self._update_bbox()
+
+    def _draw_radar(self) -> None:
         """ Draws a grid at tick lines. """
 
         major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, text = self._cached_radar
@@ -101,6 +162,9 @@ class PilotView(interface.View):
         pos_y = self.interface.viewscreen_height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
+    def _draw_map(self) -> None:
+        pass
+
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
         self.interface.camera_x = 0
@@ -108,7 +172,7 @@ class PilotView(interface.View):
         self.meters_per_char_x = 0.
         self.meters_per_char_y = 0.
 
-        self.update_bbox()
+        self._update_bbox()
         self.interface.reinitialize_screen(name="Pilot's Seat")
 
     def focus(self) -> None:
@@ -116,20 +180,16 @@ class PilotView(interface.View):
         self.interface.camera_y = 0
         self.interface.reinitialize_screen(name="Pilot's Seat")
 
-    def handle_input(self, key:int) -> bool:
-        return False
-
     def update_display(self) -> None:
-        #TODO: we should be careful with setting cursor position and updating
-        # the bbox which is expensive.
-        self.scursor_x = self.ship.loc[0]
-        self.scursor_y = self.ship.loc[1]
-        self.update_bbox()
+        self._auto_pan()
 
         self.interface.camera_x = 0
         self.interface.camera_y = 0
-        #self.draw_sector_map()
+
+        #TODO: would be great not to erase the screen on every tick
         self.viewscreen.erase()
-        self.draw_radar()
+        self._draw_radar()
+        self.presenter.draw_sector_map()
+
         self.interface.refresh_viewscreen()
 

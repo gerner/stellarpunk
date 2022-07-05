@@ -587,6 +587,6 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
         fout.close()
 
 class Player:
-    def __init__(self):
+    def __init__(self) -> None:
         # which ship the player is in command of, if any
         self.ship: Optional[Ship] = None
