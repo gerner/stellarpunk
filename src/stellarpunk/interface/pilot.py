@@ -11,7 +11,7 @@ import numpy as np
 
 from stellarpunk import core, interface, util
 from stellarpunk.interface import presenter
-from stellarpunk.orders import steering
+from stellarpunk.orders import steering, movement
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
 TRANSLATE_KEYS = tuple(map(lambda x: ord(x), "ijkl"))
@@ -179,8 +179,12 @@ class PilotView(interface.View):
         self.autopilot_on = False
         self.control_order:Optional[PlayerControlOrder] = None
 
+        self.goto_order:Optional[movement.GoToLocation] = None
+
     def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
-        return {}
+        return {
+            "clear_orders": lambda x: self.ship.clear_orders(),
+        }
 
     def _open_command_prompt(self) -> bool:
         self.interface.open_view(interface.CommandInput(
@@ -248,18 +252,53 @@ class PilotView(interface.View):
         self._update_bbox()
         return True
 
+    def _handle_mouse(self) -> bool:
+        """ Orders trip to go to location via autopilot. """
+        m_tuple = curses.getmouse()
+        m_id, m_x, m_y, m_z, bstate = m_tuple
+
+        ul_x = self.scursor_x - (self.interface.viewscreen_width/2 * self.meters_per_char_x)
+        ul_y = self.scursor_y - (self.interface.viewscreen_height/2 * self.meters_per_char_y)
+        sector_x, sector_y = util.screen_to_sector(
+                m_x, m_y, ul_x, ul_y,
+                self.meters_per_char_x, self.meters_per_char_y,
+                self.interface.viewscreen_x, self.interface.viewscreen_y)
+
+        if self.autopilot_on:
+            self._toggle_autopilot()
+
+        if self.goto_order is not None:
+            self.goto_order.cancel_order()
+
+        goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.interface.gamestate, arrival_distance=5e2)
+        self.ship.orders.insert(0, goto_order)
+        self.goto_order = goto_order
+
+        return True
+
+
     def handle_input(self, key:int, dt:float) -> bool:
         if key == curses.ascii.ESC: return False
         elif key == ord(":"): return self._open_command_prompt()
         elif key in (ord("+"), ord("-")): return self._zoom_scursor(key)
         elif key == ord("p"): return self._toggle_autopilot()
         elif key in DRIVE_KEYS: return self._drive(key, dt)
+        elif key == curses.KEY_MOUSE: return self._handle_mouse()
         else: return True
 
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar = util.compute_uiradar(
                 (self.scursor_x, self.scursor_y),
                 self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+
+    def _draw_target_indicators(self) -> None:
+        if self.goto_order is not None:
+            if self.goto_order.is_complete():
+                self.goto_order = None
+            else:
+                s_x, s_y = util.sector_to_screen(self.goto_order.target_location[0], self.goto_order.target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+                self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, interface.Icons.COLOR_LOCATION_INDICATOR)
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.
@@ -280,7 +319,6 @@ class PilotView(interface.View):
         s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
 
         self.viewscreen.addstr(s_y, s_x, interface.Icons.VELOCITY_INDICATOR, interface.Icons.COLOR_VELOCITY_INDICATOR)
-
 
     def _meters_per_char(self) -> Tuple[float, float]:
         meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
@@ -394,6 +432,7 @@ class PilotView(interface.View):
         self._draw_radar()
         self.presenter.draw_sector_map()
 
+        self._draw_target_indicators()
         # draw the nav indicators on top of everything else
         self._draw_nav_indicators()
 

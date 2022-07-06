@@ -306,7 +306,10 @@ class UniverseGenerator:
         ship.angle = ship_body.angle
         sector.add_entity(ship)
 
-        ship.default_order_fn = default_order_fn
+        #TODO: quick hack to get harvesting, but then wait when we clear
+        #ship.default_order_fn = default_order_fn
+        ship.default_order_fn = order_fn_wait
+        ship.orders.append(default_order_fn(ship, self.gamestate))
 
         return ship
 

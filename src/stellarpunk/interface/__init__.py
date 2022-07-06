@@ -75,6 +75,8 @@ class Icons:
     HEADING_INDICATOR = "h"
     VELOCITY_INDICATOR = "v"
 
+    LOCATION_INDICATOR = "X"
+
     """
     "△" \u25B3 white up pointing triangle
     "" \u25B7 white right pointing triangle
@@ -119,6 +121,7 @@ class Icons:
     COLOR_CARGO = 243
     COLOR_HEADING_INDICATOR = 9
     COLOR_VELOCITY_INDICATOR = 9
+    COLOR_LOCATION_INDICATOR = 47
 
     @staticmethod
     def angle_to_ship(angle:float) -> str:

@@ -371,6 +371,10 @@ class Ship(SectorEntity):
     def default_order(self, gamestate: Gamestate) -> Order:
         return self.default_order_fn(self, gamestate)
 
+    def clear_orders(self) -> None:
+        while self.orders:
+            self.orders[0].cancel_order()
+
 class Asteroid(SectorEntity):
 
     id_prefix = "AST"

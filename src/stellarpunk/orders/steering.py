@@ -326,7 +326,11 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     # check if the desired divert is already viable
     x = a[0]
     y = a[1]
-    do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
+
+    if util.isclose(v[0], 0.) and util.isclose(v[1], 0.):
+        do_nothing_margin_sq = r[0]**2+r[1]**2
+    else:
+        do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
         return ZERO_VECTOR
 
