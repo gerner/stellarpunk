@@ -10,6 +10,9 @@ from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping
 
 from stellarpunk import core, interface, util
 from stellarpunk.interface import presenter
+from stellarpunk.orders import core as orders_core
+
+DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
 
 class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
@@ -30,6 +33,10 @@ class PilotView(interface.View):
         self.meters_per_char_x = 0.
         self.meters_per_char_y = 0.
 
+        self.heading_indicator_radius = 12
+        self.velocity_indicator_radius_min = 0
+        self.velocity_indicator_radius_max = 14
+
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0.,0.,0.,0.)
 
@@ -39,7 +46,8 @@ class PilotView(interface.View):
 
         # indicates if the ship should follow its orders, or direct player
         # control
-        self.auto_pilot_on = False
+        self.autopilot_on = False
+        self.control_order:Optional[orders_core.PlayerControlOrder] = None
 
     def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
         return {}
@@ -56,10 +64,60 @@ class PilotView(interface.View):
         suspend the current order queue and follow the user's input directly.
         """
 
-        self.auto_pilot_on = not self.auto_pilot_on
+        if self.autopilot_on:
+            self.logger.info("entering autopilot")
+
+            if self.control_order is None:
+                raise ValueError("autopilot on, but no control order while toggling autopilot")
+            self.control_order.cancel_order()
+            self.control_order = None
+            self.autopilot_on = False
+        else:
+            self.logger.info("exiting autopilot")
+
+            if self.control_order is not None:
+                raise ValueError("autopilot off, but has control order while toggling autopilot")
+            control_order = orders_core.PlayerControlOrder(self.ship, self.interface.gamestate)
+            self.ship.orders.insert(0, control_order)
+            self.control_order = control_order
+            self.autopilot_on = True
+
         return True
 
     def _drive(self, key:int) -> bool:
+        """ Inputs a direct navigation control for the ship.
+
+        "w" increases velocity, "a" rotates left, "d" rotates right,
+        "s" attempts to kill velocity. All of these give one step of the desired
+        action.
+        """
+
+        if not self.autopilot_on:
+            return True
+        elif self.control_order is None:
+            raise ValueError("autopilot on, but no control order set")
+
+        # direct control of thrust and torque
+        # alternative would be making changes to velocity vector
+        self.control_order.has_command = True
+
+        if key == ord("w"):
+            #TODO: enforce max velocity?
+            force = util.polar_to_cartesian(self.ship.max_thrust, self.ship.angle)
+            self.ship.phys.apply_force_at_world_point(
+                    (force[0], force[1]),
+                    (self.ship.loc[0], self.ship.loc[1])
+            )
+        elif key == ord("s"):
+            #TODO: kill velocity
+            pass
+        elif key in (ord("a"), ord("d")):
+            # positive is clockwise
+            direction = 1
+            if key == ord("a"):
+                direction = -1
+            self.ship.phys.torque = self.ship.max_torque * direction
+
         return True
 
     def _zoom_scursor(self, key:int) -> bool:
@@ -77,13 +135,33 @@ class PilotView(interface.View):
         elif key == ord(":"): return self._open_command_prompt()
         elif key in (ord("+"), ord("-")): return self._zoom_scursor(key)
         elif key == ord("p"): return self._toggle_autopilot()
-        elif key in (ord("w"), ord("a"), ord("s"), ord("d")): return self._drive(key)
+        elif key in DRIVE_KEYS: return self._drive(key)
         else: return True
 
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar = util.compute_uiradar(
                 (self.scursor_x, self.scursor_y),
                 self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+
+    def _draw_nav_indicators(self) -> None:
+        """ Draws navigational indicators on the display.
+
+        Includes velocity and heading.
+        """
+
+        # heading, on a circle at a fixed distance from the center
+        x,y = util.polar_to_cartesian(self.meters_per_char_y * self.heading_indicator_radius, self.ship.angle)
+        s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+        self.viewscreen.addstr(s_y, s_x, interface.Icons.HEADING_INDICATOR, interface.Icons.COLOR_HEADING_INDICATOR)
+
+        # velocity, on a circle, radius expands with velocity from 0 to max
+        vmag, vangle = util.cartesian_to_polar(*self.ship.velocity)
+        r = vmag / self.ship.max_speed() * (self.velocity_indicator_radius_max - self.velocity_indicator_radius_min) + self.velocity_indicator_radius_min
+        x,y = util.polar_to_cartesian(self.meters_per_char_y * r, vangle)
+        s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+        self.viewscreen.addstr(s_y, s_x, interface.Icons.VELOCITY_INDICATOR, interface.Icons.COLOR_VELOCITY_INDICATOR)
 
 
     def _meters_per_char(self) -> Tuple[float, float]:
@@ -166,9 +244,6 @@ class PilotView(interface.View):
         pos_y = self.interface.viewscreen_height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
-    def _draw_map(self) -> None:
-        pass
-
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
         self.interface.camera_x = 0
@@ -178,6 +253,12 @@ class PilotView(interface.View):
 
         self._update_bbox()
         self.interface.reinitialize_screen(name="Pilot's Seat")
+
+    def terminate(self) -> None:
+        if self.autopilot_on:
+            if self.control_order is None:
+                raise ValueError("autopilot on, but no control order while terminating pilot view")
+            self.control_order.cancel_order()
 
     def focus(self) -> None:
         self.interface.camera_x = 0
@@ -193,6 +274,7 @@ class PilotView(interface.View):
         #TODO: would be great not to erase the screen on every tick
         self.viewscreen.erase()
         self._draw_radar()
+        self._draw_nav_indicators()
         self.presenter.draw_sector_map()
 
         self.interface.refresh_viewscreen()

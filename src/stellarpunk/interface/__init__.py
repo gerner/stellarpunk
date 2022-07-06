@@ -72,6 +72,9 @@ class Icons:
     EFFECT_MINING = "\u2726" # "✦" \u2726 black four pointed star
     EFFECT_TRANSFER = "\u2327" # "⌧" \u2327 X in a rectangle box
 
+    HEADING_INDICATOR = "h"
+    VELOCITY_INDICATOR = "v"
+
     """
     "△" \u25B3 white up pointing triangle
     "" \u25B7 white right pointing triangle
@@ -114,6 +117,8 @@ class Icons:
 
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
     COLOR_CARGO = 243
+    COLOR_HEADING_INDICATOR = 9
+    COLOR_VELOCITY_INDICATOR = 9
 
     @staticmethod
     def angle_to_ship(angle:float) -> str:
@@ -332,6 +337,8 @@ class Interface(AbstractInterface):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
+        self.min_ui_timeout = 0
+
         # the size of the global screen, containing other viewports
         self.screen_width = 0
         self.screen_height = 0
@@ -540,7 +547,9 @@ class Interface(AbstractInterface):
 
     def initialize(self) -> None:
         curses.mousemask(curses.ALL_MOUSE_EVENTS)
-        #curses.mouseinterval(200)
+        # setting mouseinterval to 0 means no lag on mouse events, but means we
+        # will not get click vs mousedown vs mouseup events handled by curses
+        curses.mouseinterval(0)
         curses.set_escdelay(1)
         self.stdscr.timeout(0)
 
@@ -670,26 +679,29 @@ class Interface(AbstractInterface):
         }
 
     def tick(self, timeout:float) -> None:
-        # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
-        start_time = time.perf_counter()
-        self.frame_history.append(start_time)
-        while self.frame_history[0] < start_time - self.max_frame_history:
-            self.frame_history.popleft()
+        # only render a frame if there's enough time
+        if timeout > self.min_ui_timeout:
+            # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
+            start_time = time.perf_counter()
+            self.frame_history.append(start_time)
+            while self.frame_history[0] < start_time - self.max_frame_history:
+                self.frame_history.popleft()
 
-        if self.one_time_step:
-            self.gamestate.paused = True
-            self.one_time_step = False
+            if self.one_time_step:
+                self.gamestate.paused = True
+                self.one_time_step = False
 
-        for view in self.views:
-            if view.active:
-                view.update_display()
-        self.show_date()
-        self.show_diagnostics()
-        self.stdscr.noutrefresh()
+            for view in self.views:
+                if view.active:
+                    view.update_display()
+            self.show_date()
+            self.show_diagnostics()
+            self.stdscr.noutrefresh()
 
-        curses.doupdate()
+            curses.doupdate()
 
         #TODO: this can block in the case of mouse clicks
+        #TODO: see note above about setting mouseinterval to 0 which fixes this?
         # maybe we should offload getch to another thread that can always block
         # and read stuff from it from a queue? it's not clear about
         # threadsafety of getch vs getmouse tho and other curses stuff

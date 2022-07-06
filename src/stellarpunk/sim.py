@@ -45,7 +45,6 @@ class Simulator:
 
         self.ticktime_alpha = 0.1
         self.min_tick_sleep = self.desired_dt/5
-        self.min_ui_timeout = 0.
 
         self.sleep_count = 0
 
@@ -223,12 +222,10 @@ class Simulator:
             now = time.perf_counter()
 
             timeout = next_tick - now
-            # only render a frame if there's enough time
-            if timeout > self.min_ui_timeout:
-                if not self.gamestate.paused:
-                    self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
+            if not self.gamestate.paused:
+                self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
-                self.ui.tick(timeout)
+            self.ui.tick(timeout)
 
             now = time.perf_counter()
             ticktime = now - starttime

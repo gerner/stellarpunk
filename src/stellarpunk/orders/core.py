@@ -11,6 +11,36 @@ from stellarpunk import util, core, effects
 from .movement import GoToLocation
 from .steering import ZERO_VECTOR
 
+class PlayerControlOrder(core.Order):
+    """ Order indicating the player is in direct control.
+
+    This order does nothing (at all). It's important that this is cleaned up if
+    the player at any time relinquishes control.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.has_command = False
+
+    def act(self, dt:float) -> None:
+
+
+        if self.has_command:
+            self.has_command = False
+            return
+
+        if self.ship.phys.angular_velocity == 0.:
+            return
+
+        t = self.ship.moment * -1 * self.ship.angular_velocity / dt
+        if t == 0:
+            self.ship.phys.angular_velocity = 0.
+        else:
+            self.ship.phys.torque = np.clip(t, -1*self.ship.max_torque, self.ship.max_torque)
+
+
+
 class MineOrder(core.Order):
     def __init__(self, target: core.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
