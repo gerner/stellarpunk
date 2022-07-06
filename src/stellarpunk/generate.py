@@ -255,13 +255,13 @@ class UniverseGenerator:
         # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
         # some speculation that starship thrusters can do 100-200 kN
         #max_fine_thrust = 5e3
-        max_fine_thrust = 1e4
+        max_fine_thrust = 2e4
 
         # note about g-forces:
         # assuming circle of radius 30m, mass 2e3 kg
         # mass moment 18,000,000 kg m^2
         # centriptal acceleration = r * w^2
-        # 1g at 30m with angular acceleration of 0.57 rad/sec
+        # 1g at 30m with angular velocity of 0.57 rad/sec
         # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
         # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
         # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds

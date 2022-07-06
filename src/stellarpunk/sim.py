@@ -225,7 +225,7 @@ class Simulator:
             if not self.gamestate.paused:
                 self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
-            self.ui.tick(timeout)
+            self.ui.tick(timeout, self.dt)
 
             now = time.perf_counter()
             ticktime = now - starttime

@@ -197,7 +197,7 @@ class View(abc.ABC):
     def update_display(self) -> None:
         pass
 
-    def handle_input(self, key:int) -> bool:
+    def handle_input(self, key:int, dt:float) -> bool:
         return True
 
 class ColorDemo(View):
@@ -220,7 +220,7 @@ class ColorDemo(View):
         self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
         self.interface.refresh_viewscreen()
 
-    def handle_input(self, key:int) -> bool:
+    def handle_input(self, key:int, dt:float) -> bool:
         return key == -1
 
 class CommandInput(View):
@@ -270,7 +270,7 @@ class CommandInput(View):
     def update_display(self) -> None:
         self.interface.status_message(f':{self.command}')
 
-    def handle_input(self, key:int) -> bool:
+    def handle_input(self, key:int, dt:float) -> bool:
         if key in (ord('\n'), ord('\r')):
             self.logger.debug(f'read command {self.command}')
             self.interface.status_message()
@@ -329,7 +329,7 @@ class AbstractInterface(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def tick(self, timeout:float) -> None:
+    def tick(self, timeout:float, dt:float) -> None:
         pass
 
 class Interface(AbstractInterface):
@@ -678,7 +678,7 @@ class Interface(AbstractInterface):
                 "profile": profile,
         }
 
-    def tick(self, timeout:float) -> None:
+    def tick(self, timeout:float, dt:float) -> None:
         # only render a frame if there's enough time
         if timeout > self.min_ui_timeout:
             # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
@@ -725,5 +725,5 @@ class Interface(AbstractInterface):
         elif key >= 0:
             self.status_message()
             v = self.views[-1]
-            if not v.handle_input(key):
+            if not v.handle_input(key, dt):
                 self.close_view(v)

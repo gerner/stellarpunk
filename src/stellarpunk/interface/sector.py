@@ -305,7 +305,7 @@ class SectorView(interface.View):
                 "pilot": pilot,
         }
 
-    def handle_input(self, key:int) -> bool:
+    def handle_input(self, key:int, dt:float) -> bool:
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_scursor(key)
         elif key in (ord("+"), ord("-")):

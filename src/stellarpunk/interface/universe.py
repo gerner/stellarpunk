@@ -111,7 +111,7 @@ class UniverseView(interface.View):
         self.pan_camera()
         self.interface.refresh_viewscreen()
 
-    def handle_input(self, key:int) -> bool:
+    def handle_input(self, key:int, dt:float) -> bool:
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_ucursor(key)
         elif key in (ord('\n'), ord('\r')):
