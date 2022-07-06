@@ -274,7 +274,14 @@ class WaitOrder(AbstractSteeringOrder):
             t = approach_time - rotation_time(2*np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
             if t < 0 or distance > 1/2 * self.ship.max_acceleration()*t**2 / self.safety_factor:
                 self._accelerate_to(collision_dv, dt)
+                raise Exception()
                 return
-        if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
-            return
-        self._accelerate_to(ZERO_VECTOR, dt)
+        if np.allclose(self.ship.velocity, ZERO_VECTOR):
+            if self.ship.phys.angular_velocity != 0.:
+                t = self.ship.moment * -1 * self.ship.angular_velocity / dt
+                if util.isclose(t, 0):
+                    self.ship.phys.angular_velocity = 0.
+                else:
+                    self.ship.phys.torque = np.clip(t, -1*self.ship.max_torque, self.ship.max_torque)
+        else:
+            self._accelerate_to(ZERO_VECTOR, dt)
