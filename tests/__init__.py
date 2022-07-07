@@ -62,21 +62,22 @@ def asteroid_from_history(history_entry, generator, sector):
     asteroid.name = history_entry["eid"]
     return asteroid
 
-def order_from_history(history_entry, ship, gamestate):
+def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamestate):
     order_type = history_entry["o"]["o"]
     if order_type in ("stellarpunk.orders.GoToLocation", "stellarpunk.orders.movement.GoToLocation"):
         arrival_distance = history_entry["o"].get("ad", 1.5e3)
         min_distance = history_entry["o"].get("md", None)
-        order = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
-        order.neighborhood_density = history_entry["o"].get("nd", 0.)
+        gorder = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
+        gorder.neighborhood_density = history_entry["o"].get("nd", 0.)
+        order:core.Order=gorder
     elif order_type in ("stellarpunk.orders.core.TransferCargo, stellarpunk.orders.core.HarvestOrder"):
         # in these cases we'll just give a null order so they just stay exactly
         # where they are, without collision avoidance or any other steering.
         order = core.Order(ship, gamestate)
     else:
         raise ValueError(f'can not load {history_entry["o"]["o"]}')
-
     ship.orders.append(order)
+
     return order
 
 def history_from_file(fname, generator, sector, gamestate):
@@ -121,7 +122,7 @@ class MonitoringUI(interface.AbstractInterface):
         if len(set(self.orders) - set(self.complete_orders)) == 0:
             self.done = True
 
-    def tick(self, timeout:float) -> None:
+    def tick(self, timeout:float, dt:float) -> None:
 
         assert not self.collisions
 

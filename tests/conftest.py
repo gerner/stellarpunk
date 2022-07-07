@@ -36,7 +36,7 @@ def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
 def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
     simulation = sim.Simulator(gamestate, testui)
     simulation.min_tick_sleep = np.inf
-    simulation.min_ui_timeout = -np.inf
+    #testui.min_ui_timeout = -np.inf
 
     simulation.initialize()
 

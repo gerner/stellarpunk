@@ -91,7 +91,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
 
     eta = steering.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration(), rotate_order.safety_factor)
 
-    testui.eta = eta
+    #testui.eta = eta
     testui.orders = [rotate_order]
 
     simulator.run()
@@ -126,7 +126,7 @@ def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     distance = np.linalg.norm(ship_driver.loc)
     eta = goto_order.estimate_eta()
     starttime = gamestate.timestamp
-    def tick(timeout):
+    def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
         assert not simulator.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
@@ -153,7 +153,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
     eta = goto_order.estimate_eta()
 
     starttime = gamestate.timestamp
-    def tick(timeout):
+    def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
         assert not simulator.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
@@ -181,7 +181,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
     distance = np.linalg.norm(ship_driver.loc)
     eta = goto_order.estimate_eta()
     starttime = gamestate.timestamp
-    def tick(timeout):
+    def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
         assert not simulator.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
@@ -209,7 +209,7 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     eta = goto_order.estimate_eta()
 
     starttime = gamestate.timestamp
-    def tick(timeout):
+    def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
         nonlocal distance
         assert not simulator.collisions

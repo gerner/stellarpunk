@@ -42,6 +42,7 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
     # this is approximate
     distance = np.linalg.norm(ship_driver.loc)
 
+    #testui.eta = goto_order.estimate_eta()
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
     testui.cannot_avoid_collision_orders = [goto_order]
@@ -58,6 +59,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.orders.append(goto_order)
 
+    testui.eta = goto_order.estimate_eta()
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
     #testui.cannot_avoid_collision_orders = [goto_order]
@@ -115,6 +117,7 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     a_cbdr = False
     b_cbdr = False
 
+    testui.eta = max((goto_a.estimate_eta(), goto_b.estimate_eta()))*1.2
     testui.orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
@@ -141,7 +144,7 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
 
     eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
-    def tick(timeout):
+    def tick(timeout, dt):
         assert not simulator.collisions
 
         # only need to check one, they are symmetric
@@ -182,7 +185,7 @@ def test_ships_intersecting_collision(gamestate, generator, sector, testui, simu
 
     eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
-    def tick(timeout):
+    def tick(timeout, dt):
         assert not simulator.collisions
 
         # only need to check one, they are symmetric
@@ -218,7 +221,7 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     distance = np.linalg.norm(ship_driver.loc)
     eta = goto_order.estimate_eta()
 
-    def tick(timeout):
+    def tick(timeout, dt):
         assert not simulator.collisions
 
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
@@ -249,7 +252,7 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
     distance = np.linalg.norm(ship_driver.loc - goto_order.target_location)
     eta = goto_order.estimate_eta()
 
-    def tick(timeout):
+    def tick(timeout, dt):
         assert not simulator.collisions
 
         # only need to check one, they are symmetric

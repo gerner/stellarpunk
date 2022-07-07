@@ -38,11 +38,11 @@ def human_distance(distance_meters:float) -> str:
     if abs(distance_meters) < 1e3:
         return f'{distance_meters:.0f}m'
     elif abs(distance_meters) < 1e6:
-        return f'{distance_meters/1e3:.0f}km'
+        return f'{distance_meters/1e3:.2f}km'
     elif abs(distance_meters) < 1e9:
-        return f'{distance_meters/1e6:.0f}Mm'
+        return f'{distance_meters/1e6:.2f}Mm'
     elif abs(distance_meters) < 1e12:
-        return f'{distance_meters/1e9:.0f}Gm'
+        return f'{distance_meters/1e9:.2f}Gm'
     else:
         return f'{distance_meters:.0e}m'
 

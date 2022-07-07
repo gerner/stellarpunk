@@ -427,7 +427,6 @@ class Effect(abc.ABC):
         self._complete()
 
     def cancel_effect(self) -> None:
-        raise Exception()
         try:
             self.sector.effects.remove(self)
         except ValueError:

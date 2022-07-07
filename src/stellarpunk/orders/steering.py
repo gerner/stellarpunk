@@ -12,7 +12,7 @@ from numba import jit # type: ignore
 
 from stellarpunk import util, core
 
-ANGLE_EPS = 1e-3 # about .06 degrees
+ANGLE_EPS = 2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
 VELOCITY_EPS = 1e-1
 

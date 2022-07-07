@@ -142,8 +142,6 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
                 (self.ship.loc[0], self.ship.loc[1])
         )
 
-
-
 class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
 
@@ -159,12 +157,14 @@ class PilotView(interface.View):
         self.scursor_y = 0.
 
         # sector zoom level, expressed in meters to fit on screen
-        self.szoom = self.ship.sector.radius*2
+        self.szoom = 40.*1000.
         self.meters_per_char_x = 0.
         self.meters_per_char_y = 0.
 
+        self.direction_indicator_radius = 15
         self.heading_indicator_radius = 12
-        self.velocity_indicator_radius_min = 0
+        self.target_indicator_radius = 13
+        self.velocity_indicator_radius_min = 2
         self.velocity_indicator_radius_max = 14
 
         # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
@@ -181,6 +181,8 @@ class PilotView(interface.View):
 
         self.goto_order:Optional[movement.GoToLocation] = None
 
+        self.selected_entity:Optional[core.SectorEntity] = None
+
     def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
         return {
             "clear_orders": lambda x: self.ship.clear_orders(),
@@ -190,6 +192,14 @@ class PilotView(interface.View):
         self.interface.open_view(interface.CommandInput(
             self.interface, commands=self._command_list()))
         return True
+
+    def _select_target(self, entity:Optional[core.SectorEntity]) -> None:
+        if entity is None:
+            self.selected_entity = None
+            self.presenter.selected_target = None
+        else:
+            self.selected_entity = entity
+            self.presenter.selected_target = entity.entity_id
 
     def _toggle_autopilot(self) -> bool:
         """ Toggles autopilot state.
@@ -252,6 +262,14 @@ class PilotView(interface.View):
         self._update_bbox()
         return True
 
+    def _handle_cancel(self) -> bool:
+        """ Cancels current operation (e.g. deselect target) """
+        if self.selected_entity is not None:
+            self._select_target(None)
+            return True
+        else:
+            return False
+
     def _handle_mouse(self) -> bool:
         """ Orders trip to go to location via autopilot. """
         m_tuple = curses.getmouse()
@@ -263,6 +281,20 @@ class PilotView(interface.View):
                 m_x, m_y, ul_x, ul_y,
                 self.meters_per_char_x, self.meters_per_char_y,
                 self.interface.viewscreen_x, self.interface.viewscreen_y)
+
+
+        # select a target within a cell of the mouse click
+        if self.ship.sector is None:
+            raise ValueError("ship must be in a sector to select a target")
+
+        hit = next(self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.meters_per_char_y), None)
+        if hit:
+            #TODO: check if the hit is close enough
+            self._select_target(hit)
+
+        return True
+
+        #TODO: click to move
 
         if self.autopilot_on:
             self._toggle_autopilot()
@@ -276,59 +308,33 @@ class PilotView(interface.View):
 
         return True
 
+    def _next_target(self, direction:int) -> bool:
+        """ Selects the next or previous target from a sorted list. """
+
+        # select a target within a cell of the mouse click
+        if self.ship.sector is None:
+            raise ValueError("ship must be in a sector to select a target")
+
+        if self.selected_entity is None:
+            self._select_target(next(self.ship.sector.spatial_point(self.ship.loc), None))
+
+        return True
 
     def handle_input(self, key:int, dt:float) -> bool:
-        if key == curses.ascii.ESC: return False
+        if key == curses.ascii.ESC: return self._handle_cancel()
         elif key == ord(":"): return self._open_command_prompt()
         elif key in (ord("+"), ord("-")): return self._zoom_scursor(key)
         elif key == ord("p"): return self._toggle_autopilot()
         elif key in DRIVE_KEYS: return self._drive(key, dt)
         elif key == curses.KEY_MOUSE: return self._handle_mouse()
+        elif key == ord("t"): return self._next_target(1)
+        elif key == ord("r"): return self._next_target(-1)
         else: return True
 
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar = util.compute_uiradar(
                 (self.scursor_x, self.scursor_y),
                 self.bbox, self.meters_per_char_x, self.meters_per_char_y)
-
-    def _draw_target_indicators(self) -> None:
-        if self.goto_order is not None:
-            if self.goto_order.is_complete():
-                self.goto_order = None
-            else:
-                s_x, s_y = util.sector_to_screen(self.goto_order.target_location[0], self.goto_order.target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
-
-                self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, interface.Icons.COLOR_LOCATION_INDICATOR)
-
-    def _draw_nav_indicators(self) -> None:
-        """ Draws navigational indicators on the display.
-
-        Includes velocity and heading.
-        """
-
-        # heading, on a circle at a fixed distance from the center
-        x,y = util.polar_to_cartesian(self.meters_per_char_y * self.heading_indicator_radius, self.ship.angle)
-        s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
-
-        self.viewscreen.addstr(s_y, s_x, interface.Icons.HEADING_INDICATOR, interface.Icons.COLOR_HEADING_INDICATOR)
-
-        # velocity, on a circle, radius expands with velocity from 0 to max
-        vmag, vangle = util.cartesian_to_polar(*self.ship.velocity)
-        r = vmag / self.ship.max_speed() * (self.velocity_indicator_radius_max - self.velocity_indicator_radius_min) + self.velocity_indicator_radius_min
-        x,y = util.polar_to_cartesian(self.meters_per_char_y * r, vangle)
-        s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
-
-        self.viewscreen.addstr(s_y, s_x, interface.Icons.VELOCITY_INDICATOR, interface.Icons.COLOR_VELOCITY_INDICATOR)
-
-    def _meters_per_char(self) -> Tuple[float, float]:
-        meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
-        meters_per_char_y = meters_per_char_x / self.interface.font_width * self.interface.font_height
-
-        assert self.szoom / meters_per_char_y <= self.interface.viewscreen_height
-        assert self.szoom / meters_per_char_x <= self.interface.viewscreen_width
-
-        return (meters_per_char_x, meters_per_char_y)
-
 
     def _update_bbox(self) -> None:
         self.meters_per_char_x, self.meters_per_char_y = self._meters_per_char()
@@ -388,6 +394,14 @@ class PilotView(interface.View):
             self.viewscreen.addstr(s_y, s_x, util.human_distance(j), curses.color_pair(29))
             j += major_ticks_y.tickSpacing
 
+        # draw degree indicators
+        r = self.meters_per_char_y * self.direction_indicator_radius
+        for theta in np.linspace(0., 2*np.pi, 12, endpoint=False):
+            # convert to 0 at positive x to get the right display
+            x,y = util.polar_to_cartesian(r, theta-np.pi/2)
+            s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+            self.viewscreen.addstr(s_y, s_x, f'{math.degrees(theta):.0f}°', curses.color_pair(29))
+
         # add a scale near corner
         scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
         scale_x = self.interface.viewscreen_width - len(scale_label) - 2
@@ -399,6 +413,97 @@ class PilotView(interface.View):
         pos_x = self.interface.viewscreen_width - len(pos_label) - 2
         pos_y = self.interface.viewscreen_height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
+
+    def _draw_target_indicators(self) -> None:
+        if self.goto_order is not None:
+            if self.goto_order.is_complete():
+                self.goto_order = None
+            else:
+                s_x, s_y = util.sector_to_screen(self.goto_order.target_location[0], self.goto_order.target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+                self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
+
+    def _draw_nav_indicators(self) -> None:
+        """ Draws navigational indicators on the display.
+
+        Includes velocity and heading.
+        """
+
+        # heading, on a circle at a fixed distance from the center
+        x,y = util.polar_to_cartesian(self.meters_per_char_y * self.heading_indicator_radius, self.ship.angle)
+        s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+        self.viewscreen.addstr(s_y, s_x, interface.Icons.HEADING_INDICATOR, curses.color_pair(interface.Icons.COLOR_HEADING_INDICATOR))
+
+        if self.selected_entity is not None:
+            distance, bearing = util.cartesian_to_polar(*(self.selected_entity.loc - self.ship.loc))
+            x,y = util.polar_to_cartesian(self.meters_per_char_y * self.target_indicator_radius, bearing)
+            s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_DIRECTION_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_DIRECTION_INDICATOR))
+
+        # velocity, on a circle, radius expands with velocity from 0 to max
+        vmag, vangle = util.cartesian_to_polar(*self.ship.velocity)
+        if not util.isclose(vmag, 0.):
+            r = vmag / self.ship.max_speed() * (self.velocity_indicator_radius_max - self.velocity_indicator_radius_min) + self.velocity_indicator_radius_min
+            x,y = util.polar_to_cartesian(self.meters_per_char_y * r, vangle)
+            s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.VELOCITY_INDICATOR, curses.color_pair(interface.Icons.COLOR_VELOCITY_INDICATOR))
+
+    def _meters_per_char(self) -> Tuple[float, float]:
+        meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
+        meters_per_char_y = meters_per_char_x / self.interface.font_width * self.interface.font_height
+
+        assert self.szoom / meters_per_char_y <= self.interface.viewscreen_height
+        assert self.szoom / meters_per_char_x <= self.interface.viewscreen_width
+
+        return (meters_per_char_x, meters_per_char_y)
+
+    def _draw_target_info(self) -> None:
+        if self.selected_entity is None:
+            return
+
+        info_width = 12 + 1 + 16
+        status_x = self.interface.viewscreen_width - info_width
+        status_y = 1
+
+        self.viewscreen.addstr(status_y, status_x, "Target Info:")
+
+        label_id ="id:"
+        label_speed = "speed:"
+        label_location = "location:"
+        label_bearing = "bearing:"
+        label_distance = "distance:"
+        distance, bearing = util.cartesian_to_polar(*(self.selected_entity.loc - self.ship.loc))
+        rel_bearing = bearing - self.ship.angle
+        # convert bearing so 0, North is negative y, instead of positive x
+        bearing += np.pi/2
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.ship.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
+        self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
+
+    def _draw_status(self) -> None:
+        status_x = 1
+        status_y = 1
+        self.viewscreen.addstr(status_y, status_x, "Status:")
+
+        label_speed = "speed:"
+        label_location = "location:"
+        label_heading = "heading:"
+        # convert heading so 0, North is negative y, instead of positive x
+        heading = self.ship.angle + np.pi/2
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}°')
+
+    def _draw_hud(self) -> None:
+        self._draw_target_indicators()
+        self._draw_nav_indicators()
+        self._draw_target_info()
+        self._draw_status()
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
@@ -432,9 +537,9 @@ class PilotView(interface.View):
         self._draw_radar()
         self.presenter.draw_sector_map()
 
-        self._draw_target_indicators()
-        # draw the nav indicators on top of everything else
-        self._draw_nav_indicators()
+
+        # draw hud overlay on top of everything else
+        self._draw_hud()
 
         self.interface.refresh_viewscreen()
 

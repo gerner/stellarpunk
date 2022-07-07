@@ -255,7 +255,7 @@ class UniverseGenerator:
         # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
         # some speculation that starship thrusters can do 100-200 kN
         #max_fine_thrust = 5e3
-        max_fine_thrust = 2e4
+        max_fine_thrust = 1.5e4
 
         # note about g-forces:
         # assuming circle of radius 30m, mass 2e3 kg
@@ -306,10 +306,7 @@ class UniverseGenerator:
         ship.angle = ship_body.angle
         sector.add_entity(ship)
 
-        #TODO: quick hack to get harvesting, but then wait when we clear
-        #ship.default_order_fn = default_order_fn
-        ship.default_order_fn = order_fn_wait
-        ship.orders.append(default_order_fn(ship, self.gamestate))
+        ship.default_order_fn = default_order_fn
 
         return ship
 
@@ -689,7 +686,8 @@ class UniverseGenerator:
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):
                 ship_x, ship_y = self._gen_sector_location(sector)
-                self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_harvest_random_resource)
+                ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
+                ship.orders.append(order_fn_harvest_random_resource(ship, self.gamestate))
 
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r
