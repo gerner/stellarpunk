@@ -166,6 +166,31 @@ class Icons:
         else:
             return 0
 
+class Canvas:
+    def __init__(self, viewscreen:curses.window, viewscreen_height:int, viewscreen_width:int) -> None:
+        self.viewscreen = viewscreen
+        self.viewscreen_width = viewscreen_width
+        self.viewscreen_height = viewscreen_height
+
+    def erase(self) -> None:
+        self.viewscreen.erase()
+
+    def addstr(self, y:int, x:int, string:str, attr:int=0) -> None:
+        """ Draws a string to the window, clipping as necessary for offscreen. """
+
+        if y < 0 or y >= self.viewscreen_height or x >= self.viewscreen_width:
+            #TODO: do we care about embedded newlines? (some lines might be visible)
+            return
+
+        if x < 0:
+            string = string[-x:]
+            x = 0
+
+        if x + len(string) > self.viewscreen_width:
+            string = string[:self.viewscreen_width-x]
+
+        self.viewscreen.addstr(y, x, string, attr)
+
 class View(abc.ABC):
     def __init__(self, interface: Interface) -> None:
 
@@ -175,7 +200,7 @@ class View(abc.ABC):
         self.interface = interface
 
     @property
-    def viewscreen(self) -> curses.window:
+    def viewscreen(self) -> Canvas:
         return self.interface.viewscreen
 
     @property
@@ -272,7 +297,7 @@ class Interface(AbstractInterface):
 
         # viewport sizes and positions in the global screen
         # this is what's visible
-        self.viewscreen:curses.window = None # type: ignore[assignment]
+        self.viewscreen:Canvas = None # type: ignore[assignment]
         self.viewscreen_width = 0
         self.viewscreen_height = 0
         self.viewscreen_x = 0
@@ -459,7 +484,9 @@ class Interface(AbstractInterface):
         )
         self.stdscr.addstr(self.logscreen_y-1, self.logscreen_x+1, " Message Log ")
 
-        self.viewscreen = curses.newpad(Settings.VIEWSCREEN_BUFFER_HEIGHT, Settings.VIEWSCREEN_BUFFER_WIDTH)
+        #self.viewscreen = curses.newpad(Settings.VIEWSCREEN_BUFFER_HEIGHT, Settings.VIEWSCREEN_BUFFER_WIDTH)
+        # make the viewscreen 1 extra row to avoid curses error when writing to the bottom right character
+        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width)
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
 
@@ -487,7 +514,7 @@ class Interface(AbstractInterface):
             raise ValueError(f'unknown color {color}')
 
     def refresh_viewscreen(self) -> None:
-        self.viewscreen.noutrefresh(
+        self.viewscreen.viewscreen.noutrefresh(
                 self.camera_y, self.camera_x,
                 self.viewscreen_y, self.viewscreen_x,
                 self.viewscreen_y+self.viewscreen_height-1,

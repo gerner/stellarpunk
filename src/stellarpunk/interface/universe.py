@@ -1,6 +1,5 @@
 import logging
 import curses
-from curses import textpad
 from typing import Any
 
 from stellarpunk import interface, util, core
@@ -32,7 +31,7 @@ class UniverseView(interface.View):
         view_y = self.ucursor_y*(interface.Settings.UMAP_SECTOR_HEIGHT+interface.Settings.UMAP_SECTOR_YSEP)
         view_x = self.ucursor_x*(interface.Settings.UMAP_SECTOR_WIDTH+interface.Settings.UMAP_SECTOR_XSEP)
 
-        self.viewscreen.move(view_y+1, view_x+1)
+        self.viewscreen.viewscreen.move(view_y+1, view_x+1)
 
         # pan the camera so the selected sector is always in view
         if view_x < self.interface.camera_x:
@@ -76,7 +75,7 @@ class UniverseView(interface.View):
     def draw_umap_sector(self, y:int, x:int, sector:core.Sector) -> None:
         """ Draws a single sector to viewscreen starting at position (y,x) """
 
-        textpad.rectangle(self.viewscreen, y, x, y+interface.Settings.UMAP_SECTOR_HEIGHT-1, x+interface.Settings.UMAP_SECTOR_WIDTH-1)
+        #textpad.rectangle(self.viewscreen.viewscreen, y, x, y+interface.Settings.UMAP_SECTOR_HEIGHT-1, x+interface.Settings.UMAP_SECTOR_WIDTH-1)
 
         if (self.ucursor_x, self.ucursor_y) == (sector.x, sector.y):
             self.viewscreen.addstr(y+1,x+1, sector.short_id(), curses.A_STANDOUT)

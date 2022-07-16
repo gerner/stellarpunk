@@ -327,54 +327,60 @@ def compute_uiradar(
 
     c = drawille.Canvas()
 
-    # draw a cross over the center point
-
+    # draw a cross over the center point (from center out, with mirroring)
     # horizonal
-    i = bbox[0]
-    while i < bbox[2]:
-        d_x, d_y = sector_to_drawille(i, center[1],
+    i = 0.
+    while i < (bbox[2] - bbox[0])/2:
+        d_x, d_y = sector_to_drawille(i, 0,
                 meters_per_char_x, meters_per_char_y)
         c.set(d_x, d_y)
+        c.set(-d_x, d_y)
         i += minor_ticks_x.tickSpacing
 
     # vertical
-    i = bbox[1]
-    while i < bbox[3]:
-        d_x, d_y = sector_to_drawille(center[0], i,
+    i = 0.
+    while i < (bbox[3] - bbox[1])/2:
+        d_x, d_y = sector_to_drawille(0, i,
                 meters_per_char_x, meters_per_char_y)
         c.set(d_x, d_y)
+        c.set(d_x, -d_y)
         i += minor_ticks_y.tickSpacing
 
     # draw rings centered on the center point
     # should be enough rings to fill bbox (including partial rings 
 
     # iterate over rings at major tickSpacing
-    max_radius = magnitude(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    max_radius = magnitude(bbox[2] - bbox[0], bbox[3] - bbox[1])/2
     for r in np.linspace(major_ticks_x.tickSpacing, max_radius, int(max_radius/major_ticks_x.tickSpacing), endpoint=False):
         # perfect arc length is minor tick spacing, but we want an arc length
         # closest to that which will divide the circle into a whole number of
         # pieces divisible by 4 (so the circle dots match the cross)
         theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (minor_ticks_x.tickSpacing / r) / 4))
-        for theta in np.linspace(0., 2*np.pi, int((2*np.pi)/theta_tick), endpoint=False):
+        # we'll just iterate over a single quadrant and mirror it
+        thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
+        for theta in thetas:
             # skip dots that fall on cross
-            if np.isclose(theta % (math.pi/2), 0.):
-                continue
+            #if np.isclose(theta % (math.pi/2), 0.):
+            #    continue
             dot_x, dot_y = polar_to_cartesian(r, theta)
 
             # skip dots outside bbox
-            if dot_x < bbox[0] or dot_x > bbox[2]:
+            if dot_x > (bbox[2] - bbox[0])/2:
                 continue
-            if dot_y < bbox[1] or dot_y > bbox[3]:
+            if dot_y > (bbox[3] - bbox[1])/2:
                 continue
 
             d_x, d_y = sector_to_drawille(
-                    dot_x + center[0], dot_y + center[1],
+                    dot_x, dot_y,
                     meters_per_char_x, meters_per_char_y)
             c.set(d_x, d_y)
+            c.set(-d_x, d_y)
+            c.set(-d_x, -d_y)
+            c.set(d_x, -d_y)
 
     # get upper left corner position so drawille canvas fills the screen
     (d_x, d_y) = sector_to_drawille(
-            bbox[0], bbox[1],
+            -(bbox[2] - bbox[0])/2, -(bbox[3]-bbox[1])/2,
             meters_per_char_x, meters_per_char_y)
 
     # draw the grid to the screen
