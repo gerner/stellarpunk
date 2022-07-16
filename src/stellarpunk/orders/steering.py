@@ -604,7 +604,7 @@ class AbstractSteeringOrder(core.Order):
             self.ship.phys.angular_velocity = 0
         else:
             #self.logger.debug(f'apply torque {t:.0f} for desired target_angle {target_angle:.3f} from {target_angle:.3f} at {w:.2f}rad/sec')
-            self.ship.phys.torque = t
+            self.ship.apply_torque(t)
 
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float) -> None:
         mass = self.ship.mass
@@ -625,15 +625,12 @@ class AbstractSteeringOrder(core.Order):
         )
 
         if force[0] != 0. or force[1] != 0.:
-            self.ship.phys.apply_force_at_world_point(
-                    (force[0], force[1]),
-                    (self.ship.loc[0], self.ship.loc[1])
-            )
+            self.ship.apply_force(force)
         elif difference_mag > 0.:
             self.ship.phys.velocity = (target_velocity[0], target_velocity[1])
 
         if torque != 0.:
-            self.ship.phys.torque = torque
+            self.ship.apply_torque(torque)
 
         #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')

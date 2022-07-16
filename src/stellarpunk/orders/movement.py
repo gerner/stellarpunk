@@ -27,7 +27,7 @@ class KillRotationOrder(core.Order):
         if t == 0:
             self.ship.phys.angular_velocity = 0
         else:
-            self.ship.phys.torque = np.clip(t, -9000, 9000)
+            self.ship.apply_torque(np.clip(t, -9000, 9000))
 
 class RotateOrder(AbstractSteeringOrder):
     def __init__(self, target_angle: float, *args: Any, **kwargs: Any) -> None:
@@ -281,6 +281,6 @@ class WaitOrder(AbstractSteeringOrder):
                 if util.isclose(t, 0):
                     self.ship.phys.angular_velocity = 0.
                 else:
-                    self.ship.phys.torque = np.clip(t, -1*self.ship.max_torque, self.ship.max_torque)
+                    self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque))
         else:
             self._accelerate_to(ZERO_VECTOR, dt)

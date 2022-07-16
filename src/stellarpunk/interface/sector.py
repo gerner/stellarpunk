@@ -14,7 +14,7 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, orders, effects
-from stellarpunk.interface import presenter, pilot as pilot_interface
+from stellarpunk.interface import command_input, presenter, pilot as pilot_interface
 
 class SectorView(interface.View):
     """ Sector mode: interacting with the sector map.
@@ -210,40 +210,40 @@ class SectorView(interface.View):
         self.draw_sector_map()
         self.interface.refresh_viewscreen()
 
-    def command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
+    def command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
         def target(args:Sequence[str])->None:
             if not args:
-                raise interface.CommandInput.UserError("need a valid target")
+                raise command_input.CommandInput.UserError("need a valid target")
             try:
                 target_id = uuid.UUID(args[0])
             except ValueError:
-                raise interface.CommandInput.UserError("not a valid target id, try tab completion.")
+                raise command_input.CommandInput.UserError("not a valid target id, try tab completion.")
             if target_id not in self.sector.entities:
-                raise interface.CommandInput.UserError("{args[0]} not found in sector")
+                raise command_input.CommandInput.UserError("{args[0]} not found in sector")
             self.select_target(target_id, self.sector.entities[target_id])
 
         def goto(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
             if len(args) < 2:
                 x,y = self.scursor_x, self.scursor_y
             else:
                 try:
                     x,y = int(args[0]), int(args[1])
                 except Exception:
-                    raise interface.CommandInput.UserError("need two int args for x,y pos")
+                    raise command_input.CommandInput.UserError("need two int args for x,y pos")
             self.selected_entity.orders.clear()
             self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
             self.selected_entity.orders.clear()
             self.selected_entity.orders.append(orders.WaitOrder(self.selected_entity, self.interface.gamestate))
 
         def harvest(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise interface.CommandInput.UserError(f'order only valid on a ship target')
+                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
             self.logger.info('adding harvest order to {self.selected_entity}')
             base = self.sector.stations[0]
             self.selected_entity.orders.clear()
@@ -253,7 +253,7 @@ class SectorView(interface.View):
         def debug_vectors(args:Sequence[str])->None: self.debug_entity_vectors = not self.debug_entity_vectors
         def debug_write_history(args:Sequence[str])->None:
             if not self.selected_entity:
-                raise interface.CommandInput.UserError(f'can only write history for a selected target')
+                raise command_input.CommandInput.UserError(f'can only write history for a selected target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
             core.write_history_to_file(self.selected_entity, filename)
@@ -270,7 +270,7 @@ class SectorView(interface.View):
                 try:
                     x,y = int(args[0]), int(args[1])
                 except Exception:
-                    raise interface.CommandInput.UserError("need two int args for x,y pos")
+                    raise command_input.CommandInput.UserError("need two int args for x,y pos")
 
             self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
 
@@ -284,7 +284,7 @@ class SectorView(interface.View):
 
         def pilot(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise interface.CommandInput.UserError(f'can only pilot a selected ship target')
+                raise command_input.CommandInput.UserError(f'can only pilot a selected ship target')
             pilot_view = pilot_interface.PilotView(self.selected_entity, self.interface)
             self.interface.open_view(pilot_view)
             # suspend input until we get focus again
@@ -356,7 +356,7 @@ class SectorView(interface.View):
                 station = self.interface.generator.r.choice(np.array((self.sector.stations)))
                 ship.orders.append(orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate))
         elif key == ord(":"):
-            self.interface.open_view(interface.CommandInput(
+            self.interface.open_view(command_input.CommandInput(
                 self.interface, commands=self.command_list()))
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()

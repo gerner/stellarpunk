@@ -356,9 +356,17 @@ def compute_uiradar(
         # pieces divisible by 4 (so the circle dots match the cross)
         theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (minor_ticks_x.tickSpacing / r) / 4))
         for theta in np.linspace(0., 2*np.pi, int((2*np.pi)/theta_tick), endpoint=False):
+            # skip dots that fall on cross
             if np.isclose(theta % (math.pi/2), 0.):
                 continue
             dot_x, dot_y = polar_to_cartesian(r, theta)
+
+            # skip dots outside bbox
+            if dot_x < bbox[0] or dot_x > bbox[2]:
+                continue
+            if dot_y < bbox[1] or dot_y > bbox[3]:
+                continue
+
             d_x, d_y = sector_to_drawille(
                     dot_x + center[0], dot_y + center[1],
                     meters_per_char_x, meters_per_char_y)

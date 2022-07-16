@@ -10,7 +10,7 @@ from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping
 import numpy as np
 
 from stellarpunk import core, interface, util
-from stellarpunk.interface import presenter
+from stellarpunk.interface import presenter, command_input
 from stellarpunk.orders import steering, movement
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
@@ -92,7 +92,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         if t == 0:
             self.ship.phys.angular_velocity = 0.
         else:
-            self.ship.phys.torque = np.clip(t, -1*self.ship.max_torque, self.ship.max_torque)
+            self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque))
 
     # action functions, imply player direct input
 
@@ -104,10 +104,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_thrust)
 
         if not np.allclose(force, steering.ZERO_VECTOR):
-            self.ship.phys.apply_force_at_world_point(
-                    (force[0], force[1]),
-                    (self.ship.loc[0], self.ship.loc[1])
-            )
+            self.ship.apply_force(force)
 
     def kill_velocity(self, dt:float) -> None:
         self.has_command = True
@@ -123,8 +120,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_command = True
         #TODO: up to max angular acceleration?
-        self.ship.angular_velocity
-        self.ship.phys.torque = self.ship.max_torque * scale
+        self.ship.apply_torque(self.ship.max_torque * scale)
 
     def translate(self, direction:float, dt:float) -> None:
         """ Translates the ship in the desired direction
@@ -137,10 +133,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_fine_thrust)
 
-        self.ship.phys.apply_force_at_world_point(
-                (force[0], force[1]),
-                (self.ship.loc[0], self.ship.loc[1])
-        )
+        self.ship.apply_force(force)
 
 class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
@@ -183,13 +176,13 @@ class PilotView(interface.View):
 
         self.selected_entity:Optional[core.SectorEntity] = None
 
-    def _command_list(self) -> Mapping[str, interface.CommandInput.CommandSig]:
+    def _command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
         return {
             "clear_orders": lambda x: self.ship.clear_orders(),
         }
 
     def _open_command_prompt(self) -> bool:
-        self.interface.open_view(interface.CommandInput(
+        self.interface.open_view(command_input.CommandInput(
             self.interface, commands=self._command_list()))
         return True
 
@@ -336,7 +329,7 @@ class PilotView(interface.View):
                 (self.scursor_x, self.scursor_y),
                 self.bbox, self.meters_per_char_x, self.meters_per_char_y)
 
-    def _update_bbox(self) -> None:
+    def _update_bbox(self, recompute_radar:bool=True) -> None:
         self.meters_per_char_x, self.meters_per_char_y = self._meters_per_char()
 
         vsw = self.interface.viewscreen_width
@@ -349,7 +342,8 @@ class PilotView(interface.View):
 
         self.bbox = (ul_x, ul_y, lr_x, lr_y)
 
-        self._compute_radar()
+        if recompute_radar:
+            self._compute_radar()
 
         self.presenter.bbox = self.bbox
         self.presenter.meters_per_char_x = self.meters_per_char_x
@@ -366,7 +360,7 @@ class PilotView(interface.View):
 
         self.scursor_x = self.ship.loc[0]
         self.scursor_y = self.ship.loc[1]
-        self._update_bbox()
+        self._update_bbox(recompute_radar=False)
 
     def _draw_radar(self) -> None:
         """ Draws a grid at tick lines. """

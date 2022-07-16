@@ -368,6 +368,15 @@ class Ship(SectorEntity):
     def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
 
+    def apply_force(self, force: npt.NDArray[np.float64]) -> None:
+        self.phys.apply_force_at_world_point(
+                (force[0], force[1]),
+                (self.loc[0], self.loc[1])
+        )
+
+    def apply_torque(self, torque: float) -> None:
+        self.phys.torque = torque
+
     def default_order(self, gamestate: Gamestate) -> Order:
         return self.default_order_fn(self, gamestate)
 

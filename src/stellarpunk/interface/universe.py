@@ -4,7 +4,7 @@ from curses import textpad
 from typing import Any
 
 from stellarpunk import interface, util, core
-from stellarpunk.interface import sector as sector_interface
+from stellarpunk.interface import command_input, sector as sector_interface
 
 class UniverseView(interface.View):
     def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any):
@@ -122,8 +122,8 @@ class UniverseView(interface.View):
             # suspend input until we get focus again
             self.active = False
         elif key == ord(":"):
-            command_input = interface.CommandInput(self.interface)
-            self.interface.open_view(command_input)
+            ci = command_input.CommandInput(self.interface)
+            self.interface.open_view(ci)
 
         return True
 
