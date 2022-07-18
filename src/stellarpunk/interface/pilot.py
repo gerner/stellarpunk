@@ -501,8 +501,6 @@ class PilotView(interface.View):
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
         self.meters_per_char_x = 0.
         self.meters_per_char_y = 0.
 
@@ -516,15 +514,10 @@ class PilotView(interface.View):
             self.control_order.cancel_order()
 
     def focus(self) -> None:
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
         self.interface.reinitialize_screen(name="Pilot's Seat")
 
     def update_display(self) -> None:
         self._auto_pan()
-
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
 
         #TODO: would be great not to erase the screen on every tick
         self.viewscreen.erase()

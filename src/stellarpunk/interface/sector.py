@@ -58,16 +58,12 @@ class SectorView(interface.View):
 
     def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
         self.update_bbox()
         self.interface.reinitialize_screen(name="Sector Map")
 
     def focus(self) -> None:
         super().focus()
         self.active = True
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
         self.interface.reinitialize_screen(name="Sector Map")
 
     def update_bbox(self) -> None:
@@ -205,8 +201,6 @@ class SectorView(interface.View):
         self.interface.refresh_viewscreen()
 
     def update_display(self) -> None:
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
         self.draw_sector_map()
         self.interface.refresh_viewscreen()
 

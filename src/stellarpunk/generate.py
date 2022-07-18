@@ -52,7 +52,7 @@ def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -
     return orders.HarvestOrder(station, resource, ship, gamestate)
 
 class UniverseGenerator:
-    def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None, listener:Optional[GenerationListener]=None) -> None:
+    def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
         self.gamestate = gamestate
@@ -60,13 +60,18 @@ class UniverseGenerator:
         # random generator
         self.r = np.random.default_rng(seed)
 
-        if not listener:
-            # if no listener, set up a no-op listener
-            self.listener = GenerationListener()
-        else:
-            self.listener = listener
-
         self.parallel_max_edges_tries = 10000
+
+    def _random_geometric_graph(
+            self,
+            ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        """ Creates a random geometric graph according to model parameters.
+
+        returns (boolean) list of node coordinates and adjacency matrix.
+        """
+
+        return (np.ndarray((0,2)), np.ndarray((0,0)))
+
 
     def _random_bipartite_graph(
             self,
@@ -695,11 +700,8 @@ class UniverseGenerator:
         # generate a production chain
         production_chain = self.generate_chain()
         self.gamestate.production_chain = production_chain
-        self.listener.production_chain_complete(production_chain)
 
         # generate sectors
         self.generate_sectors()
-
-        self.listener.sectors_complete(self.gamestate.sectors)
 
         return self.gamestate

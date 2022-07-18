@@ -28,6 +28,7 @@ class UniverseView(interface.View):
         self.interface.reinitialize_screen(name="Universe Map")
 
     def pan_camera(self) -> None:
+        """
         view_y = self.ucursor_y*(interface.Settings.UMAP_SECTOR_HEIGHT+interface.Settings.UMAP_SECTOR_YSEP)
         view_x = self.ucursor_x*(interface.Settings.UMAP_SECTOR_WIDTH+interface.Settings.UMAP_SECTOR_XSEP)
 
@@ -42,6 +43,8 @@ class UniverseView(interface.View):
             self.interface.camera_y = view_y
         elif view_y > self.interface.camera_y + self.interface.viewscreen_height - interface.Settings.UMAP_SECTOR_HEIGHT:
             self.interface.camera_y = view_y - self.interface.viewscreen_height + interface.Settings.UMAP_SECTOR_HEIGHT
+        """
+        return
 
     def move_ucursor(self, direction:int) -> None:
         old_x = self.ucursor_x

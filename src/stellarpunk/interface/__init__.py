@@ -234,14 +234,7 @@ class ColorDemo(View):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def focus(self) -> None:
-        super().focus()
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
-
     def update_display(self) -> None:
-        self.interface.camera_x = 0
-        self.interface.camera_y = 0
         self.interface.viewscreen.erase()
         self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
 
@@ -309,10 +302,6 @@ class Interface(AbstractInterface):
         self.logscreen_height = 0
         self.logscreen_x = 0
         self.logscreen_y = 0
-
-        # upper left corner of the camera view inside the viewscreen
-        self.camera_x = 0
-        self.camera_y = 0
 
         self.gamestate = gamestate
 
@@ -515,7 +504,7 @@ class Interface(AbstractInterface):
 
     def refresh_viewscreen(self) -> None:
         self.viewscreen.viewscreen.noutrefresh(
-                self.camera_y, self.camera_x,
+                0, 0,
                 self.viewscreen_y, self.viewscreen_x,
                 self.viewscreen_y+self.viewscreen_height-1,
                 self.viewscreen_x+self.viewscreen_width-1
