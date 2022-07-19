@@ -97,11 +97,11 @@ class Sector(Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, x:int, y:int, radius:float, space:pymunk.Space, *args: Any, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:pymunk.Space, *args: Any, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
+
         # sector's position in the universe
-        self.x = x
-        self.y = y
+        self.loc = loc
 
         # one standard deviation
         self.radius = radius
@@ -539,9 +539,8 @@ class Gamestate:
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
 
-        # the universe is a set of sectors, indexed by coordinate
-        self.sectors:Dict[tuple[int,int], Sector] = {}
-        self.entities:Dict[uuid.UUID, Entity] = {}
+        # the universe is a set of sectors, indexed by their entity id
+        self.sectors:Dict[uuid.UUID, Sector] = {}
 
         #self.characters = []
 
@@ -563,6 +562,9 @@ class Gamestate:
         self.should_raise= False
 
         self.player = Player()
+
+    def add_sector(self, sector:Sector) -> None:
+        self.sectors[sector.entity_id] = sector
 
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed

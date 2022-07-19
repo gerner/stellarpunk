@@ -1,5 +1,6 @@
 import logging
 import itertools
+import uuid
 from typing import Optional, List, Dict, Mapping, Tuple, Sequence
 
 import numpy as np
@@ -600,12 +601,13 @@ class UniverseGenerator:
         # each of these will have more resources
         # implies a more robust and complete production chain
         # implies a bigger population
+        habitable_sector_ids = [uuid.uuid4() for _ in range(n_habitable_sectors)]
         habitable_coordinates = self.r.choice(
                 list(itertools.product(range(width), range(height))),
                 n_habitable_sectors,
                 replace=False)
-        for x,y in habitable_coordinates:
-            sector = core.Sector(x, y, sector_radius, pymunk.Space(), self._gen_sector_name())
+        for entity_id, (x,y) in zip(habitable_sector_ids, habitable_coordinates):
+            sector = core.Sector(np.array([x, y]), sector_radius, pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
             # habitable planet
             # plenty of resources
@@ -662,7 +664,7 @@ class UniverseGenerator:
 
             self.logger.info(f'ending entities: {len(sector.entities)}')
 
-            self.gamestate.sectors[(x,y)] = sector
+            self.gamestate.add_sector(sector)
 
         # set up non-habitable sectors
         for x in range(width):
@@ -671,9 +673,9 @@ class UniverseGenerator:
                 if (x,y) in self.gamestate.sectors:
                     continue
 
-                sector = core.Sector(x, y, sector_radius, pymunk.Space(), self._gen_sector_name())
+                sector = core.Sector(np.array([x, y]), sector_radius, pymunk.Space(), self._gen_sector_name())
 
-                self.gamestate.sectors[(x,y)] = sector
+                self.gamestate.add_sector(sector)
 
         #TODO: post-expansion decline
         # deplete resources at population centers
@@ -685,8 +687,8 @@ class UniverseGenerator:
         # establish current-era characters and distribute roles
 
         # quick hack to populate some ships
-        for x,y in habitable_coordinates:
-            sector = self.gamestate.sectors[(x,y)]
+        for entity_id in habitable_sector_ids:
+            sector = self.gamestate.sectors[entity_id]
             num_ships = self.r.integers(15,35)
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
             for i in range(num_ships):

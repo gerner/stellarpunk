@@ -23,8 +23,8 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
     sector_name = "Sector"
 
-    sector = core.Sector(0, 0, sector_radius, pymunk.Space(), sector_name)
-    gamestate.sectors[(0,0)] = sector
+    sector = core.Sector(np.array([0, 0]), sector_radius, pymunk.Space(), sector_name)
+    gamestate.sectors[sector.entity_id] = sector
 
     return sector
 

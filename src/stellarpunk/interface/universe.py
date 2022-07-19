@@ -2,6 +2,8 @@ import logging
 import curses
 from typing import Any
 
+import numpy as np
+
 from stellarpunk import interface, util, core
 from stellarpunk.interface import command_input, sector as sector_interface
 
@@ -80,7 +82,7 @@ class UniverseView(interface.View):
 
         #textpad.rectangle(self.viewscreen.viewscreen, y, x, y+interface.Settings.UMAP_SECTOR_HEIGHT-1, x+interface.Settings.UMAP_SECTOR_WIDTH-1)
 
-        if (self.ucursor_x, self.ucursor_y) == (sector.x, sector.y):
+        if np.all((self.ucursor_x, self.ucursor_y) == sector.loc):
             self.viewscreen.addstr(y+1,x+1, sector.short_id(), curses.A_STANDOUT)
         else:
             self.viewscreen.addstr(y+1,x+1, sector.short_id())
@@ -101,7 +103,8 @@ class UniverseView(interface.View):
         self.viewscreen.erase()
         self.sector_maxx = -1
         self.sector_maxy = -1
-        for (x,y), sector in self.gamestate.sectors.items():
+        for sector in self.gamestate.sectors.values():
+            x, y = sector.loc
             self.sector_maxx = max(self.sector_maxx, x)
             self.sector_maxy = max(self.sector_maxy, y)
             # claculate screen_y and screen_x from x,y
@@ -117,7 +120,7 @@ class UniverseView(interface.View):
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
             self.move_ucursor(key)
         elif key in (ord('\n'), ord('\r')):
-            sector = self.gamestate.sectors[(self.ucursor_x, self.ucursor_y)]
+            sector = next(sector for sector in self.gamestate.sectors.values() if np.all(sector.loc == (self.ucursor_x, self.ucursor_y)))
             sector_view = sector_interface.SectorView(
                     sector, self.interface)
             self.interface.open_view(sector_view)
