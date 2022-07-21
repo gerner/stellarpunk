@@ -612,7 +612,7 @@ class UniverseGenerator:
         # each of these will have more resources
         # implies a more robust and complete production chain
         # implies a bigger population
-        for entity_id, (x,y) in zip(sector_ids[habitable_mask], sector_coords[habitable_mask]):
+        for idx, entity_id, (x,y) in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask]):
             sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
             # habitable planet
@@ -670,13 +670,13 @@ class UniverseGenerator:
 
             self.logger.info(f'ending entities: {len(sector.entities)}')
 
-            self.gamestate.add_sector(sector)
+            self.gamestate.add_sector(sector, idx[0])
 
         # set up non-habitable sectors
-        for entity_id, (x,y) in zip(sector_ids[~habitable_mask], sector_coords[~habitable_mask]):
+        for idx, entity_id, (x,y) in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask]):
             sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
 
-            self.gamestate.add_sector(sector)
+            self.gamestate.add_sector(sector, idx[0])
 
         # set up connectivity between sectors
         sector_edges = np.zeros((len(self.gamestate.sectors), len(self.gamestate.sectors)))

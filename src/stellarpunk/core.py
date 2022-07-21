@@ -10,13 +10,14 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator
 import abc
 
 import graphviz # type: ignore
 import numpy as np
 import numpy.typing as npt
 import pymunk
+from rtree import index # type: ignore
 
 from stellarpunk import util
 
@@ -546,6 +547,9 @@ class Gamestate:
         self.sector_idx:Mapping[uuid.UUID, int] = {} #inverse of sector_ids
         self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
 
+        # a spatial index of sectors in the universe
+        self.sector_spatial = index.Index()
+
         #self.characters = []
 
         self.keep_running = True
@@ -567,8 +571,9 @@ class Gamestate:
 
         self.player = Player()
 
-    def add_sector(self, sector:Sector) -> None:
+    def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
+        self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
 
     def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray) -> None:
         self.sector_edges = sector_edges
@@ -577,6 +582,10 @@ class Gamestate:
         self.max_edge_length = max(
             util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] > 0
         )
+
+    def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[Sector]:
+        hits = self.sector_spatial.intersection(bounds, objects="raw")
+        return hits
 
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed

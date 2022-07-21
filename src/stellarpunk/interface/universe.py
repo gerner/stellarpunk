@@ -24,7 +24,7 @@ class UniverseView(interface.View):
         # universe zoom level, expressed in meters to fit on screen
         # this is four times the default sector zoom level, so one sector will
         # fit nicely on screen
-        self.uzoom = 20 * 1e5 * 2
+        self.uzoom = 15 * 1e5 * 2
         self.meters_per_char_x = 0.
         self.meters_per_char_y = 0.
 
@@ -36,8 +36,10 @@ class UniverseView(interface.View):
     def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
 
-        self.selected_sector = next(iter(self.gamestate.sectors.values()))
-        self.pan_camera()
+        if self.selected_sector is None:
+            self.selected_sector = next(iter(self.gamestate.sectors.values()))
+            self.pan_camera()
+
         self.update_bbox()
         self.interface.reinitialize_screen(name="Universe Map")
 
@@ -73,10 +75,16 @@ class UniverseView(interface.View):
     def pan_camera(self) -> None:
         self.ucursor_x, self.ucursor_y = self.selected_sector.loc
 
-    def move_ucursor(self, direction:int) -> None:
-        old_x = self.ucursor_x
-        old_y = self.ucursor_y
+    def set_ucursor(self, x, y) -> bool:
+        if np.all(np.isclose((self.ucursor_x, self.ucursor_y), (x,y))):
+            return False
+        else:
+            self.ucursor_x = x
+            self.ucursor_y = y
+            self.update_bbox()
+            return True
 
+    def move_ucursor(self, direction:int) -> None:
         stepsize = self.uzoom/32.
 
         if direction == ord('w'):
@@ -210,6 +218,7 @@ class UniverseView(interface.View):
 
         self.viewscreen.erase()
 
+        # draw the cached sector/edge geometry
         #TODO: these draw_line calls are slow, we should figure out how we can speed things up
         for lineno, line in enumerate(self._cached_sector_layout[1]):
             util.draw_line(lineno, 0, line, self.viewscreen.viewscreen, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE), bounds=self.viewscreen_bounds)
@@ -217,6 +226,7 @@ class UniverseView(interface.View):
         for lineno, line in enumerate(self._cached_sector_layout[0]):
             util.draw_line(lineno, 0, line, self.viewscreen.viewscreen, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR), bounds=self.viewscreen_bounds)
 
+        # draw info for each sector
         for sector in self.gamestate.sectors.values():
             # compute a bounding box of interest for this sector
             # that's this sector (including radius) plus all sectors it connects to
@@ -236,7 +246,11 @@ class UniverseView(interface.View):
                     self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
 
-            self.viewscreen.addstr(s_y, s_x, sector.short_id(), 0)
+            name_attr = 0
+            if sector == self.selected_sector:
+                name_attr = name_attr | curses.A_STANDOUT
+            self.viewscreen.addstr(s_y, s_x, sector.short_id(), name_attr)
+            self.viewscreen.addstr(s_y+1, s_x, f'{len(sector.entities)} objects')
 
         self.interface.refresh_viewscreen()
 
@@ -246,15 +260,39 @@ class UniverseView(interface.View):
         elif key in (ord("+"), ord("-")):
             self.zoom_ucursor(key)
         elif key in (ord('\n'), ord('\r')):
-            sector = next(sector for sector in self.gamestate.sectors.values() if np.all(sector.loc == (self.ucursor_x, self.ucursor_y)))
+            if self.selected_sector is None:
+                return True
+            if self.set_ucursor(*self.selected_sector.loc):
+                return True
             sector_view = sector_interface.SectorView(
-                    sector, self.interface)
+                    self.selected_sector, self.interface)
             self.interface.open_view(sector_view)
             # suspend input until we get focus again
             self.active = False
         elif key == ord(":"):
             ci = command_input.CommandInput(self.interface)
             self.interface.open_view(ci)
+        elif key == curses.KEY_MOUSE:
+            m_tuple = curses.getmouse()
+            m_id, m_x, m_y, m_z, bstate = m_tuple
+            ul_x = self.ucursor_x - (self.interface.viewscreen_width/2 * self.meters_per_char_x)
+            ul_y = self.ucursor_y - (self.interface.viewscreen_height/2 * self.meters_per_char_y)
+            sector_x, sector_y = util.screen_to_sector(
+                    m_x, m_y, ul_x, ul_y,
+                    self.meters_per_char_x, self.meters_per_char_y,
+                    self.interface.viewscreen_x, self.interface.viewscreen_y)
+
+            self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
+
+            # select a target within a cell of the mouse click
+            bounds = (
+                    sector_x-self.meters_per_char_x, sector_y-self.meters_per_char_y,
+                    sector_x+self.meters_per_char_x, sector_y+self.meters_per_char_y
+            )
+            hit = next(self.gamestate.spatial_query(bounds), None)
+            if hit:
+                #TODO: check if the hit is close enough
+                self.selected_sector = self.gamestate.sectors[hit]
 
         return True
 
