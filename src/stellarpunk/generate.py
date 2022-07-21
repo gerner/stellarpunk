@@ -579,6 +579,8 @@ class UniverseGenerator:
     def generate_sectors(self,
             width:int=6, height:int=6,
             sector_radius:float=1e5,
+            sector_radius_std:float=1e5*0.25,
+            sector_edge_length:float=1e5*20,
             n_habitable_sectors:int=5,
             mean_habitable_resources:float=1e9,
             mean_uninhabitable_resources:float=1e7) -> None:
@@ -597,17 +599,21 @@ class UniverseGenerator:
 
         self.logger.info(f'raw needs {raw_needs}')
 
+        # generate locations for all sectors
+        sector_coords = self.r.uniform(-sector_radius*width*1e1, sector_radius*height*1e1, (width*height, 2))
+        sector_ids = np.array([uuid.uuid4() for _ in range(len(sector_coords))])
+        habitable_mask = np.zeros(len(sector_coords), bool)
+        habitable_mask[self.r.choice(len(sector_coords), n_habitable_sectors, replace=False)] = 1
+
+        sector_k = sector_radius**2/sector_radius_std**2
+        sector_theta = sector_radius_std**2/sector_radius
+
         # choose habitable sectors
         # each of these will have more resources
         # implies a more robust and complete production chain
         # implies a bigger population
-        habitable_sector_ids = [uuid.uuid4() for _ in range(n_habitable_sectors)]
-        habitable_coordinates = self.r.choice(
-                list(itertools.product(range(width), range(height))),
-                n_habitable_sectors,
-                replace=False)
-        for entity_id, (x,y) in zip(habitable_sector_ids, habitable_coordinates):
-            sector = core.Sector(np.array([x, y]), sector_radius, pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+        for entity_id, (x,y) in zip(sector_ids[habitable_mask], sector_coords[habitable_mask]):
+            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
             self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
             # habitable planet
             # plenty of resources
@@ -667,15 +673,19 @@ class UniverseGenerator:
             self.gamestate.add_sector(sector)
 
         # set up non-habitable sectors
-        for x in range(width):
-            for y in range(height):
-                # skip inhabited sectors
-                if (x,y) in self.gamestate.sectors:
-                    continue
+        for entity_id, (x,y) in zip(sector_ids[~habitable_mask], sector_coords[~habitable_mask]):
+            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
 
-                sector = core.Sector(np.array([x, y]), sector_radius, pymunk.Space(), self._gen_sector_name())
+            self.gamestate.add_sector(sector)
 
-                self.gamestate.add_sector(sector)
+        # set up connectivity between sectors
+        sector_edges = np.zeros((len(self.gamestate.sectors), len(self.gamestate.sectors)))
+        for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
+            if source_id == dest_id:
+                continue
+            if util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc) < sector_edge_length:
+                sector_edges[i,j] = 1
+        self.gamestate.update_edges(sector_edges, sector_ids)
 
         #TODO: post-expansion decline
         # deplete resources at population centers
@@ -687,7 +697,7 @@ class UniverseGenerator:
         # establish current-era characters and distribute roles
 
         # quick hack to populate some ships
-        for entity_id in habitable_sector_ids:
+        for entity_id in sector_ids[habitable_mask]:
             sector = self.gamestate.sectors[entity_id]
             num_ships = self.r.integers(15,35)
             self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')

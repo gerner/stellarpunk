@@ -9,6 +9,7 @@ import logging
 import collections
 import gzip
 import json
+import itertools
 from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias
 import abc
 
@@ -541,6 +542,9 @@ class Gamestate:
 
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:Dict[uuid.UUID, Sector] = {}
+        self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
+        self.sector_idx:Mapping[uuid.UUID, int] = {} #inverse of sector_ids
+        self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
 
         #self.characters = []
 
@@ -565,6 +569,14 @@ class Gamestate:
 
     def add_sector(self, sector:Sector) -> None:
         self.sectors[sector.entity_id] = sector
+
+    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray) -> None:
+        self.sector_edges = sector_edges
+        self.sector_ids = sector_ids
+        self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
+        self.max_edge_length = max(
+            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] > 0
+        )
 
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed

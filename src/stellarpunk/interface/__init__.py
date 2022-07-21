@@ -125,6 +125,9 @@ class Icons:
     COLOR_TARGET_DIRECTION_INDICATOR = 47
     COLOR_LOCATION_INDICATOR = 47
 
+    COLOR_UNIVERSE_SECTOR = 29
+    COLOR_UNIVERSE_EDGE = 40
+
     @staticmethod
     def angle_to_ship(angle:float) -> str:
         """ Returns ship icon pointing in angle (radians) direction. """
