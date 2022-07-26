@@ -35,7 +35,7 @@ class MineOrder(core.Order):
 
     def act(self, dt: float) -> None:
         # grab resources from the asteroid and add to our cargo
-        distance = np.linalg.norm(self.ship.loc - self.target.loc) - self.target.radius
+        distance = util.magnitude(*(self.ship.loc - self.target.loc)) - self.target.radius
         if distance > self.max_dist:
             self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return
@@ -75,7 +75,7 @@ class TransferCargo(core.Order):
 
     def act(self, dt:float) -> None:
         # if we're too far away, go to the target
-        distance = np.linalg.norm(self.ship.loc - self.target.loc) - self.target.radius
+        distance = util.magnitude(*(self.ship.loc - self.target.loc)) - self.target.radius
         if distance > self.max_dist:
             self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return

@@ -158,7 +158,7 @@ class GoToLocation(AbstractSteeringOrder):
         if self.distance_estimate > self.arrival_distance*5:
             return False
         else:
-            return bool(np.linalg.norm(self.target_location - self.ship.loc) < self.arrival_distance + VELOCITY_EPS and np.allclose(self.ship.velocity, ZERO_VECTOR))
+            return util.magnitude(*(self.target_location - self.ship.loc)) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity)
 
     def _begin(self) -> None:
         self.init_eta = self.estimate_eta()

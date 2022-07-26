@@ -127,9 +127,9 @@ class MonitoringUI(interface.AbstractInterface):
         assert not self.collisions
 
         if self.eta < np.inf:
-            assert self.gamestate.timestamp < self.eta
+            assert self.gamestate.timestamp < self.eta, "exceeded set eta"
         else:
-            assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))
+            assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders)), "exceeded max eta over all orders"
 
         assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders))
         assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))

@@ -574,7 +574,7 @@ class AbstractSteeringOrder(core.Order):
         self.neighborhood_density = 0.
 
         self._next_accelerate_compute_ts = 0.
-        self._computed_accelerate_params:Tuple[npt.NDArray[np.float64], float, npt.NDArray[np.float64], float, float] = (ZERO_VECTOR, 0., ZERO_VECTOR, 0., 0.)
+        self._accelerate_force:npt.NDArray[np.float64] = ZERO_VECTOR
 
     def to_history(self) -> dict:
         history = super().to_history()
@@ -615,7 +615,7 @@ class AbstractSteeringOrder(core.Order):
             #self.logger.debug(f'apply torque {t:.0f} for desired target_angle {target_angle:.3f} from {target_angle:.3f} at {w:.2f}rad/sec')
             self.ship.apply_torque(t)
 
-    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=True, time_step:float=0.) -> None:
+    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
         if target_velocity[0] == self.ship.velocity[0] and target_velocity[1] == self.ship.velocity[1]:
             return
 
