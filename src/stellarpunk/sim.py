@@ -159,20 +159,15 @@ class Simulator:
                     self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
             for ship in sector.ships:
-                # update ship positions from physics sim
-                #ship.loc.put(ZERO_ONE, ship.phys.position)
-                ship.loc[0] = ship.phys.position[0]
-                ship.loc[1] = ship.phys.position[1]
-                ship.angle = ship.phys.angle
-                #ship.velocity.put(ZERO_ONE, ship.phys.velocity)
-                ship.velocity[0] = ship.phys.velocity[0]
-                ship.velocity[1] = ship.phys.velocity[1]
-                ship.angular_velocity = ship.phys.angular_velocity
+                ship.pre_tick()
 
             for ship in sector.ships:
                 self.tick_order(ship, dt)
                 if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == ship.entity_id.int % TICKS_PER_HIST_SAMPLE:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
+
+            for ship in sector.ships:
+                ship.post_tick()
 
             #TODO: do resource and production stuff
             self.tick_sector(sector, dt)

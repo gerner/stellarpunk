@@ -169,7 +169,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         #TODO: check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
-           self._accelerate_to(self._desired_velocity, dt)
+           self._accelerate_to(self._desired_velocity, dt, time_step=self._next_compute_ts - self.gamestate.timestamp)
            return
 
         # essentially the arrival steering behavior but with some added
@@ -225,7 +225,7 @@ class GoToLocation(AbstractSteeringOrder):
                 desired_direction=self.target_v)
 
         if abs(collision_dv[0]) < VELOCITY_EPS and abs(collision_dv[1]) < VELOCITY_EPS:
-            self._accelerate_to(self.target_v, dt)
+            self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 
             # compute a time delta for our next desired velocity computation
@@ -245,8 +245,11 @@ class GoToLocation(AbstractSteeringOrder):
             v_mag = util.magnitude(v[0], v[1])
             if v_mag > max_speed:
                 v = v / v_mag * max_speed
-            self._accelerate_to(v + collision_dv, dt)
             self._desired_velocity = v + collision_dv
+            desired_mag = util.magnitude(*self._desired_velocity)
+            if desired_mag > self.ship.max_speed():
+                self._desired_velocity = self._desired_velocity/desired_mag * self.ship.max_speed()
+            self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
             nts = 1/70.
 
@@ -265,6 +268,8 @@ class WaitOrder(AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         if self.ship.sector is None:
             raise Exception(f'{self.ship} not in any sector')
+        self._accelerate_to(ZERO_VECTOR, dt)
+        return
 
         # avoid collisions while we're waiting
         # but only if those collisions are really imminent
@@ -275,7 +280,8 @@ class WaitOrder(AbstractSteeringOrder):
             if t < 0 or distance > 1/2 * self.ship.max_acceleration()*t**2 / self.safety_factor:
                 self._accelerate_to(collision_dv, dt)
                 return
-        if np.allclose(self.ship.velocity, ZERO_VECTOR):
+        #if np.allclose(self.ship.velocity, ZERO_VECTOR):
+        if util.both_almost_zero(self.ship.velocity):
             if self.ship.phys.angular_velocity != 0.:
                 t = self.ship.moment * -1 * self.ship.angular_velocity / dt
                 if util.isclose(t, 0):

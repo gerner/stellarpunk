@@ -80,7 +80,7 @@ def screen_to_sector(
 
 @jit(cache=True, nopython=True)
 def magnitude(x:float, y:float) -> float:
-    return np.sqrt(x*x + y*y)
+    return math.sqrt(x*x + y*y)
 
 @jit(cache=True, nopython=True)
 def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
@@ -88,7 +88,7 @@ def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
 
 @jit(cache=True, nopython=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
-    r = np.sqrt(x*x + y*y)
+    r = math.sqrt(x*x + y*y)
     if x == 0:
         if y > 0:
             a = np.pi/2
@@ -126,6 +126,10 @@ def clip(x:float, min_x:float, max_x:float) -> float:
 @jit(cache=True, nopython=True)
 def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
+
+@jit(cache=True, nopython=True)
+def both_almost_zero(v:npt.NDArray[np.float64]) -> bool:
+    return isclose(v[0], 0.) and isclose(v[1], 0.)
 
 def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))

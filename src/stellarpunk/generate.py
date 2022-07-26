@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Mapping, Tuple, Sequence
 
 import numpy as np
 import numpy.typing as npt
+from scipy.spatial import distance # type: ignore
 import pymunk
 
 from stellarpunk import util, core, orders
@@ -12,6 +13,33 @@ from stellarpunk import util, core, orders
 #TODO: names: sectors, planets, stations, ships, characters, raw materials,
 #   intermediate products, final products, consumer products, station products,
 #   ship products
+
+
+def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np.float64]:
+    # prim's algorithm to construct a minimum spanning tree
+    # https://en.wikipedia.org/wiki/Prim%27s_algorithm
+    # choose starting vertex arbitrarily
+    V = np.zeros(len(distances), bool)
+    E = np.zeros((len(distances), len(distances)))
+    # while some nodes not connected
+    # invariant(s):
+    # V is a mask indicating elements in the tree
+    # E is adjacency matrix representing the tree
+    # distances has distances to nodes in the tree
+    #   with inf distance between nodes already in the tree and self edges
+    V[root_idx] = True
+    while not np.all(V):
+        # choose edge from nodes in tree to node not yet in tree with min dist
+        d = np.copy(distances)
+        # don't choose edges from outside the tree
+        d[~V,:] = np.inf
+        # don't choose edges into the tree
+        d[:,V] = np.inf
+        edge = np.unravel_index(np.argmin(d, axis=None), d.shape)
+        E[edge] = 1.
+        E[edge[1], edge[0]] = 1.
+        V[edge[1]] = True
+    return E
 
 class GenerationListener:
     def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
@@ -63,15 +91,6 @@ class UniverseGenerator:
 
         self.parallel_max_edges_tries = 10000
 
-    def _random_geometric_graph(
-            self,
-            ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        """ Creates a random geometric graph according to model parameters.
-
-        returns (boolean) list of node coordinates and adjacency matrix.
-        """
-
-        return (np.ndarray((0,2)), np.ndarray((0,0)))
 
 
     def _random_bipartite_graph(
@@ -577,11 +596,11 @@ class UniverseGenerator:
         return chain
 
     def generate_sectors(self,
-            width:int=6, height:int=6,
+            width:int=10, height:int=10,
             sector_radius:float=1e5,
             sector_radius_std:float=1e5*0.25,
-            sector_edge_length:float=1e5*20,
-            n_habitable_sectors:int=5,
+            sector_edge_length:float=1e5*15,
+            n_habitable_sectors:int=25,
             mean_habitable_resources:float=1e9,
             mean_uninhabitable_resources:float=1e7) -> None:
         # set up pre-expansion sectors, resources
@@ -600,6 +619,7 @@ class UniverseGenerator:
         self.logger.info(f'raw needs {raw_needs}')
 
         # generate locations for all sectors
+        #TODO: sectors should not collide (related to radius of each)
         sector_coords = self.r.uniform(-sector_radius*width*1e1, sector_radius*height*1e1, (width*height, 2))
         sector_ids = np.array([uuid.uuid4() for _ in range(len(sector_coords))])
         habitable_mask = np.zeros(len(sector_coords), bool)
@@ -679,7 +699,11 @@ class UniverseGenerator:
             self.gamestate.add_sector(sector, idx[0])
 
         # set up connectivity between sectors
-        sector_edges = np.zeros((len(self.gamestate.sectors), len(self.gamestate.sectors)))
+        distances = distance.squareform(distance.pdist(sector_coords))
+        sector_edges = prims_mst(distances, self.r.integers(0, len(distances)))
+
+        # add edges for nearby sectors
+        #TODO: edges should not cross sectors
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if source_id == dest_id:
                 continue

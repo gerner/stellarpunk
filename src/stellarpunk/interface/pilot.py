@@ -524,7 +524,6 @@ class PilotView(interface.View):
         self._draw_radar()
         self.presenter.draw_sector_map()
 
-
         # draw hud overlay on top of everything else
         self._draw_hud()
 

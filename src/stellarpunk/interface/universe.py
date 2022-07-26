@@ -1,6 +1,7 @@
 import logging
 import curses
 import math
+import functools
 from typing import Any, Tuple, Sequence
 
 import numpy as np
@@ -19,7 +20,9 @@ class UniverseView(interface.View):
         self.ucursor_x = 0.
         self.ucursor_y = 0.
 
-        self.selected_sector:core.Sector = None # type: ignore[assignment]
+        #TODO: what's the right choice for selected sector?
+        # start with max entities as the selected sector
+        self.selected_sector:core.Sector = functools.reduce(lambda x, y: x if y is None or len(x.entities) > len(y.entities) else y, self.gamestate.sectors.values())
 
         # universe zoom level, expressed in meters to fit on screen
         # this is four times the default sector zoom level, so one sector will
@@ -32,13 +35,10 @@ class UniverseView(interface.View):
         self.bbox = (0.,0.,0.,0.)
 
         self._cached_sector_layout:Tuple[Sequence[str], Sequence[str]] = ([], [])
+        self.pan_camera()
 
     def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
-
-        if self.selected_sector is None:
-            self.selected_sector = next(iter(self.gamestate.sectors.values()))
-            self.pan_camera()
 
         self.update_bbox()
         self.interface.reinitialize_screen(name="Universe Map")
@@ -75,7 +75,7 @@ class UniverseView(interface.View):
     def pan_camera(self) -> None:
         self.ucursor_x, self.ucursor_y = self.selected_sector.loc
 
-    def set_ucursor(self, x, y) -> bool:
+    def set_ucursor(self, x:float, y:float) -> bool:
         if np.all(np.isclose((self.ucursor_x, self.ucursor_y), (x,y))):
             return False
         else:
@@ -109,26 +109,6 @@ class UniverseView(interface.View):
             raise ValueError(f'unknown direction {direction}')
 
         self.update_bbox()
-
-    def draw_umap_sector(self, y:int, x:int, sector:core.Sector) -> None:
-        """ Draws a single sector to viewscreen starting at position (y,x) """
-
-        #textpad.rectangle(self.viewscreen.viewscreen, y, x, y+interface.Settings.UMAP_SECTOR_HEIGHT-1, x+interface.Settings.UMAP_SECTOR_WIDTH-1)
-
-        if np.all((self.ucursor_x, self.ucursor_y) == sector.loc):
-            self.viewscreen.addstr(y+1,x+1, sector.short_id(), curses.A_STANDOUT)
-        else:
-            self.viewscreen.addstr(y+1,x+1, sector.short_id())
-
-        self.viewscreen.addstr(y+2,x+1, sector.name)
-
-        for resource, asteroids in sector.asteroids.items():
-            amount = sum(map(lambda x: x.cargo[x.resource], asteroids))
-            icon = interface.Icons.ASTEROID
-            icon_attr = curses.color_pair(interface.Icons.RESOURCE_COLORS[resource])
-            self.viewscreen.addstr(y+3+resource, x+2, f'{icon} {amount:.2e}', icon_attr)
-
-        self.viewscreen.addstr(y+interface.Settings.UMAP_SECTOR_HEIGHT-2, x+1, f'{len(sector.entities)} objects')
 
     def add_sector_to_canvas(self, c:drawille.Canvas, sector:core.Sector) -> bool:
         used_canvas = False

@@ -344,6 +344,9 @@ class Ship(SectorEntity):
 
         self.collision_threat: Optional[SectorEntity] = None
 
+        self._applied_force = False
+        self._will_apply_force = False
+
     def get_history(self) -> Iterable[HistoryEntry]:
         return self.history
 
@@ -370,11 +373,29 @@ class Ship(SectorEntity):
     def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
 
+    def pre_tick(self) -> None:
+        # update ship positions from physics sim
+        #ship.loc.put(ZERO_ONE, ship.phys.position)
+        pos = self.phys.position
+        self.loc[0] = pos[0]
+        self.loc[1] = pos[1]
+        self.angle = self.phys.angle
+        #ship.velocity.put(ZERO_ONE, ship.phys.velocity)
+        vel = self.phys.velocity
+        self.velocity[0] = vel[0]
+        self.velocity[1] = vel[1]
+        self.angular_velocity = self.phys.angular_velocity
+
+    def post_tick(self) -> None:
+        self._applied_force = self._will_apply_force
+        self._will_apply_force = False
+
     def apply_force(self, force: npt.NDArray[np.float64]) -> None:
         self.phys.apply_force_at_world_point(
                 (force[0], force[1]),
                 (self.loc[0], self.loc[1])
         )
+        self._will_apply_force = True
 
     def apply_torque(self, torque: float) -> None:
         self.phys.torque = torque
@@ -583,7 +604,7 @@ class Gamestate:
             util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] > 0
         )
 
-    def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[Sector]:
+    def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits
 

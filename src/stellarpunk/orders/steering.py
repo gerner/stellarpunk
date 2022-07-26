@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import collections
-from typing import Optional, Deque, Any
+from typing import Optional, Deque, Any, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -72,32 +72,34 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
     #return np.clip(t, -1*max_torque, max_torque)
 
 @jit(cache=True, nopython=True)
-def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:float) -> np.ndarray:
+def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:float) -> Tuple[np.ndarray, float]:
     """ What force to apply to get dv change in velocity. Ignores heading. """
 
-    dv_magnitude, dv_angle = util.cartesian_to_polar(dv[0], dv[1])
-    if dv_magnitude < VELOCITY_EPS:
-        x,y = (0.,0.)
+    if util.both_almost_zero(dv):
+        return ZERO_VECTOR, np.inf
+
+    dv_magnitude = util.magnitude(dv[0], dv[1])
+    desired_thrust = mass * dv_magnitude / dt
+    if desired_thrust > max_thrust:
+        return dv / dv_magnitude * max_thrust, mass * dv_magnitude/max_thrust
     else:
-        thrust = util.clip(mass * dv_magnitude / dt, 0, max_thrust)
-        x, y = util.polar_to_cartesian(thrust, dv_angle)
-    return np.array((x,y))
+        return dv / dv_magnitude * desired_thrust, dt
 
 @jit(cache=True, nopython=True)
 def force_torque_for_delta_velocity(
         target_velocity:np.ndarray, mass:float, moment:float, angle:float,
         w:float, v:np.ndarray, max_speed:float, max_torque:float,
         max_thrust:float, max_fine_thrust:float, dt:float,
-        safety_factor:float) -> tuple[np.ndarray, float, np.ndarray, float]:
-    target_speed = util.magnitude(target_velocity[0], target_velocity[1])
-    if target_speed > max_speed:
-        target_velocity = target_velocity / target_speed * max_speed
+        safety_factor:float) -> tuple[np.ndarray, float, np.ndarray, float, float]:
+    """ Given target velocity, a timestep size  and parameters about the ship,
+    return force, torque, target velocity, and desired speed difference and
+    time to hold those values before calling me again. """
 
     dv = target_velocity - v
     difference_mag, difference_angle = util.cartesian_to_polar(dv[0], dv[1])
 
     if difference_mag < VELOCITY_EPS and abs(w) < ANGLE_EPS:
-        return ZERO_VECTOR, 0., target_velocity, difference_mag
+        return ZERO_VECTOR, 0., target_velocity, difference_mag, np.inf
 
     delta_heading = util.normalize_angle(angle-difference_angle, shortest=True)
     rot_time = rotation_time(delta_heading, w, max_torque/moment, safety_factor)
@@ -107,38 +109,41 @@ def force_torque_for_delta_velocity(
     # this should have something to do with how much we expect this angle
     # to change in dt time, but order of magnitude seems reasonable approx
 
-    coarse_angle_match = COARSE_ANGLE_MATCH
-
-    if (difference_mag * mass / max_fine_thrust > rot_time and np.abs(delta_heading) > coarse_angle_match) or difference_mag < VELOCITY_EPS:
+    if (difference_mag * mass / max_fine_thrust > rot_time and abs(delta_heading) > COARSE_ANGLE_MATCH) or difference_mag < VELOCITY_EPS:
         # we need to rotate in direction of thrust
         torque = torque_for_angle(difference_angle, angle, w, max_torque, moment, dt, safety_factor)
 
         # also apply thrust depending on where we're pointed
-        force = force_for_delta_velocity(dv, max_fine_thrust, mass, dt)
+        force, thrust_time = force_for_delta_velocity(dv, max_fine_thrust, mass, dt)
     else:
         torque = torque_for_angle(difference_angle, angle, w, max_torque, moment, dt, safety_factor)
 
         # we should apply thrust, however we can with the current heading
         # max thrust is main engines if we're pointing in the desired
         # direction, otherwise use fine thrusters
-        if np.abs(delta_heading) < coarse_angle_match:
+        if abs(delta_heading) < COARSE_ANGLE_MATCH:
             max_thrust = max_thrust
         else:
             max_thrust = max_fine_thrust
 
-        force = force_for_delta_velocity(dv, max_thrust, mass, dt)
+        force, thrust_time = force_for_delta_velocity(dv, max_thrust, mass, dt)
 
-    return force, torque, target_velocity, difference_mag
+    if util.isclose(rot_time, 0.):
+        continue_time = thrust_time
+    else:
+        continue_time = min(rot_time, thrust_time)
+
+    return force, torque, target_velocity, difference_mag, continue_time
 
 @jit(cache=True, nopython=True)
 def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
-    speed = np.linalg.norm(v)
+    speed = util.magnitude(v[0], v[1])
     rel_pos = entity_pos - pos
     rel_vel = entity_v - v
 
-    rel_speed = np.linalg.norm(rel_vel)
+    rel_speed = util.magnitude(rel_vel[0], rel_vel[1])
 
-    rel_dist = np.linalg.norm(rel_pos)
+    rel_dist = util.magnitude(rel_pos[0], rel_pos[1])
 
     # check for parallel paths
     if rel_speed == 0:
@@ -162,7 +167,8 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
         approach_t = max_distance / speed
         collision_distance = max_distance - VELOCITY_EPS
 
-    min_sep = np.linalg.norm((pos + v*approach_t) - (entity_pos + entity_v*approach_t))
+    sep_vec = (pos + v*approach_t) - (entity_pos + entity_v*approach_t)
+    min_sep = util.magnitude(sep_vec[0], sep_vec[1])
     collision_loc = entity_pos + entity_v * approach_t
 
     return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
@@ -334,7 +340,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
         return ZERO_VECTOR
 
-    if np.linalg.norm(r) <= margin:
+    if util.magnitude(r[0], r[1]) <= margin:
         raise ValueError()
 
     # given divert (x,y):
@@ -567,6 +573,9 @@ class AbstractSteeringOrder(core.Order):
         # how many neighbors per m^2
         self.neighborhood_density = 0.
 
+        self._next_accelerate_compute_ts = 0.
+        self._computed_accelerate_params:Tuple[npt.NDArray[np.float64], float, npt.NDArray[np.float64], float, float] = (ZERO_VECTOR, 0., ZERO_VECTOR, 0., 0.)
+
     def to_history(self) -> dict:
         history = super().to_history()
         if self.collision_threat:
@@ -606,7 +615,10 @@ class AbstractSteeringOrder(core.Order):
             #self.logger.debug(f'apply torque {t:.0f} for desired target_angle {target_angle:.3f} from {target_angle:.3f} at {w:.2f}rad/sec')
             self.ship.apply_torque(t)
 
-    def _accelerate_to(self, target_velocity: np.ndarray, dt: float) -> None:
+    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=True, time_step:float=0.) -> None:
+        if target_velocity[0] == self.ship.velocity[0] and target_velocity[1] == self.ship.velocity[1]:
+            return
+
         mass = self.ship.mass
         moment = self.ship.moment
         angle = self.ship.angle
@@ -617,17 +629,18 @@ class AbstractSteeringOrder(core.Order):
         max_thrust = self.ship.max_thrust
         max_fine_thrust = self.ship.max_fine_thrust
 
-        force, torque, target_velocity, difference_mag = force_torque_for_delta_velocity(
-                target_velocity,
-                mass, moment, angle, w, v,
-                max_speed, max_torque, max_thrust, max_fine_thrust,
-                dt, self.safety_factor
-        )
+        force, torque, target_velocity, difference_mag, _ = force_torque_for_delta_velocity(
+                    target_velocity,
+                    mass, moment, angle, w, v,
+                    max_speed, max_torque, max_thrust, max_fine_thrust,
+                    dt, self.safety_factor
+            )
 
-        if force[0] != 0. or force[1] != 0.:
+        if util.both_almost_zero(force):
+            if difference_mag > 0.:
+                self.ship.phys.velocity = (target_velocity[0], target_velocity[1])
+        else:
             self.ship.apply_force(force)
-        elif difference_mag > 0.:
-            self.ship.phys.velocity = (target_velocity[0], target_velocity[1])
 
         if torque != 0.:
             self.ship.apply_torque(torque)
@@ -719,7 +732,9 @@ class AbstractSteeringOrder(core.Order):
             # we want to avoid nearby, dicontinuous changes to threat loc and
             # radius. this can happen when two threats are near each other.
             if self.collision_threat_radius - threat_radius > VELOCITY_EPS:
-                new_old_dist = np.linalg.norm(threat_loc - self.collision_threat_loc)
+
+                new_old_vec = threat_loc - self.collision_threat_loc
+                new_old_dist = util.magnitude(new_old_vec[0], new_old_vec[1])
                 if new_old_dist + threat_radius < self.collision_threat_radius + VELOCITY_EPS:
                     # the new threat is smaller than the old one and completely
                     # contained in the old one. let's scale and translate the old
@@ -839,7 +854,8 @@ class AbstractSteeringOrder(core.Order):
 
         desired_margin = margin + threat_radius + self.ship.radius
         current_threat_loc = threat_loc-threat_velocity*approach_time
-        distance_to_threat = np.linalg.norm(current_threat_loc - self.ship.loc)
+        current_threat_vec = current_threat_loc - self.ship.loc
+        distance_to_threat = util.magnitude(current_threat_vec[0], current_threat_vec[1])
         if distance_to_threat <= desired_margin + VELOCITY_EPS:
             delta_velocity = (current_threat_loc - self.ship.loc) / distance_to_threat * self.ship.max_speed() * -1
         else:
