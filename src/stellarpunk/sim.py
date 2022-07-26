@@ -141,15 +141,15 @@ class Simulator:
         """ Do stuff to update the universe """
 
         # update physics simulations
-        #self.logger.debug(f'{len(self.gamestate.sectors.values())} sectors')
-        for i,sector in enumerate(self.gamestate.sectors.values()):
+        # do this for all sectors
+        for sector in self.gamestate.sectors.values():
             self.collisions.clear()
 
             sector.space.step(dt)
 
             if self.collisions:
                 #TODO: use kinetic energy from the collision to cause damage
-                # metals hav an impact strength between 0.34e3 and 145e3
+                # metals have an impact strength between 0.34e3 and 145e3
                 # joules / meter^2
                 # so an impact of 17M joules spread over an area of 1000 m^2
                 # would be a lot, but not catastrophic
@@ -161,17 +161,25 @@ class Simulator:
             for ship in sector.ships:
                 ship.pre_tick()
 
+        # at this point all physics sim is done for the tick and the gamestate
+        # is up to date across the universe
+
+        # do AI stuff, e.g. let ships take action (but don't actually have the
+        # actions take effect yet!)
+        for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 self.tick_order(ship, dt)
                 if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == ship.entity_id.int % TICKS_PER_HIST_SAMPLE:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
 
+        # at this point all AI decisions have happened everywhere
+
+        # update sector state after all ships across universe take action
+        for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 ship.post_tick()
-
-            #TODO: do resource and production stuff
             self.tick_sector(sector, dt)
-            #TODO: do AI stuff
+
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
 
