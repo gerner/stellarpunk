@@ -8,7 +8,7 @@ import bisect
 import logging
 import pdb
 import curses
-from typing import Any, Tuple, Optional, Callable, Sequence, Iterable
+from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping
 
 import numpy as np
 import numpy.typing as npt
@@ -186,6 +186,18 @@ def draw_line(y:int, x:int, line:str, screen:curses.window, attr:int=0, bounds:T
             if x+i < bounds[0] or x+i >= bounds[2]:
                 continue
             screen.addch(y, x+i, c, attr)
+
+def lines_to_dict(lines:Sequence[str], bounds:Tuple[int, int, int, int], y:int=0, x:int=0) -> Mapping[Tuple[int, int], str]:
+    ret:MutableMapping[Tuple[int, int], str] = {}
+    for lineno, line in enumerate(lines):
+        if lineno+y < bounds[1] or lineno+y >= bounds[3]:
+            continue
+        for i,c in enumerate(line):
+            if c != " " and c!= chr(drawille.braille_char_offset):
+                if x+i < bounds[0] or x+i >= bounds[2]:
+                    continue
+                ret[(lineno+y, x+i)] = c
+    return ret
 
 def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, attr:int=0, bounds:Tuple[int, int, int, int]=(0,0,sys.maxsize,sys.maxsize)) -> None:
     """ Draws canvas to screen with canvas origin appearing at y,x.

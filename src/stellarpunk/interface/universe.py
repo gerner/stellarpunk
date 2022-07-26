@@ -2,7 +2,7 @@ import logging
 import curses
 import math
 import functools
-from typing import Any, Tuple, Sequence
+from typing import Any, Tuple, Sequence, Mapping
 
 import numpy as np
 import drawille # type: ignore
@@ -34,7 +34,8 @@ class UniverseView(interface.View):
         # coord bounding box on screen (ul_x, ul_y, lr_x, lr_y)
         self.bbox = (0.,0.,0.,0.)
 
-        self._cached_sector_layout:Tuple[Sequence[str], Sequence[str]] = ([], [])
+        #self._cached_sector_layout:Tuple[Sequence[str], Sequence[str]] = ([], [])
+        self._cached_sector_layout:Tuple[Mapping[Tuple[int, int], str], Mapping[Tuple[int, int], str]] = ({}, {})
         self.pan_camera()
 
     def initialize(self) -> None:
@@ -152,7 +153,7 @@ class UniverseView(interface.View):
 
         return used_canvas
 
-    def compute_sector_layout(self) -> Tuple[Sequence[str], Sequence[str]]:
+    def compute_sector_layout(self) -> Tuple[Mapping[Tuple[int, int], str], Mapping[Tuple[int, int], str]]:
         c_sectors = drawille.Canvas()
         c_edges = drawille.Canvas()
         used_canvas_sectors = False
@@ -191,7 +192,7 @@ class UniverseView(interface.View):
                 self.meters_per_char_x, self.meters_per_char_y)
             text_edges = c_edges.rows(d_x, d_y)
 
-        return text_sectors, text_edges
+        return util.lines_to_dict(text_sectors, bounds=self.viewscreen_bounds), util.lines_to_dict(text_edges, bounds=self.viewscreen_bounds)
 
     def update_display(self) -> None:
         """ Draws a map of all sectors. """
@@ -199,12 +200,18 @@ class UniverseView(interface.View):
         self.viewscreen.erase()
 
         # draw the cached sector/edge geometry
+        for (y,x), c in self._cached_sector_layout[1].items():
+            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE))
+        for (y,x), c in self._cached_sector_layout[0].items():
+            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
+        """
         #TODO: these draw_line calls are slow, we should figure out how we can speed things up
         for lineno, line in enumerate(self._cached_sector_layout[1]):
             util.draw_line(lineno, 0, line, self.viewscreen.viewscreen, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE), bounds=self.viewscreen_bounds)
 
         for lineno, line in enumerate(self._cached_sector_layout[0]):
             util.draw_line(lineno, 0, line, self.viewscreen.viewscreen, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR), bounds=self.viewscreen_bounds)
+        """
 
         # draw info for each sector
         for sector in self.gamestate.sectors.values():
