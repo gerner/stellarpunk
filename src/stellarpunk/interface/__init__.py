@@ -66,11 +66,13 @@ class Icons:
     STATION = "\u25A1" #"□" \u25A1 white square
     DERELICT = "\u2302" # "⌂" house symbol (kinda looks like a gravestone?)
     ASTEROID = "\u25C7" # "◇" \u25C7 white diamond
+    TRAVEL_GATE = "\u25CC" # "◌" \u25CC dotted circle
 
     MULTIPLE = "*"
 
     EFFECT_MINING = "\u2726" # "✦" \u2726 black four pointed star
     EFFECT_TRANSFER = "\u2327" # "⌧" \u2327 X in a rectangle box
+    EFFECT_UNKNOWN = "?"
 
     HEADING_INDICATOR = "h"
     VELOCITY_INDICATOR = "v"
@@ -119,6 +121,7 @@ class Icons:
     """
 
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
+    COLOR_TRAVEL_GATE = 220
     COLOR_CARGO = 243
     COLOR_HEADING_INDICATOR = 47
     COLOR_VELOCITY_INDICATOR = 47
@@ -158,6 +161,8 @@ class Icons:
             icon = Icons.PLANET
         elif isinstance(entity, core.Asteroid):
             icon = Icons.ASTEROID
+        elif isinstance(entity, core.TravelGate):
+            icon = Icons.TRAVEL_GATE
         else:
             icon = "?"
         return icon
@@ -166,6 +171,8 @@ class Icons:
     def sector_entity_attr(entity:core.SectorEntity) -> int:
         if isinstance(entity, core.Asteroid):
             return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
+        elif isinstance(entity, core.TravelGate):
+            return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
         else:
             return 0
 

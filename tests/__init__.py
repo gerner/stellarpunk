@@ -70,7 +70,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         gorder = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
         gorder.neighborhood_density = history_entry["o"].get("nd", 0.)
         order:core.Order=gorder
-    elif order_type in ("stellarpunk.orders.core.TransferCargo, stellarpunk.orders.core.HarvestOrder"):
+    elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
         # in these cases we'll just give a null order so they just stay exactly
         # where they are, without collision avoidance or any other steering.
         order = core.Order(ship, gamestate)

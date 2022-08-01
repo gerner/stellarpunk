@@ -410,6 +410,20 @@ def compute_uiradar(
         text
     )
 
+def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None) -> drawille.Canvas:
+    c = drawille.Canvas()
+    if isclose(r, 0.):
+        c.set(0,0)
+        return c
+    theta = 0.
+    if step is None:
+        step = 2/r*meters_per_char_x
+    while theta < 2*math.pi:
+        c_x, c_y = polar_to_cartesian(r, theta)
+        d_x, d_y = sector_to_drawille(c_x, c_y, meters_per_char_x, meters_per_char_y)
+        c.set(d_x, d_y)
+        theta += step
+    return c
 
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.

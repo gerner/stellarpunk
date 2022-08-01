@@ -56,15 +56,29 @@ class SectorView(interface.View):
         self.debug_entity = False
         self.debug_entity_vectors = False
 
+        # the child view we spawn
+        # if we receive focus, this should be dead
+        self.pilot_view:Optional[pilot_interface.PilotView] = None
+
     def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
         self.update_bbox()
-        self.interface.reinitialize_screen(name="Sector Map")
+        self.interface.reinitialize_screen(name=f'Sector Map of {self.sector.short_id()}')
 
     def focus(self) -> None:
         super().focus()
         self.active = True
-        self.interface.reinitialize_screen(name="Sector Map")
+        if self.pilot_view:
+            if self.pilot_view.ship.sector and self.pilot_view.ship.sector != self.sector:
+                self.logger.info(f'piloted ship in new sector, changing to view {self.pilot_view.ship.sector}')
+                self.sector = self.pilot_view.ship.sector
+                self.set_scursor(
+                        self.pilot_view.ship.loc[0],
+                        self.pilot_view.ship.loc[1]
+                )
+                self.update_bbox()
+            self.pilot_view = None
+        self.interface.reinitialize_screen(name=f'Sector Map of {self.sector.short_id()}')
 
     def update_bbox(self) -> None:
         self.meters_per_char_x, self.meters_per_char_y = self.meters_per_char()
@@ -81,6 +95,7 @@ class SectorView(interface.View):
 
         self._compute_grid()
 
+        self.presenter.sector = self.sector
         self.presenter.bbox = self.bbox
         self.presenter.meters_per_char_x = self.meters_per_char_x
         self.presenter.meters_per_char_y = self.meters_per_char_y
@@ -144,6 +159,8 @@ class SectorView(interface.View):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.orders[0]}')
                 for order in list(entity.orders)[1:]:
                     self.interface.log_message(f'queued: {order}')
+            elif isinstance(entity, core.TravelGate):
+                self.interface.log_message(f'{entity.short_id()}: {entity.name} direction: {entity.direction}')
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
             for i in range(entity.cargo.shape[0]):
@@ -279,8 +296,8 @@ class SectorView(interface.View):
         def pilot(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'can only pilot a selected ship target')
-            pilot_view = pilot_interface.PilotView(self.selected_entity, self.interface)
-            self.interface.open_view(pilot_view)
+            self.pilot_view = pilot_interface.PilotView(self.selected_entity, self.interface)
+            self.interface.open_view(self.pilot_view)
             # suspend input until we get focus again
             self.active = False
 

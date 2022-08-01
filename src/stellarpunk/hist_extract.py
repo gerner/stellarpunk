@@ -12,7 +12,7 @@ import numpy as np
 
 from stellarpunk import util
 
-TS_EPS = 0.4#1/60/2*10
+TS_EPS = 1/60/2*10
 
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -45,7 +45,7 @@ def main() -> None:
             x = float(x)
             y = float(y)
             global_loc = np.array((x,y))
-            global_radius = 20000
+            global_radius = 50000
 
         static_loc = []
         target_ts = {}

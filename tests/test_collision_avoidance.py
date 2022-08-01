@@ -394,7 +394,7 @@ def test_followers(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
-    testui.margin_neighbors = [ship_a, ship_b]
+    #testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -550,6 +550,47 @@ def test_20220331(gamestate, generator, sector, testui, simulator):
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_too_fast_small_margin(gamestate, generator, sector, testui, simulator):
+    """ A ship flying very fast doesn't have enough time to course correct """
+    entities = history_from_file(os.path.join(TESTDIR, "data/too_fast_small_margin.history"), generator, sector, gamestate)
+
+    ship_a = entities["267924bc-6490-4561-984b-cb47dce385d5"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_coalesced_cbdr(gamestate, generator, sector, testui, simulator):
+    """ CBDR can flap a lot when coalescing targets.
+
+    This test sees what happens when CBDR might otherwise get triggered. """
+    entities = history_from_file(os.path.join(TESTDIR, "data/coalesced_cbdr.history"), generator, sector, gamestate)
+
+    ship_a = entities["2b20dd4b-b5e9-4562-84ab-74d8f40db525"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
 
     simulator.run()
     assert goto_a.is_complete()

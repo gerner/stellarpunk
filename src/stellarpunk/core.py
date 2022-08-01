@@ -147,6 +147,8 @@ class Sector(Entity):
             self.ships.append(entity)
         elif isinstance(entity, Asteroid):
             self.asteroids[entity.resource].append(entity)
+        elif isinstance(entity, TravelGate):
+            pass
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
@@ -167,6 +169,8 @@ class Sector(Entity):
             self.ships.remove(entity)
         elif isinstance(entity, Asteroid):
             self.asteroids[entity.resource].remove(entity)
+        elif isinstance(entity, TravelGate):
+            pass
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
@@ -180,6 +184,7 @@ class ObjectType(enum.IntEnum):
     STATION = enum.auto()
     PLANET = enum.auto()
     ASTEROID = enum.auto()
+    TRAVEL_GATE = enum.auto()
 
 class ObjectFlag(enum.IntFlag):
     # note: with pymunk we get up to 32 of these (depending on the c-type?)
@@ -187,6 +192,7 @@ class ObjectFlag(enum.IntFlag):
     STATION = enum.auto()
     PLANET = enum.auto()
     ASTEROID = enum.auto()
+    GATE = enum.auto()
 
 class HistoryEntry:
     def __init__(
@@ -346,6 +352,7 @@ class Ship(SectorEntity):
 
         self._applied_force = False
         self._will_apply_force = False
+        self.max_speed_override:Optional[float] = None
 
     def get_history(self) -> Iterable[HistoryEntry]:
         return self.history
@@ -362,7 +369,10 @@ class Ship(SectorEntity):
         )
 
     def max_speed(self) -> float:
-        return self.max_thrust / self.mass * 10
+        if self.max_speed_override:
+            return self.max_speed_override
+        else:
+            return self.max_thrust / self.mass * 50
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
@@ -400,6 +410,24 @@ class Ship(SectorEntity):
     def apply_torque(self, torque: float) -> None:
         self.phys.torque = torque
 
+    def set_loc(self, loc: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
+        self.phys.position = (loc[0], loc[1])
+        self.loc[0] = loc[0]
+        self.loc[1] = loc[1]
+
+    def set_velocity(self, velocity: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
+        self.phys.velocity = (velocity[0], velocity[1])
+        self.velocity[0] = velocity[0]
+        self.velocity[1] = velocity[1]
+
+    def set_angle(self, angle: float) -> None:
+        self.phys.angle = angle
+        self.angle = angle
+
+    def set_angular_velocity(self, angular_velocity:float) -> None:
+        self.phys.angular_velocity = angular_velocity
+        self.angular_velocity = angular_velocity
+
     def default_order(self, gamestate: Gamestate) -> Order:
         return self.default_order_fn(self, gamestate)
 
@@ -419,6 +447,19 @@ class Asteroid(SectorEntity):
 
     def __str__(self) -> str:
         return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.cargo[self.resource]}'
+
+class TravelGate(SectorEntity):
+    """ Represents a "gate" to another sector """
+
+    id_prefix = "GAT"
+    object_type = ObjectType.TRAVEL_GATE
+
+    def __init__(self, destination:Sector, direction:float, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.destination = destination
+        # radian angle toward the destination
+        self.direction:float = direction
+        self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
 
 class Character(Entity):
     def __init__(self, *args:Any, **kwargs:Any):

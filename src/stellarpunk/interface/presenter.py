@@ -69,6 +69,26 @@ class Presenter:
                         if y < 0 or x < 0 or y > self.view.viewscreen_dimensions[1] or x > self.view.viewscreen_dimensions[0]:
                             continue
                         self.view.viewscreen.addstr(y, x, icon, icon_attr)
+            elif isinstance(effect, effects.WarpOutEffect):
+                # circle grows outward
+                r = util.interpolate(effect.started_at, effect.radius, effect.expiration_time, 0., self.gamestate.timestamp)
+                c = util.make_circle_canvas(r, self.meters_per_char_x, self.meters_per_char_y)
+                util.draw_canvas_at(c, self.view.viewscreen.viewscreen, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+            elif isinstance(effect, effects.WarpInEffect):
+                #circle shrinks inward
+                r = util.interpolate(effect.started_at, 0., effect.expiration_time, effect.radius, self.gamestate.timestamp)
+                c = util.make_circle_canvas(r, self.meters_per_char_x, self.meters_per_char_y)
+                util.draw_canvas_at(c, self.view.viewscreen.viewscreen, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+            else:
+                e_bbox = effect.bbox()
+                loc = ((e_bbox[2] - e_bbox[0])/2, (e_bbox[3] - e_bbox[1])/2)
+                icon = interface.Icons.EFFECT_UNKNOWN
+                icon_attr = curses.color_pair(1)
+                s_x, s_y = util.sector_to_screen(
+                        loc[0], loc[1],
+                        self.bbox[0], self.bbox[1],
+                        self.meters_per_char_x, self.meters_per_char_y)
+                self.view.viewscreen.addstr(s_y, s_x, icon, icon_attr)
 
     def draw_entity_vectors(self, y:int, x:int, entity:core.SectorEntity) -> None:
         """ Draws heading, velocity, force vectors for the entity. """
@@ -113,15 +133,7 @@ class Presenter:
         #TODO: handle shapes not circles?
         #TODO: better handle drawing entity shapes: refactor into own method
         if entity.radius > 0 and self.meters_per_char_x < entity.radius:
-            c = drawille.Canvas()
-            r = entity.radius
-            theta = 0.
-            step = 2/r*self.meters_per_char_x
-            while theta < 2*math.pi:
-                c_x, c_y = util.polar_to_cartesian(r, theta)
-                d_x, d_y = util.sector_to_drawille(c_x, c_y, self.meters_per_char_x, self.meters_per_char_y)
-                c.set(d_x, d_y)
-                theta += step
+            c = util.make_circle_canvas(entity.radius, self.meters_per_char_x, self.meters_per_char_y)
             util.draw_canvas_at(c, self.view.viewscreen.viewscreen, y, x, bounds=self.view.viewscreen_bounds)
 
         icon = interface.Icons.sector_entity_icon(entity)

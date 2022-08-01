@@ -1,6 +1,7 @@
 import logging
 import itertools
 import uuid
+import math
 from typing import Optional, List, Dict, Mapping, Tuple, Sequence
 
 import numpy as np
@@ -205,6 +206,9 @@ class UniverseGenerator:
     def _gen_asteroid_name(self) -> str:
         return "Asteroid X"
 
+    def _gen_gate_name(self, destination:core.Sector) -> str:
+        return f"Gate to {destination.short_id()}"
+
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None) -> core.Station:
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
@@ -334,6 +338,42 @@ class UniverseGenerator:
         ship.default_order_fn = default_order_fn
 
         return ship
+
+    def spawn_gate(self, sector: core.Sector, destination: core.Sector) -> core.TravelGate:
+
+        gate_radius = 50
+
+        direction_vec = destination.loc - sector.loc
+        _, direction = util.cartesian_to_polar(*direction_vec)
+        direction
+
+        # choose a location for the gate far away from the center of the sector
+        # also make sure the "lane", a path in direction from gate loc to
+        # destination is clear out to far away
+
+        #TODO: is it an issue that this isn't (probably) uniform over the space?
+        #TODO: make sure there's nothing blocking the lane
+        min_r = sector.radius * 2
+        max_r = sector.radius * 2.5
+        min_theta = direction - math.radians(5)
+        max_theta = direction + math.radians(5)
+
+        r = self.r.uniform(min_r, max_r)
+        theta = self.r.uniform(min_theta, max_theta)
+        x,y = util.polar_to_cartesian(r, theta)
+
+        body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination))
+        shape = pymunk.Circle(body, gate_radius)
+        shape.friction=0.1
+        shape.collision_type = gate.object_type
+        shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.GATE)
+        body.position = (gate.loc[0], gate.loc[1])
+        body.entity = gate
+        gate.radius = gate_radius
+        sector.add_entity(gate)
+
+        return gate
 
     def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float) -> core.Asteroid:
         asteroid_radius = 100
@@ -596,11 +636,11 @@ class UniverseGenerator:
         return chain
 
     def generate_sectors(self,
-            width:int=10, height:int=10,
+            width:int=7, height:int=7,
             sector_radius:float=1e5,
             sector_radius_std:float=1e5*0.25,
             sector_edge_length:float=1e5*15,
-            n_habitable_sectors:int=25,
+            n_habitable_sectors:int=15,
             mean_habitable_resources:float=1e9,
             mean_uninhabitable_resources:float=1e7) -> None:
         # set up pre-expansion sectors, resources
@@ -709,7 +749,14 @@ class UniverseGenerator:
                 continue
             if util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc) < sector_edge_length:
                 sector_edges[i,j] = 1
+
         self.gamestate.update_edges(sector_edges, sector_ids)
+
+        # add gates for the travel lanes
+        #TODO: there's probably a clever way to get these indicies
+        for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
+            if sector_edges[i,j] == 1:
+                self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id])
 
         #TODO: post-expansion decline
         # deplete resources at population centers

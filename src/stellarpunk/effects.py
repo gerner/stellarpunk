@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Tuple
 
 import numpy as np
+import numpy.typing as npt
 
 from stellarpunk import core, util
 
@@ -93,3 +94,42 @@ class TransferCargoEffect(core.Effect):
 class MiningEffect(TransferCargoEffect):
     """ Subclass of TransferCargoEffect to get different visuals. """
     pass
+
+class WarpOutEffect(core.Effect):
+    def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.loc = loc
+        self.radius = radius
+        self.ttl = ttl
+        self.expiration_time = np.inf
+
+    def _begin(self) -> None:
+        self.expiration_time = self.gamestate.timestamp + self.ttl
+
+    def bbox(self) -> Tuple[float, float, float, float]:
+        ll = self.loc - self.radius
+        ur = self.loc + self.radius
+        return (ll[0], ll[1], ur[0], ur[1])
+
+    def is_complete(self) -> bool:
+        return self.gamestate.timestamp > self.expiration_time
+
+class WarpInEffect(core.Effect):
+    def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.loc = loc
+        self.radius = radius
+        self.ttl = ttl
+        self.expiration_time = np.inf
+
+    def _begin(self) -> None:
+        self.expiration_time = self.gamestate.timestamp + self.ttl
+
+    def bbox(self) -> Tuple[float, float, float, float]:
+        ll = self.loc - self.radius
+        ur = self.loc + self.radius
+        return (ll[0], ll[1], ur[0], ur[1])
+
+    def is_complete(self) -> bool:
+        return self.gamestate.timestamp > self.expiration_time
+

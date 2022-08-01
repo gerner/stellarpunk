@@ -65,6 +65,9 @@ class GoToLocation(AbstractSteeringOrder):
             surface_distance:float=2e3,
             collision_margin:float=1e3) -> GoToLocation:
 
+        if entity.sector is None:
+            raise ValueError("entity {entity} is not in any sector")
+
         # pick a point on this side of the target entity that is midway in the
         # "viable" arrival band: the space between the collision margin and
         # surface distance away from the radius
@@ -76,7 +79,8 @@ class GoToLocation(AbstractSteeringOrder):
         return GoToLocation(
                 target_loc, ship, gamestate,
                 arrival_distance=target_arrival_distance,
-                min_distance=0.)
+                min_distance=0.,
+                target_sector=entity.sector)
 
     @staticmethod
     def compute_eta(ship:core.Ship, target_location:npt.NDArray[np.float64], safety_factor:float=2.0) -> float:
@@ -110,17 +114,32 @@ class GoToLocation(AbstractSteeringOrder):
 
         return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
 
-    def __init__(self, target_location: npt.NDArray[np.float64], *args: Any, arrival_distance: float=1.5e3, min_distance:Optional[float]=None, **kwargs: Any) -> None:
+    def __init__(self,
+            target_location: npt.NDArray[np.float64],
+            *args: Any,
+            arrival_distance: float=1.5e3,
+            min_distance:Optional[float]=None,
+            target_sector: Optional[core.Sector]=None,
+            neighborhood_radius: float = 2.5e4,
+            **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
         The order will arrivate at the location approximately and with zero
         velocity.
 
+        target_sector the sector with the location (only used for error checking and aborting the order)
         target_location the location
         arrival_distance how close to the location to arrive
         """
 
         super().__init__(*args, **kwargs)
+        self.neighborhood_radius = neighborhood_radius
+        if target_sector is None:
+            if self.ship.sector is None:
+                raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
+            target_sector = self.ship.sector
+
+        self.target_sector = target_sector
         self.target_location = target_location
         self.target_v = ZERO_VECTOR
         self.arrival_distance = arrival_distance
@@ -164,18 +183,20 @@ class GoToLocation(AbstractSteeringOrder):
         self.init_eta = self.estimate_eta()
 
     def act(self, dt: float) -> None:
-        if self.ship.sector is None:
-            raise Exception(f'{self.ship} not in any sector')
+        # make sure we're in the right sector
+        if self.ship.sector != self.target_sector:
+            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_sector}')
 
         #TODO: check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
-           self._accelerate_to(self._desired_velocity, dt, time_step=self._next_compute_ts - self.gamestate.timestamp)
-           return
+            self._accelerate_to(self._desired_velocity, dt, time_step=self._next_compute_ts - self.gamestate.timestamp)
+            return
 
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
 
         v = self.ship.velocity
+        speed = util.magnitude(v[0], v[1])
         theta = self.ship.angle
         omega = self.ship.angular_velocity
 
@@ -187,9 +208,9 @@ class GoToLocation(AbstractSteeringOrder):
         # ramp down with inverse of the density: max_speed = m / (density + b)
         # d_low, s_high is one point we want to hit (speed at low density)
         # d_high, s_low is another (speed at high density
-        d_low = 1/(np.pi*1e4**2)
+        d_low = 1/(np.pi*self.neighborhood_radius**2)
         s_high = max_speed
-        d_high = 30/(np.pi*1e4**2)
+        d_high = 30/(np.pi*self.neighborhood_radius**2)
         s_low = 100
         density_max_speed = util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density)
 
@@ -197,13 +218,12 @@ class GoToLocation(AbstractSteeringOrder):
         # nn_d_high, nn_speed_high is one point
         # nn_d_low, nn_speed_low is another
         nn_d_high = 5e3
-        nn_s_high = max_speed
+        nn_s_high = 1000#max_speed
         nn_d_low = 5e2
         nn_s_low = 100
         nn_max_speed = util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist)
 
         max_speed = min(max_speed, density_max_speed, nn_max_speed)
-
 
         self.target_v, distance, self.distance_estimate, self.cannot_stop = find_target_v(
                 self.target_location, self.arrival_distance, self.min_distance,
@@ -217,10 +237,17 @@ class GoToLocation(AbstractSteeringOrder):
         else:
             max_distance = distance-self.min_distance
 
+        # scale collision margin with speed, more speed = more margin
+        cm_low = self.collision_margin
+        cm_high = self.collision_margin*10
+        cm_speed_low = 100
+        cm_speed_high = 1500
+        scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
+
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, 1e4, self.collision_margin,
+                self.ship.sector, self.neighborhood_radius, scaled_collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

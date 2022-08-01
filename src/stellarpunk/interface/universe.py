@@ -2,7 +2,8 @@ import logging
 import curses
 import math
 import functools
-from typing import Any, Tuple, Sequence, Mapping
+import uuid
+from typing import Any, Tuple, Sequence, Mapping, Optional
 
 import numpy as np
 import drawille # type: ignore
@@ -38,6 +39,10 @@ class UniverseView(interface.View):
         self._cached_sector_layout:Tuple[Mapping[Tuple[int, int], str], Mapping[Tuple[int, int], str]] = ({}, {})
         self.pan_camera()
 
+        # the child view we spawn
+        # if we receive focus, this should be dead
+        self.sector_view:Optional[sector_interface.SectorView] = None
+
     def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
 
@@ -46,7 +51,14 @@ class UniverseView(interface.View):
 
     def focus(self) -> None:
         super().focus()
+        self.update_bbox()
         self.active = True
+        if self.sector_view:
+            if self.sector_view.sector != self.selected_sector:
+                self.logger.info(f'sector view in new sector, changing to view {self.sector_view.sector}')
+                self.selected_sector = self.sector_view.sector
+                self.pan_camera()
+            self.sector_view = None
         self.interface.reinitialize_screen(name="Universe Map")
 
     def meters_per_char(self) -> Tuple[float, float]:
@@ -75,6 +87,7 @@ class UniverseView(interface.View):
 
     def pan_camera(self) -> None:
         self.ucursor_x, self.ucursor_y = self.selected_sector.loc
+        self.update_bbox()
 
     def set_ucursor(self, x:float, y:float) -> bool:
         if np.all(np.isclose((self.ucursor_x, self.ucursor_y), (x,y))):
@@ -204,14 +217,6 @@ class UniverseView(interface.View):
             self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE))
         for (y,x), c in self._cached_sector_layout[0].items():
             self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
-        """
-        #TODO: these draw_line calls are slow, we should figure out how we can speed things up
-        for lineno, line in enumerate(self._cached_sector_layout[1]):
-            util.draw_line(lineno, 0, line, self.viewscreen.viewscreen, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE), bounds=self.viewscreen_bounds)
-
-        for lineno, line in enumerate(self._cached_sector_layout[0]):
-            util.draw_line(lineno, 0, line, self.viewscreen.viewscreen, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR), bounds=self.viewscreen_bounds)
-        """
 
         # draw info for each sector
         for sector in self.gamestate.sectors.values():
@@ -237,9 +242,26 @@ class UniverseView(interface.View):
             if sector == self.selected_sector:
                 name_attr = name_attr | curses.A_STANDOUT
             self.viewscreen.addstr(s_y, s_x, sector.short_id(), name_attr)
-            self.viewscreen.addstr(s_y+1, s_x, f'{len(sector.entities)} objects')
+            self.viewscreen.addstr(s_y+1, s_x, f'{sector.loc}')
+            self.viewscreen.addstr(s_y+2, s_x, f'{len(sector.entities)} objects')
 
         self.interface.refresh_viewscreen()
+
+    def command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
+        def target(args:Sequence[str])->None:
+            if not args:
+                raise command_input.CommandInput.UserError("need a valid target")
+            try:
+                target_id = uuid.UUID(args[0])
+            except ValueError:
+                raise command_input.CommandInput.UserError("not a valid target id, try tab completion.")
+            if target_id not in self.interface.gamestate.sectors:
+                raise command_input.CommandInput.UserError("{args[0]} not found among sectors")
+            self.selected_sector = self.interface.gamestate.sectors[target_id]
+
+        return {
+            "target": (target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
+        }
 
     def handle_input(self, key:int, dt:float) -> bool:
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
@@ -251,13 +273,13 @@ class UniverseView(interface.View):
                 return True
             if self.set_ucursor(*self.selected_sector.loc):
                 return True
-            sector_view = sector_interface.SectorView(
+            self.sector_view = sector_interface.SectorView(
                     self.selected_sector, self.interface)
-            self.interface.open_view(sector_view)
+            self.interface.open_view(self.sector_view)
             # suspend input until we get focus again
             self.active = False
         elif key == ord(":"):
-            ci = command_input.CommandInput(self.interface)
+            ci = command_input.CommandInput(self.interface, commands=self.command_list())
             self.interface.open_view(ci)
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()

@@ -5,11 +5,12 @@ Sits within a sector view.
 
 import math
 import curses
-from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping
+import enum
+from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping, Sequence
 
 import numpy as np
 
-from stellarpunk import core, interface, util
+from stellarpunk import core, interface, util, orders
 from stellarpunk.interface import presenter, command_input
 from stellarpunk.orders import steering, movement
 
@@ -135,6 +136,17 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.ship.apply_force(force)
 
+class MouseState(enum.Enum):
+    """ States to interpret mouse clicks.
+
+    e.g. maybe a click means select a target, maybe it means go to position.
+    """
+
+    CLEAR_INTERVAL = 5
+
+    EMPTY = enum.auto()
+    GOTO = enum.auto()
+
 class PilotView(interface.View):
     """ Piloting mode: direct command of a ship. """
 
@@ -176,9 +188,33 @@ class PilotView(interface.View):
 
         self.selected_entity:Optional[core.SectorEntity] = None
 
+        self.mouse_state = MouseState.EMPTY
+        self.mouse_state_clear_time = np.inf
+
+
     def _command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
+
+        def order_jump(args:Sequence[str]) -> None:
+            if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
+                raise command_input.CommandInput.UserError("can only jump through travel gates as selected target")
+            self.ship.orders.insert(0, orders.TravelThroughGate(self.selected_entity, self.ship, self.interface.gamestate))
+
+        def goto(args:Sequence[str])->None:
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
+            if len(args) < 2:
+                x,y = self.scursor_x, self.scursor_y
+            else:
+                try:
+                    x,y = int(args[0]), int(args[1])
+                except Exception:
+                    raise command_input.CommandInput.UserError("need two int args for x,y pos")
+            self.selected_entity.orders.clear()
+            self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
+
         return {
             "clear_orders": lambda x: self.ship.clear_orders(),
+            "jump": order_jump,
         }
 
     def _open_command_prompt(self) -> bool:
@@ -276,35 +312,35 @@ class PilotView(interface.View):
                 self.interface.viewscreen_x, self.interface.viewscreen_y)
 
 
-        # select a target within a cell of the mouse click
-        if self.ship.sector is None:
-            raise ValueError("ship must be in a sector to select a target")
+        if self.mouse_state == MouseState.EMPTY:
+            # select a target within a cell of the mouse click
+            if self.ship.sector is None:
+                raise ValueError("ship must be in a sector to select a target")
 
-        hit = next(self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.meters_per_char_y), None)
-        if hit:
-            #TODO: check if the hit is close enough
-            self._select_target(hit)
+            hit = next(self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.meters_per_char_y), None)
+            if hit:
+                #TODO: check if the hit is close enough
+                self._select_target(hit)
 
-        return True
+            return True
+        elif self.mouse_state == MouseState.GOTO:
+            if self.autopilot_on:
+                self._toggle_autopilot()
 
-        #TODO: click to move
+            if self.goto_order is not None:
+                self.goto_order.cancel_order()
 
-        if self.autopilot_on:
-            self._toggle_autopilot()
+            goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.interface.gamestate, arrival_distance=5e2)
+            self.ship.orders.insert(0, goto_order)
+            self.goto_order = goto_order
 
-        if self.goto_order is not None:
-            self.goto_order.cancel_order()
-
-        goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.interface.gamestate, arrival_distance=5e2)
-        self.ship.orders.insert(0, goto_order)
-        self.goto_order = goto_order
-
-        return True
+            return True
+        else:
+            raise ValueError(f'unknown mouse state {self.mouse_state}')
 
     def _next_target(self, direction:int) -> bool:
         """ Selects the next or previous target from a sorted list. """
 
-        # select a target within a cell of the mouse click
         if self.ship.sector is None:
             raise ValueError("ship must be in a sector to select a target")
 
@@ -314,15 +350,21 @@ class PilotView(interface.View):
         return True
 
     def handle_input(self, key:int, dt:float) -> bool:
+
+        if self.interface.gamestate.timestamp > self.mouse_state_clear_time:
+            self.mouse_state = MouseState.EMPTY
+
         if key == curses.ascii.ESC: return self._handle_cancel()
         elif key == ord(":"): return self._open_command_prompt()
         elif key in (ord("+"), ord("-")): return self._zoom_scursor(key)
         elif key == ord("p"): return self._toggle_autopilot()
         elif key in DRIVE_KEYS: return self._drive(key, dt)
         elif key == curses.KEY_MOUSE: return self._handle_mouse()
+        elif key == ord("g"): self.mouse_state = MouseState.GOTO
         elif key == ord("t"): return self._next_target(1)
         elif key == ord("r"): return self._next_target(-1)
-        else: return True
+
+        return True
 
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar = util.compute_uiradar(
@@ -330,6 +372,9 @@ class PilotView(interface.View):
                 self.bbox, self.meters_per_char_x, self.meters_per_char_y)
 
     def _update_bbox(self, recompute_radar:bool=True) -> None:
+        if self.ship.sector is None:
+            raise ValueError(f'ship {self.ship} is not in any sector')
+
         self.meters_per_char_x, self.meters_per_char_y = self._meters_per_char()
 
         vsw = self.interface.viewscreen_width
@@ -345,6 +390,7 @@ class PilotView(interface.View):
         if recompute_radar:
             self._compute_radar()
 
+        self.presenter.sector = self.ship.sector
         self.presenter.bbox = self.bbox
         self.presenter.meters_per_char_x = self.meters_per_char_x
         self.presenter.meters_per_char_y = self.meters_per_char_y
@@ -475,11 +521,13 @@ class PilotView(interface.View):
         bearing += np.pi/2
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.ship.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
 
     def _draw_status(self) -> None:
+        current_order = next(iter(self.ship.orders), None)
+
         status_x = 1
         status_y = 1
         self.viewscreen.addstr(status_y, status_x, "Status:")
@@ -487,11 +535,29 @@ class PilotView(interface.View):
         label_speed = "speed:"
         label_location = "location:"
         label_heading = "heading:"
+        label_order = "order:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
         self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed():.0f}m/s')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}°')
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
+
+        status_y += 5
+
+        if isinstance(current_order, movement.GoToLocation):
+            # distance
+            # neighborhood_density
+            # nearest_neighbor_dist
+            label_distance = "distance:"
+            distance = util.distance(self.ship.loc, current_order.target_location)
+            label_ndensity = "ndensity:"
+            label_nndist = "nndist:"
+
+            self.viewscreen.addstr(status_y, status_x, f'{label_distance:>12} {distance}')
+            self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.neighborhood_density}')
+            self.viewscreen.addstr(status_y+2, status_x, f'{label_nndist:>12} {current_order.nearest_neighbor_dist}')
+
 
     def _draw_hud(self) -> None:
         self._draw_target_indicators()
