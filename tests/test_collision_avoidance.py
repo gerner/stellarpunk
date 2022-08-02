@@ -294,7 +294,7 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     testui.eta = eta * 1.1
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.margin_neighbors = [ship_a]
 
     simulator.run()
@@ -323,7 +323,7 @@ def test_ct_near_target(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta*1.2
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     # the setup for this test predates the latest thrust settings, so it's very
     # hard for it to slow down in time, but it should avoid collisions
     #testui.cannot_stop_orders = [goto_a]
@@ -358,7 +358,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta
     testui.orders = [goto_a, goto_b, goto_c]
-    testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
+    #testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
     # we might exceed the margin, but we just want to avoid collisions
     #testui.margin_neighbors = [ship_a, ship_b, ship_c]
@@ -567,7 +567,6 @@ def test_too_fast_small_margin(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
 
@@ -589,8 +588,30 @@ def test_coalesced_cbdr(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta
     testui.orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship heading near a large asteroid field at high speed.
+
+    Should avoid all of them."""
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/fast_speed_asteroid_field.history"), generator, sector, gamestate)
+
+    ship_a = entities["b695ac11-0021-4c52-b72f-288f715c08c5"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta * 1.3
+    testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()

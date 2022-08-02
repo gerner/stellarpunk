@@ -244,10 +244,24 @@ class GoToLocation(AbstractSteeringOrder):
         cm_speed_high = 1500
         scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
 
+        if speed > 0:
+            # offset looking for threats in the direction we're travelling,
+            # depending on our speed
+            noff_low = 0
+            noff_speed_low = 0
+            noff_high = 2.5e4
+            noff_speed_high = 2500
+            neighborhood_offset = util.clip(
+                    util.interpolate(noff_speed_low, noff_low, noff_speed_high, noff_high, speed),
+                    0, self.neighborhood_radius - self.collision_margin)
+            neighborhood_loc = self.ship.loc + neighborhood_offset * v / speed
+        else:
+            neighborhood_loc = self.ship.loc
+
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, self.neighborhood_radius, scaled_collision_margin,
+                self.ship.sector, neighborhood_loc, self.neighborhood_radius, scaled_collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 
@@ -301,7 +315,7 @@ class WaitOrder(AbstractSteeringOrder):
         # avoid collisions while we're waiting
         # but only if those collisions are really imminent
         # we want to have enough time to get away
-        collision_dv, approach_time, min_separation, distance=self._avoid_collisions_dv(self.ship.sector, 5e3, 3e2)
+        collision_dv, approach_time, min_separation, distance=self._avoid_collisions_dv(self.ship.sector, self.ship.loc, 5e3, 3e2)
         if distance > 0:
             t = approach_time - rotation_time(2*np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
             if t < 0 or distance > 1/2 * self.ship.max_acceleration()*t**2 / self.safety_factor:
