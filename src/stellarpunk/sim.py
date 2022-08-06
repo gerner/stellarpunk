@@ -38,10 +38,12 @@ class Simulator:
         self.behind_ticks = 0.
         # number of ticks we've been behind by >= 1 tick
         self.behind_length = 0
-        # number of tickse we need to be behind to trigger dt scaling
+        # number of ticks we need to be behind to trigger dt scaling
         # note that dt scaling is somewhat disruptive since some things might
         # expect us to have a constant dt.
         self.behind_dt_scale_thresthold = 30
+        # a throttle for warning logging when we get behind
+        self.behind_message_throttle = 0.
 
         self.ticktime_alpha = 0.1
         self.min_tick_sleep = self.desired_dt/5
@@ -203,15 +205,18 @@ class Simulator:
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
             if now - next_tick > self.dt:
-                self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
+                #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
                     self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
                 self.behind_ticks = behind
                 self.behind_length += 1
-                self.logger.warning(f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+                self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
+                if self.behind_ticks > 0:
+                    self.logger.debug(f'ticks caught up with realtime, behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+
                 self.behind_ticks = 0
                 self.behind_length = 0
 

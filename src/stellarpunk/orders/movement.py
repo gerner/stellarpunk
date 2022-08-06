@@ -64,6 +64,16 @@ class GoToLocation(AbstractSteeringOrder):
             gamestate:core.Gamestate,
             surface_distance:float=2e3,
             collision_margin:float=1e3) -> GoToLocation:
+        """ Makes a GoToLocation order to get near a target entity.
+
+        entity: the entity to get near
+        ship: the ship that will execute the order
+        gamestate: gamestate
+        surface_distance: target distance from surface of the entity (max dist)
+        collision_margin: min distance to stay away from the entity (min dist)
+
+        returns a GoToLocation order matching those parameters
+        """
 
         if entity.sector is None:
             raise ValueError("entity {entity} is not in any sector")
@@ -71,10 +81,20 @@ class GoToLocation(AbstractSteeringOrder):
         # pick a point on this side of the target entity that is midway in the
         # "viable" arrival band: the space between the collision margin and
         # surface distance away from the radius
-        _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
-        target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
-        target_arrival_distance = (surface_distance - collision_margin)/2
-        target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
+        tries = 0
+        max_tries = 5
+        while tries < max_tries:
+            _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
+            target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
+            target_arrival_distance = (surface_distance - collision_margin)/2
+            target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
+
+            # check if there's other stuff nearby this point
+            # note: this isn't perfect since these entities might be transient,
+            # but this is best effort
+            if next(entity.sector.spatial_point(target_loc, collision_margin), None) == None:
+                break
+            tries += 1
 
         return GoToLocation(
                 target_loc, ship, gamestate,
@@ -243,6 +263,7 @@ class GoToLocation(AbstractSteeringOrder):
         cm_speed_low = 100
         cm_speed_high = 1500
         scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
+        scaled_collision_margin = util.clip(scaled_collision_margin, cm_low, cm_high)
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -254,7 +275,7 @@ class GoToLocation(AbstractSteeringOrder):
             neighborhood_offset = util.clip(
                     util.interpolate(noff_speed_low, noff_low, noff_speed_high, noff_high, speed),
                     0, self.neighborhood_radius - self.collision_margin)
-            neighborhood_loc = self.ship.loc + neighborhood_offset * v / speed
+            neighborhood_loc = self.ship.loc + neighborhood_offset / speed * v
         else:
             neighborhood_loc = self.ship.loc
 
@@ -265,7 +286,7 @@ class GoToLocation(AbstractSteeringOrder):
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 
-        if abs(collision_dv[0]) < VELOCITY_EPS and abs(collision_dv[1]) < VELOCITY_EPS:
+        if util.both_almost_zero(collision_dv):
             self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 
@@ -288,8 +309,8 @@ class GoToLocation(AbstractSteeringOrder):
                 v = v / v_mag * max_speed
             self._desired_velocity = v + collision_dv
             desired_mag = util.magnitude(*self._desired_velocity)
-            if desired_mag > self.ship.max_speed():
-                self._desired_velocity = self._desired_velocity/desired_mag * self.ship.max_speed()
+            if desired_mag > max_speed:
+                self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
             nts = 1/70.

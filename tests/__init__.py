@@ -1,6 +1,7 @@
 import functools
 import os
 import json
+import uuid
 from typing import Optional, List, Tuple
 
 import numpy as np
@@ -44,7 +45,7 @@ def ship_from_history(history_entry, generator, sector):
     v = history_entry["v"]
     w = history_entry["av"]
     theta = history_entry["a"]
-    ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta)
+    ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta, entity_id=uuid.UUID(history_entry["eid"]))
     ship.name = history_entry["eid"]
     ship.phys.force = history_entry.get("f", (0., 0.))
     ship.phys.torque = history_entry.get("t", 0.)
@@ -61,6 +62,12 @@ def asteroid_from_history(history_entry, generator, sector):
     asteroid = generator.spawn_asteroid(sector, x, y, 0, 1)
     asteroid.name = history_entry["eid"]
     return asteroid
+
+def planet_from_history(history_entry, generator, sector):
+    x, y = history_entry["loc"]
+    planet = generator.spawn_planet(sector, x, y)
+    planet.name = history_entry["eid"]
+    return planet
 
 def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamestate):
     order_type = history_entry["o"]["o"]
@@ -89,6 +96,8 @@ def history_from_file(fname, generator, sector, gamestate):
                 entities[entry["eid"]] = station_from_history(entry, generator, sector)
             elif entry["p"] == "AST":
                 entities[entry["eid"]] = asteroid_from_history(entry, generator, sector)
+            elif entry["p"] == "PLT":
+                entities[entry["eid"]] = planet_from_history(entry, generator, sector)
             elif entry["p"] == "SHP":
                 entities[entry["eid"]] = ship = ship_from_history(entry, generator, sector)
                 order_from_history(entry, ship, gamestate)
@@ -108,6 +117,7 @@ class MonitoringUI(interface.AbstractInterface):
         self.cannot_avoid_collision_orders:List[steering.AbstractSteeringOrder] = []
         self.margin_neighbors:List[core.SectorEntity] = []
         self.eta = np.inf
+        self.max_timestamp = np.inf
 
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
         self.complete_orders:List[core.Order] = []
@@ -124,20 +134,23 @@ class MonitoringUI(interface.AbstractInterface):
 
     def tick(self, timeout:float, dt:float) -> None:
 
-        assert not self.collisions
+        assert not self.collisions, "collided!"
 
         if self.eta < np.inf:
             assert self.gamestate.timestamp < self.eta, "exceeded set eta"
         else:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders)), "exceeded max eta over all orders"
 
-        assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders))
-        assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders))
+        assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders)), "cannot stop"
+        assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders)), "cannot avoid collision"
         for margin_neighbor in self.margin_neighbors:
             neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
-            assert neighbor_dist >= self.margin - steering.VELOCITY_EPS
+            assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin'
             if neighbor_dist < self.min_neighbor_dist:
                 self.min_neighbor_dist = neighbor_dist
 
         if self.done:
+            self.gamestate.quit()
+
+        if self.gamestate.timestamp > self.max_timestamp:
             self.gamestate.quit()

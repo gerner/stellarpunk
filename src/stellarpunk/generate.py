@@ -255,7 +255,7 @@ class UniverseGenerator:
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
 
         #TODO: clean this up
         # set up physics stuff
@@ -301,7 +301,7 @@ class UniverseGenerator:
         ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
 
         ship_body = pymunk.Body(ship_mass, ship_moment)
-        ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name())
+        ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
 
         ship_shape = pymunk.Circle(ship_body, ship_radius)
         ship_shape.friction=0.1

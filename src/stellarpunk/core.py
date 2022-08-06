@@ -372,7 +372,7 @@ class Ship(SectorEntity):
         if self.max_speed_override:
             return self.max_speed_override
         else:
-            return self.max_thrust / self.mass * 50
+            return self.max_thrust / self.mass * 30
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass

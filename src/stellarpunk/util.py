@@ -30,6 +30,13 @@ def fullname(o:Any) -> str:
     else:
         return module + '.' + o.__class__.__qualname__
 
+def throttled_log(timestamp:float, throttle:float, logger:logging.Logger, level:int, message:str, limit:float) -> float:
+    if timestamp > throttle:
+        logger.log(level, message)
+        return timestamp + limit
+    else:
+        return throttle
+
 def human_distance(distance_meters:float) -> str:
     """ Human readable approx string for distance_meters.
 
@@ -133,6 +140,10 @@ def both_almost_zero(v:npt.NDArray[np.float64]) -> bool:
 
 def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
+
+@jit(cache=True, nopython=True)
+def either_nan_or_inf(v:npt.NDArray[np.float64]) -> bool:
+    return math.isnan(v[0]) or math.isnan(v[1]) or math.isinf(v[0]) or math.isinf(v[1])
 
 #@jit(cache=True, nopython=True)
 def interpolate(x1:float, y1:float, x2:float, y2:float, x:float) -> float:

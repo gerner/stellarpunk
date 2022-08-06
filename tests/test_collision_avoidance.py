@@ -565,7 +565,7 @@ def test_too_fast_small_margin(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta
+    testui.eta = eta * 1.3
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
@@ -609,10 +609,9 @@ def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulat
 
     testui.eta = eta * 1.3
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import math
 from typing import Optional, Deque, Any, Tuple
 
 import numpy as np
@@ -27,6 +28,7 @@ COARSE_ANGLE_MATCH = np.pi/16
 # the scale (per tick) we use to scale down threat radii if the new threat is
 # still covered by the previous threat radius
 THREAT_RADIUS_SCALE_FACTOR = 0.99
+THREAT_LOCATION_ALPHA = 0.001
 
 # a convenient zero vector to avoid needless array creations
 ZERO_VECTOR = np.array((0.,0.))
@@ -429,18 +431,21 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
     cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
 
-    if cost1 < cost2:
+    if not cost2 < cost1:
         x = x1
         y = y1
         s_x = s_1x
         s_y = s_1y
         cost = cost1
-    else:
+    elif not cost1 < cost2:
         x = x2
         y = y2
         s_x = s_2x
         s_y = s_2y
         cost = cost2
+    else:
+        # not exactly sure why either would be nan, but hopefully one is not
+        assert not math.isnan(cost1) or not math.isnan(cost2)
 
     if cbdr:
         if util.isclose(s_x, 0):
@@ -714,10 +719,12 @@ class AbstractSteeringOrder(core.Order):
             hits_l:npt.NDArray[np.float64] = np.ndarray((len(hits),2), np.float64)
             hits_v:npt.NDArray[np.float64] = np.ndarray((len(hits),2), np.float64)
             hits_r:npt.NDArray[np.float64] = np.ndarray((len(hits),), np.float64)
+
             for i, e in enumerate(hits):
                 hits_l[i] = e.loc
                 hits_v[i] = e.velocity
                 hits_r[i] = e.radius
+
             (
                     idx,
                     approach_time,
@@ -741,6 +748,14 @@ class AbstractSteeringOrder(core.Order):
 
             # we want to avoid nearby, dicontinuous changes to threat loc and
             # radius. this can happen when two threats are near each other.
+            loc_dist = util.distance(self.collision_threat_loc, threat_loc)
+            if self.collision_threat_radius - threat_radius > VELOCITY_EPS and loc_dist < self.collision_threat_radius or loc_dist < threat_radius:
+                # one of the two is contained in the other, exponentially scale
+                new_radius = THREAT_LOCATION_ALPHA * threat_radius + (1.0 - THREAT_LOCATION_ALPHA) * self.collision_threat_radius
+                new_loc = THREAT_LOCATION_ALPHA * threat_loc + (1.0 - THREAT_LOCATION_ALPHA) * self.collision_threat_loc
+                threat_loc = new_loc
+                threat_radius = new_radius
+            """
             if self.collision_threat_radius - threat_radius > VELOCITY_EPS:
 
                 new_old_vec = threat_loc - self.collision_threat_loc
@@ -751,12 +766,12 @@ class AbstractSteeringOrder(core.Order):
                     # one toward the new one so that it still contains it, but
                     # asymptotically approaches it. this will avoid
                     # discontinuities.
-                    new_radius = np.clip(
+                    new_radius = util.clip(
                         self.collision_threat_radius * THREAT_RADIUS_SCALE_FACTOR,
                         threat_radius,
                         self.collision_threat_radius
                     )
-                    if np.isclose(new_old_dist, 0.):
+                    if util.isclose(new_old_dist, 0.):
                         new_loc = self.collision_threat_loc
                     else:
                         new_loc = (
@@ -768,6 +783,7 @@ class AbstractSteeringOrder(core.Order):
                     #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
                     threat_loc = new_loc
                     threat_radius = new_radius
+            """
         else:
             idx = -1
             approach_time = np.inf
@@ -858,7 +874,7 @@ class AbstractSteeringOrder(core.Order):
             self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
 
-        if self.collision_coalesced_threats == 1 and np.any(threat_velocity != ZERO_VECTOR) and detect_cbdr(self.collision_rel_pos_hist, self.cbdr_ticks):
+        if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.cbdr_ticks):
             self.collision_cbdr = True
         else:
             self.collision_cbdr = False
@@ -891,15 +907,14 @@ class AbstractSteeringOrder(core.Order):
             else:
                 self.cannot_avoid_collision = False
 
-            desired_margin += np.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
+            desired_margin += util.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
             delta_velocity = -1 * _collision_dv(
                     current_threat_loc, threat_velocity,
                     self.ship.loc, self.ship.velocity,
                     desired_margin, -1 * desired_direction,
                     self.collision_cbdr)
 
-        assert not np.any(np.isnan(delta_velocity))
-        assert not np.any(np.isinf(delta_velocity))
+        assert not util.either_nan_or_inf(delta_velocity)
         self.collision_dv = delta_velocity
 
         return delta_velocity, approach_time, minimum_separation, self.ship.radius + neighbor.radius + margin - minimum_separation
