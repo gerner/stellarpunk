@@ -615,3 +615,31 @@ def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulat
 
     simulator.run()
     assert goto_a.is_complete()
+
+@write_history
+def test_respond_to_new(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship avoiding one target to turn into another.
+
+    The new threat could lead to discontinuities in collision avoidance, but we
+    need to respond to the new threat quickly. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/respond_to_new.history"), generator, sector, gamestate)
+
+    ship_a = entities["dcf07fc2-5a4e-4acc-8674-2f4d871bdaf0"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta*1.3
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+    # this test would run for a long time, we just want to avoid the immediate
+    # collision
+    testui.max_timestamp = 30
+
+    simulator.run()
+    # see above
+    #assert goto_a.is_complete()

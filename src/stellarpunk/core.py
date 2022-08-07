@@ -633,6 +633,8 @@ class Gamestate:
 
         self.player = Player()
 
+        self.collisions:List[tuple[SectorEntity, SectorEntity, Tuple[float, float], float]] = []
+
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)

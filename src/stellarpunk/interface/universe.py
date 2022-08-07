@@ -259,8 +259,12 @@ class UniverseView(interface.View):
                 raise command_input.CommandInput.UserError("{args[0]} not found among sectors")
             self.selected_sector = self.interface.gamestate.sectors[target_id]
 
+        def debug_collision(args:Sequence[str])->None:
+            pass
+
         return {
             "target": (target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
+            "debug_collision": debug_collision,
         }
 
     def handle_input(self, key:int, dt:float) -> bool:

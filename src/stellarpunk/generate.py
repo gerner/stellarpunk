@@ -209,7 +209,7 @@ class UniverseGenerator:
     def _gen_gate_name(self, destination:core.Sector) -> str:
         return f"Gate to {destination.short_id()}"
 
-    def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None) -> core.Station:
+    def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None) -> core.Station:
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
 
@@ -218,7 +218,7 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name())
+        station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
         station.loc.flags.writeable = False
         station.resource = resource
 
@@ -234,12 +234,12 @@ class UniverseGenerator:
 
         return station
 
-    def spawn_planet(self, sector:core.Sector, x:float, y:float) -> core.Planet:
+    def spawn_planet(self, sector:core.Sector, x:float, y:float, entity_id:Optional[uuid.UUID]=None) -> core.Planet:
         planet_radius = 1000.
 
         #TODO: stations are static?
         planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name())
+        planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
         planet.loc.flags.writeable = False
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
@@ -339,7 +339,7 @@ class UniverseGenerator:
 
         return ship
 
-    def spawn_gate(self, sector: core.Sector, destination: core.Sector) -> core.TravelGate:
+    def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None) -> core.TravelGate:
 
         gate_radius = 50
 
@@ -363,7 +363,7 @@ class UniverseGenerator:
         x,y = util.polar_to_cartesian(r, theta)
 
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination))
+        gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination), entity_id=entity_id)
         shape = pymunk.Circle(body, gate_radius)
         shape.friction=0.1
         shape.collision_type = gate.object_type
@@ -375,13 +375,13 @@ class UniverseGenerator:
 
         return gate
 
-    def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float) -> core.Asteroid:
+    def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float, entity_id:Optional[uuid.UUID]=None) -> core.Asteroid:
         asteroid_radius = 100
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name())
+        asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
         asteroid.loc.flags.writeable = False
         shape = pymunk.Circle(body, asteroid_radius)
         shape.friction=0.1

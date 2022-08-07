@@ -53,19 +53,19 @@ def ship_from_history(history_entry, generator, sector):
 
 def station_from_history(history_entry, generator, sector):
     x, y = history_entry["loc"]
-    station = generator.spawn_station(sector, x, y, 0)
+    station = generator.spawn_station(sector, x, y, 0, entity_id=uuid.UUID(history_entry["eid"]))
     station.name = history_entry["eid"]
     return station
 
 def asteroid_from_history(history_entry, generator, sector):
     x, y = history_entry["loc"]
-    asteroid = generator.spawn_asteroid(sector, x, y, 0, 1)
+    asteroid = generator.spawn_asteroid(sector, x, y, 0, 1, entity_id=uuid.UUID(history_entry["eid"]))
     asteroid.name = history_entry["eid"]
     return asteroid
 
 def planet_from_history(history_entry, generator, sector):
     x, y = history_entry["loc"]
-    planet = generator.spawn_planet(sector, x, y)
+    planet = generator.spawn_planet(sector, x, y, entity_id=uuid.UUID(history_entry["eid"]))
     planet.name = history_entry["eid"]
     return planet
 

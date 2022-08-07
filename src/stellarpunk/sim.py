@@ -50,8 +50,6 @@ class Simulator:
 
         self.sleep_count = 0
 
-        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
-
     def _ship_collision_detected(self, arbiter:pymunk.Arbiter, space:pymunk.Space, data:Mapping[str, Any]) -> None:
         # which ship(s) are colliding?
 
@@ -60,12 +58,16 @@ class Simulator:
 
         self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.entity.address_str()} {shape_b.body.entity.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j')
 
-        self.collisions.append((
+        self.gamestate.collisions.append((
             shape_a.body.entity,
             shape_b.body.entity,
             arbiter.total_impulse,
             arbiter.total_ke,
         ))
+
+    @property
+    def collisions(self) -> List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]]:
+        return self.gamestate.collisions
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
@@ -145,11 +147,11 @@ class Simulator:
         # update physics simulations
         # do this for all sectors
         for sector in self.gamestate.sectors.values():
-            self.collisions.clear()
+            self.gamestate.collisions.clear()
 
             sector.space.step(dt)
 
-            if self.collisions:
+            if self.gamestate.collisions:
                 #TODO: use kinetic energy from the collision to cause damage
                 # metals have an impact strength between 0.34e3 and 145e3
                 # joules / meter^2
@@ -157,7 +159,7 @@ class Simulator:
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
                 self.gamestate.paused = True
-                for entity_a, entity_b, impulse, ke in self.collisions:
+                for entity_a, entity_b, impulse, ke in self.gamestate.collisions:
                     self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
             for ship in sector.ships:

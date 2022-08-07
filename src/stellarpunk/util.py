@@ -161,6 +161,34 @@ def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float,
 
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
 
+@jit(cache=True, nopython=True)
+def enclosing_circle(c1:npt.NDArray[np.float64], r1:float, c2:npt.NDArray[np.float64], r2:float) -> Tuple[npt.NDArray[np.float64], float]:
+    """ Finds the smallest circle enclosing two other circles.
+
+    courtesey: https://stackoverflow.com/a/36736270/553580
+    """
+    dx = c2[0] - c1[0]
+    dy = c2[1] - c1[1]
+    #center-center distance
+    dc = math.sqrt(dx**2 + dy**2)
+    rmin = min(r1, r2)
+    rmax = max(r1, r2)
+    if rmin + dc < rmax:
+        if r1 < r2:
+            x = c2[0]
+            y = c2[1]
+            R = r2
+        else:
+            x = c1[0]
+            y = c1[1]
+            R = r1
+    else:
+        R = 0.5 * (r1 + r2 + dc)
+        x = c1[0] + (R - r1) * dx / dc
+        y = c1[1] + (R - r1) * dy / dc
+
+    return (np.array((x,y)), R)
+
 def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tick_size:int=3) -> drawille.Canvas:
     """ Draws a vector (x,y) on a drawille canvas and returns it.
 

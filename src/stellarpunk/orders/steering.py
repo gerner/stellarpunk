@@ -748,42 +748,53 @@ class AbstractSteeringOrder(core.Order):
 
             # we want to avoid nearby, dicontinuous changes to threat loc and
             # radius. this can happen when two threats are near each other.
-            loc_dist = util.distance(self.collision_threat_loc, threat_loc)
-            if self.collision_threat_radius - threat_radius > VELOCITY_EPS and loc_dist < self.collision_threat_radius or loc_dist < threat_radius:
+            # if the new and old threat circles overlap "significantly", we are
+            # careful about discontinuouse changes
+            new_old_dist = util.distance(self.collision_threat_loc, threat_loc)
+            if new_old_dist < threat_radius or new_old_dist < self.collision_threat_radius:
+                old_loc = self.collision_threat_loc
+                old_radius = self.collision_threat_radius
+                if new_old_dist + threat_radius > old_radius + VELOCITY_EPS:
+                    # the new circle does not completely eclipse the old
+                    # find the smallest enclosing circle for both
+                    old_loc, old_radius = util.enclosing_circle(threat_loc, threat_radius, self.collision_threat_loc, self.collision_threat_radius)
+                    new_old_dist = util.distance(old_loc, threat_loc)
+
+                new_old_vec = threat_loc - old_loc
+
+                # the new threat is smaller than the old one and completely
+                # contained in the old one. let's scale and translate the old
+                # one toward the new one so that it still contains it, but
+                # asymptotically approaches it. this will avoid
+                # discontinuities.
+                new_radius = util.clip(
+                    old_radius * THREAT_RADIUS_SCALE_FACTOR,
+                    threat_radius,
+                    old_radius
+                )
+                if util.isclose(new_old_dist, 0.):
+                    new_loc = old_loc
+                else:
+                    new_loc = (
+                        new_old_vec/new_old_dist
+                        * (old_radius-new_radius)
+                        + old_loc
+                    )
+                # useful assert during testing
+                #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
+                threat_loc = new_loc
+                threat_radius = new_radius
+
+            """
+            if self.collision_threat_radius - threat_radius > VELOCITY_EPS and loc_dist < self.collision_threat_radius:
+                # find the circle that contains both original circles, scale from this circle towards the smaller one
                 # one of the two is contained in the other, exponentially scale
                 new_radius = THREAT_LOCATION_ALPHA * threat_radius + (1.0 - THREAT_LOCATION_ALPHA) * self.collision_threat_radius
                 new_loc = THREAT_LOCATION_ALPHA * threat_loc + (1.0 - THREAT_LOCATION_ALPHA) * self.collision_threat_loc
                 threat_loc = new_loc
                 threat_radius = new_radius
             """
-            if self.collision_threat_radius - threat_radius > VELOCITY_EPS:
 
-                new_old_vec = threat_loc - self.collision_threat_loc
-                new_old_dist = util.magnitude(new_old_vec[0], new_old_vec[1])
-                if new_old_dist + threat_radius < self.collision_threat_radius + VELOCITY_EPS:
-                    # the new threat is smaller than the old one and completely
-                    # contained in the old one. let's scale and translate the old
-                    # one toward the new one so that it still contains it, but
-                    # asymptotically approaches it. this will avoid
-                    # discontinuities.
-                    new_radius = util.clip(
-                        self.collision_threat_radius * THREAT_RADIUS_SCALE_FACTOR,
-                        threat_radius,
-                        self.collision_threat_radius
-                    )
-                    if util.isclose(new_old_dist, 0.):
-                        new_loc = self.collision_threat_loc
-                    else:
-                        new_loc = (
-                            (threat_loc - self.collision_threat_loc)/new_old_dist
-                            * (self.collision_threat_radius-new_radius)
-                            + self.collision_threat_loc
-                        )
-                    # useful assert during testing
-                    #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
-                    threat_loc = new_loc
-                    threat_radius = new_radius
-            """
         else:
             idx = -1
             approach_time = np.inf
