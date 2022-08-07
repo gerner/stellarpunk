@@ -643,3 +643,33 @@ def test_respond_to_new(gamestate, generator, sector, testui, simulator):
     simulator.run()
     # see above
     #assert goto_a.is_complete()
+
+@write_history
+def test_failed_to_divert(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship avoiding a threat in a field of others
+
+    for some reason it didn't divert, but this seems like a simple scenario."""
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/failed_to_divert.history"), generator, sector, gamestate)
+
+    ship_a = entities["2aac25bb-2dea-4f7b-a6cc-c44f3b18ed70"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta*1.3
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+    # this test would run for a long time, we just want to avoid the immediate
+    # collision
+    testui.max_timestamp = 45
+
+    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    simulator.run()
+    asteroid = entities["90acd111-7fb0-4e89-ac2a-98dabb8c7d10"]
+    assert util.distance(ship_a.loc, asteroid.loc) > 1.5e3
+    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e3
+    #assert goto_a.is_complete()

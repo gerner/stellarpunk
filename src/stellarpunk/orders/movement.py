@@ -232,7 +232,7 @@ class GoToLocation(AbstractSteeringOrder):
         s_high = max_speed
         d_high = 30/(np.pi*self.neighborhood_radius**2)
         s_low = 100
-        density_max_speed = util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density)
+        density_max_speed = util.clip(util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density), s_low, max_speed)
 
         # also ramp down speed with distance to nearest neighbor
         # nn_d_high, nn_speed_high is one point
@@ -241,7 +241,7 @@ class GoToLocation(AbstractSteeringOrder):
         nn_s_high = 1000#max_speed
         nn_d_low = 5e2
         nn_s_low = 100
-        nn_max_speed = util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist)
+        nn_max_speed = util.clip(util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist), nn_s_low, max_speed)
 
         max_speed = min(max_speed, density_max_speed, nn_max_speed)
 
