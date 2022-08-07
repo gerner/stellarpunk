@@ -204,12 +204,22 @@ def _analyze_neighbors(
         ]:
     """ Analyzes neighbors and determines collision threat parameters. """
 
+    # keep track of soonest margin violation
     approach_time = np.inf
     idx = -1
     relative_position = ZERO_VECTOR
-    relative_velocity: np.ndarray  = ZERO_VECTOR
+    relative_velocity = ZERO_VECTOR
     minimum_separation = np.inf
     collision_loc = ZERO_VECTOR
+
+    # also keep track of soonest collision
+    collide_approach_time = np.inf
+    collide_idx = -1
+    collide_relative_position = ZERO_VECTOR
+    collide_relative_velocity = ZERO_VECTOR
+    collide_minimum_separation = np.inf
+    collide_collision_loc = ZERO_VECTOR
+
     nearest_neighbor_idx = -1
     nearest_neighbor_dist = np.inf
 
@@ -243,7 +253,7 @@ def _analyze_neighbors(
 
         threat_count += 1
 
-        # most threatening is the soonest, so keep track of that one
+        # keep track of soonest violation of margin
         if approach_t < approach_time:
             approach_time = approach_t
             idx = eidx
@@ -251,6 +261,24 @@ def _analyze_neighbors(
             relative_velocity = rel_vel
             minimum_separation = float(min_sep)
             collision_loc = c_loc
+
+        # also keep track of soonest actual collision
+        if min_sep < entity_radius + ship_radius and approach_t < collide_approach_time:
+            collide_approach_time = approach_t
+            collide_idx = eidx
+            collide_relative_position = rel_pos
+            collide_relative_velocity = rel_vel
+            collide_minimum_separation = float(min_sep)
+            collide_collision_loc = c_loc
+
+    # prioritize actual collisions over near misses
+    if collide_idx >= 0 and collide_idx != idx:
+        approach_time = collide_approach_time
+        idx = collide_idx
+        relative_position = collide_relative_position
+        relative_velocity = collide_relative_velocity
+        minimum_separation = collide_minimum_separation
+        collision_loc = collide_collision_loc
 
     # Once we have a single most threatening future collision, coalesce nearby
     # threats so we can avoid all of them at once, instead of avoiding one only
@@ -557,7 +585,6 @@ class AbstractSteeringOrder(core.Order):
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
 
-        self.collision_margin = 2e2
         self.nearest_neighbor:Optional[core.SectorEntity] = None
         self.nearest_neighbor_dist = np.inf
 
@@ -894,7 +921,6 @@ class AbstractSteeringOrder(core.Order):
         current_threat_loc = threat_loc-threat_velocity*approach_time
         current_threat_vec = current_threat_loc - self.ship.loc
         distance_to_threat = util.magnitude(current_threat_vec[0], current_threat_vec[1])
-
 
         if distance_to_threat <= desired_margin + VELOCITY_EPS:
             delta_velocity = (current_threat_loc - self.ship.loc) / distance_to_threat * self.ship.max_speed() * -1

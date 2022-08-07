@@ -159,6 +159,9 @@ class GoToLocation(AbstractSteeringOrder):
                 raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
             target_sector = self.ship.sector
 
+        self.collision_margin = 2e2
+        self.scaled_collision_margin = self.collision_margin
+
         self.target_sector = target_sector
         self.target_location = target_location
         self.target_v = ZERO_VECTOR
@@ -183,6 +186,7 @@ class GoToLocation(AbstractSteeringOrder):
         data["md"] = self.min_distance
         data["t_v"] = (self.target_v[0], self.target_v[1])
         data["cs"] = self.cannot_stop
+        data["scm"] = self.scaled_collision_margin
 
         return data
 
@@ -262,8 +266,8 @@ class GoToLocation(AbstractSteeringOrder):
         cm_high = self.collision_margin*10
         cm_speed_low = 100
         cm_speed_high = 1500
-        scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
-        scaled_collision_margin = util.clip(scaled_collision_margin, cm_low, cm_high)
+        self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
+        self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -282,7 +286,7 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, neighborhood_loc, self.neighborhood_radius, scaled_collision_margin,
+                self.ship.sector, neighborhood_loc, self.neighborhood_radius, self.scaled_collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

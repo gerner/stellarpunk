@@ -528,9 +528,9 @@ def test_complicated_departure(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta*1.3
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -611,7 +611,7 @@ def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulat
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -673,3 +673,27 @@ def test_failed_to_divert(gamestate, generator, sector, testui, simulator):
     assert util.distance(ship_a.loc, asteroid.loc) > 1.5e3
     assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e3
     #assert goto_a.is_complete()
+
+@write_history
+def test_threading_needle(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship heading between two threat.
+
+    Should avoid all of them, and this should be easy, but collided in game"""
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/threading_needle.history"), generator, sector, gamestate)
+
+    ship_a = entities["bd9a76fa-96d4-42a3-a469-c000e5e38ebb"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
