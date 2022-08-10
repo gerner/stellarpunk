@@ -133,6 +133,7 @@ def clip(x:float, min_x:float, max_x:float) -> float:
 @jit(cache=True, nopython=True)
 def isclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
+    #return abs(a-b) <= (1e-08 + 1e-05 * abs(b))
 
 @jit(cache=True, nopython=True)
 def both_almost_zero(v:npt.NDArray[np.float64]) -> bool:

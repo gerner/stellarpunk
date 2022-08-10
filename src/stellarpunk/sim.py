@@ -6,7 +6,7 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional, Mapping, Any, Tuple, Deque
+from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO
 import collections
 
 import numpy as np
@@ -16,10 +16,11 @@ from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
 TICKS_PER_HIST_SAMPLE = 10
+ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
 class Simulator:
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
@@ -49,6 +50,9 @@ class Simulator:
         self.min_tick_sleep = self.desired_dt/5
 
         self.sleep_count = 0
+
+        self.next_economy_sample = 0.
+        self.economy_log = economy_log
 
     def _ship_collision_detected(self, arbiter:pymunk.Arbiter, space:pymunk.Space, data:Mapping[str, Any]) -> None:
         # which ship(s) are colliding?
@@ -98,7 +102,9 @@ class Simulator:
             # check if the batch is ready
             if station.next_batch_time <= self.gamestate.timestamp:
                 # add the batch to cargo
-                station.cargo[station.resource] += self.gamestate.production_chain.batch_sizes[station.resource]
+                amount = self.gamestate.production_chain.batch_sizes[station.resource]
+                station.cargo[station.resource] += amount
+                self.gamestate.production_chain.goods_produced[station.resource] += amount
                 station.next_batch_time = 0.
                 station.next_production_time = 0.
         # waiting for enough cargo to produce case
@@ -183,6 +189,13 @@ class Simulator:
             for ship in sector.ships:
                 ship.post_tick()
             self.tick_sector(sector, dt)
+
+        if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
+            for i, amount in enumerate(self.gamestate.production_chain.resources_mined):
+                self.economy_log.write(f'{self.gamestate.timestamp}\tMINE\t{i}\t{amount}\n')
+            for i, amount in enumerate(self.gamestate.production_chain.goods_produced):
+                self.economy_log.write(f'{self.gamestate.timestamp}\tPRODUCE\t{i}\t{amount}\n')
+            self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
@@ -270,13 +283,15 @@ def main() -> None:
         uv = universe_interface.UniverseView(gamestate, ui)
         ui.open_view(uv)
 
+        economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
+
         #logging.info("running simulation...")
         #stellar_punk.run()
 
         stellar_punk.production_chain.viz().render("production_chain", format="pdf")
 
         dt = 1/60
-        sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5)
+        sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5, economy_log=economy_log)
         sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick

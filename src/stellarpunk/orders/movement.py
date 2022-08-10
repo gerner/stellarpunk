@@ -269,6 +269,9 @@ class GoToLocation(AbstractSteeringOrder):
         self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
         self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
 
+        # if we're very near a neighbor, we want a smaller margin
+        self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
+
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
             # depending on our speed

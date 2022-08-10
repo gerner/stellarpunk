@@ -27,8 +27,9 @@ COARSE_ANGLE_MATCH = np.pi/16
 
 # the scale (per tick) we use to scale down threat radii if the new threat is
 # still covered by the previous threat radius
-THREAT_RADIUS_SCALE_FACTOR = 0.99
+THREAT_RADIUS_SCALE_FACTOR = 0.995
 THREAT_LOCATION_ALPHA = 0.001
+COLLISION_MARGIN_HISTERESIS_FACTOR = 0.1
 
 # a convenient zero vector to avoid needless array creations
 ZERO_VECTOR = np.array((0.,0.))
@@ -603,6 +604,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_coalesced_neighbors:list[core.SectorEntity] = []
         self.collision_threat_loc = ZERO_VECTOR
         self.collision_threat_radius = 0.
+        self.collision_margin_histeresis = 0.
 
         self.cannot_avoid_collision = False
 
@@ -778,7 +780,7 @@ class AbstractSteeringOrder(core.Order):
             # if the new and old threat circles overlap "significantly", we are
             # careful about discontinuouse changes
             new_old_dist = util.distance(self.collision_threat_loc, threat_loc)
-            if new_old_dist < threat_radius or new_old_dist < self.collision_threat_radius:
+            if new_old_dist < 2*threat_radius or new_old_dist < 2*self.collision_threat_radius:
                 old_loc = self.collision_threat_loc
                 old_radius = self.collision_threat_radius
                 if new_old_dist + threat_radius > old_radius + VELOCITY_EPS:
@@ -898,11 +900,18 @@ class AbstractSteeringOrder(core.Order):
 
         # if we already have a threat increase margin to get extra far from it
         neighbor_margin = margin
-        if self.collision_threat:
-            neighbor_margin += margin_histeresis
+        prior_threats = set(self.collision_coalesced_neighbors)
+        #if self.collision_margin_histeresis:
+        #    neighbor_margin += margin_histeresis
+        neighbor_margin += self.collision_margin_histeresis
 
         # find neighbor with soonest closest appraoch
         neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density  = self._collision_neighbor(sector, neighborhood_loc, neighborhood_dist, neighbor_margin, max_distance)
+
+        if any(x in prior_threats for x in self.collision_coalesced_neighbors):
+            self.collision_margin_histeresis = margin_histeresis
+        else:
+            self.collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
 
         self.neighborhood_density = neighborhood_density
 

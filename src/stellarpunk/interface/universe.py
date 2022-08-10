@@ -242,7 +242,7 @@ class UniverseView(interface.View):
             if sector == self.selected_sector:
                 name_attr = name_attr | curses.A_STANDOUT
             self.viewscreen.addstr(s_y, s_x, sector.short_id(), name_attr)
-            self.viewscreen.addstr(s_y+1, s_x, f'{sector.loc}')
+            self.viewscreen.addstr(s_y+1, s_x, f'[ {sector.loc[0]} {sector.loc[1]} ]')
             self.viewscreen.addstr(s_y+2, s_x, f'{len(sector.entities)} objects')
 
         self.interface.refresh_viewscreen()
@@ -260,8 +260,25 @@ class UniverseView(interface.View):
             self.selected_sector = self.interface.gamestate.sectors[target_id]
 
         def debug_collision(args:Sequence[str])->None:
-            pass
+            if len(self.gamestate.collisions) == 0:
+                raise command_input.CommandInput.UserError("no collisions to debug")
 
+            collision = self.gamestate.collisions[0]
+            if isinstance(collision[0], core.Ship):
+                ship = collision[0]
+            elif isinstance(collision[1], core.Ship):
+                ship = collision[1]
+            else:
+                raise Exception("expected one of colliding objects to be a ship")
+
+            assert ship.sector
+            sector = ship.sector
+            self.sector_view = sector_interface.SectorView(
+                    sector, self.interface)
+            self.sector_view.select_target(ship.entity_id, ship)
+            self.interface.open_view(self.sector_view)
+            # suspend input until we get focus again
+            self.active = False
         return {
             "target": (target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
             "debug_collision": debug_collision,

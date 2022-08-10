@@ -697,3 +697,96 @@ def test_threading_needle(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert goto_a.is_complete()
 
+@write_history
+def test_collision_field(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship heading in a field of many potential threats.
+
+    Can get confused and steer into a future threat."""
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/collision_field.history"), generator, sector, gamestate)
+
+    ship_a = entities["c12de111-949a-47bc-8570-a3d7cadac9f1"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_histeresis(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship that drops coalesced threats.
+
+    Histeresis should avoid discontinuities."""
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/histeresis.history"), generator, sector, gamestate)
+
+    ship_a = entities["116f6f98-865b-4690-bfd1-73c8b7cd22a0"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_overlapping(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship travels throw many threats that nearly coalesc.
+
+    The overlapping coalesced circles should not flap."""
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/overlapping.history"), generator, sector, gamestate)
+
+    ship_a = entities["d64692e0-2206-4f24-b512-a21d90f53189"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_cross_traffic(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship avoiding cross traffic then avoiding a farther threat.
+
+    once the farther threat is added, the coalesced threat is right in front of
+    us and we cannot avoid collision. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/cross_traffic.history"), generator, sector, gamestate)
+
+    ship_a = entities["5e9685d2-9272-4923-9bb2-5a0a2d07692f"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+

@@ -79,10 +79,15 @@ class TransferCargoEffect(core.Effect):
         amount = min((self.transfer_rate * TRANSFER_PERIOD), amount)
         self.escrow = amount
         self.source.cargo[self.resource] -= amount
+        self._extract(amount)
         if self.source.cargo[self.resource] < AMOUNT_EPS:
             self.source.cargo[self.resource] = 0.
 
         self.next_effect_time = self.gamestate.timestamp + TRANSFER_PERIOD
+
+    def _extract(self, amount:float) -> None:
+        """ Helper triggered when we extract resources from source. """
+        pass
 
     def _cancel(self) -> None:
         """ cancel the mining effect and return escrow amount back to source.
@@ -90,10 +95,12 @@ class TransferCargoEffect(core.Effect):
         if self.escrow > 0:
             #TODO: worry about max capacity at the source?
             self.source.cargo[self.resource] += self.escrow
+            self._extract(-1. * self.escrow)
 
 class MiningEffect(TransferCargoEffect):
     """ Subclass of TransferCargoEffect to get different visuals. """
-    pass
+    def _extract(self, amount:float) -> None:
+        self.gamestate.production_chain.resources_mined[self.resource] += amount
 
 class WarpOutEffect(core.Effect):
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:

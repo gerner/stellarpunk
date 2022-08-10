@@ -43,6 +43,9 @@ class ProductionChain:
 
         self.sink_names:Sequence[str] = []
 
+        self.resources_mined:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.goods_produced:npt.NDArray[np.float64] = np.ndarray((0,))
+
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
