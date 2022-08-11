@@ -612,9 +612,11 @@ def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulat
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     #testui.margin_neighbors = [ship_a]
+    testui.max_timestamp = 45
 
+    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
     simulator.run()
-    assert goto_a.is_complete()
+    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
 
 @write_history
 def test_respond_to_new(gamestate, generator, sector, testui, simulator):
@@ -776,6 +778,30 @@ def test_cross_traffic(gamestate, generator, sector, testui, simulator):
     entities = history_from_file(os.path.join(TESTDIR, "data/cross_traffic.history"), generator, sector, gamestate)
 
     ship_a = entities["5e9685d2-9272-4923-9bb2-5a0a2d07692f"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_traffic_lane(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship travelling in a popular travel lane.
+
+    Lots of moving targets can confusing collision avoidance: cbdr, coalescing,
+    moving threat locations, etc.. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/traffic_lane.history"), generator, sector, gamestate)
+
+    ship_a = entities["88bf287a-921f-4b19-bd6d-4deb6100c834"]
     logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 

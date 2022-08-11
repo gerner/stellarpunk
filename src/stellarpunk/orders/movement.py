@@ -293,13 +293,14 @@ class GoToLocation(AbstractSteeringOrder):
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 
+        nts_low = 4/70.
+        nts_high = 1.0
+
         if util.both_almost_zero(collision_dv):
             self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 
             # compute a time delta for our next desired velocity computation
-            nts_low = 1/70.
-            nts_high = 1.0
             nts_nnd_low = 2e3
             nts_nnd_high = 1e4
             nts_nnd = util.interpolate(nts_nnd_low, nts_low, nts_nnd_high, nts_high, self.nearest_neighbor_dist)
@@ -320,7 +321,7 @@ class GoToLocation(AbstractSteeringOrder):
                 self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
-            nts = 1/70.
+            nts = nts_low
 
         self._next_compute_ts = self.gamestate.timestamp + nts
 

@@ -401,7 +401,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 
     p = r[0]**2 + r[1]**2 - m**2
 
-    if util.isclose(r[1]**2, 0, atol=1e-5):
+    if util.isclose_flex(r[1]**2, 0, atol=1e-5):
         # this case would cause a divide by zero when computing the
         # coefficients of the quadratic equation below
         s_1x = s_2x = p/r[0]
@@ -494,7 +494,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     # useful assert when testing
     # this asserts that the resulting x,y point matches the the contraint on
     # the margin
-    assert util.isclose(
+    assert util.isclose_flex(
             (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2),
             m**2,
             rtol=1e-3)
@@ -811,8 +811,13 @@ class AbstractSteeringOrder(core.Order):
                     )
                 # useful assert during testing
                 #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
-                threat_loc = new_loc
-                threat_radius = new_radius
+
+                # if we're not already inside the margin for this new location
+                # take it, otherwise stick with the one computed for the actual
+                # threats we have, discontinuities be damned
+                if util.distance(self.ship.loc, new_loc) > new_radius + self.ship.radius:
+                    threat_loc = new_loc
+                    threat_radius = new_radius
 
             """
             if self.collision_threat_radius - threat_radius > VELOCITY_EPS and loc_dist < self.collision_threat_radius:
