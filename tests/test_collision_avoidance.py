@@ -356,7 +356,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.2
 
-    testui.eta = eta
+    testui.eta = eta * 1.3
     testui.orders = [goto_a, goto_b, goto_c]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
@@ -802,6 +802,29 @@ def test_traffic_lane(gamestate, generator, sector, testui, simulator):
     entities = history_from_file(os.path.join(TESTDIR, "data/traffic_lane.history"), generator, sector, gamestate)
 
     ship_a = entities["88bf287a-921f-4b19-bd6d-4deb6100c834"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_arrival_occupied(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship arriving in a spot already occupied, partially.
+
+    should stop as soon as possible. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/arrival_occupied.history"), generator, sector, gamestate)
+
+    ship_a = entities["1d68c162-c8eb-418f-b379-1bb0674742ae"]
     logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 

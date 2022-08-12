@@ -249,7 +249,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         max_speed = min(max_speed, density_max_speed, nn_max_speed)
 
-        self.target_v, distance, self.distance_estimate, self.cannot_stop = find_target_v(
+        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = find_target_v(
                 self.target_location, self.arrival_distance, self.min_distance,
                 self.ship.loc, v, theta, omega,
                 max_acceleration, max_angular_acceleration, max_speed,
@@ -296,7 +296,9 @@ class GoToLocation(AbstractSteeringOrder):
         nts_low = 4/70.
         nts_high = 1.0
 
-        if util.both_almost_zero(collision_dv):
+        # if there's no collision diversion OR we're at the destination and can
+        # quickly (1 sec) come to a stop
+        if util.both_almost_zero(collision_dv) or (distance < self.arrival_distance and distance > self.min_distance and delta_v / (self.ship.max_thrust / self.ship.mass) < approach_time):
             self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 

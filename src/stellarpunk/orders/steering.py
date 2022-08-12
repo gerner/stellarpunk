@@ -504,7 +504,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 # frequency. So we explicitly specify types here to avoid that.
 @jit(
         nb.types.Tuple(
-            (nb.float64[::1], nb.float64, nb.float64, nb.boolean)
+            (nb.float64[::1], nb.float64, nb.float64, nb.boolean, nb.float64)
         )(
             nb.float64[::1], nb.float64, nb.float64,
             nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
@@ -514,7 +514,7 @@ def find_target_v(
         target_location:np.ndarray, arrival_distance:float, min_distance:float,
         current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
         max_acceleration:float, max_angular_acceleration:float, max_speed:float,
-        dt:float, safety_factor:float) -> tuple[np.ndarray, float, float, bool]:
+        dt:float, safety_factor:float) -> tuple[np.ndarray, float, float, bool, float]:
     """ Given goto location params, determine the desired velocity.
 
     returns a tuple:
@@ -567,7 +567,9 @@ def find_target_v(
 
         target_v = course/distance * desired_speed
 
-    return target_v, distance, distance_estimate, cannot_stop
+    current_speed = util.magnitude(v[0], v[1])
+
+    return target_v, distance, distance_estimate, cannot_stop, abs(current_speed - desired_speed)
 
 def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int) -> bool:
     if len(rel_pos_hist) < min_hist:
