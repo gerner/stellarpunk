@@ -17,9 +17,10 @@ ANGLE_EPS = 2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
 VELOCITY_EPS = 1e-1
 
-CBDR_HIST_SEC = 0.5
+CBDR_MIN_HIST_SEC = 0.5
+CBDR_MAX_HIST_SEC = 1.1
 CBDR_ANGLE_EPS = 1e-1 # about 6 degrees
-CBDR_DIST_EPS = 15
+CBDR_DIST_EPS = 5
 
 # think of this as the gimballing angle (?)
 # pi/16 is ~11 degrees
@@ -571,14 +572,16 @@ def find_target_v(
 
     return target_v, distance, distance_estimate, cannot_stop, abs(current_speed - desired_speed)
 
-def detect_cbdr(rel_pos_hist:Deque[np.ndarray], min_hist:int) -> bool:
-    if len(rel_pos_hist) < min_hist:
+def detect_cbdr(rel_pos_hist:Deque[Tuple[float, np.ndarray]], now:float, min_hist:float) -> bool:
+    if len(rel_pos_hist) < 2:
+        return False
+    if now - rel_pos_hist[0][0] < min_hist:
         return False
 
-    oldest_rel_pos = rel_pos_hist[0]
+    oldest_rel_pos = rel_pos_hist[0][1]
     oldest_distance, oldest_bearing = util.cartesian_to_polar(oldest_rel_pos[0], oldest_rel_pos[1])
 
-    latest_rel_pos = rel_pos_hist[-1]
+    latest_rel_pos = rel_pos_hist[-1][1]
     latest_distance, latest_bearing = util.cartesian_to_polar(latest_rel_pos[0], latest_rel_pos[1])
 
     return abs(oldest_bearing - latest_bearing) < ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
@@ -597,8 +600,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_relative_velocity = ZERO_VECTOR
         self.collision_relative_position = ZERO_VECTOR
         self.collision_approach_time = np.inf
-        self.cbdr_ticks=int(CBDR_HIST_SEC/self.gamestate.dt)
-        self.collision_rel_pos_hist:Deque[np.ndarray] = collections.deque(maxlen=self.cbdr_ticks)
+        self.collision_rel_pos_hist:Deque[Tuple[float, np.ndarray]] = collections.deque()
         self.collision_cbdr = False
         self.collision_cbdr_divert_angle = np.pi/4
         self.collision_threat_count = 0.
@@ -609,6 +611,10 @@ class AbstractSteeringOrder(core.Order):
         self.collision_margin_histeresis = 0.
 
         self.cannot_avoid_collision = False
+        # a flag we set to hold the cannot avoid collision state until some
+        # point (see logic elsewhere)
+        self.cannot_avoid_collision_hold = False
+        self.desired_divert_override = False
 
         self.collision_hits:list[core.SectorEntity] = []
         self.collision_hits_age = 0.
@@ -633,9 +639,28 @@ class AbstractSteeringOrder(core.Order):
             history["ct_cloc"] = (self.collision_threat_loc[0], self.collision_threat_loc[1])
             history["ct_cradius"] = self.collision_threat_radius
             history["ct_cn"] = [(cn.loc[0], cn.loc[1]) for cn in self.collision_coalesced_neighbors]
+            history["ct_dv_override"] = self.desired_divert_override
             history["cac"] = bool(self.cannot_avoid_collision)
+            history["cach"] = bool(self.cannot_avoid_collision_hold)
             history["cbdr"] = self.collision_cbdr
-            history["cbdr_hist"] = [(loc[0], loc[1]) for loc in self.collision_rel_pos_hist]
+
+            # just get the oldest and newest cbdr history cause it's expensive
+            # to iterating over it
+            if len(self.collision_rel_pos_hist) > 1:
+                cbdr_loc_old = self.collision_rel_pos_hist[0][1]
+                cbdr_loc_new = self.collision_rel_pos_hist[-1][1]
+                cbdr_hist_summary = [
+                        (cbdr_loc_old[0], cbdr_loc_old[1]),
+                        (cbdr_loc_new[0], cbdr_loc_new[1]),
+                ]
+            elif len(self.collision_rel_pos_hist) > 0:
+                cbdr_loc_old = self.collision_rel_pos_hist[0][1]
+                cbdr_hist_summary = [
+                        (cbdr_loc_old[0], cbdr_loc_old[1]),
+                ]
+            else:
+                cbdr_hist_summary = []
+            history["cbdr_hist"] = cbdr_hist_summary
 
         history["nd"] = self.neighborhood_density
         history["nnd"] = self.nearest_neighbor_dist
@@ -747,9 +772,9 @@ class AbstractSteeringOrder(core.Order):
             # there and then back into numba. the perf win from numba here is
             # actually fairly small since we're doing a lot of iteration in
             # python
-            hits_l:npt.NDArray[np.float64] = np.ndarray((len(hits),2), np.float64)
-            hits_v:npt.NDArray[np.float64] = np.ndarray((len(hits),2), np.float64)
-            hits_r:npt.NDArray[np.float64] = np.ndarray((len(hits),), np.float64)
+            hits_l:npt.NDArray[np.float64] = np.empty((len(hits),2), np.float64)
+            hits_v:npt.NDArray[np.float64] = np.empty((len(hits),2), np.float64)
+            hits_r:npt.NDArray[np.float64] = np.empty((len(hits),), np.float64)
 
             for i, e in enumerate(hits):
                 hits_l[i] = e.loc
@@ -777,60 +802,50 @@ class AbstractSteeringOrder(core.Order):
                     max_distance, self.ship.radius, margin, neighborhood_dist)
             coalesced_neighbors = [hits[i] for i in coalesced_idx]
 
-            # we want to avoid nearby, dicontinuous changes to threat loc and
-            # radius. this can happen when two threats are near each other.
-            # if the new and old threat circles overlap "significantly", we are
-            # careful about discontinuouse changes
-            new_old_dist = util.distance(self.collision_threat_loc, threat_loc)
-            if new_old_dist < 2*threat_radius or new_old_dist < 2*self.collision_threat_radius:
-                old_loc = self.collision_threat_loc
-                old_radius = self.collision_threat_radius
-                if new_old_dist + threat_radius > old_radius + VELOCITY_EPS:
-                    # the new circle does not completely eclipse the old
-                    # find the smallest enclosing circle for both
-                    old_loc, old_radius = util.enclosing_circle(threat_loc, threat_radius, self.collision_threat_loc, self.collision_threat_radius)
-                    new_old_dist = util.distance(old_loc, threat_loc)
+            if not self.cannot_avoid_collision_hold:
+                # we want to avoid nearby, dicontinuous changes to threat loc and
+                # radius. this can happen when two threats are near each other.
+                # if the new and old threat circles overlap "significantly", we are
+                # careful about discontinuouse changes
+                new_old_dist = util.distance(self.collision_threat_loc, threat_loc)
+                if new_old_dist < 2*threat_radius or new_old_dist < 2*self.collision_threat_radius:
+                    old_loc = self.collision_threat_loc
+                    old_radius = self.collision_threat_radius
+                    if new_old_dist + threat_radius > old_radius + VELOCITY_EPS:
+                        # the new circle does not completely eclipse the old
+                        # find the smallest enclosing circle for both
+                        old_loc, old_radius = util.enclosing_circle(threat_loc, threat_radius, self.collision_threat_loc, self.collision_threat_radius)
+                        new_old_dist = util.distance(old_loc, threat_loc)
 
-                new_old_vec = threat_loc - old_loc
+                    new_old_vec = threat_loc - old_loc
 
-                # the new threat is smaller than the old one and completely
-                # contained in the old one. let's scale and translate the old
-                # one toward the new one so that it still contains it, but
-                # asymptotically approaches it. this will avoid
-                # discontinuities.
-                new_radius = util.clip(
-                    old_radius * THREAT_RADIUS_SCALE_FACTOR,
-                    threat_radius,
-                    old_radius
-                )
-                if util.isclose(new_old_dist, 0.):
-                    new_loc = old_loc
-                else:
-                    new_loc = (
-                        new_old_vec/new_old_dist
-                        * (old_radius-new_radius)
-                        + old_loc
+                    # the new threat is smaller than the old one and completely
+                    # contained in the old one. let's scale and translate the old
+                    # one toward the new one so that it still contains it, but
+                    # asymptotically approaches it. this will avoid
+                    # discontinuities.
+                    new_radius = util.clip(
+                        old_radius * THREAT_RADIUS_SCALE_FACTOR,
+                        threat_radius,
+                        old_radius
                     )
-                # useful assert during testing
-                #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
+                    if util.isclose(new_old_dist, 0.):
+                        new_loc = old_loc
+                    else:
+                        new_loc = (
+                            new_old_vec/new_old_dist
+                            * (old_radius-new_radius)
+                            + old_loc
+                        )
+                    # useful assert during testing
+                    #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
 
-                # if we're not already inside the margin for this new location
-                # take it, otherwise stick with the one computed for the actual
-                # threats we have, discontinuities be damned
-                if util.distance(self.ship.loc, new_loc) > new_radius + self.ship.radius:
-                    threat_loc = new_loc
-                    threat_radius = new_radius
-
-            """
-            if self.collision_threat_radius - threat_radius > VELOCITY_EPS and loc_dist < self.collision_threat_radius:
-                # find the circle that contains both original circles, scale from this circle towards the smaller one
-                # one of the two is contained in the other, exponentially scale
-                new_radius = THREAT_LOCATION_ALPHA * threat_radius + (1.0 - THREAT_LOCATION_ALPHA) * self.collision_threat_radius
-                new_loc = THREAT_LOCATION_ALPHA * threat_loc + (1.0 - THREAT_LOCATION_ALPHA) * self.collision_threat_loc
-                threat_loc = new_loc
-                threat_radius = new_radius
-            """
-
+                    # if we're not already inside the margin for this new location
+                    # take it, otherwise stick with the one computed for the actual
+                    # threats we have, discontinuities be damned
+                    if util.distance(self.ship.loc, new_loc) > new_radius + self.ship.radius:
+                        threat_loc = new_loc
+                        threat_radius = new_radius
         else:
             idx = -1
             approach_time = np.inf
@@ -854,7 +869,9 @@ class AbstractSteeringOrder(core.Order):
             neighbor = hits[idx]
 
         if neighbor is not None and neighbor == last_collision_threat:
-            self.collision_rel_pos_hist.append(relative_position)
+            self.collision_rel_pos_hist.append((self.gamestate.timestamp, relative_position))
+            while self.gamestate.timestamp - self.collision_rel_pos_hist[-1][0] > CBDR_MAX_HIST_SEC:
+                self.collision_rel_pos_hist.pop()
         else:
             self.collision_rel_pos_hist.clear()
             self.collision_cbdr = False
@@ -896,18 +913,24 @@ class AbstractSteeringOrder(core.Order):
         """
 
         v = self.ship.velocity
+        prior_threats = set(self.collision_coalesced_neighbors)
 
         if margin_histeresis is None:
             # add additional margin of size this factor
             # the margin basically scales by 1 + this amount
             margin_histeresis = margin * 1
 
+        # if we're taking emergency action to avoid a collision set a very
+        # small margin
+        if self.cannot_avoid_collision_hold:
+            margin = self.ship.radius * self.safety_factor
+            self.collision_margin_histeresis = 0.
+
         if desired_direction is None:
             desired_direction = v
 
         # if we already have a threat increase margin to get extra far from it
         neighbor_margin = margin
-        prior_threats = set(self.collision_coalesced_neighbors)
         #if self.collision_margin_histeresis:
         #    neighbor_margin += margin_histeresis
         neighbor_margin += self.collision_margin_histeresis
@@ -916,9 +939,15 @@ class AbstractSteeringOrder(core.Order):
         neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density  = self._collision_neighbor(sector, neighborhood_loc, neighborhood_dist, neighbor_margin, max_distance)
 
         if any(x in prior_threats for x in self.collision_coalesced_neighbors):
+            # if there's any overlap, keep the margin extra big
             self.collision_margin_histeresis = margin_histeresis
         else:
+            # if there's no overlap, start collapsing collision margin
             self.collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
+            # if there's no overlap, clear the cannot avoid collision flag
+            self.cannot_avoid_collision_hold = False
+
+        self.desired_divert_override = False
 
         self.neighborhood_density = neighborhood_density
 
@@ -928,7 +957,7 @@ class AbstractSteeringOrder(core.Order):
             self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
 
-        if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.cbdr_ticks):
+        if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.gamestate.timestamp, CBDR_MIN_HIST_SEC):
             self.collision_cbdr = True
         else:
             self.collision_cbdr = False
@@ -940,19 +969,24 @@ class AbstractSteeringOrder(core.Order):
 
         if distance_to_threat <= desired_margin + VELOCITY_EPS:
             delta_velocity = (current_threat_loc - self.ship.loc) / distance_to_threat * self.ship.max_speed() * -1
-            self.cannot_avoid_collision = True
+            if minimum_separation < threat_radius:
+                if distance_to_threat < threat_radius:
+                    self.cannot_avoid_collision = True
+                elif approach_time > 0.:
+                    required_acceleration = 2*(threat_radius-minimum_separation)/(approach_time ** 2)
+                    required_thrust = self.ship.mass * required_acceleration
+                    self.cannot_avoid_collision = required_thrust > self.ship.max_thrust
         else:
-            if minimum_separation < desired_margin:
+            if minimum_separation < threat_radius:
                 if approach_time > 0.:
                     # check if we can avoid collision
                     # s = u*t + 1/2 a * t^2
-                    # u = rel_speed
+                    # s = threat_radius - minimum_separation
+                    # ignore current velocity, we want to get displacement on
+                    #   top of current situation
                     # t = approach_time
-                    # s = minimum_separation - desired_margin
-                    # a = (s - u*t) * 2 / t^2
-                    # F = m * a
-                    rel_speed = util.magnitude(relative_velocity[0], relative_velocity[1])
-                    required_acceleration = (minimum_separation - desired_margin - rel_speed * approach_time) * 2 / (approach_time ** 2)
+                    # a = 2 * s / t^2
+                    required_acceleration = 2*(threat_radius-minimum_separation)/(approach_time ** 2)
                     required_thrust = self.ship.mass * required_acceleration
                     self.cannot_avoid_collision = required_thrust > self.ship.max_thrust
                 else:
@@ -960,12 +994,28 @@ class AbstractSteeringOrder(core.Order):
             else:
                 self.cannot_avoid_collision = False
 
-            desired_margin += util.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
+            #desired_margin += util.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
             delta_velocity = -1 * _collision_dv(
                     current_threat_loc, threat_velocity,
                     self.ship.loc, self.ship.velocity,
                     desired_margin, -1 * desired_direction,
                     self.collision_cbdr)
+
+            # check that delta_velocity is feasible given max thrust
+            # if not, switch from the min divert from desired velocity to
+            # diverting from the current velocity, this should be the minimal
+            # dv to avoid the collision
+            if util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time:
+                self.desired_divert_override = True
+                delta_velocity = -1 * _collision_dv(
+                        current_threat_loc, threat_velocity,
+                        self.ship.loc, self.ship.velocity,
+                        desired_margin, -1 * self.ship.velocity,
+                        self.collision_cbdr)
+
+        # if we cannot currently avoid a collision, flip the flag, but don't
+        # clear it just because we currently are ok, that happens elsewhere.
+        self.cannot_avoid_collision_hold = self.cannot_avoid_collision_hold or self.cannot_avoid_collision
 
         assert not util.either_nan_or_inf(delta_velocity)
         self.collision_dv = delta_velocity

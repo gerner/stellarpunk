@@ -54,24 +54,25 @@ class Simulator:
         self.next_economy_sample = 0.
         self.economy_log = economy_log
 
+        # a little book-keeping for storing collisions during step callbacks
+        # this is not for external consumption
+        self._collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+
     def _ship_collision_detected(self, arbiter:pymunk.Arbiter, space:pymunk.Space, data:Mapping[str, Any]) -> None:
         # which ship(s) are colliding?
 
         (shape_a, shape_b) = arbiter.shapes
         sector = data["sector"]
 
-        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.entity.address_str()} {shape_b.body.entity.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j')
+        tons_of_tnt = arbiter.total_ke / 4.184e9
+        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.entity.address_str()} {shape_b.body.entity.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
 
-        self.gamestate.collisions.append((
+        self._collisions.append((
             shape_a.body.entity,
             shape_b.body.entity,
             arbiter.total_impulse,
             arbiter.total_ke,
         ))
-
-    @property
-    def collisions(self) -> List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]]:
-        return self.gamestate.collisions
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
@@ -153,20 +154,23 @@ class Simulator:
         # update physics simulations
         # do this for all sectors
         for sector in self.gamestate.sectors.values():
-            self.gamestate.collisions.clear()
-
             sector.space.step(dt)
 
-            if self.gamestate.collisions:
+            if self._collisions:
                 #TODO: use kinetic energy from the collision to cause damage
                 # metals have an impact strength between 0.34e3 and 145e3
                 # joules / meter^2
                 # so an impact of 17M joules spread over an area of 1000 m^2
                 # would be a lot, but not catastrophic
                 # spread over 100m^2 would be
+                # for comparison, a typical briefcase bomb is comparable to
+                # 50 pounds of TNT, which is nearly 100M joules
                 self.gamestate.paused = True
-                for entity_a, entity_b, impulse, ke in self.gamestate.collisions:
+                for entity_a, entity_b, impulse, ke in self._collisions:
                     self.ui.collision_detected(entity_a, entity_b, impulse, ke)
+
+                # keep _collisions clear for next time
+                self._collisions.clear()
 
             for ship in sector.ships:
                 ship.pre_tick()
@@ -195,6 +199,21 @@ class Simulator:
                 self.economy_log.write(f'{self.gamestate.timestamp}\tMINE\t{i}\t{amount}\n')
             for i, amount in enumerate(self.gamestate.production_chain.goods_produced):
                 self.economy_log.write(f'{self.gamestate.timestamp}\tPRODUCE\t{i}\t{amount}\n')
+
+            total_ships = 0
+            total_goto_orders = 0
+            total_orders_with_ct = 0
+            for sector in self.gamestate.sectors.values():
+                for ship in sector.ships:
+                    total_ships += 1
+                    if len(ship.orders) > 0:
+                        order = ship.orders[0]
+                        if isinstance(order, orders.movement.GoToLocation):
+                            total_goto_orders += 1
+                            if order.collision_threat:
+                                total_orders_with_ct += 1
+
+            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
         self.gamestate.ticks += 1

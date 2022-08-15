@@ -128,7 +128,7 @@ def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     starttime = gamestate.timestamp
     def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
-        assert not simulator.collisions
+        assert not testui.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin
 
@@ -155,7 +155,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
     starttime = gamestate.timestamp
     def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
-        assert not simulator.collisions
+        assert not testui.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin
 
@@ -183,7 +183,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
     starttime = gamestate.timestamp
     def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
-        assert not simulator.collisions
+        assert not testui.collisions
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin
 
@@ -212,7 +212,7 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     def tick(timeout, dt):
         logging.debug(f'{ship_driver.loc} {ship_driver.velocity} {ship_driver.angle} {gamestate.timestamp - starttime}s vs {eta}s')
         nonlocal distance
-        assert not simulator.collisions
+        assert not testui.collisions
 
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin

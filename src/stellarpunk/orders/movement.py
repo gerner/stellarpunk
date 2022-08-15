@@ -140,7 +140,7 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 2.5e4,
+            neighborhood_radius: float = 1e4,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -269,8 +269,11 @@ class GoToLocation(AbstractSteeringOrder):
         self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
         self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
 
+        #TODO: this could go somewhere else in case the nearest neighbor IS the
+        # threat, then we can decrease the margin
         # if we're very near a neighbor, we want a smaller margin
-        self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
+        if self.nearest_neighbor_dist < 5e3:
+            self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -315,12 +318,17 @@ class GoToLocation(AbstractSteeringOrder):
             # if we're over max speed, let's slow down in addition to avoiding
             # collision
             v_mag = util.magnitude(v[0], v[1])
-            if v_mag > max_speed:
-                v = v / v_mag * max_speed
+            #TODO: this code has the benefit of trying to slow down in addition
+            # to trying to avoid collision. however, it also means we don't
+            # apply the result of the collision avoidance. not sure the
+            # tradeoff or alternative there...
+            #if v_mag > max_speed:
+            #    v = v / v_mag * max_speed
             self._desired_velocity = v + collision_dv
             desired_mag = util.magnitude(*self._desired_velocity)
-            if desired_mag > max_speed:
-                self._desired_velocity = self._desired_velocity/desired_mag * max_speed
+            #TODO: see todo above about slowing down
+            #if desired_mag > max_speed:
+            #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
             nts = nts_low

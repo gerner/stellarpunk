@@ -145,7 +145,7 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
     eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
     def tick(timeout, dt):
-        assert not simulator.collisions
+        assert not testui.collisions
 
         # only need to check one, they are symmetric
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_a)
@@ -186,7 +186,7 @@ def test_ships_intersecting_collision(gamestate, generator, sector, testui, simu
     eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
     def tick(timeout, dt):
-        assert not simulator.collisions
+        assert not testui.collisions
 
         # only need to check one, they are symmetric
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_a)
@@ -222,7 +222,7 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     eta = goto_order.estimate_eta()
 
     def tick(timeout, dt):
-        assert not simulator.collisions
+        assert not testui.collisions
 
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin
@@ -253,7 +253,7 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
     eta = goto_order.estimate_eta()
 
     def tick(timeout, dt):
-        assert not simulator.collisions
+        assert not testui.collisions
 
         # only need to check one, they are symmetric
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
@@ -447,7 +447,7 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
     station = station_from_history(c, generator, sector)
 
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
     testui.margin_neighbors = [ship_a, ship_b]
 
@@ -490,7 +490,7 @@ def test_more_headon(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
-    testui.margin_neighbors = [ship_a, ship_b]
+    #testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -547,7 +547,7 @@ def test_20220331(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta * 1.3
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     #testui.margin_neighbors = [ship_a]
 
@@ -568,7 +568,7 @@ def test_too_fast_small_margin(gamestate, generator, sector, testui, simulator):
     testui.eta = eta * 1.3
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -785,7 +785,7 @@ def test_cross_traffic(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
 
@@ -809,7 +809,7 @@ def test_traffic_lane(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
 
@@ -835,6 +835,56 @@ def test_arrival_occupied(gamestate, generator, sector, testui, simulator):
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_navigate_field(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship navigating an asteroid field at high speed.
+
+    should stop as soon as possible. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/navigate_field.history"), generator, sector, gamestate)
+
+    ship_a = entities["f95f25b2-c2e9-48cc-bc13-15d4c7393e72"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+    testui.max_timestamp = 45
+
+    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    simulator.run()
+    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+
+    #assert goto_a.is_complete()
+
+@write_history
+def test_actual_vs_desired_velocity(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship headed just to one side of a threat with a desired velocity just to the other side.
+
+    should be able to avoid the threat, but the confusion between the two might cause issues. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/actual_vs_desired_velocity.history"), generator, sector, gamestate)
+
+    ship_a = entities["d0c48ae3-b438-463a-9a6f-1f6f8ad69e4e"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()

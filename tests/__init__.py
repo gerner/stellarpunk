@@ -134,15 +134,17 @@ class MonitoringUI(interface.AbstractInterface):
 
     def tick(self, timeout:float, dt:float) -> None:
 
-        assert not self.collisions, "collided!"
+        assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
             assert self.gamestate.timestamp < self.eta, "exceeded set eta"
         else:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders)), "exceeded max eta over all orders"
 
-        assert all(map(lambda x: not x.cannot_stop, self.cannot_stop_orders)), "cannot stop"
-        assert all(map(lambda x: not x.cannot_avoid_collision, self.cannot_avoid_collision_orders)), "cannot avoid collision"
+        for x in self.cannot_stop_orders:
+            assert not x.cannot_stop, f'cannot stop ({x.ship.entity_id})'
+        for x in self.cannot_avoid_collision_orders: # type: ignore
+            assert not x.cannot_avoid_collision, f'cannot avoid collision ({x.ship.entity_id})'
         for margin_neighbor in self.margin_neighbors:
             neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
             assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin'

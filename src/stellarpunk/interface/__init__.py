@@ -315,6 +315,9 @@ class Interface(AbstractInterface):
 
         self.gamestate = gamestate
 
+        # keep track of collisions we've seen
+        self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+
         self.generator = generator
 
         # last view has focus for input handling
@@ -529,6 +532,13 @@ class Interface(AbstractInterface):
         )
 
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
+        #TODO: how does this ever get cleared!?
+        self.collisions.append((
+            entity_a,
+            entity_b,
+            impulse,
+            ke,
+        ))
         self.status_message(
                 f'collision detected {entity_a.address_str()}, {entity_b.address_str()}',
                 attr=self.get_color(Color.ERROR)

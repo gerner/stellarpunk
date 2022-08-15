@@ -260,10 +260,10 @@ class UniverseView(interface.View):
             self.selected_sector = self.interface.gamestate.sectors[target_id]
 
         def debug_collision(args:Sequence[str])->None:
-            if len(self.gamestate.collisions) == 0:
+            if len(self.interface.collisions) == 0:
                 raise command_input.CommandInput.UserError("no collisions to debug")
 
-            collision = self.gamestate.collisions[0]
+            collision = self.interface.collisions[0]
             if isinstance(collision[0], core.Ship):
                 ship = collision[0]
             elif isinstance(collision[1], core.Ship):
