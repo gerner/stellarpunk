@@ -96,19 +96,8 @@ def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
 @jit(cache=True, nopython=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
     r = math.sqrt(x*x + y*y)
-    if x == 0:
-        if y > 0:
-            a = np.pi/2
-        else:
-            a = -1 * np.pi/2
-    else:
-        a = np.arctan(y/x)
-    if x < 0:
-        return r, a+np.pi
-    elif y < 0:
-        return r, a+np.pi*2
-    else:
-        return r, a
+    a = math.atan2(y, x)
+    return r, a
 
 @jit(cache=True, nopython=True)
 def polar_to_cartesian(r:float, theta:float) -> tuple[float, float]:

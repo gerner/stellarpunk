@@ -100,6 +100,8 @@ def force_torque_for_delta_velocity(
     time to hold those values before calling me again. """
 
     dv = target_velocity - v
+    if util.both_almost_zero(dv):
+        return ZERO_VECTOR, 0., target_velocity, 0., np.inf
     difference_mag, difference_angle = util.cartesian_to_polar(dv[0], dv[1])
 
     if difference_mag < VELOCITY_EPS and abs(w) < ANGLE_EPS:
@@ -686,9 +688,6 @@ class AbstractSteeringOrder(core.Order):
             self.ship.apply_torque(t)
 
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
-        if target_velocity[0] == self.ship.velocity[0] and target_velocity[1] == self.ship.velocity[1]:
-            return
-
         mass = self.ship.mass
         moment = self.ship.moment
         angle = self.ship.angle

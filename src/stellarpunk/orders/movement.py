@@ -140,7 +140,7 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 1e4,
+            neighborhood_radius: float = 2.5e4,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
