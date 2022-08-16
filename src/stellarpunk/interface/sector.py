@@ -267,12 +267,12 @@ class SectorView(interface.View):
                 raise command_input.CommandInput.UserError(f'can only write history for a selected target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
-            core.write_history_to_file(self.selected_entity, filename)
+            core.write_history_to_file(self.selected_entity, filename, now=self.interface.gamestate.timestamp)
 
         def debug_write_sector(args:Sequence[str])->None:
             filename = "/tmp/stellarpunk.history.gz"
             self.logger.info(f'writing history for sector {self.sector.short_id()} to {filename}')
-            core.write_history_to_file(self.sector, filename)
+            core.write_history_to_file(self.sector, filename, now=self.interface.gamestate.timestamp)
 
         def spawn_ship(args:Sequence[str])->None:
             if len(args) < 2:

@@ -43,7 +43,7 @@ class Presenter:
                         self.bbox[0], self.bbox[1],
                         self.meters_per_char_x, self.meters_per_char_y)
 
-                if s_x != d_x or s_y != d_y:
+                if abs(s_x - d_x) > 1 or abs(s_y - d_y) > 1:
                     for y,x in np.linspace((s_y,s_x), (d_y,d_x), 10, dtype=int):
                         if (y == s_y and x == s_x) or (y == d_y and x == d_x):
                             continue
@@ -62,7 +62,7 @@ class Presenter:
                         self.bbox[0], self.bbox[1],
                         self.meters_per_char_x, self.meters_per_char_y)
 
-                if s_x != d_x or s_y != d_y:
+                if abs(s_x - d_x) > 1 or abs(s_y - d_y) > 1:
                     for y,x in np.linspace((s_y,s_x), (d_y,d_x), 10, dtype=int):
                         if (y == s_y and x == s_x) or (y == d_y and x == d_x):
                             continue
@@ -150,12 +150,20 @@ class Presenter:
         # draw a "tail" from the entity's history
         i=len(entity.history)-1
         cutoff_time = self.gamestate.timestamp - 5.
+        sampling_period = 0.5
+        last_ts = np.inf
         last_x = -1
         last_y = -1
         while i > 0:
             entry = entity.history[i]
+            i-=1
             if entry.ts < cutoff_time:
                 break
+
+            if entry.ts - sampling_period < sampling_period:
+                continue
+            last_ts = entry.ts
+
             hist_x, hist_y = util.sector_to_screen(
                     entry.loc[0], entry.loc[1], self.bbox[0], self.bbox[1],
                     self.meters_per_char_x, self.meters_per_char_y)
@@ -163,7 +171,6 @@ class Presenter:
                 self.view.viewscreen.addstr(hist_y, hist_x, interface.Icons.sector_entity_icon(entity, angle=entry.angle), (icon_attr | curses.A_DIM) & (~curses.A_STANDOUT))
             last_x = hist_x
             last_y = hist_y
-            i-=1
 
         if not isinstance(entity, core.Asteroid):
             speed = entity.speed()

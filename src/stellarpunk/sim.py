@@ -183,8 +183,6 @@ class Simulator:
         for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 self.tick_order(ship, dt)
-                if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == ship.entity_id.int % TICKS_PER_HIST_SAMPLE:
-                    ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         # at this point all AI decisions have happened everywhere
 
@@ -192,6 +190,8 @@ class Simulator:
         for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 ship.post_tick()
+                if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == ship.entity_id.int % TICKS_PER_HIST_SAMPLE:
+                    ship.history.append(ship.to_history(self.gamestate.timestamp))
             self.tick_sector(sector, dt)
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
@@ -203,6 +203,7 @@ class Simulator:
             total_ships = 0
             total_goto_orders = 0
             total_orders_with_ct = 0
+            total_orders_with_cac = 0
             for sector in self.gamestate.sectors.values():
                 for ship in sector.ships:
                     total_ships += 1
@@ -212,8 +213,10 @@ class Simulator:
                             total_goto_orders += 1
                             if order.collision_threat:
                                 total_orders_with_ct += 1
+                            if order.cannot_avoid_collision:
+                                total_orders_with_cac += 1
 
-            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct}')
+            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
         self.gamestate.ticks += 1

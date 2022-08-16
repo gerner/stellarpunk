@@ -12,6 +12,7 @@ import numba as nb # type: ignore
 from numba import jit # type: ignore
 
 from stellarpunk import util, core
+#from stellarpunk.orders import steering_math
 
 ANGLE_EPS = 2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
@@ -100,8 +101,6 @@ def force_torque_for_delta_velocity(
     time to hold those values before calling me again. """
 
     dv = target_velocity - v
-    if util.both_almost_zero(dv):
-        return ZERO_VECTOR, 0., target_velocity, 0., np.inf
     difference_mag, difference_angle = util.cartesian_to_polar(dv[0], dv[1])
 
     if difference_mag < VELOCITY_EPS and abs(w) < ANGLE_EPS:
@@ -698,7 +697,7 @@ class AbstractSteeringOrder(core.Order):
         max_thrust = self.ship.max_thrust
         max_fine_thrust = self.ship.max_fine_thrust
 
-        force, torque, target_velocity, difference_mag, _ = force_torque_for_delta_velocity(
+        force, torque, target_velocity, difference_mag, continue_time = force_torque_for_delta_velocity(
                     target_velocity,
                     mass, moment, angle, w, v,
                     max_speed, max_torque, max_thrust, max_fine_thrust,

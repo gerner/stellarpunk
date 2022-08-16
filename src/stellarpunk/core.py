@@ -281,7 +281,7 @@ class SectorEntity(Entity):
     def cargo_full(self) -> bool:
         return np.sum(self.cargo) == self.cargo_capacity
 
-    def get_history(self) -> Iterable[HistoryEntry]:
+    def get_history(self) -> Sequence[HistoryEntry]:
 
         return (HistoryEntry(
                 self.id_prefix,
@@ -357,7 +357,7 @@ class Ship(SectorEntity):
         self._will_apply_force = False
         self.max_speed_override:Optional[float] = None
 
-    def get_history(self) -> Iterable[HistoryEntry]:
+    def get_history(self) -> Sequence[HistoryEntry]:
         return self.history
 
     def to_history(self, timestamp:float) -> HistoryEntry:
@@ -661,7 +661,7 @@ class Gamestate:
     def quit(self) -> None:
         self.keep_running = False
 
-def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextIO], mode:str="w") -> None:
+def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
     fout:TextIO
     if isinstance(f, str):
         needs_close = True
@@ -680,8 +680,12 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
         entities = [entity]
 
     for ent in entities:
-        for entry in ent.get_history():
+        history = ent.get_history()
+        for entry in history:
             fout.write(json.dumps(entry.to_json()))
+            fout.write("\n")
+        if len(history) == 0 or history[-1].ts < now:
+            fout.write(json.dumps(ent.to_history(now).to_json()))
             fout.write("\n")
     if needs_close:
         fout.close()

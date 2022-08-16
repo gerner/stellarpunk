@@ -117,7 +117,7 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     a_cbdr = False
     b_cbdr = False
 
-    testui.eta = max((goto_a.estimate_eta(), goto_b.estimate_eta()))*1.2
+    testui.eta = max((goto_a.estimate_eta(), goto_b.estimate_eta()))*1.3
     testui.orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
@@ -392,7 +392,7 @@ def test_followers(gamestate, generator, sector, testui, simulator):
     station = station_from_history(c, generator, sector)
 
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
     #testui.margin_neighbors = [ship_a, ship_b]
 
@@ -417,7 +417,7 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta * 1.3
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a, goto_b]
+    #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a, ship_b]
 
@@ -881,6 +881,29 @@ def test_actual_vs_desired_velocity(gamestate, generator, sector, testui, simula
     eta = goto_a.estimate_eta()
 
     testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_overeager_arrival(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship coming in for a busy arrival.
+
+    should be able to arrive without collision. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/overeager_arrival.history"), generator, sector, gamestate)
+
+    ship_a = entities["9fac0d05-f96a-4410-8167-da3921aa22e8"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta*20
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]

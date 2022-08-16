@@ -64,6 +64,7 @@ def sector_to_drawille(
             int((sector_loc_y) / meters_per_char_y * 4)
     )
 
+@jit(cache=True, nopython=True)
 def sector_to_screen(
         sector_loc_x:float, sector_loc_y:float,
         ul_x:float, ul_y:float,
@@ -95,7 +96,7 @@ def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
 
 @jit(cache=True, nopython=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
-    r = math.sqrt(x*x + y*y)
+    r = math.hypot(x, y)
     a = math.atan2(y, x)
     return r, a
 

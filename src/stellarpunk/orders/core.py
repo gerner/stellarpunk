@@ -38,7 +38,7 @@ class MineOrder(core.Order):
         if self.ship.sector != self.target.sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target.sector}')
         # grab resources from the asteroid and add to our cargo
-        distance = util.magnitude(*(self.ship.loc - self.target.loc)) - self.target.radius
+        distance = util.distance(self.ship.loc,self.target.loc) - self.target.radius
         if distance > self.max_dist:
             self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return
@@ -80,7 +80,7 @@ class TransferCargo(core.Order):
         if self.ship.sector != self.target.sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target.sector}')
         # if we're too far away, go to the target
-        distance = util.magnitude(*(self.ship.loc - self.target.loc)) - self.target.radius
+        distance = util.distance(self.ship.loc, self.target.loc) - self.target.radius
         if distance > self.max_dist:
             self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return

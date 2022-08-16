@@ -187,6 +187,8 @@ class GoToLocation(AbstractSteeringOrder):
         data["t_v"] = (self.target_v[0], self.target_v[1])
         data["cs"] = self.cannot_stop
         data["scm"] = self.scaled_collision_margin
+        data["_ncts"] = self._next_compute_ts
+        data["_dv"] = [self._desired_velocity[0], self._desired_velocity[1]]
 
         return data
 
@@ -263,7 +265,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         # scale collision margin with speed, more speed = more margin
         cm_low = self.collision_margin
-        cm_high = self.collision_margin*10
+        cm_high = self.collision_margin*5
         cm_speed_low = 100
         cm_speed_high = 1500
         self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
@@ -296,7 +298,7 @@ class GoToLocation(AbstractSteeringOrder):
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 
-        nts_low = 4/70.
+        nts_low = 6/70.
         nts_high = 1.0
 
         # if there's no collision diversion OR we're at the destination and can
@@ -305,15 +307,18 @@ class GoToLocation(AbstractSteeringOrder):
             self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 
-            # compute a time delta for our next desired velocity computation
-            nts_nnd_low = 2e3
-            nts_nnd_high = 1e4
-            nts_nnd = util.interpolate(nts_nnd_low, nts_low, nts_nnd_high, nts_high, self.nearest_neighbor_dist)
+            if distance < self.arrival_distance * 5:
+                nts = nts_low
+            else:
+                # compute a time delta for our next desired velocity computation
+                nts_nnd_low = 2e3
+                nts_nnd_high = 1e4
+                nts_nnd = util.interpolate(nts_nnd_low, nts_low, nts_nnd_high, nts_high, self.nearest_neighbor_dist)
 
-            nts_dist_low = 1e3
-            nts_dist_high = 1e4
-            nts_dist = util.interpolate(nts_dist_low, nts_low, nts_dist_high, nts_high, distance)
-            nts = min(min(nts_nnd, nts_dist), nts_high)
+                nts_dist_low = 1e3
+                nts_dist_high = 1e4
+                nts_dist = util.interpolate(nts_dist_low, nts_low, nts_dist_high, nts_high, distance)
+                nts = min(min(nts_nnd, nts_dist), nts_high)
         else:
             # if we're over max speed, let's slow down in addition to avoiding
             # collision
@@ -331,7 +336,10 @@ class GoToLocation(AbstractSteeringOrder):
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
-            nts = nts_low
+            if approach_time < 1.:
+                nts = 1/70
+            else:
+                nts = nts_low
 
         self._next_compute_ts = self.gamestate.timestamp + nts
 
