@@ -391,6 +391,7 @@ def test_followers(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(c, generator, sector)
 
+    testui.order_eta_error_factor = 1.2
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
@@ -908,6 +909,52 @@ def test_overeager_arrival(gamestate, generator, sector, testui, simulator):
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_arrival_occupied2(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship arriving in a spot already occupied, partially.
+
+    should stop as soon as possible. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/arrival_occupied2.history"), generator, sector, gamestate)
+
+    ship_a = entities["b97d8d21-ec2a-476c-bc84-fce9dff8a29b"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_busy_intersection(gamestate, generator, sector, testui, simulator):
+    """ Tests two ships nearly parallel that intersect.
+
+    should detect cbdr and avoid collision """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/busy_intersection.history"), generator, sector, gamestate)
+
+    ship_a = entities["caf26807-a636-4408-9825-7138b9f559e1"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()

@@ -6,7 +6,7 @@ from typing import Optional, List, Tuple
 
 import numpy as np
 
-from stellarpunk import core, sim, orders, interface
+from stellarpunk import core, sim, orders, interface, util
 from stellarpunk.orders import steering
 
 def write_history(func):
@@ -44,8 +44,8 @@ def nearest_neighbor(sector:core.Sector, entity:core.SectorEntity) -> Tuple[Opti
 def ship_from_history(history_entry, generator, sector):
     x, y = history_entry["loc"]
     v = history_entry["v"]
-    w = history_entry["av"]
-    theta = history_entry["a"]
+    w = util.normalize_angle(history_entry["av"])
+    theta = util.normalize_angle(history_entry["a"])
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta, entity_id=uuid.UUID(history_entry["eid"]))
     ship.name = history_entry["eid"]
     ship.phys.force = history_entry.get("f", (0., 0.))
@@ -82,6 +82,8 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         if "_ncts" in history_entry["o"]:
             gorder._next_compute_ts = history_entry["o"]["_ncts"] - history_entry["ts"]
             gorder._desired_velocity = np.array(history_entry["o"]["_dv"])
+            gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
+            gorder.nearest_neighbor_density = history_entry["o"]["nd"]
 
         """
         if "ct" in history_entry["o"]:
@@ -149,6 +151,8 @@ class MonitoringUI(interface.AbstractInterface):
 
         self.done = False
 
+        self.order_eta_error_factor = 1.0
+
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
 
@@ -164,7 +168,7 @@ class MonitoringUI(interface.AbstractInterface):
         if self.eta < np.inf:
             assert self.gamestate.timestamp < self.eta, "exceeded set eta"
         else:
-            assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders)), "exceeded max eta over all orders"
+            assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))*self.order_eta_error_factor, "exceeded max eta over all orders"
 
         for x in self.cannot_stop_orders:
             assert not x.cannot_stop, f'cannot stop ({x.ship.entity_id})'

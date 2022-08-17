@@ -45,7 +45,7 @@ def main() -> None:
             x = float(x)
             y = float(y)
             global_loc = np.array((x,y))
-            global_radius = 50000
+            global_radius = 100000
 
         static_loc = []
         target_ts = {}

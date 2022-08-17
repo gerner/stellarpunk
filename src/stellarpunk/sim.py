@@ -15,7 +15,7 @@ import pymunk
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
-TICKS_PER_HIST_SAMPLE = 10
+TICKS_PER_HIST_SAMPLE = 1#10
 ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
@@ -173,7 +173,7 @@ class Simulator:
                 self._collisions.clear()
 
             for ship in sector.ships:
-                ship.pre_tick()
+                ship.pre_tick(self.gamestate.timestamp)
 
         # at this point all physics sim is done for the tick and the gamestate
         # is up to date across the universe
@@ -185,14 +185,20 @@ class Simulator:
                 self.tick_order(ship, dt)
 
         # at this point all AI decisions have happened everywhere
-
         # update sector state after all ships across universe take action
         for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 ship.post_tick()
-                if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == sector.entity_id.int % TICKS_PER_HIST_SAMPLE:
-                    ship.history.append(ship.to_history(self.gamestate.timestamp))
             self.tick_sector(sector, dt)
+
+        self.gamestate.ticks += 1
+        self.gamestate.timestamp += dt
+
+        # record some state about the final state of this tick
+        for sector in self.gamestate.sectors.values():
+            if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == sector.entity_id.int % TICKS_PER_HIST_SAMPLE:
+                for ship in sector.ships:
+                    ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
             for i, amount in enumerate(self.gamestate.production_chain.resources_mined):
@@ -218,9 +224,6 @@ class Simulator:
 
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
-
-        self.gamestate.ticks += 1
-        self.gamestate.timestamp += dt
 
     def run(self) -> None:
 

@@ -386,10 +386,13 @@ class Ship(SectorEntity):
     def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
 
-    def pre_tick(self) -> None:
+    def pre_tick(self, ts:float) -> None:
         # update ship positions from physics sim
         #ship.loc.put(ZERO_ONE, ship.phys.position)
         pos = self.phys.position
+        if ts > 0. and self.loc[0] == pos[0] and str(self.entity_id).startswith("f51"):
+            raise Exception()
+
         self.loc[0] = pos[0]
         self.loc[1] = pos[1]
         self.angle = self.phys.angle

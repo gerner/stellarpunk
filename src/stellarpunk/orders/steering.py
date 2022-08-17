@@ -585,7 +585,7 @@ def detect_cbdr(rel_pos_hist:Deque[Tuple[float, np.ndarray]], now:float, min_his
     latest_rel_pos = rel_pos_hist[-1][1]
     latest_distance, latest_bearing = util.cartesian_to_polar(latest_rel_pos[0], latest_rel_pos[1])
 
-    return abs(oldest_bearing - latest_bearing) < ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
+    return abs(oldest_bearing - latest_bearing) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
 class AbstractSteeringOrder(core.Order):
     def __init__(self, *args: Any, safety_factor:float=2., **kwargs: Any) -> None:
@@ -665,6 +665,8 @@ class AbstractSteeringOrder(core.Order):
 
         history["nd"] = self.neighborhood_density
         history["nnd"] = self.nearest_neighbor_dist
+
+        history["_nact"] = self._next_accelerate_compute_ts
         return history
 
     def _rotate_to(self, target_angle: float, dt: float) -> None:
@@ -748,7 +750,9 @@ class AbstractSteeringOrder(core.Order):
             float,
             np.ndarray,
             np.ndarray,
-            float]:
+            float,
+            bool,
+            bool]:
 
         pos = self.ship.loc
         v = self.ship.velocity
@@ -769,6 +773,8 @@ class AbstractSteeringOrder(core.Order):
         self.cannot_avoid_collision = False
         self.nearest_neighbor_dist = np.inf
 
+        any_prior_threats = False
+        all_prior_threats = False
         if len(hits) > 0:
             #TODO: this is really not ideal: we go into pymunk to get hits via
             # cffi and then come back to python and then do some marshalling
@@ -803,7 +809,11 @@ class AbstractSteeringOrder(core.Order):
                     hits_l, hits_v, hits_r,
                     pos, v,
                     max_distance, self.ship.radius, margin, neighborhood_dist)
+
+            prior_threats = set(self.collision_coalesced_neighbors)
             coalesced_neighbors = [hits[i] for i in coalesced_idx]
+            any_prior_threats = any(x in prior_threats for x in coalesced_neighbors)
+            all_prior_threats = all(x in prior_threats for x in coalesced_neighbors)
 
             if not self.cannot_avoid_collision_hold:
                 # we want to avoid nearby, dicontinuous changes to threat loc and
@@ -898,7 +908,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_threat_loc = threat_loc
         self.collision_threat_radius = threat_radius
 
-        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density
+        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats, all_prior_threats
 
     def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_loc: np.ndarray, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
@@ -916,7 +926,6 @@ class AbstractSteeringOrder(core.Order):
         """
 
         v = self.ship.velocity
-        prior_threats = set(self.collision_coalesced_neighbors)
 
         if margin_histeresis is None:
             # add additional margin of size this factor
@@ -939,9 +948,9 @@ class AbstractSteeringOrder(core.Order):
         neighbor_margin += self.collision_margin_histeresis
 
         # find neighbor with soonest closest appraoch
-        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density  = self._collision_neighbor(sector, neighborhood_loc, neighborhood_dist, neighbor_margin, max_distance)
+        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats, all_prior_threats  = self._collision_neighbor(sector, neighborhood_loc, neighborhood_dist, neighbor_margin, max_distance)
 
-        if any(x in prior_threats for x in self.collision_coalesced_neighbors):
+        if any_prior_threats:
             # if there's any overlap, keep the margin extra big
             self.collision_margin_histeresis = margin_histeresis
         else:
@@ -1009,12 +1018,14 @@ class AbstractSteeringOrder(core.Order):
             # diverting from the current velocity, this should be the minimal
             # dv to avoid the collision
             if util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time:
-                self.desired_divert_override = True
-                delta_velocity = -1 * _collision_dv(
+                alt_delta_velocity = -1 * _collision_dv(
                         current_threat_loc, threat_velocity,
                         self.ship.loc, self.ship.velocity,
                         desired_margin, -1 * self.ship.velocity,
                         self.collision_cbdr)
+                if util.magnitude(alt_delta_velocity[0], alt_delta_velocity[1]) < self.ship.max_thrust / self.ship.mass * approach_time:
+                    self.desired_divert_override = True
+                    delta_velocity = alt_delta_velocity
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

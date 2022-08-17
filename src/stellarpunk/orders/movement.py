@@ -140,7 +140,7 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 1e4,
+            neighborhood_radius: float = 2e4,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -271,11 +271,13 @@ class GoToLocation(AbstractSteeringOrder):
         self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
         self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
 
-        #TODO: this could go somewhere else in case the nearest neighbor IS the
-        # threat, then we can decrease the margin
-        # if we're very near a neighbor, we want a smaller margin
-        if self.nearest_neighbor_dist < 2e3:
-            self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
+        if distance < self.arrival_distance and distance > self.min_distance:
+            self.scaled_collision_margin = self.ship.radius*self.safety_factor
+        #elif self.nearest_neighbor_dist < 2e3:
+        #    #TODO: this could go somewhere else in case the nearest neighbor IS the
+        #    # threat, then we can decrease the margin
+        #    # if we're very near a neighbor, we want a smaller margin
+        #    self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -303,12 +305,14 @@ class GoToLocation(AbstractSteeringOrder):
 
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
-        if util.both_almost_zero(collision_dv) or (distance < self.arrival_distance and distance > self.min_distance and delta_v / (self.ship.max_thrust / self.ship.mass) < approach_time):
+        if util.both_almost_zero(collision_dv):
             self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 
             if distance < self.arrival_distance * 5:
                 nts = nts_low
+            elif distance < self.arrival_distance:
+                nts = 1/70
             else:
                 # compute a time delta for our next desired velocity computation
                 nts_nnd_low = 2e3
