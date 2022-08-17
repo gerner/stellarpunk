@@ -78,18 +78,24 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         min_distance = history_entry["o"].get("md", None)
         gorder = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
         gorder.neighborhood_density = history_entry["o"].get("nd", 0.)
+
+        if "_ncts" in history_entry["o"]:
+            gorder._next_compute_ts = history_entry["o"]["_ncts"] - history_entry["ts"]
+            gorder._desired_velocity = np.array(history_entry["o"]["_dv"])
+
         """
         if "ct" in history_entry["o"]:
             gorder.collision_threat = ship.sector.entities[uuid.UUID(history_entry["o"]["ct"])]
             gorder.collision_coalesced_neighbors.extend(
-                    next(ship.sector.spatial_point(np.array(x), 1)) for x in history_entry["o"]["ct_cn"]
+                    next(ship.sector.spatial_point(np.array(x), 100)) for x in history_entry["o"]["ct_cn"]
             )
             gorder.collision_threat_loc = np.array(history_entry["o"]["ct_cloc"])
-            gorder.collision_threat_radius = np.array(history_entry["o"]["ct_cradius"])
+            gorder.collision_threat_radius = history_entry["o"]["ct_cradius"]
             gorder.cannot_avoid_collision = history_entry["o"]["cac"]
             gorder.cannot_avoid_collision_hold = history_entry["o"]["cach"]
             gorder.collision_cbdr = history_entry["o"]["cbdr"]
         """
+
         order:core.Order=gorder
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
         # in these cases we'll just give a null order so they just stay exactly

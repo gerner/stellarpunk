@@ -403,7 +403,7 @@ class Ship(SectorEntity):
         self._applied_force = self._will_apply_force
         self._will_apply_force = False
 
-    def apply_force(self, force: npt.NDArray[np.float64]) -> None:
+    def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.apply_force_at_world_point(
                 (force[0], force[1]),
                 (self.loc[0], self.loc[1])

@@ -687,6 +687,8 @@ class AbstractSteeringOrder(core.Order):
             self.ship.apply_torque(t)
 
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
+        if not force_recompute and self.gamestate.timestamp < self._next_accelerate_compute_ts:
+            return
         mass = self.ship.mass
         moment = self.ship.moment
         angle = self.ship.angle
@@ -704,9 +706,12 @@ class AbstractSteeringOrder(core.Order):
                     dt, self.safety_factor
             )
 
-        if util.both_almost_zero(force):
+        self._next_accelerate_compute_ts = 0.
+        if difference_mag < VELOCITY_EPS:
             if difference_mag > 0.:
                 self.ship.set_velocity(target_velocity)
+            else:
+                self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
         else:
             self.ship.apply_force(force)
 

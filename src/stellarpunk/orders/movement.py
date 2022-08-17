@@ -140,7 +140,7 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 2.5e4,
+            neighborhood_radius: float = 1e4,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -243,7 +243,7 @@ class GoToLocation(AbstractSteeringOrder):
         # also ramp down speed with distance to nearest neighbor
         # nn_d_high, nn_speed_high is one point
         # nn_d_low, nn_speed_low is another
-        nn_d_high = 5e3
+        nn_d_high = 2e3
         nn_s_high = 1000#max_speed
         nn_d_low = 5e2
         nn_s_low = 100
@@ -274,7 +274,7 @@ class GoToLocation(AbstractSteeringOrder):
         #TODO: this could go somewhere else in case the nearest neighbor IS the
         # threat, then we can decrease the margin
         # if we're very near a neighbor, we want a smaller margin
-        if self.nearest_neighbor_dist < 5e3:
+        if self.nearest_neighbor_dist < 2e3:
             self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
 
         if speed > 0:

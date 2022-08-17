@@ -903,7 +903,7 @@ def test_overeager_arrival(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta*20
+    testui.eta = eta*1.3
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]

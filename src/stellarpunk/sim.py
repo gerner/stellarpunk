@@ -190,7 +190,7 @@ class Simulator:
         for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 ship.post_tick()
-                if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == ship.entity_id.int % TICKS_PER_HIST_SAMPLE:
+                if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == sector.entity_id.int % TICKS_PER_HIST_SAMPLE:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
             self.tick_sector(sector, dt)
 
