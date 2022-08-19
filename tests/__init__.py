@@ -44,8 +44,8 @@ def nearest_neighbor(sector:core.Sector, entity:core.SectorEntity) -> Tuple[Opti
 def ship_from_history(history_entry, generator, sector):
     x, y = history_entry["loc"]
     v = history_entry["v"]
-    w = util.normalize_angle(history_entry["av"])
-    theta = util.normalize_angle(history_entry["a"])
+    w = history_entry["av"]
+    theta = history_entry["a"]
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta, entity_id=uuid.UUID(history_entry["eid"]))
     ship.name = history_entry["eid"]
     ship.phys.force = history_entry.get("f", (0., 0.))
@@ -83,7 +83,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder._next_compute_ts = history_entry["o"]["_ncts"] - history_entry["ts"]
             gorder._desired_velocity = np.array(history_entry["o"]["_dv"])
             gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
-            gorder.nearest_neighbor_density = history_entry["o"]["nd"]
+            gorder.neighborhood_density = history_entry["o"]["nd"]
 
         """
         if "ct" in history_entry["o"]:
@@ -166,7 +166,7 @@ class MonitoringUI(interface.AbstractInterface):
         assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
-            assert self.gamestate.timestamp < self.eta, "exceeded set eta"
+            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]})'
         else:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))*self.order_eta_error_factor, "exceeded max eta over all orders"
 
@@ -176,7 +176,7 @@ class MonitoringUI(interface.AbstractInterface):
             assert not x.cannot_avoid_collision, f'cannot avoid collision ({x.ship.entity_id})'
         for margin_neighbor in self.margin_neighbors:
             neighbor, neighbor_dist = nearest_neighbor(self.sector, margin_neighbor)
-            assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin'
+            assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin ({margin_neighbor.entity_id})'
             if neighbor_dist < self.min_neighbor_dist:
                 self.min_neighbor_dist = neighbor_dist
 

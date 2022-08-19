@@ -15,7 +15,7 @@ import pymunk
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
-TICKS_PER_HIST_SAMPLE = 1#10
+TICKS_PER_HIST_SAMPLE = 10
 ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 

@@ -12,15 +12,36 @@ from . import write_history, nearest_neighbor, ship_from_history, station_from_h
 
 TESTDIR = os.path.dirname(__file__)
 
-def test_collision_dv_divide_by_zero():
-    current_threat_loc = np.array((-12310.625184027258, 9487.81873642772))
+def test_collision_dv_sanity():
+    current_threat_loc = np.array((0,0))
     threat_velocity = np.array([0., 0.])
-    loc = np.array((-12906.842476951013, 4147.6723812594155))
-    velocity = np.array((-0.2308075001768678, 1.6506076685996232))
-    desired_margin = 1330.0
-    desired_direction = np.array((26.758595729673026, 390.97727873264216))
+    loc = np.array((-1e2, 1e2))
+    velocity = np.array((100., -100.))
+    desired_margin = 10
+    desired_direction = np.array((-10.,10.))
     collision_cbdr = False
-    delta_velocity = -1 * steering._collision_dv(current_threat_loc, threat_velocity, loc, velocity, desired_margin, -1 * desired_direction, collision_cbdr)
+    delta_v_budget = 1000
+
+    dv = steering._collision_dv(
+            current_threat_loc, threat_velocity,
+            loc, velocity,
+            desired_margin,
+            desired_direction - velocity,
+            collision_cbdr,
+            delta_v_budget)
+
+    assert not any(np.isclose(dv, desired_direction-velocity))
+
+    # sending back in the return from the prior call should give same divert
+    dv2 = steering._collision_dv(
+            current_threat_loc, threat_velocity,
+            loc, velocity,
+            desired_margin,
+            dv,
+            collision_cbdr,
+            delta_v_budget)
+
+    assert all(np.isclose(dv2, dv))
 
 @write_history
 def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog):
@@ -62,7 +83,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     testui.eta = goto_order.estimate_eta()
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
-    #testui.cannot_avoid_collision_orders = [goto_order]
+    testui.cannot_avoid_collision_orders = [goto_order]
     testui.margin_neighbors = [ship_driver]
 
     simulator.run()
@@ -510,7 +531,7 @@ def test_either_side(gamestate, generator, sector, testui, simulator):
     goto_a = ship_a.orders[0]
 
     testui.orders = [goto_a]
-    testui.cannot_avoid_collision_orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
 
@@ -788,7 +809,7 @@ def test_cross_traffic(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -955,6 +976,71 @@ def test_busy_intersection(gamestate, generator, sector, testui, simulator):
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_rotate_lag(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship that may need to rotate 180 deg to avoid collision.
+
+    should avoid somehow. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/rotate_lag.history"), generator, sector, gamestate)
+
+    ship_a = entities["0e9e97d6-2a23-4cbe-b976-a1ff9e7440e0"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_through_asteroid_field(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship travelling through a tight asteroid field. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/through_asteroid_field.history"), generator, sector, gamestate)
+
+    ship_a = entities["5f56e223-38ba-4c86-b055-585535b3caa6"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_more_busy_lane(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship in a busy traffic lane in an asteroid field. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/more_busy_lane.history"), generator, sector, gamestate)
+
+    ship_a = entities["537958f9-536c-485d-8ca4-dfea883fc65b"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()

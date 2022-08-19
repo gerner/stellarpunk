@@ -273,11 +273,11 @@ class GoToLocation(AbstractSteeringOrder):
 
         if distance < self.arrival_distance and distance > self.min_distance:
             self.scaled_collision_margin = self.ship.radius*self.safety_factor
-        #elif self.nearest_neighbor_dist < 2e3:
-        #    #TODO: this could go somewhere else in case the nearest neighbor IS the
-        #    # threat, then we can decrease the margin
-        #    # if we're very near a neighbor, we want a smaller margin
-        #    self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/8), self.collision_margin)
+        elif self.nearest_neighbor_dist < 1.5e4:
+            #TODO: this could go somewhere else in case the nearest neighbor IS the
+            # threat, then we can decrease the margin
+            # if we're very near a neighbor, we want a smaller margin
+            self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/20), self.collision_margin)
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -311,8 +311,6 @@ class GoToLocation(AbstractSteeringOrder):
 
             if distance < self.arrival_distance * 5:
                 nts = nts_low
-            elif distance < self.arrival_distance:
-                nts = 1/70
             else:
                 # compute a time delta for our next desired velocity computation
                 nts_nnd_low = 2e3
@@ -326,24 +324,21 @@ class GoToLocation(AbstractSteeringOrder):
         else:
             # if we're over max speed, let's slow down in addition to avoiding
             # collision
-            v_mag = util.magnitude(v[0], v[1])
             #TODO: this code has the benefit of trying to slow down in addition
             # to trying to avoid collision. however, it also means we don't
             # apply the result of the collision avoidance. not sure the
             # tradeoff or alternative there...
+            #v_mag = util.magnitude(v[0], v[1])
             #if v_mag > max_speed:
             #    v = v / v_mag * max_speed
             self._desired_velocity = v + collision_dv
-            desired_mag = util.magnitude(*self._desired_velocity)
             #TODO: see todo above about slowing down
+            #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
-            if approach_time < 1.:
-                nts = 1/70
-            else:
-                nts = nts_low
+            nts = nts_low
 
         self._next_compute_ts = self.gamestate.timestamp + nts
 

@@ -95,7 +95,7 @@ def force_torque_for_delta_velocity(
         target_velocity:np.ndarray, mass:float, moment:float, angle:float,
         w:float, v:np.ndarray, max_speed:float, max_torque:float,
         max_thrust:float, max_fine_thrust:float, dt:float,
-        safety_factor:float) -> tuple[np.ndarray, float, np.ndarray, float, float]:
+        safety_factor:float) -> tuple[np.ndarray, float, np.ndarray, float, float, float]:
     """ Given target velocity, a timestep size  and parameters about the ship,
     return force, torque, target velocity, and desired speed difference and
     time to hold those values before calling me again. """
@@ -104,7 +104,7 @@ def force_torque_for_delta_velocity(
     difference_mag, difference_angle = util.cartesian_to_polar(dv[0], dv[1])
 
     if difference_mag < VELOCITY_EPS and abs(w) < ANGLE_EPS:
-        return ZERO_VECTOR, 0., target_velocity, difference_mag, np.inf
+        return ZERO_VECTOR, 0., target_velocity, difference_mag, angle, np.inf
 
     delta_heading = util.normalize_angle(angle-difference_angle, shortest=True)
     rot_time = rotation_time(delta_heading, w, max_torque/moment, safety_factor)
@@ -138,7 +138,7 @@ def force_torque_for_delta_velocity(
     else:
         continue_time = min(rot_time, thrust_time)
 
-    return force, torque, target_velocity, difference_mag, continue_time
+    return force, torque, target_velocity, difference_mag, difference_angle, continue_time
 
 @jit(cache=True, nopython=True)
 def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
@@ -339,8 +339,8 @@ def _analyze_neighbors(
 
     return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
-@jit(cache=True, nopython=True)
-def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool) -> npt.NDArray[np.float64]:
+#@jit(cache=True, nopython=True)
+def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, delta_v_budget:float) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
     relative to the desired velocity.
@@ -349,7 +349,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     entity_pos: velocity of the threat
     pos: our position
     v: our velocity
-    v_d: the desired velocity
+    v_d: the desired delta velocity
     """
 
     # rel pos
@@ -360,7 +360,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     m = margin
 
     # desired diversion from v
-    a = v_d + vel
+    a = -v_d
 
     # check if the desired divert is already viable
     x = a[0]
@@ -371,7 +371,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     else:
         do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
-        return ZERO_VECTOR
+        return v_d
 
     if util.magnitude(r[0], r[1]) <= margin:
         raise ValueError()
@@ -500,7 +500,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
             (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2),
             m**2,
             rtol=1e-3)
-    return np.array((x, y))
+    return np.array((-x, -y))
 
 # numba seems to have trouble with this method and recompiles it with some
 # frequency. So we explicitly specify types here to avoid that.
@@ -626,6 +626,7 @@ class AbstractSteeringOrder(core.Order):
 
         self._next_accelerate_compute_ts = 0.
         self._accelerate_force:npt.NDArray[np.float64] = ZERO_VECTOR
+        self._accelerate_difference_angle:float = 0.
 
     def to_history(self) -> dict:
         history = super().to_history()
@@ -667,6 +668,7 @@ class AbstractSteeringOrder(core.Order):
         history["nnd"] = self.nearest_neighbor_dist
 
         history["_nact"] = self._next_accelerate_compute_ts
+        history["_ada"] = self._accelerate_difference_angle
         return history
 
     def _rotate_to(self, target_angle: float, dt: float) -> None:
@@ -701,13 +703,14 @@ class AbstractSteeringOrder(core.Order):
         max_thrust = self.ship.max_thrust
         max_fine_thrust = self.ship.max_fine_thrust
 
-        force, torque, target_velocity, difference_mag, continue_time = force_torque_for_delta_velocity(
+        force, torque, target_velocity, difference_mag, difference_angle, continue_time = force_torque_for_delta_velocity(
                     target_velocity,
                     mass, moment, angle, w, v,
                     max_speed, max_torque, max_thrust, max_fine_thrust,
                     dt, self.safety_factor
             )
 
+        self._accelerate_difference_angle = difference_angle
         self._next_accelerate_compute_ts = 0.
         if difference_mag < VELOCITY_EPS:
             if difference_mag > 0.:
@@ -1004,28 +1007,93 @@ class AbstractSteeringOrder(core.Order):
                 else:
                     self.cannot_avoid_collision = True
             else:
+                if approach_time > 0:
+                    # check that the desired margin is feasible given our delta-v budget
+                    # if not, set the margin to whatever our delta-v budget permits
+                    required_acceleration = 2*(desired_margin-minimum_separation)/(approach_time ** 2)
+                    required_thrust = self.ship.mass * required_acceleration
+                    if required_thrust > self.ship.max_thrust:
+                        desired_margin = (self.ship.max_acceleration() * approach_time ** 2 + 2 * minimum_separation)/2
+
                 self.cannot_avoid_collision = False
 
             #desired_margin += util.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
-            delta_velocity = -1 * _collision_dv(
+            desired_delta_velocity = desired_direction - self.ship.velocity
+            ddv_mag = util.magnitude(desired_delta_velocity[0], desired_delta_velocity[1])
+            max_dv_available = self.ship.max_thrust / self.ship.mass * approach_time
+            if ddv_mag > max_dv_available:
+                desired_delta_velocity = desired_delta_velocity / ddv_mag * max_dv_available
+            delta_v_budget = self.ship.max_thrust / self.ship.mass * approach_time
+
+            delta_velocity = _collision_dv(
                     current_threat_loc, threat_velocity,
                     self.ship.loc, self.ship.velocity,
-                    desired_margin, -1 * desired_direction,
-                    self.collision_cbdr)
+                    desired_margin, desired_delta_velocity,
+                    self.collision_cbdr,
+                    delta_v_budget)
+
+            #if str(self.ship.entity_id).startswith("0e9"):
+            #TODO: this code needs cleaning up
+            #TODO: this should probably go inside of collision_dv to better
+            # optimize for the cost of the diversion in terms of rotation
+            # see if the suggested diversion requires a big rotation whereas
+            # the last one did not
+            if True:
+                dv2 = _collision_dv(
+                    current_threat_loc, threat_velocity,
+                    self.ship.loc, self.ship.velocity,
+                    desired_margin, desired_delta_velocity,
+                    self.collision_cbdr,
+                    delta_v_budget)
+
+                option1 = self.ship.velocity + delta_velocity
+                delta1 = option1  - desired_direction
+                mag1, angle1 = util.cartesian_to_polar(delta_velocity[0], delta_velocity[1])
+                dmag1 = util.magnitude(delta1[0], delta1[1])
+                rot1 = rotation_time(util.normalize_angle(self.ship.angle - angle1, shortest=True), self.ship.angular_velocity, self.ship.max_torque/self.ship.moment, self.safety_factor)
+                # v = a * t
+                # t = v / a
+                # F = ma
+                # a = F /m
+                # t = v / (F/m)
+                accel1 = dmag1 / (self.ship.max_acceleration())
+
+                option2 = self.ship.velocity + dv2
+                delta2 = option2 - desired_direction
+                mag2, angle2 = util.cartesian_to_polar(dv2[0], dv2[1])
+                dmag2 = util.magnitude(delta2[0], delta2[1])
+                rot2 = rotation_time(util.normalize_angle(self.ship.angle - angle2, shortest=True), self.ship.angular_velocity, self.ship.max_torque/self.ship.moment, self.safety_factor)
+                accel2 = dmag2 / (self.ship.max_acceleration())
+
+                ts = self.gamestate.timestamp
+                #self.logger.warning(f'{ts=} {dmag1=:.3f} vs {dmag2=:.3f} {dmag1-dmag2=:.3f} {accel1-accel2=:.3f})')
+                ship_angle = util.normalize_angle(self.ship.angle)
+                #self.logger.warning(f'{ts=} {angle1=:.3f} vs {angle2=:.3f} {ship_angle=:.3f} {rot1=:.3f} {rot2=:.3f} {rot1-rot2=:.3f})')
+
+                #self.logger.warning(f'{ts=} {(accel1 + rot1) - (accel2 + rot2)=:.3f}')
+
+                if rot1 - rot2 > 2:
+                    #self.logger.warning(f'switched!')
+                    delta_velocity = dv2
+                    #if (util.magnitude(dv2[0], dv2[1]) < self.ship.max_thrust / self.ship.mass * approach_time or util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time):
+                    #    self.logger.warning(f'switched!')
+                    #    delta_velocity = dv2
+                    #else:
+                    #    self.logger.warning(f'did not switch!')
 
             # check that delta_velocity is feasible given max thrust
             # if not, switch from the min divert from desired velocity to
             # diverting from the current velocity, this should be the minimal
             # dv to avoid the collision
-            if util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time:
-                alt_delta_velocity = -1 * _collision_dv(
-                        current_threat_loc, threat_velocity,
-                        self.ship.loc, self.ship.velocity,
-                        desired_margin, -1 * self.ship.velocity,
-                        self.collision_cbdr)
-                if util.magnitude(alt_delta_velocity[0], alt_delta_velocity[1]) < self.ship.max_thrust / self.ship.mass * approach_time:
-                    self.desired_divert_override = True
-                    delta_velocity = alt_delta_velocity
+            #if approach_time > 0 and util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time:
+            #    alt_delta_velocity = _collision_dv(
+            #            current_threat_loc, threat_velocity,
+            #            self.ship.loc, self.ship.velocity,
+            #            desired_margin, ZERO_VECTOR,
+            #            self.collision_cbdr)
+            #    if util.magnitude(alt_delta_velocity[0], alt_delta_velocity[1]) < self.ship.max_thrust / self.ship.mass * approach_time:
+            #        self.desired_divert_override = True
+            #        delta_velocity = alt_delta_velocity
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

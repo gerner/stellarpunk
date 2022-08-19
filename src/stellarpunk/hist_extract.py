@@ -32,6 +32,8 @@ def main() -> None:
         parser.add_argument("-l", "--location", nargs="?", type=str, default=None,
                 help="a point around which to grab all entities at timestamp")
         parser.add_argument("--pdb", action="store_true")
+        parser.add_argument("--tseps", type=float, default=TS_EPS,
+                help="value smaller than any timestamp to select exactly one timestamp")
 
         args = parser.parse_args()
 
@@ -63,6 +65,8 @@ def main() -> None:
                 else:
                     target_ts[eid] = args.timestamp
 
+        ts_eps = args.tseps
+
         if args.input == "-":
             fin = sys.stdin
         elif args.input.endswith(".gz"):
@@ -88,7 +92,7 @@ def main() -> None:
             match = next(filter(lambda x: entry["eid"].startswith(x), target_ts.keys()), None)
 
             if match is None:
-                if global_radius > 0 and (entry["ts"] == 0 or abs(entry["ts"] - args.timestamp) < TS_EPS):
+                if global_radius > 0 and (entry["ts"] == 0 or abs(entry["ts"] - args.timestamp) < ts_eps):
                     if np.linalg.norm(np.array(entry["loc"]) - np.array(global_loc)) < global_radius:
                         fout.write(line)
                 continue
@@ -100,7 +104,7 @@ def main() -> None:
             else:
                 eid_matches[match] = entry["eid"]
 
-            if abs(entry["ts"] - target_ts[match]) < TS_EPS:
+            if abs(entry["ts"] - target_ts[match]) < ts_eps:
                 if match in eid_ts:
                     raise Exception(f'already have ts {eid_ts[match]} for {match}, duplicate at {entry["ts"]}')
                 eid_ts[match] = entry["ts"]
