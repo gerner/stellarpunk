@@ -23,7 +23,7 @@ class MineOrder(core.Order):
 
     def _begin(self) -> None:
         self.init_eta = (
-                GoToLocation.compute_eta(self.ship, self.target.loc)
+                DockingOrder.compute_eta(self.ship, self.target)
                 + self.amount / self.mining_rate
         )
 
@@ -40,7 +40,7 @@ class MineOrder(core.Order):
         # grab resources from the asteroid and add to our cargo
         distance = util.distance(self.ship.loc,self.target.loc) - self.target.radius
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
+            self.ship.orders.appendleft(DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return
 
         if not self.mining_effect:
@@ -65,7 +65,7 @@ class TransferCargo(core.Order):
 
     def _begin(self) -> None:
         self.init_eta = (
-                GoToLocation.compute_eta(self.ship, self.target.loc)
+                DockingOrder.compute_eta(self.ship, self.target)
                 + self.amount / self.transfer_rate
         )
 
@@ -82,7 +82,7 @@ class TransferCargo(core.Order):
         # if we're too far away, go to the target
         distance = util.distance(self.ship.loc, self.target.loc) - self.target.radius
         if distance > self.max_dist:
-            self.ship.orders.appendleft(GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
+            self.ship.orders.appendleft(DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist))
             return
 
         #TODO: multiple goods? transfer from us to them?
@@ -150,6 +150,8 @@ class HarvestOrder(core.Order):
         #TODO: how should we find the nearest asteroid? point_query_nearest with ShipFilter?
         nearest = None
         nearest_dist = np.inf
+        distances = []
+        candidates = []
         for hit in self.ship.sector.spatial_point(self.ship.loc):
             if not isinstance(hit, core.Asteroid):
                 continue
@@ -159,19 +161,23 @@ class HarvestOrder(core.Order):
                 continue
 
             dist = np.linalg.norm(self.ship.loc - hit.loc)
-            if dist < nearest_dist:
-                nearest = hit
-                nearest_dist = dist
+            distances.append(dist)
+            candidates.append(hit)
 
-        if nearest is None:
+        if len(candidates) == 0:
             self.logger.info(f'could not find asteroid of type {self.resource} in {self.ship.sector}, stopping harvest')
             self.keep_harvesting = False
             return
 
+        p = 1.0 / np.array(distances)
+        p = p / p.sum()
+        idx = self.gamestate.random.choice(len(candidates), 1, p=p)[0]
+        target = candidates[idx]
+
         #TODO: worry about other people harvesting asteroids
         #TODO: choose amount to harvest
         # push mining order
-        self.mining_order = MineOrder(nearest, 1e3, self.ship, self.gamestate)
+        self.mining_order = MineOrder(target, 1e3, self.ship, self.gamestate)
         self.ship.orders.appendleft(self.mining_order)
 
 class DisembarkToEntity(core.Order):
@@ -392,3 +398,54 @@ class TravelThroughGate(core.Order):
         else:
             raise ValueError(f'unknown gate travel phase {self.phase}')
 
+class DockingOrder(core.Order):
+    """ Dock at an entity.
+
+    That is, go to at a point within some docking distance of the entity.
+    """
+
+    @staticmethod
+    def compute_eta(ship:core.Ship, target:core.SectorEntity) -> float:
+        return GoToLocation.compute_eta(ship, target.loc) + 15
+
+    def __init__(self, target:core.SectorEntity, *args:Any, surface_distance:float=2e3, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        if approach_distance <= surface_distance:
+            raise ValueError(f'{approach_distance=} must be greater than {surface_distance=}')
+        self.target = target
+        self.surface_distance = surface_distance
+        self.approach_distance=approach_distance
+        self.wait_time = wait_time
+        self.next_arrival_attempt_time = 0.
+        self.started_waiting = np.inf
+
+    def _begin(self) -> None:
+        # need to get roughly to the target and then time for final approach
+        self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
+
+    def is_complete(self) -> bool:
+        distance_to_target = util.distance(self.ship.loc, self.target.loc)
+        return distance_to_target < self.surface_distance + self.target.radius
+
+    def act(self, dt:float) -> None:
+        if self.gamestate.timestamp < self.next_arrival_attempt_time:
+            return
+
+        distance_to_target = util.distance(self.ship.loc, self.target.loc)
+        if distance_to_target > self.approach_distance + self.target.radius:
+            self.logger.debug('embarking to target')
+            goto_order = GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.approach_distance)
+            self.add_child(goto_order)
+            self.started_waiting = np.inf
+        else:
+            try:
+                goto_order = GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.surface_distance, empty_arrival=True)
+                self.started_waiting = np.inf
+            except GoToLocation.NoEmptyArrivalError:
+                self.logger.debug(f'arrival zone is full, waiting. waited {self.gamestate.timestamp - self.started_waiting:.0f}s so far')
+                if self.started_waiting > self.gamestate.timestamp:
+                    self.started_waiting = self.gamestate.timestamp
+                self.next_arrival_attempt_time = self.gamestate.timestamp + self.wait_time
+            else:
+                self.logger.debug(f'arrival zone empty, beginning final approach')
+                self.add_child(goto_order)

@@ -948,7 +948,7 @@ def test_arrival_occupied2(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta * 1.3
+    testui.eta = eta * 2.0
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
@@ -1039,6 +1039,28 @@ def test_more_busy_lane(gamestate, generator, sector, testui, simulator):
     entities = history_from_file(os.path.join(TESTDIR, "data/more_busy_lane.history"), generator, sector, gamestate)
 
     ship_a = entities["537958f9-536c-485d-8ca4-dfea883fc65b"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+
+@write_history
+def test_target_behind_asteroid(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship going to a location behind an asteroid, in an asteroid
+    field. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/target_behind_asteroid.history"), generator, sector, gamestate)
+
+    ship_a = entities["a4c71ae5-f3cd-47ff-a266-5a8ed4facef5"]
     logging.debug(f'{ship_a.entity_id}')
     goto_a = ship_a.orders[0]
 

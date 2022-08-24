@@ -414,3 +414,32 @@ def test_basic_harvest(gamestate, generator, sector, testui, simulator):
     assert np.isclose(ship_b.cargo[0], 10e2)
     assert np.isclose(ship_a.cargo[0], 0)
     assert np.isclose(asteroid.cargo[asteroid.resource], 12.5e2 - 10e2)
+
+def test_docking_order_compute_eta(generator, sector):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    station = generator.spawn_station(sector, 0, 0, resource=0)
+
+    computed_eta = orders.DockingOrder.compute_eta(ship_driver, station)
+
+    assert computed_eta < np.inf
+    assert computed_eta < orders.GoToLocation.compute_eta(ship_driver, station.loc) + 20
+
+@write_history
+def test_docking_order(gamestate, generator, sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    station = generator.spawn_station(sector, 0, 0, resource=0)
+
+    arrival_distance = 1.5e3
+    goto_order = orders.DockingOrder(station, ship_driver, gamestate, surface_distance=arrival_distance - station.radius)
+
+
+    ship_driver.orders.append(goto_order)
+    testui.orders = [goto_order]
+
+    simulator.run()
+    assert goto_order.is_complete()
+    distance = util.distance(ship_driver.loc, station.loc)
+    assert distance < arrival_distance + station.radius
+    assert distance > 1e3 + station.radius + ship_driver.radius
+
+    assert all(np.isclose(ship_driver.velocity, np.array((0., 0.))))

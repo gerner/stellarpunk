@@ -56,6 +56,8 @@ class KillVelocityOrder(AbstractSteeringOrder):
         self._accelerate_to(ZERO_VECTOR, dt)
 
 class GoToLocation(AbstractSteeringOrder):
+    class NoEmptyArrivalError(Exception):
+        pass
 
     @staticmethod
     def goto_entity(
@@ -63,7 +65,8 @@ class GoToLocation(AbstractSteeringOrder):
             ship:core.Ship,
             gamestate:core.Gamestate,
             surface_distance:float=2e3,
-            collision_margin:float=1e3) -> GoToLocation:
+            collision_margin:float=1e3,
+            empty_arrival:bool=False) -> GoToLocation:
         """ Makes a GoToLocation order to get near a target entity.
 
         entity: the entity to get near
@@ -71,6 +74,7 @@ class GoToLocation(AbstractSteeringOrder):
         gamestate: gamestate
         surface_distance: target distance from surface of the entity (max dist)
         collision_margin: min distance to stay away from the entity (min dist)
+        empty_arrival: require an empty arrival area or raise (vs best effort)
 
         returns a GoToLocation order matching those parameters
         """
@@ -82,7 +86,7 @@ class GoToLocation(AbstractSteeringOrder):
         # "viable" arrival band: the space between the collision margin and
         # surface distance away from the radius
         tries = 0
-        max_tries = 5
+        max_tries = 15
         while tries < max_tries:
             _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
             target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
@@ -92,9 +96,12 @@ class GoToLocation(AbstractSteeringOrder):
             # check if there's other stuff nearby this point
             # note: this isn't perfect since these entities might be transient,
             # but this is best effort
-            if next(entity.sector.spatial_point(target_loc, collision_margin), None) == None:
+            if next(entity.sector.spatial_point(target_loc, collision_margin+target_arrival_distance), None) == None:
                 break
             tries += 1
+
+        if empty_arrival and tries >= max_tries:
+            raise GoToLocation.NoEmptyArrivalError()
 
         return GoToLocation(
                 target_loc, ship, gamestate,
@@ -265,13 +272,16 @@ class GoToLocation(AbstractSteeringOrder):
         else:
             max_distance = distance-self.min_distance
 
-        # scale collision margin with speed, more speed = more margin
-        cm_low = self.collision_margin
-        cm_high = self.collision_margin*5
-        cm_speed_low = 100
-        cm_speed_high = 1500
-        self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
-        self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
+        if distance < self.arrival_distance * 5:
+            self.scaled_collision_margin = self.collision_margin
+        else:
+            # scale collision margin with speed, more speed = more margin
+            cm_low = self.collision_margin
+            cm_high = self.collision_margin*5
+            cm_speed_low = 100
+            cm_speed_high = 1500
+            self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
+            self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
 
         if distance < self.arrival_distance and distance > self.min_distance:
             self.scaled_collision_margin = self.ship.radius*self.safety_factor
