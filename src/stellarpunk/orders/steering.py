@@ -5,6 +5,7 @@ from __future__ import annotations
 import collections
 import math
 from typing import Optional, Deque, Any, Tuple
+import logging
 
 import numpy as np
 import numpy.typing as npt
@@ -189,6 +190,7 @@ def _analyze_neighbors(
         ship_radius:float,
         margin:float,
         neighborhood_radius:float,
+        maximum_acceleration:float,
         ) -> tuple[
             int,
             float,
@@ -222,6 +224,16 @@ def _analyze_neighbors(
     collide_relative_velocity = ZERO_VECTOR
     collide_minimum_separation = np.inf
     collide_collision_loc = ZERO_VECTOR
+
+    # keep track of worst offender, closest projected separation if we
+    # accelerate to maximize the separation
+    worst_ultimate_separation = np.inf
+    worst_approach_time = np.inf
+    worst_idx = -1
+    worst_relative_position = ZERO_VECTOR
+    worst_relative_velocity = ZERO_VECTOR
+    worst_minimum_separation = np.inf
+    worst_collision_loc = ZERO_VECTOR
 
     nearest_neighbor_idx = -1
     nearest_neighbor_dist = np.inf
@@ -274,14 +286,39 @@ def _analyze_neighbors(
             collide_minimum_separation = float(min_sep)
             collide_collision_loc = c_loc
 
+        # keep track of "worst margin offender", prioritizing a tradeoff
+        # between minimum separation and approach time by assuming we
+        # accelerate constantly to maximize the separation
+        ultimate_sep = min_sep - entity_radius - ship_radius + 0.5 * maximum_acceleration * approach_t ** 2
+        if ultimate_sep < worst_ultimate_separation:
+            worst_ultimate_separation = ultimate_sep
+            worst_approach_time = approach_t
+            worst_idx = eidx
+            worst_relative_position = rel_pos
+            worst_relative_velocity = rel_vel
+            worst_minimum_separation = min_sep
+            worst_collision_loc = c_loc
+
     # prioritize actual collisions over near misses
-    if collide_idx >= 0 and collide_idx != idx:
-        approach_time = collide_approach_time
-        idx = collide_idx
-        relative_position = collide_relative_position
-        relative_velocity = collide_relative_velocity
-        minimum_separation = collide_minimum_separation
-        collision_loc = collide_collision_loc
+    #if collide_idx >= 0 and collide_idx != idx:
+    #    approach_time = collide_approach_time
+    #    idx = collide_idx
+    #    relative_position = collide_relative_position
+    #    relative_velocity = collide_relative_velocity
+    #    minimum_separation = collide_minimum_separation
+    #    collision_loc = collide_collision_loc
+
+    if worst_idx >= 0 and worst_idx != idx:
+        #if collide_idx >= 0 and worst_idx != collide_idx:
+        #    raise Exception()
+        #if worst_idx != idx:
+        #    raise Exception()
+        approach_time = worst_approach_time
+        idx = worst_idx
+        relative_position = worst_relative_position
+        relative_velocity = worst_relative_velocity
+        minimum_separation = worst_minimum_separation
+        collision_loc = worst_collision_loc
 
     # Once we have a single most threatening future collision, coalesce nearby
     # threats so we can avoid all of them at once, instead of avoiding one only
@@ -339,7 +376,7 @@ def _analyze_neighbors(
 
     return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
-#@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True)
 def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, delta_v_budget:float) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
@@ -596,6 +633,7 @@ class AbstractSteeringOrder(core.Order):
         self.nearest_neighbor_dist = np.inf
 
         self.collision_threat:Optional[core.SectorEntity] = None
+        self.collision_minimum_separation:Optional[float] = None
         self.collision_dv = ZERO_VECTOR
         self.collision_threat_time = 0.
         self.collision_relative_velocity = ZERO_VECTOR
@@ -632,6 +670,7 @@ class AbstractSteeringOrder(core.Order):
         history = super().to_history()
         if self.collision_threat:
             history["ct"] = str(self.collision_threat.entity_id)
+            history["ct_ms"] = self.collision_minimum_separation
             history["ct_loc"] = (self.collision_threat.loc[0], self.collision_threat.loc[1])
             history["ct_v"] = (self.collision_threat.velocity[0], self.collision_threat.velocity[1])
             history["ct_ts"] = self.collision_threat_time
@@ -728,6 +767,7 @@ class AbstractSteeringOrder(core.Order):
 
     def _clear_collision_info(self) -> None:
         self.collision_threat = None
+        self.collision_minimum_separation = None
         self.collision_dv = ZERO_VECTOR
         self.collision_threat_time = 0.
         self.collision_relative_velocity = ZERO_VECTOR
@@ -811,7 +851,8 @@ class AbstractSteeringOrder(core.Order):
             ) = _analyze_neighbors(
                     hits_l, hits_v, hits_r,
                     pos, v,
-                    max_distance, self.ship.radius, margin, neighborhood_dist)
+                    max_distance, self.ship.radius, margin, neighborhood_dist,
+                    self.ship.max_acceleration())
 
             prior_threats = set(self.collision_coalesced_neighbors)
             coalesced_neighbors = [hits[i] for i in coalesced_idx]
@@ -906,6 +947,7 @@ class AbstractSteeringOrder(core.Order):
             self.nearest_neighbor = hits[nearest_neighbor_idx]
         self.nearest_neighbor_dist = nearest_neighbor_dist
 
+        self.collision_minimum_separation = minimum_separation
         self.collision_coalesced_threats = coalesced_threats
         self.collision_coalesced_neighbors = coalesced_neighbors
         self.collision_threat_loc = threat_loc
@@ -945,10 +987,7 @@ class AbstractSteeringOrder(core.Order):
             desired_direction = v
 
         # if we already have a threat increase margin to get extra far from it
-        neighbor_margin = margin
-        #if self.collision_margin_histeresis:
-        #    neighbor_margin += margin_histeresis
-        neighbor_margin += self.collision_margin_histeresis
+        neighbor_margin = margin + self.collision_margin_histeresis
 
         # find neighbor with soonest closest appraoch
         neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats, all_prior_threats  = self._collision_neighbor(sector, neighborhood_loc, neighborhood_dist, neighbor_margin, max_distance)
@@ -977,7 +1016,7 @@ class AbstractSteeringOrder(core.Order):
         else:
             self.collision_cbdr = False
 
-        desired_margin = margin + threat_radius + self.ship.radius
+        desired_margin = neighbor_margin + threat_radius + self.ship.radius
         current_threat_loc = threat_loc-threat_velocity*approach_time
         current_threat_vec = current_threat_loc - self.ship.loc
         distance_to_threat = util.magnitude(current_threat_vec[0], current_threat_vec[1])
@@ -1013,6 +1052,10 @@ class AbstractSteeringOrder(core.Order):
                     required_acceleration = 2*(desired_margin-minimum_separation)/(approach_time ** 2)
                     required_thrust = self.ship.mass * required_acceleration
                     if required_thrust > self.ship.max_thrust:
+                        # best case is we spend all our time accelerating in one direction
+                        # worst case is we need to rotate 180 degrees
+                        #worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
+                        #desired_margin = (self.ship.max_acceleration() * (approach_time - worst_case_rot_time)** 2 + 2 * minimum_separation)/2
                         desired_margin = (self.ship.max_acceleration() * approach_time ** 2 + 2 * minimum_separation)/2
 
                 self.cannot_avoid_collision = False
@@ -1023,7 +1066,9 @@ class AbstractSteeringOrder(core.Order):
             max_dv_available = self.ship.max_thrust / self.ship.mass * approach_time
             if ddv_mag > max_dv_available:
                 desired_delta_velocity = desired_delta_velocity / ddv_mag * max_dv_available
-            delta_v_budget = self.ship.max_thrust / self.ship.mass * approach_time
+
+            worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
+            delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - worst_case_rot_time)
 
             delta_velocity = _collision_dv(
                     current_threat_loc, threat_velocity,
@@ -1032,13 +1077,14 @@ class AbstractSteeringOrder(core.Order):
                     self.collision_cbdr,
                     delta_v_budget)
 
-            #if str(self.ship.entity_id).startswith("0e9"):
             #TODO: this code needs cleaning up
             #TODO: this should probably go inside of collision_dv to better
             # optimize for the cost of the diversion in terms of rotation
             # see if the suggested diversion requires a big rotation whereas
             # the last one did not
-            if True:
+            """
+            if False:
+                desired_delta_velocity = self._desired_velocity - self.ship.velocity
                 dv2 = _collision_dv(
                     current_threat_loc, threat_velocity,
                     self.ship.loc, self.ship.velocity,
@@ -1080,6 +1126,7 @@ class AbstractSteeringOrder(core.Order):
                     #    delta_velocity = dv2
                     #else:
                     #    self.logger.warning(f'did not switch!')
+            """
 
             # check that delta_velocity is feasible given max thrust
             # if not, switch from the min divert from desired velocity to

@@ -51,7 +51,8 @@ def test_coalesce():
             max_distance=1e4,
             ship_radius=30.,
             margin=5e2,
-            neighborhood_radius=1e4)
+            neighborhood_radius=1e4,
+            maximum_acceleration=100.)
 
     assert idx == 0
     assert np.allclose(rel_pos, (2000., 0.))
@@ -115,6 +116,10 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     assert rotate_order.is_complete()
     assert ship_driver.angular_velocity == 0
     assert ship_driver.angle == rotate_order.target_angle
+
+    # make sure our eta estimate is within 15% of the estimate after backing
+    # out the safety margin
+    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.15)
 
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):

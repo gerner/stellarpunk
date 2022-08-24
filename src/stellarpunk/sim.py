@@ -20,7 +20,7 @@ ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
 class Simulator:
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
@@ -50,6 +50,12 @@ class Simulator:
         self.min_tick_sleep = self.desired_dt/5
 
         self.sleep_count = 0
+
+        # sample rate for taking SectorEntity history entries
+        # we offest by sector so all entities in a sector get history taken on
+        # the same tick, but each sector is sampled on different ticks to
+        # ammortize the cost of recording history.
+        self.ticks_per_hist_sample = ticks_per_hist_sample
 
         self.next_economy_sample = 0.
         self.economy_log = economy_log
@@ -196,7 +202,7 @@ class Simulator:
 
         # record some state about the final state of this tick
         for sector in self.gamestate.sectors.values():
-            if self.gamestate.ticks % TICKS_PER_HIST_SAMPLE == sector.entity_id.int % TICKS_PER_HIST_SAMPLE:
+            if self.gamestate.ticks % self.ticks_per_hist_sample == sector.entity_id.int % self.ticks_per_hist_sample:
                 for ship in sector.ships:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
 
