@@ -64,7 +64,7 @@ def sector_to_drawille(
             int((sector_loc_y) / meters_per_char_y * 4)
     )
 
-@jit(cache=True, nopython=True)
+#@jit(cache=True, nopython=True, fastmath=True)
 def sector_to_screen(
         sector_loc_x:float, sector_loc_y:float,
         ul_x:float, ul_y:float,

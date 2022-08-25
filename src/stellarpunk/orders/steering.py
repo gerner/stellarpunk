@@ -732,7 +732,6 @@ class AbstractSteeringOrder(core.Order):
             self.ship.set_angle(target_angle)
             self.ship.set_angular_velocity(0.)
         else:
-            #self.logger.debug(f'apply torque {t:.0f} for desired target_angle {target_angle:.3f} from {target_angle:.3f} at {w:.2f}rad/sec')
             self.ship.apply_torque(t)
 
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
@@ -759,12 +758,9 @@ class AbstractSteeringOrder(core.Order):
                     dt, self.safety_factor
             )
 
-        #self._next_accelerate_compute_ts = 0.
         if difference_mag < VELOCITY_EPS:
             if difference_mag > 0.:
                 self.ship.set_velocity(target_velocity)
-            #else:
-            #    self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
         else:
             self.ship.apply_force(force)
 
@@ -776,9 +772,6 @@ class AbstractSteeringOrder(core.Order):
         self._accelerate_force = force
         self._accelerate_torque = torque
         self._next_accelerate_compute_ts = self.gamestate.timestamp + util.clip(continue_time, 0., 1.0)
-
-        #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
-        #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')
 
     def _clear_collision_info(self) -> None:
         self.collision_threat = None
@@ -1075,7 +1068,6 @@ class AbstractSteeringOrder(core.Order):
 
                 self.cannot_avoid_collision = False
 
-            #desired_margin += util.clip((distance_to_threat - desired_margin)/2, 0, margin_histeresis)
             desired_delta_velocity = desired_direction - self.ship.velocity
             ddv_mag = util.magnitude(desired_delta_velocity[0], desired_delta_velocity[1])
             max_dv_available = self.ship.max_thrust / self.ship.mass * approach_time
@@ -1091,71 +1083,6 @@ class AbstractSteeringOrder(core.Order):
                     desired_margin, desired_delta_velocity,
                     self.collision_cbdr,
                     delta_v_budget)
-
-            #TODO: this code needs cleaning up
-            #TODO: this should probably go inside of collision_dv to better
-            # optimize for the cost of the diversion in terms of rotation
-            # see if the suggested diversion requires a big rotation whereas
-            # the last one did not
-            """
-            if False:
-                desired_delta_velocity = self._desired_velocity - self.ship.velocity
-                dv2 = _collision_dv(
-                    current_threat_loc, threat_velocity,
-                    self.ship.loc, self.ship.velocity,
-                    desired_margin, desired_delta_velocity,
-                    self.collision_cbdr,
-                    delta_v_budget)
-
-                option1 = self.ship.velocity + delta_velocity
-                delta1 = option1  - desired_direction
-                mag1, angle1 = util.cartesian_to_polar(delta_velocity[0], delta_velocity[1])
-                dmag1 = util.magnitude(delta1[0], delta1[1])
-                rot1 = rotation_time(util.normalize_angle(self.ship.angle - angle1, shortest=True), self.ship.angular_velocity, self.ship.max_torque/self.ship.moment, self.safety_factor)
-                # v = a * t
-                # t = v / a
-                # F = ma
-                # a = F /m
-                # t = v / (F/m)
-                accel1 = dmag1 / (self.ship.max_acceleration())
-
-                option2 = self.ship.velocity + dv2
-                delta2 = option2 - desired_direction
-                mag2, angle2 = util.cartesian_to_polar(dv2[0], dv2[1])
-                dmag2 = util.magnitude(delta2[0], delta2[1])
-                rot2 = rotation_time(util.normalize_angle(self.ship.angle - angle2, shortest=True), self.ship.angular_velocity, self.ship.max_torque/self.ship.moment, self.safety_factor)
-                accel2 = dmag2 / (self.ship.max_acceleration())
-
-                ts = self.gamestate.timestamp
-                #self.logger.warning(f'{ts=} {dmag1=:.3f} vs {dmag2=:.3f} {dmag1-dmag2=:.3f} {accel1-accel2=:.3f})')
-                ship_angle = util.normalize_angle(self.ship.angle)
-                #self.logger.warning(f'{ts=} {angle1=:.3f} vs {angle2=:.3f} {ship_angle=:.3f} {rot1=:.3f} {rot2=:.3f} {rot1-rot2=:.3f})')
-
-                #self.logger.warning(f'{ts=} {(accel1 + rot1) - (accel2 + rot2)=:.3f}')
-
-                if rot1 - rot2 > 2:
-                    #self.logger.warning(f'switched!')
-                    delta_velocity = dv2
-                    #if (util.magnitude(dv2[0], dv2[1]) < self.ship.max_thrust / self.ship.mass * approach_time or util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time):
-                    #    self.logger.warning(f'switched!')
-                    #    delta_velocity = dv2
-                    #else:
-                    #    self.logger.warning(f'did not switch!')
-            """
-
-            # check that delta_velocity is feasible given max thrust
-            # if not, switch from the min divert from desired velocity to
-            # diverting from the current velocity, this should be the minimal
-            # dv to avoid the collision
-            #if approach_time > 0 and util.magnitude(delta_velocity[0], delta_velocity[1]) > self.ship.max_thrust / self.ship.mass * approach_time:
-            #    alt_delta_velocity = _collision_dv(
-            #            current_threat_loc, threat_velocity,
-            #            self.ship.loc, self.ship.velocity,
-            #            desired_margin, ZERO_VECTOR,
-            #            self.collision_cbdr)
-            #    if util.magnitude(alt_delta_velocity[0], alt_delta_velocity[1]) < self.ship.max_thrust / self.ship.mass * approach_time:
-            #        self.desired_divert_override = True
-            #        delta_velocity = alt_delta_velocity
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.
