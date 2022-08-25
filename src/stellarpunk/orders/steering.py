@@ -48,7 +48,7 @@ def rotation_time(delta_angle: float, angular_velocity: float, max_angular_accel
 
 
 @jit(cache=True, nopython=True)
-def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float, moment:float, dt:float, safety_factor:float) -> float:
+def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float, moment:float, dt:float, safety_factor:float) -> Tuple[float, float]:
     """ What torque to apply to achieve target angle """
 
     difference_angle = util.normalize_angle(target_angle - angle, shortest=True)
@@ -56,7 +56,7 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
     if abs(w) < ANGLE_EPS and abs(difference_angle) < ANGLE_EPS:
         # bail if we're basically already there
         # caller can handle this, e.g. set rotation to target and w to 0
-        t = 0.0
+        return 0.0, np.inf
     else:
         # add torque in the desired direction to get
         # accel = tau / moment
@@ -74,8 +74,12 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
 
         t = (desired_w - w)*moment/dt
 
-    return util.clip(t, -1.0*max_torque, max_torque)
-    #return np.clip(t, -1*max_torque, max_torque)
+        if t < -max_torque:
+            return -max_torque, abs((desired_w - w)*moment / max_torque)
+        elif t > max_torque:
+            return max_torque, abs((desired_w - w)*moment / max_torque)
+        else:
+            return t, dt
 
 @jit(cache=True, nopython=True)
 def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:float) -> Tuple[np.ndarray, float]:
@@ -117,12 +121,12 @@ def force_torque_for_delta_velocity(
 
     if (difference_mag * mass / max_fine_thrust > rot_time and abs(delta_heading) > COARSE_ANGLE_MATCH) or difference_mag < VELOCITY_EPS:
         # we need to rotate in direction of thrust
-        torque = torque_for_angle(difference_angle, angle, w, max_torque, moment, dt, safety_factor)
+        torque, torque_time = torque_for_angle(difference_angle, angle, w, max_torque, moment, dt, safety_factor)
 
         # also apply thrust depending on where we're pointed
         force, thrust_time = force_for_delta_velocity(dv, max_fine_thrust, mass, dt)
     else:
-        torque = torque_for_angle(difference_angle, angle, w, max_torque, moment, dt, safety_factor)
+        torque, torque_time = torque_for_angle(difference_angle, angle, w, max_torque, moment, dt, safety_factor)
 
         # we should apply thrust, however we can with the current heading
         # max thrust is main engines if we're pointing in the desired
@@ -137,7 +141,7 @@ def force_torque_for_delta_velocity(
     if util.isclose(rot_time, 0.):
         continue_time = thrust_time
     else:
-        continue_time = min(rot_time, thrust_time)
+        continue_time = min(torque_time, thrust_time)
 
     return force, torque, target_velocity, difference_mag, difference_angle, continue_time
 
@@ -664,7 +668,9 @@ class AbstractSteeringOrder(core.Order):
 
         self._next_accelerate_compute_ts = 0.
         self._accelerate_force:npt.NDArray[np.float64] = ZERO_VECTOR
+        self._accelerate_torque:float = 0.
         self._accelerate_difference_angle:float = 0.
+        self._accelerate_difference_mag:float = 0.
 
     def to_history(self) -> dict:
         history = super().to_history()
@@ -717,7 +723,7 @@ class AbstractSteeringOrder(core.Order):
         w = self.ship.angular_velocity
         moment = self.ship.moment
 
-        t = torque_for_angle(
+        t, _ = torque_for_angle(
                 target_angle, self.ship.angle, w,
                 self.ship.max_torque, moment, dt,
                 self.safety_factor)
@@ -731,6 +737,10 @@ class AbstractSteeringOrder(core.Order):
 
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
         if not force_recompute and self.gamestate.timestamp < self._next_accelerate_compute_ts:
+            if self._accelerate_difference_mag != 0.:
+                self.ship.apply_force(self._accelerate_force)
+            if self._accelerate_torque != 0.:
+                self.ship.apply_torque(self._accelerate_torque)
             return
         mass = self.ship.mass
         moment = self.ship.moment
@@ -749,18 +759,23 @@ class AbstractSteeringOrder(core.Order):
                     dt, self.safety_factor
             )
 
-        self._accelerate_difference_angle = difference_angle
-        self._next_accelerate_compute_ts = 0.
+        #self._next_accelerate_compute_ts = 0.
         if difference_mag < VELOCITY_EPS:
             if difference_mag > 0.:
                 self.ship.set_velocity(target_velocity)
-            else:
-                self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
+            #else:
+            #    self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
         else:
             self.ship.apply_force(force)
 
         if torque != 0.:
             self.ship.apply_torque(torque)
+
+        self._accelerate_difference_angle = difference_angle
+        self._accelerate_difference_mag = difference_mag
+        self._accelerate_force = force
+        self._accelerate_torque = torque
+        self._next_accelerate_compute_ts = self.gamestate.timestamp + util.clip(continue_time, 0., 1.0)
 
         #t = difference_mag / (np.linalg.norm(np.array((x,y))) / mass) if (x,y) != (0,0) else 0
         #self.logger.debug(f'force: {(x, y)} {np.linalg.norm(np.array((x,y)))} in {t:.2f}s')

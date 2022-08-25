@@ -210,7 +210,7 @@ class GoToLocation(AbstractSteeringOrder):
         if self.distance_estimate > self.arrival_distance*5:
             return False
         else:
-            return util.magnitude(*(self.target_location - self.ship.loc)) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity)
+            return util.distance(self.target_location, self.ship.loc) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity)
 
     def _begin(self) -> None:
         self.init_eta = self.estimate_eta()
@@ -222,7 +222,8 @@ class GoToLocation(AbstractSteeringOrder):
 
         #TODO: check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
-            self._accelerate_to(self._desired_velocity, dt, time_step=self._next_compute_ts - self.gamestate.timestamp)
+            force_recompute = self.distance_estimate < self.arrival_distance * 5
+            self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
             return
 
         # essentially the arrival steering behavior but with some added

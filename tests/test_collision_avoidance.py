@@ -377,7 +377,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.2
 
-    testui.eta = eta * 1.35
+    testui.eta = eta * 2.5
     testui.orders = [goto_a, goto_b, goto_c]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
@@ -948,7 +948,7 @@ def test_arrival_occupied2(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta * 2.0
+    testui.eta = eta * 2.5
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
