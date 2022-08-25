@@ -334,6 +334,9 @@ class Interface(AbstractInterface):
 
         self.profiler:Optional[cProfile.Profile] = None
 
+        self.status_message_lifetime:float = 7.
+        self.status_message_clear_time:float = np.inf
+
     def __enter__(self) -> Interface:
         """ Does most simple interface initialization.
 
@@ -554,6 +557,11 @@ class Interface(AbstractInterface):
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
 
+        if message:
+            self.status_message_clear_time = self.gamestate.timestamp + self.status_message_lifetime
+        else:
+            self.status_message_clear_time = np.inf
+
     def diagnostics_message(self, message:str, attr:int=0) -> None:
 
         self.stdscr.addstr(self.screen_height-1, self.screen_width-len(message)-1, message, attr)
@@ -649,6 +657,9 @@ class Interface(AbstractInterface):
             if self.one_time_step:
                 self.gamestate.paused = True
                 self.one_time_step = False
+
+            if self.gamestate.timestamp > self.status_message_clear_time:
+                self.status_message()
 
             for view in self.views:
                 if view.active:

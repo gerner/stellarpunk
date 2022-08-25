@@ -1075,3 +1075,49 @@ def test_target_behind_asteroid(gamestate, generator, sector, testui, simulator)
     simulator.run()
     assert goto_a.is_complete()
 
+@write_history
+def test_more_asteroid_nav(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship going to a location behind an asteroid, in an asteroid
+    field. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/more_asteroid_nav.history"), generator, sector, gamestate)
+
+    ship_a = entities["28ce5698-a1bf-43df-89f6-0f0b07ee957e"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+    testui.max_timestamp = 30
+
+    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    simulator.run()
+    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+    #assert goto_a.is_complete()
+
+@write_history
+def test_headon_asteroid_field(gamestate, generator, sector, testui, simulator):
+    """ Tests a ship aimed headon at another in an asteroid field. """
+
+    entities = history_from_file(os.path.join(TESTDIR, "data/headon_asteroid_field.history"), generator, sector, gamestate)
+
+    ship_a = entities["922e3718-1d71-4c70-ba8f-e7a5085336a9"]
+    logging.debug(f'{ship_a.entity_id}')
+    goto_a = ship_a.orders[0]
+
+    eta = goto_a.estimate_eta()
+
+    testui.eta = eta
+    testui.orders = [goto_a]
+    #testui.cannot_avoid_collision_orders = [goto_a]
+    testui.cannot_stop_orders = [goto_a]
+    #testui.margin_neighbors = [ship_a]
+
+    simulator.run()
+    assert goto_a.is_complete()
+

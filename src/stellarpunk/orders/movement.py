@@ -285,6 +285,8 @@ class GoToLocation(AbstractSteeringOrder):
 
         if distance < self.arrival_distance and distance > self.min_distance:
             self.scaled_collision_margin = self.ship.radius*self.safety_factor
+
+        self.scaled_collision_margin = min(self.nearest_neighbor_dist*0.8, self.scaled_collision_margin)
         #elif self.nearest_neighbor_dist < 1.5e4:
         #    #TODO: this could go somewhere else in case the nearest neighbor IS the
         #    # threat, then we can decrease the margin

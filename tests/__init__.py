@@ -121,6 +121,8 @@ def history_from_file(fname, generator, sector, gamestate):
                 entities[entry["eid"]] = station_from_history(entry, generator, sector)
             elif entry["p"] == "AST":
                 entities[entry["eid"]] = asteroid_from_history(entry, generator, sector)
+            elif entry["p"] == "GAT":
+                entities[entry["eid"]] = asteroid_from_history(entry, generator, sector)
             elif entry["p"] == "PLT":
                 entities[entry["eid"]] = planet_from_history(entry, generator, sector)
             elif entry["p"] == "SHP":

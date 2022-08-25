@@ -25,6 +25,8 @@ class Simulator:
         self.gamestate = gamestate
         self.ui = ui
 
+        self.pause_on_collision = False
+
         # time between ticks, this is the framerate
         self.desired_dt = dt
         if not max_dt:
@@ -80,12 +82,15 @@ class Simulator:
             arbiter.total_ke,
         ))
 
+        # return if the collision should happen
+        return False
+
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
             h = sector.space.add_default_collision_handler()
             h.data["sector"] = sector
-            h.post_solve = self._ship_collision_detected
+            h.pre_solve = self._ship_collision_detected
 
     def tick_order(self, ship: core.Ship, dt: float) -> None:
         if not ship.orders:
@@ -171,7 +176,7 @@ class Simulator:
                 # spread over 100m^2 would be
                 # for comparison, a typical briefcase bomb is comparable to
                 # 50 pounds of TNT, which is nearly 100M joules
-                self.gamestate.paused = True
+                self.gamestate.paused = self.pause_on_collision
                 for entity_a, entity_b, impulse, ke in self._collisions:
                     self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
