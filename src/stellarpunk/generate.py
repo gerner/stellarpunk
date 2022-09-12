@@ -629,8 +629,8 @@ class UniverseGenerator:
         chain.production_times = production_times
         chain.batch_sizes = batch_sizes
 
-        chain.resources_mined = np.zeros((chain.ranks[0],))
-        chain.goods_produced = np.zeros((total_nodes,))
+        chain.initialize()
+
 
         for i, (price, name) in enumerate(zip(prices[s_final_products], sink_names), len(prices)-len(min_final_prices)):
             self.logger.info(f'price {name}:\t${price}')

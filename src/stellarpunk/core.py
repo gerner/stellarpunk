@@ -44,11 +44,27 @@ class ProductionChain:
         self.sink_names:Sequence[str] = []
 
         self.resources_mined:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.value_mined:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.goods_sunk:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.value_sunk:npt.NDArray[np.float64] = np.ndarray((0,))
         self.goods_produced:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.transaction_count:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.transaction_amount:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.transaction_value:npt.NDArray[np.float64] = np.ndarray((0,))
 
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
+
+    def initialize(self) -> None:
+        self.resources_mined = np.zeros((self.ranks[0],))
+        self.value_mined = np.zeros((self.ranks[0],))
+        self.goods_sunk = np.zeros((self.shape[0],))
+        self.value_sunk = np.zeros((self.shape[0],))
+        self.goods_produced = np.zeros((self.shape[0],))
+        self.transaction_count = np.zeros((self.shape[0],))
+        self.transaction_amount = np.zeros((self.shape[0],))
+        self.transaction_value = np.zeros((self.shape[0],))
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.float64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]
@@ -69,8 +85,7 @@ class ProductionChain:
             if s < sink_start:
                 node_name = f'{s}'
             else:
-                assert np.count_nonzero(self.adj_matrix[:,s]) >= 3
-                node_name = f'{self.sink_names[s-sink_start]}'
+                node_name = f'{self.sink_names[s-sink_start]} ({s})'
 
             g.node(f'{s}', label=f'{node_name}:\n${self.prices[s]:,.0f}')
             for t in range(self.adj_matrix.shape[1]):
