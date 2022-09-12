@@ -1,16 +1,18 @@
 """ Tool to run simple simulation of a market. """
 
 import sys
+import io
 import logging
 import contextlib
 import warnings
-from typing import TextIO, Optional, Tuple
+from typing import TextIO, BinaryIO, Optional, Tuple, Sequence
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd # type: ignore
+import msgpack # type: ignore
 
-from stellarpunk import util, core, generate
+from stellarpunk import util, core, generate, serialization
 
 # sometimes we're willing to manufacture a very small amount of cash to avoid
 # precision errors
@@ -34,13 +36,41 @@ PRICE_EPS = 1e-08
 # how does surplus change over time? (total and spread, say IQR or stdev)
 # how many goods are produced? (total and which are outliers)
 
+def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:Optional[Sequence[str]]=None) -> pd.DataFrame:
+    reader = serialization.TickMatrixReader(f)
+    matrixes = []
+    row_count = 0
+    col_count = 0
+    ticks = []
+    dataframes = []
+    while (ret := reader.read()) is not None:
+        tick, m = ret
+        if row_count > 0:
+            if (row_count, col_count) != m.shape:
+                raise ValueError(f'expected each matrix to have same shape {(row_count, col_count)} vs {m.shape}')
+        else:
+            assert col_count == 0
+            row_count = m.shape[0]
+            col_count = m.shape[1]
+        matrixes.append(m)
+        ticks.append(np.full((row_count,), tick))
+
+    df = pd.DataFrame(np.concatenate(matrixes), columns=column_names)
+    df["tick"] = pd.Series(np.concatenate(ticks))
+    df.index = pd.Series(np.tile(np.arange(row_count), len(matrixes)))
+    if index_name is not None:
+        df.index.set_names(index_name, inplace=True)
+    df.set_index("tick", append=True, inplace=True)
+
+    return df
+
 class EconomySimulation:
     def __init__(self,
             transaction_log:Optional[TextIO]=None,
-            inventory_log:Optional[TextIO]=None,
-            balance_log:Optional[TextIO]=None,
-            buy_prices_log:Optional[TextIO]=None,
-            sell_prices_log:Optional[TextIO]=None,
+            inventory_log:Optional[BinaryIO]=None,
+            balance_log:Optional[BinaryIO]=None,
+            buy_prices_log:Optional[BinaryIO]=None,
+            sell_prices_log:Optional[BinaryIO]=None,
             ) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -75,10 +105,10 @@ class EconomySimulation:
         self.max_sell_prices = np.zeros((self.num_agents, self.num_products))
 
         self.transaction_log = transaction_log
-        self.inventory_log = inventory_log
-        self.balance_log = balance_log
-        self.buy_prices_log = buy_prices_log
-        self.sell_prices_log = buy_prices_log
+        self.inventory_log = serialization.TickMatrixWriter(inventory_log) if inventory_log is not None else None
+        self.balance_log = serialization.TickMatrixWriter(balance_log) if balance_log is not None else None
+        self.buy_prices_log = serialization.TickMatrixWriter(buy_prices_log) if buy_prices_log is not None else None
+        self.sell_prices_log = serialization.TickMatrixWriter(sell_prices_log) if sell_prices_log is not None else None
 
     def initialize(self,
             num_agents:int=-1,
@@ -272,6 +302,10 @@ class EconomySimulation:
         #   1. we sold all our inventory => raise price
         #   2. we sold zero => lower price
 
+        # price_output_i >= sum_inputs_for_i(price_input_j * need_input_j)
+        # NOTE: this assumes every agent produces/sells exactly one item
+        #self.min_sell_prices = (self.input_price_estimates @ self.gamestate.production_chain.adj_matrix * self.agent_goods)
+
 
         price_adjust = 1.01
         want_to_sell = (self.inventory >= 1) & (self.agent_goods > 0)
@@ -291,6 +325,7 @@ class EconomySimulation:
         self.buy_prices[(input_balance >= 1) & (self.buy_interest > 0)] = 0#self.min_buy_prices[(input_balance >= 1) & (self.buy_interest > 0)]
 
         #self.buy_prices = np.clip(self.buy_prices, self.min_buy_prices, self.max_buy_prices)
+
         assert np.all(self.sell_prices >= 0)
         assert np.all(self.buy_prices >= 0)
 
@@ -392,13 +427,9 @@ class EconomySimulation:
 
 
             if self.buy_prices_log:
-                for i in range(buy_prices.shape[0]):
-                    row = "\t".join(map(lambda x: str(x), buy_prices[i]))
-                    self.buy_prices_log.write(f'{self.ticks}\t{i}\t{row}\n')
+                self.buy_prices_log.write(self.ticks, self.buy_prices)
             if self.sell_prices_log:
-                for i in range(sell_prices.shape[0]):
-                    row = "\t".join(map(lambda x: str(x), sell_prices[i]))
-                    self.sell_prices_log.write(f'{self.ticks}\t{i}\t{row}\n')
+                self.sell_prices_log.write(self.ticks, self.sell_prices)
 
             transactions_this_tick = 0
             while (ret := self.make_market(self.buy_prices, self.sell_prices, self.buy_budget))[0] > 0:
@@ -414,9 +445,7 @@ class EconomySimulation:
                 sales[buyer, product] += sale_amount
                 self.balance[seller] += sale_amount * price
 
-                self.gamestate.production_chain.transaction_count[product] += 1
-                self.gamestate.production_chain.transaction_amount[product] += sale_amount
-                self.gamestate.production_chain.transaction_value[product] += sale_amount * price
+                self.gamestate.production_chain.observe_transaction(product, sale_amount, price)
 
                 if self.inventory[seller, product] < sale_amount:
                     sell_prices[seller, product] = np.inf
@@ -446,12 +475,9 @@ class EconomySimulation:
             self.produce_goods()
 
             if self.balance_log:
-                for i in range(self.balance.shape[0]):
-                    self.balance_log.write(f'{self.ticks}\t{i}\t{self.balance[i]}\n')
+                self.balance_log.write(self.ticks, self.balance)
             if self.inventory_log:
-                for i in range(self.inventory.shape[0]):
-                    row = "\t".join(map(lambda x: str(x), self.inventory[i]))
-                    self.inventory_log.write(f'{self.ticks}\t{i}\t{row}\n')
+                self.inventory_log.write(self.ticks, self.inventory)
 
             self.ticks += 1
 
@@ -479,17 +505,20 @@ def main() -> None:
         mgr = context_stack.enter_context(util.PDBManager())
 
         transaction_log = context_stack.enter_context(open("/tmp/transactions.log", "wt", 1024*1024))
-        inventory_log = context_stack.enter_context(open("/tmp/inventory.log", "wt", 1024*1024))
-        balance_log = context_stack.enter_context(open("/tmp/balance.log", "wt", 1024*1024))
-        production_chain_log = context_stack.enter_context(open("/tmp/production_chain.log", "wt", 1024*1024))
-        agent_goods_log = context_stack.enter_context(open("/tmp/agent_goods.log", "wt", 1024*1024))
-        buy_prices_log = context_stack.enter_context(open("/tmp/buy_prices.log", "wt", 1024*1024))
-        sell_prices_log = context_stack.enter_context(open("/tmp/sell_prices.log", "wt", 1024*1024))
+        inventory_log = context_stack.enter_context(open("/tmp/inventory.log", "wb", 1024*1024))
+        balance_log = context_stack.enter_context(open("/tmp/balance.log", "wb", 1024*1024))
+        production_chain_log = context_stack.enter_context(open("/tmp/production_chain.log", "wb", 1024*1024))
+        agent_goods_log = context_stack.enter_context(open("/tmp/agent_goods.log", "wb", 1024*1024))
+        buy_prices_log = context_stack.enter_context(open("/tmp/buy_prices.log", "wb", 1024*1024))
+        sell_prices_log = context_stack.enter_context(open("/tmp/sell_prices.log", "wb", 1024*1024))
 
         econ = EconomySimulation(transaction_log=transaction_log, inventory_log=inventory_log, balance_log=balance_log, buy_prices_log=buy_prices_log, sell_prices_log=sell_prices_log)
         econ.initialize(num_agents=-1)
-        pd.DataFrame(econ.gamestate.production_chain.adj_matrix).to_csv(production_chain_log, sep="\t", header=False, index=False)
-        pd.DataFrame(econ.agent_goods).to_csv(agent_goods_log, sep="\t", header=False)
+
+        production_chain_log.write(msgpack.packb(econ.gamestate.production_chain.adj_matrix, default=serialization.encode_matrix))
+        agent_goods_log.write(msgpack.packb(econ.agent_goods, default=serialization.encode_matrix))
+        #pd.DataFrame(econ.gamestate.production_chain.adj_matrix).to_csv(production_chain_log, sep="\t", header=False, index=False)
+        #pd.DataFrame(econ.agent_goods).to_csv(agent_goods_log, sep="\t", header=False)
         econ.run(max_ticks=200000)
 
 if __name__ == "__main__":

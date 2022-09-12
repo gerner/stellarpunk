@@ -28,43 +28,64 @@ class ProductionChain:
     each of these called "first products." The last rank are final products."""
 
     def __init__(self) -> None:
+        self.num_products = 0
         # how many nodes per rank
-        self.ranks = np.zeros((0,), dtype=np.int64)
+        self.ranks = np.zeros((self.num_products,), dtype=np.int64)
         # adjacency matrix for the production chain
-        self.adj_matrix = np.zeros((0,0))
+        self.adj_matrix = np.zeros((self.num_products,self.num_products))
         # how much each product is marked up over base input price
-        self.markup = np.zeros((0,))
+        self.markup = np.zeros((self.num_products,))
         # how much each product is priced (sum_inputs(input cost * input amount) * markup)
-        self.prices = np.zeros((0,))
+        self.prices = np.zeros((self.num_products,))
 
-        self.production_times = np.zeros((0,))
+        self.production_times = np.zeros((self.num_products,))
         self.production_coolingoff_time = 5.
-        self.batch_sizes = np.zeros((0,))
+        self.batch_sizes = np.zeros((self.num_products,))
 
         self.sink_names:Sequence[str] = []
 
-        self.resources_mined:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.value_mined:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.goods_sunk:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.value_sunk:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.goods_produced:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.transaction_count:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.transaction_amount:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.transaction_value:npt.NDArray[np.float64] = np.ndarray((0,))
+        self.resources_mined:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.value_mined:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.goods_sunk:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.value_sunk:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.goods_produced:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.transaction_count:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.transaction_amount:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.transaction_value:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+
+        # VEMA of prices observed in trades
+        # https://en.wikipedia.org/wiki/Moving_average#Relationship_between_SMA_and_EMA
+        # as per wikipedia a common choice is alpha = 2 / (N+1)
+        self.price_vema_alpha = 2 / (52+1)
+        self.value_estimate:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
+        self.volume_etimate:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
 
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
 
     def initialize(self) -> None:
+        self.num_products = self.shape[0]
         self.resources_mined = np.zeros((self.ranks[0],))
         self.value_mined = np.zeros((self.ranks[0],))
-        self.goods_sunk = np.zeros((self.shape[0],))
-        self.value_sunk = np.zeros((self.shape[0],))
-        self.goods_produced = np.zeros((self.shape[0],))
-        self.transaction_count = np.zeros((self.shape[0],))
-        self.transaction_amount = np.zeros((self.shape[0],))
-        self.transaction_value = np.zeros((self.shape[0],))
+        self.goods_sunk = np.zeros((self.num_products,))
+        self.value_sunk = np.zeros((self.num_products,))
+        self.goods_produced = np.zeros((self.num_products,))
+        self.transaction_count = np.zeros((self.num_products,))
+        self.transaction_amount = np.zeros((self.num_products,))
+        self.transaction_value = np.zeros((self.num_products,))
+
+        # initialize VEMA with volume 1 and price as production chain prices
+        self.value_estimate = self.prices.copy()
+        self.volume_estimate = np.ones((self.num_products,))
+
+    def observe_transaction(self, product_id:int, volume:float, price:float) -> None:
+        self.transaction_count[product_id] += 1
+        self.transaction_amount[product_id] += volume
+        self.transaction_value[product_id] += volume * price
+
+        self.value_estimate[product_id] = self.price_vema_alpha * self.value_estimate[product_id] + (1-self.price_vema_alpha) * volume * price
+        self.volume_estimate[product_id] = self.price_vema_alpha * self.volume_estimate[product_id] + (1-self.price_vema_alpha) * volume
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.float64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]
@@ -73,22 +94,22 @@ class ProductionChain:
         return np.arange(self.ranks[0], self.ranks[1]+self.ranks[0])
 
     def final_product_ids(self) -> npt.NDArray[np.int64]:
-        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.adj_matrix.shape[0])
+        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.num_products)
 
     def viz(self) -> graphviz.Graph:
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})
         g.attr(compound="true", ranksep="1.5")
 
-        for s in range(self.adj_matrix.shape[0]):
+        for s in range(self.num_products):
 
-            sink_start = self.adj_matrix.shape[0] - len(self.sink_names)
+            sink_start = self.num_products - len(self.sink_names)
             if s < sink_start:
                 node_name = f'{s}'
             else:
                 node_name = f'{self.sink_names[s-sink_start]} ({s})'
 
             g.node(f'{s}', label=f'{node_name}:\n${self.prices[s]:,.0f}')
-            for t in range(self.adj_matrix.shape[1]):
+            for t in range(self.num_products):
                 if self.adj_matrix[s, t] > 0:
                     g.edge(f'{s}', f'{t}', label=f'{self.adj_matrix[s, t]:.0f}')
 

@@ -4,6 +4,8 @@ ipdb
 graphviz
 drawille
 pymunk
+pandas
+msgpack
 
 # dev dependencies
 pytest

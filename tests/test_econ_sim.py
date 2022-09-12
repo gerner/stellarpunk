@@ -1,10 +1,12 @@
 """ Tests for econ sim. """
 
+import io
+
 import pytest
 import numpy as np
 import numpy.testing as nptest
 
-from stellarpunk import econ_sim, core, generate
+from stellarpunk import econ_sim, core, generate, serialization
 
 @pytest.fixture
 def sim() -> econ_sim.EconomySimulation:
@@ -20,6 +22,58 @@ def sim() -> econ_sim.EconomySimulation:
     s.initialize(gamestate=gamestate, production_chain=gamestate.production_chain)
 
     return s
+
+def test_tick_matrix_serialiation() -> None:
+    m1 = np.eye(3)+1
+    m2 = np.eye(3)+2
+
+    bio = io.BytesIO()
+    writer = serialization.TickMatrixWriter(bio)
+    writer.write(1, m1)
+    writer.write(2, m2)
+    bio.flush()
+    bio.seek(0)
+
+    reader = serialization.TickMatrixReader(bio)
+
+    ret1 = reader.read()
+    assert ret1 is not None
+    rt1, rm1 = ret1
+    assert rt1 == 1
+    nptest.assert_array_equal(m1, rm1)
+
+    ret2 = reader.read()
+    assert ret2 is not None
+    rt2, rm2 = ret2
+    assert rt2 == 2
+    nptest.assert_array_equal(m2, rm2)
+
+    ret3 = reader.read()
+    assert ret3 is None
+
+    bio.seek(0)
+    df = econ_sim.read_tick_log_to_df(bio, index_name="foo_index", column_names=["A", "B", "C"])
+    assert df.shape[0] == 3*2
+    assert df.shape[1] == 3
+
+    assert df.loc[(0,1)]["A"] == 2
+    assert df.loc[(0,1)]["B"] == 1
+    assert df.loc[(0,1)]["C"] == 1
+    assert df.loc[(1,1)]["A"] == 1
+    assert df.loc[(1,1)]["B"] == 2
+    assert df.loc[(1,1)]["C"] == 1
+    assert df.loc[(2,1)]["A"] == 1
+    assert df.loc[(2,1)]["B"] == 1
+    assert df.loc[(2,1)]["C"] == 2
+    assert df.loc[(0,2)]["A"] == 3
+    assert df.loc[(0,2)]["B"] == 2
+    assert df.loc[(0,2)]["C"] == 2
+    assert df.loc[(1,2)]["A"] == 2
+    assert df.loc[(1,2)]["B"] == 3
+    assert df.loc[(1,2)]["C"] == 2
+    assert df.loc[(2,2)]["A"] == 2
+    assert df.loc[(2,2)]["B"] == 2
+    assert df.loc[(2,2)]["C"] == 3
 
 def test_source_resources(sim:econ_sim.EconomySimulation) -> None:
     # this assumes we have exactly one agent for every good
@@ -159,10 +213,10 @@ def test_make_market(sim:econ_sim.EconomySimulation) -> None:
     assert price_diff < 0
 
     # no supplyable trades
-    sim.inventory[:,:] = 0
+    sim.inventory[:,:] = 0.
     sim.balance[:] = 1e3
-    buy_prices = sim.buy_interest * 10
-    sell_prices = sim.agent_goods * 5
+    buy_prices = sim.buy_interest * 10.
+    sell_prices = sim.agent_goods * 5.
 
     (price_diff, product, buyer, seller, price, amount) = sim.make_market(buy_prices, sell_prices, buy_budget)
 
@@ -170,9 +224,9 @@ def test_make_market(sim:econ_sim.EconomySimulation) -> None:
 
     # no affordable trades
     sim.inventory[:,:] = sim.agent_goods * 1e2
-    sim.balance[:] = 0
-    buy_prices = sim.buy_interest * 10
-    sell_prices = sim.agent_goods * 5
+    sim.balance[:] = 0.
+    buy_prices = sim.buy_interest * 10.
+    sell_prices = sim.agent_goods * 5.
 
     (price_diff, product, buyer, seller, price, amount) = sim.make_market(buy_prices, sell_prices, buy_budget)
 
@@ -183,7 +237,7 @@ def test_make_market(sim:econ_sim.EconomySimulation) -> None:
     sim.balance[:] = 1e3
 
     # sale prices are all the same
-    sell_prices = sim.agent_goods * 1
+    sell_prices = sim.agent_goods * 1.
     # higest prices will be the final row (agent with highest id)
     # we zero out self prices (`* 1-sim.agent_goods`)
     # so last agent for second to last product
@@ -214,7 +268,7 @@ def test_make_market_complex(sim:econ_sim.EconomySimulation) -> None:
 
 
     # sale prices are all the same
-    sell_prices = sim.agent_goods * 1
+    sell_prices = sim.agent_goods * 1.
     # higest prices will be the final row (agent with highest id)
     # we zero out self prices (`* 1-sim.agent_goods`)
     # so last agent for second to last product
