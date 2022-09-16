@@ -24,8 +24,8 @@ def sim() -> econ_sim.EconomySimulation:
     return s
 
 def test_tick_matrix_serialiation() -> None:
-    m1 = np.eye(3)+1
-    m2 = np.eye(3)+2
+    m1 = np.eye(3)+1.
+    m2 = np.eye(3)+2.
 
     bio = io.BytesIO()
     writer = serialization.TickMatrixWriter(bio)
@@ -307,26 +307,26 @@ def test_produce_goods(sim:econ_sim.EconomySimulation) -> None:
     nptest.assert_allclose(sim.inventory, 0.)
 
     # everyone has exactly enough inputs to produce one unit of output
-    sim.inventory[:,:] = sim.production_goods.copy()
-    sim.produce_goods()
+    sim.inventory[:,:] = sim.production_goods * sim.batch_sizes.sum(axis=1)[:,np.newaxis]
+    ret = sim.produce_goods()
 
     # first rank agents produce nothing, everyone else produces just one unit
     nptest.assert_allclose(sim.inventory[first_rank_agents], 0.)
-    nptest.assert_allclose(sim.inventory[other_agents], sim.agent_goods[other_agents])
+    nptest.assert_allclose(sim.inventory[other_agents], sim.agent_goods[other_agents] * sim.gamestate.production_chain.batch_sizes[np.newaxis,:])
 
     # everyone has exactly enough inputs to produce several units of output
-    sim.inventory[:,:] = sim.production_goods * 3
+    sim.inventory[:,:] = sim.production_goods * sim.batch_sizes.sum(axis=1)[:,np.newaxis] * 3
     sim.produce_goods()
 
-    # first rank agents produce nothing, everyone else produces 3 units
+    # first rank agents produce nothing, everyone else produces one batch, with two batches of inputs in standby
     nptest.assert_allclose(sim.inventory[first_rank_agents], 0.)
-    nptest.assert_allclose(sim.inventory[other_agents], sim.agent_goods[other_agents] * 3)
+    nptest.assert_allclose(sim.inventory[other_agents], sim.agent_goods[other_agents] * sim.gamestate.production_chain.batch_sizes[np.newaxis,:] + (sim.production_goods * sim.batch_sizes.sum(axis=1)[:,np.newaxis])[other_agents] * 2)
 
     # everyone has exactly enough inputs produce one unit of output
     # then they have some more leftover (imbalanced)
 
-    sim.inventory[:,:] = sim.production_goods * 3
-    extra_inventory = sim.production_goods * 0.5
+    sim.inventory[:,:] = 0
+    extra_inventory = sim.inventory.copy()
     # find one case where multiple inputs are needed, add a bunch of one input
     multi_input_agent = np.where((sim.production_goods > 0).sum(axis=1) > 1)[0][0]
     multi_input_input = np.where(sim.production_goods[multi_input_agent] > 0)[0][0]
@@ -334,8 +334,8 @@ def test_produce_goods(sim:econ_sim.EconomySimulation) -> None:
     sim.inventory += extra_inventory
     sim.produce_goods()
 
-    # first rank agents produce nothing, everyone else produces 3 units
-    nptest.assert_allclose(sim.inventory[first_rank_agents], extra_inventory[first_rank_agents])
-    nptest.assert_allclose(sim.inventory[other_agents], sim.agent_goods[other_agents] * 3 + extra_inventory[other_agents])
+    # no one produces anything
+    nptest.assert_allclose(sim.inventory, extra_inventory)
 
-
+def test_set_prices(sim:econ_sim.EconomySimulation) -> None:
+    pass

@@ -79,13 +79,14 @@ class ProductionChain:
         self.value_estimate = self.prices.copy()
         self.volume_estimate = np.ones((self.num_products,))
 
-    def observe_transaction(self, product_id:int, volume:float, price:float) -> None:
+    def observe_transaction(self, product_id:int, price:float, volume:float) -> None:
         self.transaction_count[product_id] += 1
         self.transaction_amount[product_id] += volume
         self.transaction_value[product_id] += volume * price
 
-        self.value_estimate[product_id] = self.price_vema_alpha * self.value_estimate[product_id] + (1-self.price_vema_alpha) * volume * price
-        self.volume_estimate[product_id] = self.price_vema_alpha * self.volume_estimate[product_id] + (1-self.price_vema_alpha) * volume
+        self.value_estimate[product_id], self.volume_estimate[product_id] = util.update_vema(
+                self.value_estimate[product_id], self.volume_estimate[product_id],
+                self.price_vema_alpha, price, volume)
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.float64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]

@@ -460,6 +460,13 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
         theta += step
     return c
 
+def update_vema(value_estimate:float, volume_estimate:float, alpha:float, price:float, volume:float) -> Tuple[float, float]:
+    """ Update volume weighted moving average parameters (value, volume). """
+
+    value_estimate = alpha * value_estimate + (1-alpha) * volume * price
+    volume_estimate = alpha * volume_estimate + (1-alpha) * volume
+    return (value_estimate, volume_estimate)
+
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
 
