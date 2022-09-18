@@ -606,10 +606,10 @@ class UniverseGenerator:
 
             prices[so_far:so_far+nodes_to] = (np.reshape(prices[so_far-nodes_from:so_far], (nodes_from, 1)) * relevant_prod_matrix).sum(axis=0) * markup[so_far:so_far+nodes_to]
 
-        # adjust final production weights to account for the prices of inputs
+        # adjust final production weights to account for the prices of inputs and markup
         adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods])
         adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
-        prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0)
+        prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products]
 
         prices = prices.round()
         assert not np.any(np.isnan(prices))
