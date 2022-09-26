@@ -618,7 +618,7 @@ class UniverseGenerator:
         # in one minute produce a batch of enough goods to produce a batch of
         # 10 of the next stuff in the production chain
         production_times = np.full((total_nodes,), 60.)
-        batch_sizes = np.clip(10. * np.ceil(np.mean(adj_matrix, axis=1)), 1., np.inf)
+        batch_sizes = np.clip(10. * np.ceil(np.min(adj_matrix, axis=1)), 1., np.inf)
 
         chain = core.ProductionChain()
         chain.ranks = ranks
