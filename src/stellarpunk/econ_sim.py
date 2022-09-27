@@ -1,15 +1,21 @@
 """ Tool to run simple simulation of a market. """
 
+from __future__ import annotations
+
 import sys
+import os
 import io
 import logging
 import contextlib
 import warnings
-from typing import TextIO, BinaryIO, Optional, Tuple, Sequence
+import typing
+from typing import TextIO, BinaryIO, Optional, Tuple, Sequence, Type, Any
+from types import TracebackType
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd # type: ignore
+from scipy import sparse # type: ignore
 import msgpack # type: ignore
 import tqdm # type: ignore
 
@@ -37,7 +43,45 @@ PRICE_EPS = 1e-05
 # how does surplus change over time? (total and spread, say IQR or stdev)
 # how many goods are produced? (total and which are outliers)
 
-def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:Optional[Sequence[str]]=None) -> pd.DataFrame:
+@typing.no_type_check
+def _df_from_spmatrix(data:Any, index:Any=None, columns:Optional[Sequence[Any]]=None, fill_values:Optional[Any]=None) -> pd.DataFrame:
+    """ Taken from https://github.com/pandas-dev/pandas/blob/5c66e65d7b9fef47ccb585ce2fd0b3ea18dc82ea/pandas/core/arrays/sparse/accessor.py 
+
+    modified to allow setting fill_values """
+
+    from pandas._libs.sparse import IntIndex # type: ignore
+
+    from pandas import DataFrame # type: ignore
+
+    data = data.tocsc()
+    index, columns = DataFrame.sparse._prep_index(data, index, columns)
+    n_rows, n_columns = data.shape
+    # We need to make sure indices are sorted, as we create
+    # IntIndex with no input validation (i.e. check_integrity=False ).
+    # Indices may already be sorted in scipy in which case this adds
+    # a small overhead.
+    data.sort_indices()
+    indices = data.indices
+    indptr = data.indptr
+    array_data = data.data
+    arrays = []
+
+    if fill_values is None:
+        fill_values = [0] * n_columns
+    elif not isinstance(fill_values, Sequence):
+        fill_values = [fill_values] * n_columns
+
+    for i, fill_value in zip(range(n_columns), fill_values):
+        dtype = pd.SparseDtype(array_data.dtype, fill_value)
+        sl = slice(indptr[i], indptr[i + 1])
+        idx = IntIndex(n_rows, indices[sl], check_integrity=False)
+        arr = pd.arrays.SparseArray._simple_new(array_data[sl], idx, dtype)
+        arrays.append(arr)
+    return DataFrame._from_arrays(
+        arrays, columns=columns, index=index, verify_integrity=False
+    )
+
+def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:Optional[Sequence[str]]=None, fill_values:Optional[Any]=None) -> pd.DataFrame:
     reader = serialization.TickMatrixReader(f)
     matrixes = []
     row_count = 0
@@ -60,10 +104,14 @@ def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:
                 col_count = 1
             else:
                 col_count = m.shape[1]
-        matrixes.append(m)
+        if col_count == 1:
+            matrixes.append(sparse.csc_array(m[:,np.newaxis]))
+        else:
+            matrixes.append(sparse.csc_array(m))
         ticks.append(np.full((row_count,), tick))
 
-    df = pd.DataFrame(np.concatenate(matrixes), columns=column_names)
+    df = _df_from_spmatrix(sparse.vstack(matrixes), columns=column_names, fill_values=fill_values)
+
     df["tick"] = pd.Series(np.concatenate(ticks))
     df.index = pd.Series(np.tile(np.arange(row_count), len(matrixes)))
     if index_name is not None:
@@ -72,19 +120,96 @@ def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:
 
     return df
 
+class EconomyDataLogger(contextlib.AbstractContextManager):
+    def __init__(self, enabled:bool=True, logdir:str="/tmp/", buffersize:int=4*1024) -> None:
+        self.enabled = enabled
+        self.logdir = logdir
+        self.buffersize = buffersize
+
+        self.transaction_log:TextIO = None #type:ignore[assignment]
+        self.inventory_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.balance_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.buy_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.buy_budget_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.max_buy_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.sell_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.min_sell_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.production_efficiency_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+
+        self.exit_stack:contextlib.ExitStack = contextlib.ExitStack()
+        self.sim:EconomySimulation = None #type: ignore[assignment]
+
+    def _open_txt_log(self, name:str) -> TextIO:
+        return self.exit_stack.enter_context(open(os.path.join(self.logdir, f'{name}.log'), "wt", self.buffersize))
+
+    def _open_bin_log(self, name:str) -> BinaryIO:
+        return self.exit_stack.enter_context(open(os.path.join(self.logdir, f'{name}.log'), "wb", self.buffersize))
+
+    def __enter__(self) -> EconomyDataLogger:
+        """ Opens underlying files in a way that they will close on exit. """
+
+        if self.enabled:
+            self.transaction_log = self._open_txt_log("transactions")
+            self.inventory_log = serialization.TickMatrixWriter(self._open_bin_log("inventory"))
+            self.balance_log = serialization.TickMatrixWriter(self._open_bin_log("balance"))
+            self.buy_prices_log = serialization.TickMatrixWriter(self._open_bin_log("buy_prices"))
+            self.buy_budget_log = serialization.TickMatrixWriter(self._open_bin_log("buy_budget"))
+            self.max_buy_prices_log = serialization.TickMatrixWriter(self._open_bin_log("max_buy_prices"))
+            self.sell_prices_log = serialization.TickMatrixWriter(self._open_bin_log("sell_prices"))
+            self.min_sell_prices_log = serialization.TickMatrixWriter(self._open_bin_log("min_sell_prices"))
+            self.production_efficiency_log = serialization.TickMatrixWriter(self._open_bin_log("production_efficiency"))
+
+        return self
+
+    def __exit__(self, exc_type:Optional[Type[BaseException]], exc_value:Optional[BaseException], traceback:Optional[TracebackType]) -> Optional[bool]:
+        """ Closes underlying log files. """
+        self.exit_stack.close()
+        return None
+
+    def initialize(self, sim:EconomySimulation) -> None:
+        self.sim = sim
+        if self.enabled:
+            with open(os.path.join(self.logdir, "agent_goods.log"), "wb") as agent_goods_log:
+                agent_goods_log.write(msgpack.packb(self.sim.agent_goods, default=serialization.encode_matrix))
+
+    def end_simulation(self) -> None:
+        if self.enabled:
+            with open(os.path.join(self.logdir, "production_chain.log"), "wb") as production_chain_log:
+                production_chain_log.write(serialization.save_production_chain(self.sim.gamestate.production_chain))
+
+    def produce_goods(self, goods_produced:npt.NDArray[np.float64]) -> None:
+        if self.enabled:
+            self.production_efficiency_log.write(
+                self.sim.ticks,
+                np.divide(
+                    goods_produced,
+                    self.sim.batch_sizes,
+                    where=self.sim.batch_sizes > 0,
+                    out=np.zeros((self.sim.num_agents, self.sim.num_products))
+                )
+            )
+
+    def transact(self, diff:float, product_id:int, seller:int, buyer:int, price:float, sale_amount:float) -> None:
+        if self.enabled:
+            self.transaction_log.write(f'{self.sim.ticks}\t{seller}\t{buyer}\t{product_id}\t{sale_amount}\t{price}\n')
+
+    def start_trading(self) -> None:
+        if self.enabled:
+            self.buy_prices_log.write(self.sim.ticks, self.sim.buy_prices)
+            self.buy_budget_log.write(self.sim.ticks, self.sim.buy_budget)
+            self.sell_prices_log.write(self.sim.ticks, self.sim.sell_prices)
+            self.max_buy_prices_log.write(self.sim.ticks, self.sim.max_buy_prices)
+            self.min_sell_prices_log.write(self.sim.ticks, self.sim.min_sell_prices)
+
+    def end_trading(self) -> None:
+        if self.enabled:
+            self.balance_log.write(self.sim.ticks, self.sim.balance)
+            self.inventory_log.write(self.sim.ticks, self.sim.inventory)
+
 class EconomySimulation:
-    def __init__(self,
-            transaction_log:Optional[TextIO]=None,
-            inventory_log:Optional[BinaryIO]=None,
-            balance_log:Optional[BinaryIO]=None,
-            buy_prices_log:Optional[BinaryIO]=None,
-            buy_budget_log:Optional[BinaryIO]=None,
-            max_buy_prices_log:Optional[BinaryIO]=None,
-            sell_prices_log:Optional[BinaryIO]=None,
-            min_sell_prices_log:Optional[BinaryIO]=None,
-            production_efficiency_log:Optional[BinaryIO]=None,
-            ) -> None:
+    def __init__(self, data_logger:EconomyDataLogger) -> None:
         self.logger = logging.getLogger(util.fullname(self))
+        self.data_logger = data_logger
 
         self.ticks = 0
 
@@ -140,16 +265,6 @@ class EconomySimulation:
         # conduct a necessary transaction
         self.cannot_buy_ticks = np.zeros((self.num_agents, self.num_products), dtype=int)
         self.cannot_sell_ticks = np.zeros((self.num_agents, self.num_products), dtype=int)
-
-        self.transaction_log = transaction_log
-        self.inventory_log = serialization.TickMatrixWriter(inventory_log) if inventory_log is not None else None
-        self.balance_log = serialization.TickMatrixWriter(balance_log) if balance_log is not None else None
-        self.buy_prices_log = serialization.TickMatrixWriter(buy_prices_log) if buy_prices_log is not None else None
-        self.buy_budget_log = serialization.TickMatrixWriter(buy_budget_log) if buy_budget_log is not None else None
-        self.max_buy_prices_log = serialization.TickMatrixWriter(max_buy_prices_log) if max_buy_prices_log is not None else None
-        self.sell_prices_log = serialization.TickMatrixWriter(sell_prices_log) if sell_prices_log is not None else None
-        self.min_sell_prices_log = serialization.TickMatrixWriter(min_sell_prices_log) if min_sell_prices_log is not None else None
-        self.production_efficiency_log = serialization.TickMatrixWriter(production_efficiency_log) if production_efficiency_log is not None else None
 
     def initialize(self,
             num_agents:int=-1,
@@ -260,6 +375,8 @@ class EconomySimulation:
 
         self.ticks = 0
 
+        self.data_logger.initialize(self)
+
     def produce_goods(self) -> npt.NDArray[np.float64]:
         """ Consumes input to produce output. """
 
@@ -287,8 +404,7 @@ class EconomySimulation:
         self.inventory += goods_produced - inputs_needed
         self.gamestate.production_chain.goods_produced += goods_produced.sum(axis=0)
 
-        if self.production_efficiency_log is not None:
-            self.production_efficiency_log.write(self.ticks, np.divide(goods_produced, self.batch_sizes, where=self.batch_sizes > 0, out=np.zeros((self.num_agents, self.num_products))))
+        self.data_logger.produce_goods(goods_produced)
 
         return goods_produced
 
@@ -356,7 +472,8 @@ class EconomySimulation:
         base_prices = self.gamestate.production_chain.prices[np.newaxis,:] * self.agent_goods
 
         market_size_param = scale * self.batch_sizes * base_prices
-        resource_sink = np.floor(market_size_param * self.sell_prices ** (1/price_elasticity))
+        # we add PRICE_EPS here because of numerical precision issues
+        resource_sink = np.floor(market_size_param * self.sell_prices ** (1/price_elasticity) + PRICE_EPS)
         assert resource_sink.shape == (self.num_agents, self.num_products)
         # zero out non-final-rank goods, we're not sinking them
         resource_sink[:,:-self.gamestate.production_chain.ranks[-1]] = 0
@@ -720,8 +837,7 @@ class EconomySimulation:
                 self.price_vema_alpha, price, sale_amount)
         self.gamestate.production_chain.observe_transaction(product_id, price, sale_amount)
 
-        if self.transaction_log:
-            self.transaction_log.write(f'{self.ticks}\t{seller}\t{buyer}\t{product_id}\t{sale_amount}\t{price}\n')
+        self.data_logger.transact(diff, product_id, buyer, seller, price, sale_amount)
 
     def run(self, max_ticks:int) -> None:
         self.logger.info("running simluation...")
@@ -759,16 +875,7 @@ class EconomySimulation:
             #buy_prices = self.buy_prices.copy()
             #sell_prices = self.sell_prices.copy()
 
-            if self.buy_prices_log:
-                self.buy_prices_log.write(self.ticks, self.buy_prices)
-            if self.buy_budget_log:
-                self.buy_budget_log.write(self.ticks, self.buy_budget)
-            if self.sell_prices_log:
-                self.sell_prices_log.write(self.ticks, self.sell_prices)
-            if self.max_buy_prices_log:
-                self.max_buy_prices_log.write(self.ticks, self.max_buy_prices)
-            if self.min_sell_prices_log:
-                self.min_sell_prices_log.write(self.ticks, self.min_sell_prices)
+            self.data_logger.start_trading()
 
             transactions_this_tick = 0
             while (ret := self.make_market(self.buy_prices, self.sell_prices, self.buy_budget))[0] > 0:
@@ -797,10 +904,8 @@ class EconomySimulation:
             self.produce_goods()
             self.set_prices(buys_value, buys, sales_value, sales)
 
-            if self.balance_log:
-                self.balance_log.write(self.ticks, self.balance)
-            if self.inventory_log:
-                self.inventory_log.write(self.ticks, self.inventory)
+            self.data_logger.end_trading()
+
 
             self.ticks += 1
 
@@ -840,26 +945,16 @@ def main() -> None:
         warnings.filterwarnings("error")
         mgr = context_stack.enter_context(util.PDBManager())
 
-        transaction_log = context_stack.enter_context(open("/tmp/transactions.log", "wt", 1024*1024))
-        inventory_log = context_stack.enter_context(open("/tmp/inventory.log", "wb", 1024*1024))
-        balance_log = context_stack.enter_context(open("/tmp/balance.log", "wb", 1024*1024))
-        production_chain_log = context_stack.enter_context(open("/tmp/production_chain.log", "wb", 1024*1024))
-        agent_goods_log = context_stack.enter_context(open("/tmp/agent_goods.log", "wb", 1024*1024))
-        buy_prices_log = context_stack.enter_context(open("/tmp/buy_prices.log", "wb", 1024*1024))
-        max_buy_prices_log = context_stack.enter_context(open("/tmp/max_buy_prices.log", "wb", 1024*1024))
-        buy_budget_log = context_stack.enter_context(open("/tmp/buy_budget.log", "wb", 1024*1024))
-        sell_prices_log = context_stack.enter_context(open("/tmp/sell_prices.log", "wb", 1024*1024))
-        min_sell_prices_log = context_stack.enter_context(open("/tmp/min_sell_prices.log", "wb", 1024*1024))
-        production_efficiency_log = context_stack.enter_context(open("/tmp/production_efficiency.log", "wb", 1024*1024))
+        data_logger = context_stack.enter_context(EconomyDataLogger())
 
-        econ = EconomySimulation(transaction_log=transaction_log, inventory_log=inventory_log, balance_log=balance_log, buy_prices_log=buy_prices_log, buy_budget_log=buy_budget_log, max_buy_prices_log=max_buy_prices_log, sell_prices_log=sell_prices_log, min_sell_prices_log=min_sell_prices_log, production_efficiency_log=production_efficiency_log)
+        econ = EconomySimulation(data_logger)
         econ.initialize(num_agents=100)
 
-        agent_goods_log.write(msgpack.packb(econ.agent_goods, default=serialization.encode_matrix))
 
-        econ.run(max_ticks=100000)
-        #econ.run(max_ticks=20000)
-        production_chain_log.write(serialization.save_production_chain(econ.gamestate.production_chain))
+        #econ.run(max_ticks=100000)
+        econ.run(max_ticks=2000)
+
+        data_logger.end_simulation()
 
 if __name__ == "__main__":
     main()

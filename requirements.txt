@@ -5,10 +5,12 @@ graphviz
 drawille
 pymunk
 pandas
+scipy
 msgpack
 
 # dev dependencies
 pytest
+pytest-repeat
 jupyter
 pandas
 matplotlib

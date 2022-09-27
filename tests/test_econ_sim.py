@@ -10,7 +10,7 @@ from stellarpunk import econ_sim, core, generate, serialization
 
 @pytest.fixture
 def sim() -> econ_sim.EconomySimulation:
-    s = econ_sim.EconomySimulation()
+    s = econ_sim.EconomySimulation(econ_sim.EconomyDataLogger(enabled=False))
     gamestate = core.Gamestate()
     generator = generate.UniverseGenerator(gamestate)
     gamestate.production_chain = generator.generate_chain(
