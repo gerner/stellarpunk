@@ -300,16 +300,17 @@ class EconomySimulation:
 
         # price is fixed, discounted by the markup
         #   this is sort of a hard constraint on the economy
-        injection_prices = self.gamestate.production_chain.prices / self.gamestate.production_chain.markup
+        injection_prices = ((self.gamestate.production_chain.prices / self.gamestate.production_chain.markup)[np.newaxis,:] * self.agent_goods)
 
         # cap the injection to what sourcers can afford
         # NOTE: adding PRICE_EPS here to allow for approximately equal
+        # NOTE: we assume every agent only has a single good they are buying here
         # transactions
         resource_injection = np.floor(
             np.clip(
                 resource_injection,
                 0.,
-                (self.balance + PRICE_EPS) / injection_prices, out=resource_injection
+                ((self.balance + PRICE_EPS) / injection_prices.sum(axis=1))[:,np.newaxis],
             )
         )
 
@@ -460,10 +461,13 @@ class EconomySimulation:
         max_buy_prices[self.buy_interest == 0] = 0.
 
         # the max price times production goods should our output price estimate
-        assert np.all(np.isclose(
-            (max_buy_prices * self.production_goods).sum(axis=1),
-            (output_price_estimates * self.agent_goods).sum(axis=1)
-        )[self.gamestate.production_chain.ranks[0]:])
+        assert np.all(
+            np.isclose(
+                (max_buy_prices * self.production_goods).sum(axis=1),
+                (output_price_estimates * self.agent_goods).sum(axis=1)
+            )
+            | ~self.agent_goods[:,self.gamestate.production_chain.ranks[0]:].sum(axis=1).astype(bool)
+        )
 
         # for goods that chronically cannot be purchased, increase the max price
         # by the same amount that the underlying price will increase
@@ -849,7 +853,7 @@ def main() -> None:
         production_efficiency_log = context_stack.enter_context(open("/tmp/production_efficiency.log", "wb", 1024*1024))
 
         econ = EconomySimulation(transaction_log=transaction_log, inventory_log=inventory_log, balance_log=balance_log, buy_prices_log=buy_prices_log, buy_budget_log=buy_budget_log, max_buy_prices_log=max_buy_prices_log, sell_prices_log=sell_prices_log, min_sell_prices_log=min_sell_prices_log, production_efficiency_log=production_efficiency_log)
-        econ.initialize(num_agents=-1)
+        econ.initialize(num_agents=100)
 
         agent_goods_log.write(msgpack.packb(econ.agent_goods, default=serialization.encode_matrix))
 
