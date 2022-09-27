@@ -74,24 +74,26 @@ accumulate power.
 - [ ] basic economic simulation (PoC)
 - [ ] integrating simulation into rest of game
 - [ ] trading/cargo transport + manufacturing facilities interaction
+- [ ] economic indicators hooked into news generation
 
 ### Economic Simulation
 
 - [x] price setting strategy that facilitates full production chain
+- [ ] agents deciding to exit a market and enter a new one
 - [ ] optimize price setting to maximize profit
 - [ ] figuring out roughly correct scales for number of each producer
-- [ ] agents deciding to exit a market and enter a new one
 - [ ] adding/removing agents
 
 ## Character Dynamics
 
-- [ ] character framework hooked into ships, stations, etc.
+- [ ] character framework hooked into each ships, stations, etc.
 - [ ] basic character relationship framework
 - [ ] basic/short-term missions and employment
 - [ ] long-term subordinate/employment system, including independent balance and depdendent budget
 - [ ] basic background, attributes/traits, overall goals
 - [ ] character motivation/agenda setting/AI
 - [ ] factions/political organizations
+- [ ] experiment with character death and taking over some other character (including suggesting a character to take over)
 
 ## Other Stuff
 
