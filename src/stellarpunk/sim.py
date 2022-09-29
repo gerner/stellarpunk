@@ -125,7 +125,8 @@ class Simulator:
             resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]
             if np.all(station.cargo >= resources_needed):
                 station.cargo -= resources_needed
-                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource]
+                # TODO: float vs floating type issues with numpy (arg!)
+                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource] # type: ignore
             else:
                 # wait a cooling off period to avoid needlesss expensive checks
                 station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time

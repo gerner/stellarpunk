@@ -508,7 +508,6 @@ class UniverseGenerator:
         max_final_prices: array of floats max target prices for final outputs
         """
 
-        total_nodes = 0
         if isinstance(min_per_rank, int):
             if not isinstance(max_per_rank, int):
                 raise ValueError("min_per_rank and max_per_rank must both be ints or sequences")
@@ -607,9 +606,10 @@ class UniverseGenerator:
             prices[so_far:so_far+nodes_to] = (np.reshape(prices[so_far-nodes_from:so_far], (nodes_from, 1)) * relevant_prod_matrix).sum(axis=0) * markup[so_far:so_far+nodes_to]
 
         # adjust final production weights to account for the prices of inputs and markup
-        adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods])
+        #TODO: the below throws type error in mypy since vstack takes a tuple to vstack, what's going on here? (two cases below)
+        adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods]) # type: ignore
         adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
-        prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products]
+        prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products] # type: ignore
 
         prices = prices.round()
         assert not np.any(np.isnan(prices))

@@ -6,6 +6,7 @@ import math
 from typing import Optional, Any
 
 import numpy as np
+import numpy.typing as npt
 
 from stellarpunk import util, core, effects
 
@@ -186,7 +187,7 @@ class DisembarkToEntity(core.Order):
         if ship.sector is None or ship.sector != embark_to.sector:
             raise ValueError(f'{ship} in {ship.sector} instead of destination {embark_to.sector}')
         hits = ship.sector.spatial_point(ship.loc, max_dist=disembark_dist)
-        nearest_dist = np.inf
+        nearest_dist:np.float64 = np.inf # type: ignore
         nearest = None
         for entity in hits:
             if entity == ship:

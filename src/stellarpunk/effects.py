@@ -62,7 +62,7 @@ class TransferCargoEffect(core.Effect):
 
         if self.destination.cargo_capacity - np.sum(self.destination.cargo) < self.escrow:
             self.logger.info(f'dropping {self.escrow - np.sum(self.destination.cargo)} units of resource {self.resource} because no more cargo space')
-            self.escrow = self.destination.cargo_capacity - np.sum(self.destination.cargo)
+            self.escrow = self.destination.cargo_capacity - np.sum(self.destination.cargo) # type: ignore
 
         self.destination.cargo[self.resource] += self.escrow
         self.sofar += self.escrow
