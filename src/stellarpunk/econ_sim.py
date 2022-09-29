@@ -82,7 +82,7 @@ def _df_from_spmatrix(data:Any, index:Any=None, columns:Optional[Sequence[Any]]=
         arrays, columns=columns, index=index, verify_integrity=False
     )
 
-def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:Optional[Sequence[str]]=None, fill_values:Optional[Any]=None) -> pd.DataFrame:
+def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:Optional[Sequence[str]]=None, fill_values:Optional[Any]=None, sparse_matrix:bool=False) -> pd.DataFrame:
     reader = serialization.TickMatrixReader(f)
     matrixes = []
     row_count = 0
@@ -105,13 +105,22 @@ def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:
                 col_count = 1
             else:
                 col_count = m.shape[1]
-        if col_count == 1:
-            matrixes.append(sparse.csc_array(m[:,np.newaxis]))
+        if sparse_matrix:
+            if col_count == 1:
+                matrixes.append(sparse.csc_array(m[:,np.newaxis]))
+            else:
+                matrixes.append(sparse.csc_array(m))
         else:
-            matrixes.append(sparse.csc_array(m))
+            if col_count == 1:
+                matrixes.append(m[:,np.newaxis])
+            else:
+                matrixes.append(m)
         ticks.append(np.full((row_count,), tick))
 
-    df = _df_from_spmatrix(sparse.vstack(matrixes), columns=column_names, fill_values=fill_values)
+    if sparse_matrix:
+        df = _df_from_spmatrix(sparse.vstack(matrixes), columns=column_names, fill_values=fill_values)
+    else:
+        df = pd.DataFrame(np.vstack(matrixes), columns=column_names)
 
     df["tick"] = pd.Series(np.concatenate(ticks))
     df.index = pd.Series(np.tile(np.arange(row_count), len(matrixes)))
@@ -141,6 +150,8 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         self.sell_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
         self.min_sell_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
         self.production_efficiency_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.cannot_buy_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.cannot_sell_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
 
         self.exit_stack:contextlib.ExitStack = contextlib.ExitStack()
         self.sim:EconomySimulation = None #type: ignore[assignment]
@@ -164,6 +175,8 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
             self.sell_prices_log = serialization.TickMatrixWriter(self._open_bin_log("sell_prices"))
             self.min_sell_prices_log = serialization.TickMatrixWriter(self._open_bin_log("min_sell_prices"))
             self.production_efficiency_log = serialization.TickMatrixWriter(self._open_bin_log("production_efficiency"))
+            self.cannot_buy_log = serialization.TickMatrixWriter(self._open_bin_log("cannot_buy"))
+            self.cannot_sell_log = serialization.TickMatrixWriter(self._open_bin_log("cannot_sell"))
 
         return self
 
@@ -195,9 +208,9 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
                 )
             )
 
-    def transact(self, diff:float, product_id:int, seller:int, buyer:int, price:float, sale_amount:float) -> None:
+    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float) -> None:
         if self.enabled:
-            self.transaction_log.write(f'{self.sim.ticks}\t{seller}\t{buyer}\t{product_id}\t{sale_amount}\t{price}\n')
+            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
 
     def start_trading(self) -> None:
         if self.enabled:
@@ -211,6 +224,8 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         if self.enabled:
             self.balance_log.write(self.sim.ticks, self.sim.balance)
             self.inventory_log.write(self.sim.ticks, self.sim.inventory)
+            self.cannot_buy_log.write(self.sim.ticks, self.sim.cannot_buy_ticks)
+            self.cannot_sell_log.write(self.sim.ticks, self.sim.cannot_sell_ticks)
 
 class EconomySimulation:
     def __init__(self, data_logger:EconomyDataLogger) -> None:
