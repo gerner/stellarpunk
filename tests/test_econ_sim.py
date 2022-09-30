@@ -52,7 +52,7 @@ def test_tick_matrix_serialiation() -> None:
     assert ret3 is None
 
     bio.seek(0)
-    df = econ_sim.read_tick_log_to_df(bio, index_name="foo_index", column_names=["A", "B", "C"])
+    df = serialization.read_tick_log_to_df(bio, index_name="foo_index", column_names=["A", "B", "C"])
     assert df.shape[0] == 3*2
     assert df.shape[1] == 3
 

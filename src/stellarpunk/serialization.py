@@ -4,18 +4,21 @@ import sys
 import io
 import typing
 import enum
+from typing import BinaryIO, Optional, Tuple, Sequence, Any, Callable
 
 import numpy as np
 import numpy.typing as npt
 import msgpack # type: ignore
+import pandas as pd # type: ignore
+from scipy import sparse # type: ignore
 
 from stellarpunk import core
 
 # numpy support courtsey:
 # https://github.com/lebedov/msgpack-numpy/blob/master/msgpack_numpy.py
 
-ENCODER_SIG = typing.Optional[typing.Callable[[typing.Any], typing.Any]]
-DECODER_SIG = typing.Optional[typing.Callable[[typing.Any], typing.Any]]
+ENCODER_SIG = Optional[Callable[[Any], Any]]
+DECODER_SIG = Optional[Callable[[Any], Any]]
 
 class STypes(enum.IntEnum):
     PRODUCTION_CHAIN = enum.auto()
@@ -115,3 +118,88 @@ def save_production_chain(production_chain:core.ProductionChain) -> bytes:
 def load_production_chain(packed:bytes) -> core.ProductionChain:
     return msgpack.unpackb(packed, object_hook=decode_production_chain)
 
+@typing.no_type_check
+def _df_from_spmatrix(data:Any, index:Any=None, columns:Optional[Sequence[Any]]=None, fill_values:Optional[Any]=None) -> pd.DataFrame:
+    """ Taken from https://github.com/pandas-dev/pandas/blob/5c66e65d7b9fef47ccb585ce2fd0b3ea18dc82ea/pandas/core/arrays/sparse/accessor.py 
+
+    modified to allow setting fill_values """
+
+    from pandas._libs.sparse import IntIndex # type: ignore
+
+    from pandas import DataFrame # type: ignore
+
+    data = data.tocsc()
+    index, columns = DataFrame.sparse._prep_index(data, index, columns)
+    n_rows, n_columns = data.shape
+    # We need to make sure indices are sorted, as we create
+    # IntIndex with no input validation (i.e. check_integrity=False ).
+    # Indices may already be sorted in scipy in which case this adds
+    # a small overhead.
+    data.sort_indices()
+    indices = data.indices
+    indptr = data.indptr
+    array_data = data.data
+    arrays = []
+
+    if fill_values is None:
+        fill_values = [0] * n_columns
+    elif not isinstance(fill_values, Sequence):
+        fill_values = [fill_values] * n_columns
+
+    for i, fill_value in zip(range(n_columns), fill_values):
+        dtype = pd.SparseDtype(array_data.dtype, fill_value)
+        sl = slice(indptr[i], indptr[i + 1])
+        idx = IntIndex(n_rows, indices[sl], check_integrity=False)
+        arr = pd.arrays.SparseArray._simple_new(array_data[sl], idx, dtype)
+        arrays.append(arr)
+    return DataFrame._from_arrays(
+        arrays, columns=columns, index=index, verify_integrity=False
+    )
+
+def read_tick_log_to_df(f:BinaryIO, index_name:Optional[str]=None, column_names:Optional[Sequence[str]]=None, fill_values:Optional[Any]=None, sparse_matrix:bool=False) -> pd.DataFrame:
+    reader = TickMatrixReader(f)
+    matrixes = []
+    row_count = 0
+    col_count = 0
+    ticks = []
+    while (ret := reader.read()) is not None:
+        tick, m = ret
+        if row_count > 0:
+            rows = m.shape[0]
+            if len(m.shape) == 1:
+                cols = 1
+            else:
+                cols = m.shape[1]
+            if (row_count, col_count) != (rows, cols):
+                raise ValueError(f'expected each matrix to have same shape {(row_count, col_count)} vs {m.shape}')
+        else:
+            assert col_count == 0
+            row_count = m.shape[0]
+            if len(m.shape) == 1:
+                col_count = 1
+            else:
+                col_count = m.shape[1]
+        if sparse_matrix:
+            if col_count == 1:
+                matrixes.append(sparse.csc_array(m[:,np.newaxis]))
+            else:
+                matrixes.append(sparse.csc_array(m))
+        else:
+            if col_count == 1:
+                matrixes.append(m[:,np.newaxis])
+            else:
+                matrixes.append(m)
+        ticks.append(np.full((row_count,), tick))
+
+    if sparse_matrix:
+        df = _df_from_spmatrix(sparse.vstack(matrixes), columns=column_names, fill_values=fill_values)
+    else:
+        df = pd.DataFrame(np.vstack(matrixes), columns=column_names)
+
+    df["tick"] = pd.Series(np.concatenate(ticks))
+    df.index = pd.Series(np.tile(np.arange(row_count), len(matrixes)))
+    if index_name is not None:
+        df.index.set_names(index_name, inplace=True)
+    df.set_index("tick", append=True, inplace=True)
+
+    return df
