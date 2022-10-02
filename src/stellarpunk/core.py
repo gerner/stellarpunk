@@ -86,7 +86,7 @@ class ProductionChain:
 
         self.value_estimate[product_id], self.volume_estimate[product_id] = util.update_vema(
                 self.value_estimate[product_id], self.volume_estimate[product_id],
-                self.price_vema_alpha, price, volume)
+                self.price_vema_alpha, price*volume, volume)
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.int64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]

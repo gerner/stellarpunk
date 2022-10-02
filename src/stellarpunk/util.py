@@ -8,7 +8,7 @@ import bisect
 import logging
 import pdb
 import curses
-from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping
+from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -460,10 +460,26 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
         theta += step
     return c
 
-def update_vema(value_estimate:float, volume_estimate:float, alpha:float, price:float, volume:float) -> Tuple[float, float]:
+
+@overload
+def update_ema(value_estimate:float, alpha:float, new_value:float) -> float: ...
+
+@overload
+def update_ema(value_estimate:npt.NDArray[np.float64], alpha:float, new_value:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]: ...
+
+def update_ema(value_estimate:float|npt.NDArray[np.float64], alpha:float, new_value:float|npt.NDArray[np.float64]) -> float|npt.NDArray[np.float64]:
+    return alpha * new_value + (1. - alpha) * value_estimate
+
+@overload
+def update_vema(value_estimate:float, volume_estimate:float, alpha:float, value:float, volume:float) -> Tuple[float, float]: ...
+
+@overload
+def update_vema(value_estimate:npt.NDArray[np.float64], volume_estimate:npt.NDArray[np.float64], alpha:float, value:npt.NDArray[np.float64], volume:npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+def update_vema(value_estimate:float | npt.NDArray[np.float64], volume_estimate:float | npt.NDArray[np.float64], alpha:float, value:float | npt.NDArray[np.float64], volume:float | npt.NDArray[np.float64]) -> Tuple[float | npt.NDArray[np.float64], float | npt.NDArray[np.float64]]:
     """ Update volume weighted moving average parameters (value, volume). """
 
-    value_estimate = alpha * value_estimate + (1-alpha) * volume * price
+    value_estimate = alpha * value_estimate + (1-alpha) * value
     volume_estimate = alpha * volume_estimate + (1-alpha) * volume
     return (value_estimate, volume_estimate)
 

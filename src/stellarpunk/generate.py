@@ -613,12 +613,16 @@ class UniverseGenerator:
 
         prices = prices.round()
         assert not np.any(np.isnan(prices))
+        #TODO: this can fail because of the rounding we do with the prices I think
+        # make sure that the prices are more than the cost to produce
+        assert np.all(prices > (prices[:, np.newaxis] * adj_matrix).sum(axis=0))
 
         # set up production times and batch sizes
         # in one minute produce a batch of enough goods to produce a batch of
-        # 10 of the next stuff in the production chain
+        # some number of the next items in the chain
         production_times = np.full((total_nodes,), 60.)
-        batch_sizes = np.clip(10. * np.ceil(np.min(adj_matrix, axis=1)), 1., np.inf)
+        batch_sizes = np.clip(3. * np.ceil(np.min(adj_matrix, axis=1, where=adj_matrix>0, initial=np.inf)), 1., 50)
+        batch_sizes[-ranks[-1]:] = 1
 
         chain = core.ProductionChain()
         chain.ranks = ranks
