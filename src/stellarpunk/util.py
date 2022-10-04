@@ -460,6 +460,19 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
         theta += step
     return c
 
+def choose_argmax(rnd: np.random.Generator, a:npt.NDArray[Any]) -> int:
+    flatnonzero = np.flatnonzero(a == a.max())
+    if len(flatnonzero) > 1:
+        return rnd.choice(flatnonzero)
+    else:
+        return flatnonzero[0]
+
+def choose_argmin(rnd: np.random.Generator, a:npt.NDArray[Any]) -> int:
+    flatnonzero = np.flatnonzero(a == a.min())
+    if len(flatnonzero) > 1:
+        return rnd.choice(flatnonzero)
+    else:
+        return flatnonzero[0]
 
 @overload
 def update_ema(value_estimate:float, alpha:float, new_value:float) -> float: ...

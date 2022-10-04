@@ -9,7 +9,7 @@ import logging
 import contextlib
 import warnings
 import typing
-from typing import TextIO, BinaryIO, IO, Optional, Tuple, MutableSequence, Sequence, Type, Any
+from typing import TextIO, BinaryIO, IO, Optional, Tuple, MutableSequence, Sequence, Type, Any, Iterator
 from types import TracebackType
 
 import numpy as np
@@ -158,6 +158,29 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         if self.enabled:
             self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
 
+    def source_resources(self, price:npt.NDArray[np.float64], amount:npt.NDArray[np.float64]) -> None:
+        seller = -1
+        raw_product_id = -1
+        nonzero = np.where(amount > 0)
+        buyers = nonzero[0]
+        products = nonzero[1]
+        for buyer, product_id in zip(buyers, products):
+            p = price[buyer, product_id]
+            sale_amount = amount[buyer, product_id]
+            # collapse raw resources to a single raw product id
+            product_id = raw_product_id
+            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{p}\t{sale_amount}\n')
+
+    def sink_products(self, price:npt.NDArray[np.float64], amount:npt.NDArray[np.float64]) -> None:
+        buyer = -1
+        nonzero = np.where(amount > 0) 
+        sellers = nonzero[0]
+        products = nonzero[1]
+        for seller, product_id in zip(sellers, products):
+            p = price[seller, product_id]
+            sale_amount = amount[seller, product_id]
+            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{p}\t{sale_amount}\n')
+
     def start_trading(self) -> None:
         pass
 
@@ -204,6 +227,9 @@ class EconomySimulation:
         # the number of goods each agent has
         self.inventory = np.zeros((self.num_agents, self.num_products))
         self.last_inventory = self.inventory.copy()
+        # ema of inventory, smooths out some places we need to generally know what our inventory was
+        self.smoothed_inventory_alpha = 2./(EMA_TICKS+1.)
+        self.smoothed_inventory = np.zeros((self.num_agents, self.num_products))
         # how much money each agent has
         self.balance = np.zeros((self.num_agents, ))
 
@@ -259,7 +285,7 @@ class EconomySimulation:
 
         # parameters that tune behaviors
 
-        self.price_setting_period = 10
+        self.price_setting_period = 25
 
         # how much money to start with in terms of number of batches of input
         #   assuming production chain initial prices
@@ -281,20 +307,16 @@ class EconomySimulation:
         # adverse condition parameters
 
         # how many ticks of no input buys before we violate profitability
-        self.cannot_buy_ticks_investment_cutoff = 100
-        # how many ticks of no input buys before we change production
-        self.cannot_buy_ticks_leave_market = 500
+        self.cannot_buy_ticks_investment_cutoff = EMA_TICKS
+        self.cannot_buy_ticks_leave_market = EMA_TICKS*2
         self.cannot_buy_gamma = 0.003
 
         # does it make sense to let agents violate profitability in buy prices
         # and sell prices? if we don't then the one will naturally move to match
         # the actual prices implied by the other, so probably not
-        self.cannot_sell_ticks_investment_cutoff = sys.maxsize
-        self.cannot_sell_ticks_leave_market = 500
+        self.cannot_sell_ticks_investment_cutoff = EMA_TICKS#sys.maxsize
+        self.cannot_sell_ticks_leave_market = EMA_TICKS*2
         self.cannot_sell_gamma = 0.003
-
-        # how many ticks of no output sales before we change production
-        self.cannot_sell_ticks_leave_market = 500
 
     def initialize(self,
             num_agents:int=-1,
@@ -339,6 +361,7 @@ class EconomySimulation:
         # goods are exponentially less likely
         ranks = self.gamestate.production_chain.ranks
         p = np.hstack([[3**(len(ranks)-i)]*v for (i,v) in enumerate(ranks)])
+        #p = 1.0 / self.gamestate.production_chain.prices
         p = p/p.sum()
         single_products = self.gamestate.random.choice(a=np.arange(self.num_products), size=self.num_agents-self.num_products, replace=True, p=p)
         self.agent_goods[np.arange(self.num_products, self.num_agents), single_products] = 1
@@ -354,6 +377,7 @@ class EconomySimulation:
 
         self.inventory = np.zeros((self.num_agents, self.num_products))
         self.last_inventory = self.inventory.copy()
+        self.smoothed_inventory = np.zeros((self.num_agents, self.num_products))
         self.max_inventory = 1e3
 
         # set up initial balance, inventory, prices
@@ -488,6 +512,8 @@ class EconomySimulation:
         self.balance[np.isclose(self.balance, 0.)] = 0
         assert np.all(self.balance >= 0.)
 
+        self.data_logger.source_resources(injection_prices, resource_injection)
+
         self.gamestate.production_chain.resources_mined += resource_injection.sum(axis=0)[:self.gamestate.production_chain.ranks[0]]
         self.gamestate.production_chain.value_mined += (resource_injection * injection_prices).sum(axis=0)[:self.gamestate.production_chain.ranks[0]]
 
@@ -560,7 +586,9 @@ class EconomySimulation:
             self.global_price_alpha,
             resource_sink_value.sum(axis=0)[total_sinks > 0] / total_sinks[total_sinks>0], resource_sink.sum(axis=0)[total_sinks > 0] / total_sinks[total_sinks>0]
         )
-        self.global_rate_estimate[:-self.gamestate.production_chain.ranks[-1]] = util.update_ema(self.global_rate_estimate[:-self.gamestate.production_chain.ranks[-1]], self.global_price_alpha, total_sinks[:-self.gamestate.production_chain.ranks[-1]])
+        self.global_rate_estimate[-self.gamestate.production_chain.ranks[-1]:] = util.update_ema(self.global_rate_estimate[-self.gamestate.production_chain.ranks[-1]:], self.global_price_alpha, total_sinks[-self.gamestate.production_chain.ranks[-1]:])
+
+        self.data_logger.sink_products(sink_prices, resource_sink)
 
         self.gamestate.production_chain.goods_sunk += resource_sink.sum(axis=0)
         self.gamestate.production_chain.value_sunk += (resource_sink * sink_prices).sum(axis=0)
@@ -580,8 +608,8 @@ class EconomySimulation:
         # at the minimum price?
         #self.min_sell_prices[(self.sell_prices == self.min_sell_prices) & (self.inventory[sell_interest] > 0)] = drop somehow, but cap it
 
-        # drop min sell price for stuff we chronically cannot sell
-        min_sell_prices[(self.cannot_sell_ticks > self.cannot_sell_ticks_investment_cutoff)] = self.min_sell_prices[(self.cannot_sell_ticks > self.cannot_sell_ticks_investment_cutoff)] * (1-self.cannot_sell_gamma)
+        # drop min sell price for stuff we chronically cannot sell and have never sold
+        min_sell_prices[(self.cannot_sell_ticks > self.cannot_sell_ticks_investment_cutoff) & np.isclose(self.sell_rate_estimates, 0)] = self.min_sell_prices[(self.cannot_sell_ticks > self.cannot_sell_ticks_investment_cutoff) & np.isclose(self.sell_rate_estimates, 0)] * (1-self.cannot_sell_gamma)
 
 
         return min_sell_prices
@@ -602,6 +630,7 @@ class EconomySimulation:
         output_has_inputs = self.agent_goods * self.gamestate.production_chain.adj_matrix.sum(axis=0)[np.newaxis, :] > 0
         assert output_has_inputs.shape == (self.num_agents, self.num_products)
 
+        # one approach:
         # distributing markup across inputs according to input cost
         #agent_markup_by_outputs = np.divide(
         #    output_price_estimates,
@@ -612,12 +641,22 @@ class EconomySimulation:
         # we computed a sclar for each out, but then we can collapse back to per agent
         # NOTE: this assumes each agent only sells one good
         #max_buy_prices = agent_markup_by_outputs.max(axis=1)[:,np.newaxis] * input_price_estimates
-
-
         # and we apply that across the input goods, according to the input prices
         #inventory_balance = np.divide(self.inventory, self.production_goods, where=self.production_goods > 0, out=np.zeros_like(self.inventory))
 
-        deficit = self.production_goods * self.batch_sizes.sum(axis=1)[:,np.newaxis] - self.inventory
+        # another approach:
+        # compute a deficit vs what we need to produce and distribute what we
+        # think we can sell for across those according to that proportion
+        #TODO: this approach can lead to big swings in max buy price when we
+        # happen to make a transaction to fill up our inventory
+        # and then when we need that good again it can take a while for prices
+        # to increase
+
+        # desire just one batch of input/output if we've never sold output
+        desired_input_batches = np.full((self.num_agents,), self.desired_input_batches)
+        desired_input_batches[np.isclose((self.sell_rate_estimates * self.agent_goods).max(axis=1), 0.)] = 1
+
+        deficit = self.production_goods * self.batch_sizes.sum(axis=1)[:,np.newaxis] * desired_input_batches[:,np.newaxis] - self.smoothed_inventory
         deficit = deficit.clip(0, np.inf, out=deficit)
 
         # take a floor of deficit of 1 to avoid prices going to zero
@@ -629,14 +668,18 @@ class EconomySimulation:
                 out=np.ones((self.num_agents,))
             )[:,np.newaxis]
         )
+
+        # take the maximum here in case the floor of our sell price has risen
+        # above historical market levels
+        output_price_estimates = np.maximum(output_price_estimates, self.min_sell_prices)
         price_scale = np.divide(
                 output_price_estimates,
                 (deficit_proportion * input_price_estimates @ self.gamestate.production_chain.adj_matrix),
                 where=output_has_inputs,
                 out=np.zeros_like(output_price_estimates)
         )
-        max_buy_prices = price_scale.sum(axis=1)[:,np.newaxis] * deficit_proportion * input_price_estimates
 
+        max_buy_prices = price_scale.sum(axis=1)[:,np.newaxis] * deficit_proportion * input_price_estimates
 
         max_buy_prices[self.buy_interest == 0] = 0.
 
@@ -644,7 +687,7 @@ class EconomySimulation:
         assert np.all(
             np.isclose(
                 (max_buy_prices * self.production_goods).sum(axis=1),
-                (output_price_estimates * self.agent_goods).sum(axis=1)
+                np.multiply(output_price_estimates, self.agent_goods, where=output_price_estimates<np.inf, out=np.zeros_like(output_price_estimates)).sum(axis=1)
             )
             | ~self.agent_goods[:,self.gamestate.production_chain.ranks[0]:].sum(axis=1).astype(bool)
         )
@@ -695,12 +738,21 @@ class EconomySimulation:
         self.cannot_sell_ticks[cannot_sell] += tick_delta
         self.cannot_sell_ticks[~cannot_sell] = 0
 
-        #if np.any(self.cannot_sell_ticks > 100):
-        #    breakpoint()
+        assert np.all(self.cannot_sell_ticks[sales > 0] == 0.)
 
         cannot_buy = (np.subtract(self.buy_prices, self.max_buy_prices, where=self.buy_interest>0, out=np.zeros_like(self.buy_prices)) > -PRICE_EPS) & (self.last_buy_budget > 0) & (buys == 0)
+
+        # if we were already non-zero and we had no buys, then we still cannot buy
+        #((self.cannot_buy_ticks > 0) & (buys == 0)) => cannot_buy
+        #P => Q <=> ~P | Q
+        # also allow cases where our last budget was non-positive, but we have enough goods on hand to produce a batch of output
+        #if np.any(~((~((self.cannot_buy_ticks > 0) & (buys == 0)) | cannot_buy) | ((self.last_buy_budget <= 0) & (self.inventory * self.buy_interest - self.production_goods*self.batch_sizes.max(axis=1)[:,np.newaxis] >= 0)))):
+        #    breakpoint()
+
         self.cannot_buy_ticks[cannot_buy] += tick_delta
-        self.cannot_buy_ticks[~cannot_buy] = 0
+        self.cannot_buy_ticks[~cannot_buy] = 0.
+
+        assert np.all(self.cannot_buy_ticks[buys > 0] == 0.)
 
         #last_min_sell_prices = self.min_sell_prices
         self.min_sell_prices = self._compute_min_sell_prices(input_price_estimates, output_price_estimates)
@@ -761,6 +813,11 @@ class EconomySimulation:
                 out=np.zeros_like(self.buy_prices)
         )
 
+        # where we had zero buys but had budget, increase prices
+        # if we were less than the estimate, increase by half the distance
+        step[(buys == 0) & (self.last_buy_budget > 0) & (self.buy_prices < input_price_estimates)] = (input_price_estimates[(buys == 0) & (self.last_buy_budget > 0) & (self.buy_prices < input_price_estimates)] - self.buy_prices[(buys == 0) & (self.last_buy_budget > 0) & (self.buy_prices < input_price_estimates)])/2.
+        step[(buys == 0) & (self.last_buy_budget > 0) & (self.buy_prices >= input_price_estimates)] = self.buy_prices[(buys == 0) & (self.last_buy_budget > 0) & (self.buy_prices >= input_price_estimates)] * self.price_setting_gamma
+
         # don't step up or down too much
         step = step.clip(-(self.buy_prices * self.rel_buy_price_step_max), self.buy_prices * self.rel_buy_price_step_max, out=step)
 
@@ -768,13 +825,13 @@ class EconomySimulation:
         assert np.all((step <= 0) | (buys_value < self.last_buy_budget))
 
         new_buy_prices = self.buy_prices + step
-        #if np.any(new_buy_prices[buys > 0] - self.buy_prices[buys > 0] > 0):
-        #    breakpoint()
 
         # if we bought nothing, increase prices
-        new_buy_prices[buys == 0] = (self.buy_prices[buys == 0] * (1+self.price_setting_gamma))
+        #new_buy_prices[buys == 0] = (self.buy_prices[buys == 0] * (1+self.price_setting_no_buy_gamma))
         # if we had no budget, leave price
         new_buy_prices[self.last_buy_budget == 0] = self.buy_prices[self.last_buy_budget == 0]
+        # keep cannot buy clamped to max buy price
+        new_buy_prices[cannot_buy] = self.max_buy_prices[cannot_buy]
 
         assert np.all(new_buy_prices[self.buy_interest > 0] > 0)
 
@@ -803,15 +860,26 @@ class EconomySimulation:
         # balance and buy prices is less than one batch?
         # this basically means the agent can't afford to produce a single batch
         # they are kind of stuck unless the market price for inputs drops
-        expected_production_capacity = np.floor(expected_production_capacity.clip(0, self.batch_sizes.sum(axis=1)*self.desired_input_batches, out=expected_production_capacity))
+
+        # desire just one batch of input/output if we've never sold output
+        desired_input_batches = np.full((self.num_agents,), self.desired_input_batches)
+        desired_input_batches[np.isclose((self.sell_rate_estimates * self.agent_goods).max(axis=1), 0.)] = 1
+        desired_output_batches = np.full((self.num_agents,), self.desired_output_batches)
+        desired_output_batches[np.isclose((self.sell_rate_estimates * self.agent_goods).max(axis=1), 0.)] = 1.
+
+        if np.any((expected_production_capacity < 1.) & (self.agent_goods.argmax(axis=1) >= self.gamestate.production_chain.ranks[0]) & ((self.inventory * self.agent_goods).sum(axis=1) <= 0)):
+            breakpoint()
+        expected_production_capacity = np.floor(expected_production_capacity.clip(0, self.batch_sizes.sum(axis=1)*desired_input_batches, out=expected_production_capacity))
 
         self.buy_budget = expected_production_capacity[:,np.newaxis] * self.production_goods * self.buy_prices - self.inventory * self.buy_prices
 
         self.last_inventory = self.inventory.copy()
 
         # stop production if we're sitting on a lot of output already
-        self.buy_budget[((self.batch_sizes * self.desired_output_batches - (self.inventory * self.agent_goods)).max(axis=1)[:,np.newaxis] * self.buy_interest) <= 0] = 0
 
+        self.buy_budget[((self.batch_sizes * desired_output_batches[:, np.newaxis] - (self.inventory * self.agent_goods)).max(axis=1)[:,np.newaxis] * self.buy_interest) <= 0] = 0
+
+        assert np.all(self.buy_budget.sum(axis=1) <= self.balance)
         assert np.all(self.sell_prices > 0)
         assert np.all(self.buy_prices >= 0)
         assert np.all(~(self.sell_prices < self.min_sell_prices))
@@ -819,6 +887,76 @@ class EconomySimulation:
 
         self.last_buys = buys.copy()
         self.last_buy_budget = self.buy_budget.copy()
+
+    def valid_trades(self, buy_prices:npt.NDArray[np.float64], sell_prices:npt.NDArray[np.float64], budget:npt.NDArray[np.float64]) -> Iterator[Tuple[float, int, int, int, float, float]]:
+        """
+        Given market parameters, yields sequence of best transactions that
+        continue to be valid after taking each.
+
+        Best here means largest price difference between buyer and seller.
+
+        yields tuples:
+            price difference (positive => sale is feasible)
+            product id
+            buyer id
+            seller id
+            price
+            sale amount
+        """
+
+        min_sale_amount = 1.
+        # get the per product best buy/sell price differences that can be
+        # funded/supplied
+
+        valid_buys = (buy_prices <= budget/min_sale_amount) & (buy_prices*min_sale_amount <= self.balance[:,np.newaxis])
+        valid_sells = self.inventory >= min_sale_amount
+
+        max_buy_prices = np.amax(buy_prices, axis=0, where=valid_buys, initial=0)
+        min_sell_prices = np.amin(sell_prices, axis=0, where=valid_sells, initial=np.inf)
+
+        diffs = max_buy_prices - min_sell_prices
+
+        # and find the product with the best deal
+        product = util.choose_argmax(self.gamestate.random, diffs)
+        #product = diffs.argmax()
+
+        while diffs[product] > 0:
+            # pick the buyer with max price for that product
+            buyer_idx = util.choose_argmax(self.gamestate.random, buy_prices[valid_buys[:,product],product])
+            buyer = np.where(valid_buys[:,product])[0][buyer_idx]
+            # pick the seller with the min price for that product
+            seller_idx = util.choose_argmin(self.gamestate.random, sell_prices[valid_sells[:,product],product])
+            seller = np.where(valid_sells[:,product])[0][seller_idx]
+
+            price = (buy_prices[buyer, product] + sell_prices[seller,product])/2
+
+            # transact the biggest volume possible (inventory vs budget/balance)
+            sale_amount = np.floor(min(self.inventory[seller, product], budget[buyer, product]/price, self.balance[buyer]/price))
+
+            assert buyer != seller
+            assert buy_prices[buyer, product] > 0
+            assert sell_prices[seller, product] < np.inf
+            assert sell_prices[seller, product] <= buy_prices[buyer, product]
+            assert sale_amount > 0
+            assert budget[buyer, product] >= sale_amount * price - PRICE_EPS
+            assert self.balance[buyer] >= sale_amount * price - PRICE_EPS
+            assert self.inventory[seller, product] >= sale_amount
+
+            yield diffs[product], product, buyer, seller, price, sale_amount
+
+            # notice that nothing about can change except entries for this
+            # product, buyer, seller
+            buyer_valid = (buy_prices[buyer, product] <= budget[buyer, product]/min_sale_amount) and (buy_prices[buyer, product]*min_sale_amount <= self.balance[buyer])
+            seller_valid = self.inventory[seller, product] >= min_sale_amount
+            if not buyer_valid:
+                valid_buys[buyer, product] = buyer_valid
+                max_buy_prices[product] = np.amax(buy_prices[:, product], axis=0, where=valid_buys[:,product], initial=0)
+            if not seller_valid:
+                valid_sells[seller, product] = seller_valid
+                min_sell_prices[product] = np.amax(sell_prices[:, product], axis=0, where=valid_sells[:,product], initial=np.inf)
+            if not buyer_valid or not seller_valid:
+                diffs[product] = max_buy_prices[product] - min_sell_prices[product]
+                product = util.choose_argmax(self.gamestate.random, diffs)
 
     def make_market(self, buy_prices:npt.NDArray[np.float64], sell_prices:npt.NDArray[np.float64], budget:npt.NDArray[np.float64]) -> Tuple[float, int, int, int, float, float]:
         """
@@ -896,7 +1034,7 @@ class EconomySimulation:
 
         self.data_logger.transact(diff, product_id, buyer, seller, price, sale_amount)
 
-    def estimate_profit(self) -> None:
+    def estimate_profit(self) -> npt.NDArray[np.float64]:
         # price estimate (dollar per unit) = value (dollars) / volume (units)
         global_price_estimate = np.divide(self.global_value_estimate, self.global_volume_estimate, where=self.global_volume_estimate>0, out=np.zeros_like(self.global_value_estimate))
 
@@ -917,6 +1055,8 @@ class EconomySimulation:
         )[:self.gamestate.production_chain.ranks[0]]
 
         profit_per_tick = units_per_tick * global_price_estimate - cost_per_tick
+
+        return profit_per_tick
 
     def run(self, max_ticks:int) -> None:
         self.logger.info("running simluation...")
@@ -972,7 +1112,8 @@ class EconomySimulation:
             )
 
             transactions_this_tick = 0
-            while (ret := self.make_market(self.buy_prices, self.sell_prices, self.buy_budget))[0] > 0:
+            #while (ret := self.make_market(self.buy_prices, self.sell_prices, self.buy_budget))[0] > 0:
+            for ret in self.valid_trades(self.buy_prices, self.sell_prices, self.buy_budget):
                 (diff, product, buyer, seller, price, sale_amount) = ret
                 self.transact(diff, product, buyer, seller, price, sale_amount)
                 buys[buyer, product] += 1
@@ -1039,18 +1180,21 @@ class EconomySimulation:
             # update global transaction estimates
             total_sales = sales.sum(axis=0)
             total_buys = buys.sum(axis=0)
-            self.global_value_estimate[total_buys>0], self.global_volume_estimate[total_buys>0] = util.update_vema(
-                self.global_value_estimate[total_buys>0], self.global_volume_estimate[total_buys>0],
+            # except not for final goods, which we handle in sink_products
+            non_last_products = np.full((self.num_products,), False)
+            non_last_products[0:-self.gamestate.production_chain.ranks[-1]] = True
+            self.global_value_estimate[(total_buys>0) & non_last_products], self.global_volume_estimate[(total_buys>0) & non_last_products] = util.update_vema(
+                self.global_value_estimate[(total_buys>0) & non_last_products], self.global_volume_estimate[(total_buys>0) & non_last_products],
                 self.global_price_alpha,
-                buys_value.sum(axis=0)[total_buys>0]/total_buys[total_buys>0], buys_volume.sum(axis=0)[total_buys>0]/total_buys[total_buys>0]
+                buys_value.sum(axis=0)[(total_buys>0) & non_last_products]/total_buys[(total_buys>0) & non_last_products], buys_volume.sum(axis=0)[(total_buys>0) & non_last_products]/total_buys[(total_buys>0) & non_last_products]
             )
-            self.global_rate_estimate = util.update_ema(self.global_rate_estimate, self.global_price_alpha, total_buys)
+            self.global_rate_estimate[non_last_products] = util.update_ema(self.global_rate_estimate[non_last_products], self.global_price_alpha, total_buys[non_last_products])
 
             # produce goods according to the production chain
             self.produce_goods()
 
             if self.ticks % self.price_setting_period == 0:
-                self.set_prices(buys_value, buys_volume, sales_value, sales_volume, self.price_setting_period)
+                self.set_prices(price_setting_buys_value, price_setting_buys_volume, price_setting_sales_value, price_setting_sales_volume, self.price_setting_period)
                 price_setting_buys_value[:,:] = 0.
                 price_setting_buys_volume[:,:] = 0.
                 price_setting_sales_value[:,:] = 0.
@@ -1058,6 +1202,7 @@ class EconomySimulation:
 
                 self.data_logger.set_prices()
 
+            self.smoothed_inventory = util.update_ema(self.smoothed_inventory, self.smoothed_inventory_alpha, self.inventory)
             self.data_logger.end_trading()
 
             self.ticks += 1
@@ -1090,6 +1235,8 @@ class EconomySimulation:
             self.logger.info(f'rank {level} balance: {mean_balance} ({min_balance},{max_balance})')
             self.logger.info(f'rank {level} pdct inventory: {mean_inventory} ({min_inventory},{max_inventory})')
 
+        self.logger.info(f'profit per tick: {self.estimate_profit()}')
+
 def main() -> None:
     with contextlib.ExitStack() as context_stack:
         logging.basicConfig(
@@ -1112,8 +1259,6 @@ def main() -> None:
         #econ.run(max_ticks=2000)
 
         econ.log_report()
-
-        econ.estimate_profit()
 
         data_logger.end_simulation()
 
