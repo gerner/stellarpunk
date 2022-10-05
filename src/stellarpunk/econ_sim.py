@@ -920,6 +920,21 @@ class EconomySimulation:
         product = util.choose_argmax(self.gamestate.random, diffs)
         #product = diffs.argmax()
 
+        # TODO: perhaps get sorted order of buys and sells:
+        # >>> a = np.array([[5, 2,1],[3,6,2]])
+        # >>> a
+        # array([[5, 2, 1],
+        #        [3, 6, 2]])
+        # >>> ai = np.argsort(a, axis=0); ai
+        # array([[1, 0, 0],
+        #        [0, 1, 1]])
+        # >>> np.take_along_axis(a, ai, axis=0)
+        # array([[3, 2, 1],
+        #        [5, 6, 2]])
+        # then we can get rid of the choose_argmax below which is O(n^2)
+        # maybe shuffle columns first to randomize ties (complexity translating
+        # back to original ids
+
         while diffs[product] > 0:
             # pick the buyer with max price for that product
             buyer_idx = util.choose_argmax(self.gamestate.random, buy_prices[valid_buys[:,product],product])
