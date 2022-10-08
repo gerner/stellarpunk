@@ -116,7 +116,8 @@ class Simulator:
                 # add the batch to cargo
                 amount = self.gamestate.production_chain.batch_sizes[station.resource]
                 station.cargo[station.resource] += amount
-                self.gamestate.production_chain.goods_produced[station.resource] += amount
+                #TODO: record the production somehow
+                #self.gamestate.production_chain.goods_produced[station.resource] += amount
                 station.next_batch_time = 0.
                 station.next_production_time = 0.
         # waiting for enough cargo to produce case
@@ -125,7 +126,8 @@ class Simulator:
             resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]
             if np.all(station.cargo >= resources_needed):
                 station.cargo -= resources_needed
-                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource]
+                # TODO: float vs floating type issues with numpy (arg!)
+                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource] # type: ignore
             else:
                 # wait a cooling off period to avoid needlesss expensive checks
                 station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
@@ -212,10 +214,11 @@ class Simulator:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
-            for i, amount in enumerate(self.gamestate.production_chain.resources_mined):
-                self.economy_log.write(f'{self.gamestate.timestamp}\tMINE\t{i}\t{amount}\n')
-            for i, amount in enumerate(self.gamestate.production_chain.goods_produced):
-                self.economy_log.write(f'{self.gamestate.timestamp}\tPRODUCE\t{i}\t{amount}\n')
+            #TODO: revisit economic logging
+            #for i, amount in enumerate(self.gamestate.production_chain.resources_mined):
+            #    self.economy_log.write(f'{self.gamestate.timestamp}\tMINE\t{i}\t{amount}\n')
+            #for i, amount in enumerate(self.gamestate.production_chain.goods_produced):
+            #    self.economy_log.write(f'{self.gamestate.timestamp}\tPRODUCE\t{i}\t{amount}\n')
 
             total_ships = 0
             total_goto_orders = 0

@@ -4,9 +4,16 @@ ipdb
 graphviz
 drawille
 pymunk
+pandas
+scipy
+msgpack
+imageio
 
 # dev dependencies
 pytest
+pytest-repeat
 jupyter
 pandas
 matplotlib
+floweaver
+ipysankeywidget

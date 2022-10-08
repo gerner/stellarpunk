@@ -508,7 +508,6 @@ class UniverseGenerator:
         max_final_prices: array of floats max target prices for final outputs
         """
 
-        total_nodes = 0
         if isinstance(min_per_rank, int):
             if not isinstance(max_per_rank, int):
                 raise ValueError("min_per_rank and max_per_rank must both be ints or sequences")
@@ -606,19 +605,24 @@ class UniverseGenerator:
 
             prices[so_far:so_far+nodes_to] = (np.reshape(prices[so_far-nodes_from:so_far], (nodes_from, 1)) * relevant_prod_matrix).sum(axis=0) * markup[so_far:so_far+nodes_to]
 
-        # adjust final production weights to account for the prices of inputs
-        adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods])
+        # adjust final production weights to account for the prices of inputs and markup
+        #TODO: the below throws type error in mypy since vstack takes a tuple to vstack, what's going on here? (two cases below)
+        adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods]) # type: ignore
         adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
-        prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0)
+        prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products] # type: ignore
 
         prices = prices.round()
         assert not np.any(np.isnan(prices))
+        #TODO: this can fail because of the rounding we do with the prices I think
+        # make sure that the prices are more than the cost to produce
+        assert np.all(prices > (prices[:, np.newaxis] * adj_matrix).sum(axis=0))
 
         # set up production times and batch sizes
         # in one minute produce a batch of enough goods to produce a batch of
-        # 10 of the next stuff in the production chain
+        # some number of the next items in the chain
         production_times = np.full((total_nodes,), 60.)
-        batch_sizes = 10. * np.mean(adj_matrix, axis=1)
+        batch_sizes = np.clip(3. * np.ceil(np.min(adj_matrix, axis=1, where=adj_matrix>0, initial=np.inf)), 1., 50)
+        batch_sizes[-ranks[-1]:] = 1
 
         chain = core.ProductionChain()
         chain.ranks = ranks
@@ -629,8 +633,8 @@ class UniverseGenerator:
         chain.production_times = production_times
         chain.batch_sizes = batch_sizes
 
-        chain.resources_mined = np.zeros((chain.ranks[0],))
-        chain.goods_produced = np.zeros((total_nodes,))
+        chain.initialize()
+
 
         for i, (price, name) in enumerate(zip(prices[s_final_products], sink_names), len(prices)-len(min_final_prices)):
             self.logger.info(f'price {name}:\t${price}')

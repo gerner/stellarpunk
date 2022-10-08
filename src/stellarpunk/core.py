@@ -28,52 +28,52 @@ class ProductionChain:
     each of these called "first products." The last rank are final products."""
 
     def __init__(self) -> None:
+        self.num_products = 0
         # how many nodes per rank
-        self.ranks = np.zeros((0,), dtype=np.int64)
+        self.ranks = np.zeros((self.num_products,), dtype=np.int64)
         # adjacency matrix for the production chain
-        self.adj_matrix = np.zeros((0,0))
+        self.adj_matrix = np.zeros((self.num_products,self.num_products))
         # how much each product is marked up over base input price
-        self.markup = np.zeros((0,))
+        self.markup = np.zeros((self.num_products,))
         # how much each product is priced (sum_inputs(input cost * input amount) * markup)
-        self.prices = np.zeros((0,))
+        self.prices = np.zeros((self.num_products,))
 
-        self.production_times = np.zeros((0,))
+        self.production_times = np.zeros((self.num_products,))
         self.production_coolingoff_time = 5.
-        self.batch_sizes = np.zeros((0,))
+        self.batch_sizes = np.zeros((self.num_products,))
 
         self.sink_names:Sequence[str] = []
-
-        self.resources_mined:npt.NDArray[np.float64] = np.ndarray((0,))
-        self.goods_produced:npt.NDArray[np.float64] = np.ndarray((0,))
 
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
 
-    def inputs_of(self, product_id:int) -> npt.NDArray[np.float64]:
+    def initialize(self) -> None:
+        self.num_products = self.shape[0]
+
+    def inputs_of(self, product_id:int) -> npt.NDArray[np.int64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]
 
     def first_product_ids(self) -> npt.NDArray[np.int64]:
         return np.arange(self.ranks[0], self.ranks[1]+self.ranks[0])
 
     def final_product_ids(self) -> npt.NDArray[np.int64]:
-        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.adj_matrix.shape[0])
+        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.num_products)
 
     def viz(self) -> graphviz.Graph:
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})
         g.attr(compound="true", ranksep="1.5")
 
-        for s in range(self.adj_matrix.shape[0]):
+        for s in range(self.num_products):
 
-            sink_start = self.adj_matrix.shape[0] - len(self.sink_names)
+            sink_start = self.num_products - len(self.sink_names)
             if s < sink_start:
                 node_name = f'{s}'
             else:
-                assert np.count_nonzero(self.adj_matrix[:,s]) >= 3
-                node_name = f'{self.sink_names[s-sink_start]}'
+                node_name = f'{self.sink_names[s-sink_start]} ({s})'
 
             g.node(f'{s}', label=f'{node_name}:\n${self.prices[s]:,.0f}')
-            for t in range(self.adj_matrix.shape[1]):
+            for t in range(self.num_products):
                 if self.adj_matrix[s, t] > 0:
                     g.edge(f'{s}', f'{t}', label=f'{self.adj_matrix[s, t]:.0f}')
 

@@ -30,7 +30,7 @@ def write_history(func):
     return wrapper
 
 def nearest_neighbor(sector:core.Sector, entity:core.SectorEntity) -> Tuple[Optional[core.SectorEntity], float]:
-    neighbor_distance = np.inf
+    neighbor_distance:np.float64 = np.inf # type: ignore
     neighbor = None
     for hit in sector.spatial_point(entity.loc):
         if hit == entity:
@@ -39,7 +39,7 @@ def nearest_neighbor(sector:core.Sector, entity:core.SectorEntity) -> Tuple[Opti
         if d < neighbor_distance:
             neighbor_distance = d
             neighbor = hit
-    return neighbor, neighbor_distance
+    return neighbor, neighbor_distance # type: ignore
 
 def ship_from_history(history_entry, generator, sector):
     x, y = history_entry["loc"]

@@ -334,6 +334,8 @@ class PilotView(interface.View):
             self.ship.orders.insert(0, goto_order)
             self.goto_order = goto_order
 
+            self.mouse_state = MouseState.EMPTY
+
             return True
         else:
             raise ValueError(f'unknown mouse state {self.mouse_state}')
@@ -558,12 +560,18 @@ class PilotView(interface.View):
             self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.neighborhood_density}')
             self.viewscreen.addstr(status_y+2, status_x, f'{label_nndist:>12} {current_order.nearest_neighbor_dist}')
 
+    def _draw_command_state(self) -> None:
+        status_x = 1
+        status_y = self.interface.viewscreen_height - 2
+        if self.mouse_state == MouseState.GOTO:
+            self.viewscreen.addstr(status_y, status_x, f'Go To')
 
     def _draw_hud(self) -> None:
         self._draw_target_indicators()
         self._draw_nav_indicators()
         self._draw_target_info()
         self._draw_status()
+        self._draw_command_state()
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
