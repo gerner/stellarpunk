@@ -44,56 +44,12 @@ class ProductionChain:
 
         self.sink_names:Sequence[str] = []
 
-        """
-        self.resources_mined:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.value_mined:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.goods_sunk:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.value_sunk:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.goods_produced:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.transaction_count:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.transaction_amount:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.transaction_value:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-
-        # VEMA of prices observed in trades
-        # https://en.wikipedia.org/wiki/Moving_average#Relationship_between_SMA_and_EMA
-        # as per wikipedia a common choice is alpha = 2 / (N+1)
-        self.price_vema_alpha = 2 / (52+1)
-        self.value_estimate:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        self.volume_etimate:npt.NDArray[np.float64] = np.ndarray((self.num_products,))
-        """
-
     @property
     def shape(self) -> Tuple[int, ...]:
         return self.adj_matrix.shape
 
     def initialize(self) -> None:
         self.num_products = self.shape[0]
-
-        """
-        self.resources_mined = np.zeros((self.ranks[0],))
-        self.value_mined = np.zeros((self.ranks[0],))
-        self.goods_sunk = np.zeros((self.num_products,))
-        self.value_sunk = np.zeros((self.num_products,))
-        self.goods_produced = np.zeros((self.num_products,))
-        self.transaction_count = np.zeros((self.num_products,))
-        self.transaction_amount = np.zeros((self.num_products,))
-        self.transaction_value = np.zeros((self.num_products,))
-
-        # initialize VEMA with volume 1 and price as production chain prices
-        self.value_estimate = self.prices.copy()
-        self.volume_estimate = np.ones((self.num_products,))
-        """
-
-    """
-    def observe_transaction(self, product_id:int, price:float, volume:float) -> None:
-        self.transaction_count[product_id] += 1
-        self.transaction_amount[product_id] += volume
-        self.transaction_value[product_id] += volume * price
-
-        self.value_estimate[product_id], self.volume_estimate[product_id] = util.update_vema(
-                self.value_estimate[product_id], self.volume_estimate[product_id],
-                self.price_vema_alpha, price*volume, volume)
-    """
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.int64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]
