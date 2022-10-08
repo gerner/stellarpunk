@@ -100,7 +100,9 @@ class TransferCargoEffect(core.Effect):
 class MiningEffect(TransferCargoEffect):
     """ Subclass of TransferCargoEffect to get different visuals. """
     def _extract(self, amount:float) -> None:
-        self.gamestate.production_chain.resources_mined[self.resource] += amount
+        #TODO: record the mining somehow
+        #self.gamestate.production_chain.resources_mined[self.resource] += amount
+        pass
 
 class WarpOutEffect(core.Effect):
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:

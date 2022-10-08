@@ -142,6 +142,8 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
                 production_chain_log.write(serialization.save_production_chain(self.sim.gamestate.production_chain))
 
     def produce_goods(self, goods_produced:npt.NDArray[np.float64]) -> None:
+        #TODO: we've disabled production efficiency logging since it takes too
+        # long, but we should revisit this.
         return
         if self.enabled:
             self.production_efficiency_log.write(
@@ -159,27 +161,29 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
             self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
 
     def source_resources(self, price:npt.NDArray[np.float64], amount:npt.NDArray[np.float64]) -> None:
-        seller = -1
-        raw_product_id = -1
-        nonzero = np.where(amount > 0)
-        buyers = nonzero[0]
-        products = nonzero[1]
-        for buyer, product_id in zip(buyers, products):
-            p = price[buyer, product_id]
-            sale_amount = amount[buyer, product_id]
-            # collapse raw resources to a single raw product id
-            product_id = raw_product_id
-            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{p}\t{sale_amount}\n')
+        if self.enabled:
+            seller = -1
+            raw_product_id = -1
+            nonzero = np.where(amount > 0)
+            buyers = nonzero[0]
+            products = nonzero[1]
+            for buyer, product_id in zip(buyers, products):
+                p = price[buyer, product_id]
+                sale_amount = amount[buyer, product_id]
+                # collapse raw resources to a single raw product id
+                product_id = raw_product_id
+                self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{p}\t{sale_amount}\n')
 
     def sink_products(self, price:npt.NDArray[np.float64], amount:npt.NDArray[np.float64]) -> None:
-        buyer = -1
-        nonzero = np.where(amount > 0) 
-        sellers = nonzero[0]
-        products = nonzero[1]
-        for seller, product_id in zip(sellers, products):
-            p = price[seller, product_id]
-            sale_amount = amount[seller, product_id]
-            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{p}\t{sale_amount}\n')
+        if self.enabled:
+            buyer = -1
+            nonzero = np.where(amount > 0) 
+            sellers = nonzero[0]
+            products = nonzero[1]
+            for seller, product_id in zip(sellers, products):
+                p = price[seller, product_id]
+                sale_amount = amount[seller, product_id]
+                self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{p}\t{sale_amount}\n')
 
     def start_trading(self) -> None:
         pass
@@ -198,7 +202,7 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
             self.cannot_sell_log.write(self.sim.ticks, self.sim.cannot_sell_ticks)
 
     def end_trading(self) -> None:
-        if self.flush_interval and self.sim.ticks % self.flush_interval == 0:
+        if self.enabled and self.flush_interval and self.sim.ticks % self.flush_interval == 0:
             self.flush()
         pass
 
@@ -271,10 +275,22 @@ class EconomySimulation:
 
         # Total market indicators
 
+        # trasaction tracking
+        self.transaction_count = np.zeros((self.num_products,))
+        self.transaction_amount = np.zeros((self.num_products,))
+        self.transaction_value = np.zeros((self.num_products,))
+
         # ema for total economy supply/demand volumes per tick
         self.supply_alpha = 2./(EMA_TICKS+1.)
         self.supply_estimate = np.zeros((self.num_products,))
         self.demand_estimate = np.zeros((self.num_products,))
+
+        # sourcing and sinking resources, and economic production
+        self.resources_mined = np.zeros((self.num_products,))
+        self.value_mined = np.zeros((self.num_products,))
+        self.goods_sunk = np.zeros((self.num_products,))
+        self.value_sunk = np.zeros((self.num_products,))
+        self.goods_produced = np.zeros((self.num_products,))
 
         # ema for price
         self.global_price_alpha = 2./(EMA_TICKS+1.)
@@ -424,6 +440,16 @@ class EconomySimulation:
         self.sell_rate_estimates = np.zeros((self.num_agents, self.num_products))
 
         # initialize market-level estimates
+        self.resources_mined = np.zeros((self.num_products,))
+        self.value_mined = np.zeros((self.num_products,))
+        self.goods_sunk = np.zeros((self.num_products,))
+        self.value_sunk = np.zeros((self.num_products,))
+        self.goods_produced = np.zeros((self.num_products,))
+
+        self.transaction_count = np.zeros((self.num_products,))
+        self.transaction_amount = np.zeros((self.num_products,))
+        self.transaction_value = np.zeros((self.num_products,))
+
         self.supply_estimate = np.zeros((self.num_products,))
         self.demand_estimate = np.zeros((self.num_products,))
         self.global_value_estimate = np.zeros((self.num_products,))
@@ -466,9 +492,10 @@ class EconomySimulation:
         inputs_needed = (goods_produced @ self.gamestate.production_chain.adj_matrix.T)
 
         self.inventory += goods_produced - inputs_needed
-        self.gamestate.production_chain.goods_produced += goods_produced.sum(axis=0)
 
         self.data_logger.produce_goods(goods_produced)
+
+        self.goods_produced += goods_produced.sum(axis=0)
 
         return goods_produced
 
@@ -511,8 +538,8 @@ class EconomySimulation:
 
         self.data_logger.source_resources(injection_prices, resource_injection)
 
-        self.gamestate.production_chain.resources_mined += resource_injection.sum(axis=0)[:self.gamestate.production_chain.ranks[0]]
-        self.gamestate.production_chain.value_mined += (resource_injection * injection_prices).sum(axis=0)[:self.gamestate.production_chain.ranks[0]]
+        self.resources_mined += resource_injection.sum(axis=0)
+        self.value_mined += (resource_injection * injection_prices).sum(axis=0)
 
     def sink_products(self, scale:float=1.) -> None:
 
@@ -587,8 +614,8 @@ class EconomySimulation:
 
         self.data_logger.sink_products(sink_prices, resource_sink)
 
-        self.gamestate.production_chain.goods_sunk += resource_sink.sum(axis=0)
-        self.gamestate.production_chain.value_sunk += (resource_sink * sink_prices).sum(axis=0)
+        self.goods_sunk += resource_sink.sum(axis=0)
+        self.value_sunk += resource_sink_value.sum(axis=0)
 
     def _compute_min_sell_prices(self, input_price_estimates:npt.NDArray[np.float64], output_price_estimates:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         # estimate min sell price based on the price we're paying for inputs
@@ -1045,9 +1072,11 @@ class EconomySimulation:
 
         self.buy_budget[buyer, product_id] -= sale_amount * price
 
-        self.gamestate.production_chain.observe_transaction(product_id, price, sale_amount)
-
         self.data_logger.transact(diff, product_id, buyer, seller, price, sale_amount)
+
+        self.transaction_count[product_id] += 1
+        self.transaction_amount[product_id] += sale_amount
+        self.transaction_value[product_id] += sale_amount * price
 
     def estimate_profit(self) -> npt.NDArray[np.float64]:
         # price estimate (dollar per unit) = value (dollars) / volume (units)
@@ -1088,7 +1117,7 @@ class EconomySimulation:
         #   a) cannot buy or cannot sell for a long time
         #   b) profit analysis of markets
 
-        need_to_change = (cannot_buy_ticks.max(axis=1) > self.cannot_buy_ticks_leave_market) | (cannot_sell_ticks.max(axis=1) > self.cannot_sell_ticks_leave_market)
+        need_to_change = (self.cannot_buy_ticks.max(axis=1) > self.cannot_buy_ticks_leave_market) | (self.cannot_sell_ticks.max(axis=1) > self.cannot_sell_ticks_leave_market)
 
         # state to update:
         #   agent_goods
@@ -1254,18 +1283,18 @@ class EconomySimulation:
 
     def log_report(self) -> None:
 
-        self.logger.info(f'transactions: {self.gamestate.production_chain.transaction_count.sum()}')
-        self.logger.info(f'transaction amount: {self.gamestate.production_chain.transaction_amount.sum()}')
-        self.logger.info(f'transaction value: {self.gamestate.production_chain.transaction_value.sum()}')
+        self.logger.info(f'transactions: {self.transaction_count.sum()}')
+        self.logger.info(f'transaction amount: {self.transaction_amount.sum()}')
+        self.logger.info(f'transaction value: {self.transaction_value.sum()}')
         self.logger.info(f'ending balance: {self.balance.sum()}')
         self.logger.info(f'ending inventory: {self.inventory.sum()}')
 
-        self.logger.info(f'resources mined: {self.gamestate.production_chain.resources_mined}')
-        self.logger.info(f'value mined: {self.gamestate.production_chain.value_mined.sum()}')
-        self.logger.info(f'goods produced: {self.gamestate.production_chain.goods_produced.sum()}')
-        self.logger.info(f'final rank goods produced: {self.gamestate.production_chain.goods_produced[-self.gamestate.production_chain.ranks[-1]:]}')
-        self.logger.info(f'goods sunk: {self.gamestate.production_chain.goods_sunk.sum()}')
-        self.logger.info(f'value sunk: {self.gamestate.production_chain.value_sunk.sum()}')
+        self.logger.info(f'resources mined: {self.resources_mined[:self.gamestate.production_chain.ranks[0]]}')
+        self.logger.info(f'value mined: {self.value_mined.sum()}')
+        self.logger.info(f'goods produced: {self.goods_produced.sum()}')
+        self.logger.info(f'final rank goods produced: {self.goods_produced[-self.gamestate.production_chain.ranks[-1]:]}')
+        self.logger.info(f'goods sunk: {self.goods_sunk.sum()}')
+        self.logger.info(f'value sunk: {self.value_sunk.sum()}')
 
         ranks = self.gamestate.production_chain.ranks
         for level, ((nodes_from, nodes_to), so_far) in enumerate(zip(zip(ranks, np.pad(ranks[1:], (0,1))), np.cumsum(ranks))):

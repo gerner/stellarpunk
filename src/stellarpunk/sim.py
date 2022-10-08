@@ -116,7 +116,8 @@ class Simulator:
                 # add the batch to cargo
                 amount = self.gamestate.production_chain.batch_sizes[station.resource]
                 station.cargo[station.resource] += amount
-                self.gamestate.production_chain.goods_produced[station.resource] += amount
+                #TODO: record the production somehow
+                #self.gamestate.production_chain.goods_produced[station.resource] += amount
                 station.next_batch_time = 0.
                 station.next_production_time = 0.
         # waiting for enough cargo to produce case
@@ -213,10 +214,11 @@ class Simulator:
                     ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
-            for i, amount in enumerate(self.gamestate.production_chain.resources_mined):
-                self.economy_log.write(f'{self.gamestate.timestamp}\tMINE\t{i}\t{amount}\n')
-            for i, amount in enumerate(self.gamestate.production_chain.goods_produced):
-                self.economy_log.write(f'{self.gamestate.timestamp}\tPRODUCE\t{i}\t{amount}\n')
+            #TODO: revisit economic logging
+            #for i, amount in enumerate(self.gamestate.production_chain.resources_mined):
+            #    self.economy_log.write(f'{self.gamestate.timestamp}\tMINE\t{i}\t{amount}\n')
+            #for i, amount in enumerate(self.gamestate.production_chain.goods_produced):
+            #    self.economy_log.write(f'{self.gamestate.timestamp}\tPRODUCE\t{i}\t{amount}\n')
 
             total_ships = 0
             total_goto_orders = 0
