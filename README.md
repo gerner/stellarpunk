@@ -71,7 +71,7 @@ accumulate power.
 
 ## Trading
 
-- [ ] basic economic simulation (PoC)
+- [x] basic economic simulation (PoC)
 - [ ] integrating simulation into rest of game
 - [ ] trading/cargo transport + manufacturing facilities interaction
 - [ ] economic indicators hooked into news generation
