@@ -10,8 +10,10 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence
 import abc
+import heapq
+import dataclasses
 
 import graphviz # type: ignore
 import numpy as np
@@ -465,9 +467,56 @@ class TravelGate(SectorEntity):
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
 
+class Agendum:
+    """ Represents an activity a Character is engaged in and how they can
+    interact with the world. """
+
+    def __init__(self, gamestate:Gamestate) -> None:
+        self.gamestate = gamestate
+        self.logger = logging.getLogger(util.fullname(self))
+
+    def act(self) -> None:
+        """ Lets the character interact. Called when scheduled. """
+        pass
+
+#TODO: Agenda:
+# mine: look for profitable mining runs for one or several resources
+# trade: look for profitable trades for one or several or any goods
+# manage production: setting buy/sell prices and budget for a station
+# captain ship: rly?
+# crew ship: rly?
+
+class Sprite:
+    """ A "sprite" from a text file that can be drawn in text """
+
+    def __init__(self, sheet:str, size:Tuple[int, int], offset:Tuple[int, int]) -> None:
+        #sheet = importlib.resources.read_text("stellarpunk.data", self.resource_name)
+        self.sheet = sheet
+        self.size = size
+        self.offset = offset
+
+        #TODO: should this load from text? make more sense to load from image?
+        # list of lines of text that make up this "sprite"
+        self.text = [x[self.offset[0]:self.offset[0]+self.size[0]] for x in self.sheet[self.offset[1]:self.offset[1]+self.size[1]]]
+
 class Character(Entity):
-    def __init__(self, *args:Any, **kwargs:Any):
+    def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+
+        self.portrait:Sprite = sprite
+        #TODO: other character background stuff
+
+        #TODO: does location matter?
+        self.location:SectorEntity = location
+
+        # how much money
+        self.balance:float = 0.
+
+        # owned assets (ships, stations)
+        #TODO: are these actually SectorEntity instances? maybe a new co-class (Asset)
+        self.assets:MutableSequence[SectorEntity] = []
+        # activites this character is enaged in (how they interact)
+        self.agenda:MutableSequence[Agendum] = []
 
 class Effect(abc.ABC):
     def __init__(self, sector:Sector, gamestate:Gamestate) -> None:
@@ -599,6 +648,11 @@ class Order:
         """ Performs one immediate tick's worth of action for this order """
         pass
 
+@dataclasses.dataclass(order=True)
+class PrioritizedItem:
+    priority: float
+    item: Any=dataclasses.field(compare=False)
+
 class Gamestate:
     def __init__(self) -> None:
 
@@ -616,7 +670,9 @@ class Gamestate:
         # a spatial index of sectors in the universe
         self.sector_spatial = index.Index()
 
-        #self.characters = []
+        self.characters:Dict[uuid.UUID, Character] = {}
+        # heap of agenda items in form (scheduled timestamp, agendum)
+        self.agenda_schedule:List[PrioritizedItem] = []
 
         self.keep_running = True
 
@@ -636,6 +692,12 @@ class Gamestate:
         self.should_raise= False
 
         self.player = Player()
+
+    def add_character(self, character:Character) -> None:
+        self.characters[character.entity_id] = character
+
+    def schedule_agendum(self, timestamp:float, agendum:Agendum) -> None:
+        heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
@@ -693,5 +755,5 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
 
 class Player:
     def __init__(self) -> None:
-        # which ship the player is in command of, if any
-        self.ship: Optional[Ship] = None
+        # which character the player controls
+        self.character:Character = None # type: ignore[assignment]

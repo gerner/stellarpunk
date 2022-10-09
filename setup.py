@@ -21,6 +21,7 @@ setuptools.setup(
         'stellarpunk': ['py.typed'],
         'stellarpunk.interface': ['py.typed'],
         'stellarpunk.orders': ['py.typed'],
+        'stellarpunk.data': ['*'],
     },
     classifiers=[
         "Programming Language :: Python :: 3",

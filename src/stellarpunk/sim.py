@@ -8,6 +8,7 @@ import curses
 import warnings
 from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO
 import collections
+import heapq
 
 import numpy as np
 import pymunk
@@ -196,6 +197,11 @@ class Simulator:
         for sector in self.gamestate.sectors.values():
             for ship in sector.ships:
                 self.tick_order(ship, dt)
+
+        # let characters act on their (scheduled) agenda items
+        while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
+            agendum = heapq.heappop(self.gamestate.agenda_schedule).item
+            agendum.act()
 
         # at this point all AI decisions have happened everywhere
         # update sector state after all ships across universe take action
