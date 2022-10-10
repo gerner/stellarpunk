@@ -200,7 +200,8 @@ class Simulator:
 
         # let characters act on their (scheduled) agenda items
         while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
-            agendum = heapq.heappop(self.gamestate.agenda_schedule).item
+            pqitem = heapq.heappop(self.gamestate.agenda_schedule)
+            agendum = pqitem.item
             agendum.act()
 
         # at this point all AI decisions have happened everywhere
@@ -336,7 +337,7 @@ def main() -> None:
         #logging.info("running simulation...")
         #stellar_punk.run()
 
-        stellar_punk.production_chain.viz().render("production_chain", format="pdf")
+        stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
         dt = 1/60
         sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5, economy_log=economy_log)

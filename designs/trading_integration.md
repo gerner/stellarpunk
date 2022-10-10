@@ -44,11 +44,37 @@ P0 goal is that economy can function under favorable conditions. After that
 comes reasonable profit maximization. After that comes more complex behaviors
 modelling responsiveness to other characters and market conditions.
 
+## Booting things Up
+
+Every asset (ships and stations) needs to be "owned" by a character. Most
+characters should have a single asset, but perhaps some can have more than one.
+None should own more than three. I plan to reuse
+`UniverseGenerator._random_bipartite_graph` from characters to assets.
+
+For now characters will not be very deep, so we can just generate a flat number
+of them. We'll start by adding in placeholder agenda for them to match the
+assets they own.
+
+We want to set up a stable economy for the sector. That means we need a certain
+layout of stations and ships and prices that support production.
+
+## AI Changes
+
+We want characters to manage high-level choices about mining, trading, price
+setting. So the `HarvestOrder` on ships can probably go and instead we can have
+a `MiningAgendum` on characters to choose asteroids to mine and stations to
+sell raw resources to. Similarly we can have `TradingAgendum` to choose goods
+to trade and `ProductionAgendum` to manage price and budget setting for
+stations.
+
 # Plan
 
-- [ ] character framework: balance, ownership, decision making hooks
+- [x] character framework: balance, ownership, decision making hooks
 - [ ] player controlled character
+- [ ] info view for `Character` (including player)
+- [ ] info view for `SectorEntity`
 - [ ] booting up the economy/initial asset/character/settings
+- [ ] implement trading (agreed upon cargo/money swap)
 - [ ] miners choosing asteroids to mine and station to sell at
 - [ ] traders choosing good and stations to buy/sell at
 - [ ] station owners choosing prices/budget

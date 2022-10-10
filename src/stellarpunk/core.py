@@ -10,7 +10,7 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping
 import abc
 import heapq
 import dataclasses
@@ -81,6 +81,14 @@ class ProductionChain:
 
         return g
 
+class Asset:
+    """ A mixin for classes that are assets ownable by characters. """
+    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
+        # forward arguments onward, so implementing classes should inherit us
+        # first
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
 class Entity:
     id_prefix = "ENT"
 
@@ -134,7 +142,7 @@ class Sector(Entity):
 
     def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
         if not max_dist:
-            max_dist = self.radius*3
+            max_dist = np.inf
         for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.shape.body.entity # type: ignore[union-attr]
 
@@ -311,16 +319,16 @@ class SectorEntity(Entity):
         else:
             return f'{self.short_id()}@None'
 
-class Planet(SectorEntity):
+class Planet(Asset, SectorEntity):
 
-    id_prefix = "PLT"
+    id_prefix = "HAB"
     object_type = ObjectType.PLANET
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-class Station(SectorEntity):
+class Station(Asset, SectorEntity):
 
     id_prefix = "STA"
     object_type = ObjectType.STATION
@@ -332,7 +340,7 @@ class Station(SectorEntity):
         self.next_production_time = 0.
         self.cargo_capacity = 1e5
 
-class Ship(SectorEntity):
+class Ship(Asset, SectorEntity):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
 
     id_prefix = "SHP"
@@ -489,15 +497,8 @@ class Agendum:
 class Sprite:
     """ A "sprite" from a text file that can be drawn in text """
 
-    def __init__(self, sheet:str, size:Tuple[int, int], offset:Tuple[int, int]) -> None:
-        #sheet = importlib.resources.read_text("stellarpunk.data", self.resource_name)
-        self.sheet = sheet
-        self.size = size
-        self.offset = offset
-
-        #TODO: should this load from text? make more sense to load from image?
-        # list of lines of text that make up this "sprite"
-        self.text = [x[self.offset[0]:self.offset[0]+self.size[0]] for x in self.sheet[self.offset[1]:self.offset[1]+self.size[1]]]
+    def __init__(self, text:Sequence[str]) -> None:
+        self.text = text
 
 class Character(Entity):
     def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, **kwargs:Any) -> None:
@@ -514,7 +515,7 @@ class Character(Entity):
 
         # owned assets (ships, stations)
         #TODO: are these actually SectorEntity instances? maybe a new co-class (Asset)
-        self.assets:MutableSequence[SectorEntity] = []
+        self.assets:MutableSequence[Asset] = []
         # activites this character is enaged in (how they interact)
         self.agenda:MutableSequence[Agendum] = []
 
@@ -573,6 +574,19 @@ class OrderLoggerAdapter(logging.LoggerAdapter):
         assert self.ship.sector is not None
         return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
+class OrderObserver:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def order_begin(self, order:"Order") -> None:
+        pass
+
+    def order_complete(self, order:"Order") -> None:
+        pass
+
+    def order_cancel(self, order:"Order") -> None:
+        pass
+
 class Order:
     def __init__(self, ship: Ship, gamestate: Gamestate) -> None:
         self.gamestate = gamestate
@@ -587,8 +601,13 @@ class Order:
         self.init_eta = np.inf
         self.child_orders:Deque[Order] = collections.deque()
 
+        self.observers:List[OrderObserver] = []
+
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
+
+    def observe(self, observer:OrderObserver) -> None:
+        self.observers.append(observer)
 
     def add_child(self, order:Order) -> None:
         self.child_orders.appendleft(order)
@@ -618,11 +637,17 @@ class Order:
         self.started_at = self.gamestate.timestamp
         self._begin()
 
+        for observer in self.observers:
+            observer.order_begin(self)
+
     def complete_order(self) -> None:
         """ Called when an order is_complete and about to be removed from the
         order queue. """
         self.completed_at = self.gamestate.timestamp
         self._complete()
+
+        for observer in self.observers:
+            observer.order_complete(self)
 
     def cancel_order(self) -> None:
         """ Called when an order is removed from the order queue, but not
@@ -643,6 +668,9 @@ class Order:
             pass
 
         self._cancel()
+
+        for observer in self.observers:
+            observer.order_cancel(self)
 
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """
@@ -674,6 +702,8 @@ class Gamestate:
         # heap of agenda items in form (scheduled timestamp, agendum)
         self.agenda_schedule:List[PrioritizedItem] = []
 
+        self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
+
         self.keep_running = True
 
         self.base_date = datetime.datetime(2234, 4, 3)
@@ -695,6 +725,15 @@ class Gamestate:
 
     def add_character(self, character:Character) -> None:
         self.characters[character.entity_id] = character
+        self.characters_by_location[character.location.entity_id].append(character)
+
+        for agendum in character.agenda:
+            self.schedule_agendum(self.timestamp, agendum)
+
+    def move_character(self, character:Character, location:SectorEntity) -> None:
+        self.characters_by_location[character.location.entity_id].remove(character)
+        self.characters_by_location[location.entity_id].append(character)
+        character.location = location
 
     def schedule_agendum(self, timestamp:float, agendum:Agendum) -> None:
         heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))
