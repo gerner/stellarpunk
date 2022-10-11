@@ -67,6 +67,24 @@ sell raw resources to. Similarly we can have `TradingAgendum` to choose goods
 to trade and `ProductionAgendum` to manage price and budget setting for
 stations.
 
+## Trading
+
+A complexity arises since the trade is not instantaneous. There's travel time
+and transfer time and during that period prices, cargo space/availability,
+budget can all change. The trade should continue if still viable, but it's
+possible we need to cancel the transaction, while honoring whatever part did
+happen.
+
+Stations and traders operate asymmetrically in the trade. The station sets the
+price for the good, traders can take it or leave it.
+
+Where do prices/budgets live? How do we find out if both parties still want to participate? 
+
+When a trade is initiated, the trader sets an amount and a floor/ceiling price.
+As the trade is conducted the station might alter the price and amount
+desired/available. The trade will continue up to the amount as long as the
+price (as set by the station) is compatible with the floor/ceiling.
+
 # Plan
 
 - [x] character framework: balance, ownership, decision making hooks
