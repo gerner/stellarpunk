@@ -7,7 +7,7 @@ from typing import Any, Tuple
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, util
+from stellarpunk import core, econ, util
 
 AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 0.5
@@ -49,7 +49,7 @@ class TransferCargoEffect(core.Effect):
             return
 
         if self.destination.distance_to(self.source) > self.max_distance:
-            #TODO: this is not really complete, how to communicate that?
+            #TODO: the transfer isn't really complete, how to communicate that?
             self._completed_transfer = True
             return
 
@@ -57,24 +57,24 @@ class TransferCargoEffect(core.Effect):
             self._completed_transfer = True
             return
 
+
+        amount = self._amount()
+        if not self._continue_transfer(amount):
+            #TODO: the transfer isn't really complete, how to communicate that?
+            self._completed_transfer = True
+            return
+
+        self.sofar += amount
+        self._deliver(amount)
+        self.next_effect_time = self.gamestate.timestamp + TRANSFER_PERIOD
+
+    def _amount(self) -> float:
         amount = min(
                 self.destination.cargo_capacity - np.sum(self.destination.cargo),
                 util.clip(self.amount-self.sofar, 0, self.source.cargo[self.resource])
         )
         amount = min((self.transfer_rate * TRANSFER_PERIOD), amount)
-
-        if not self._continue_transfer(amount):
-            #TODO: this is not really complete, how to communicate that?
-            self._completed_transfer = True
-            return
-
-        self.source.cargo[self.resource] -= amount
-        if self.source.cargo[self.resource] < AMOUNT_EPS:
-            self.source.cargo[self.resource] = 0.
-        self.destination.cargo[self.resource] += amount
-        self.sofar += amount
-        self._deliver(amount)
-        self.next_effect_time = self.gamestate.timestamp + TRANSFER_PERIOD
+        return amount
 
     def _continue_transfer(self, amount:float) -> bool:
         """ Called during the transfer to see if transfer should continue.
@@ -87,66 +87,60 @@ class TransferCargoEffect(core.Effect):
 
     def _deliver(self, amount:float) -> None:
         """ Called after one unit of transfer is completed. """
-        pass
+        self.source.cargo[self.resource] -= amount
+        if self.source.cargo[self.resource] < AMOUNT_EPS:
+            self.source.cargo[self.resource] = 0.
+        self.destination.cargo[self.resource] += amount
 
 class TradeTransferEffect(TransferCargoEffect):
     #TODO: do we want to log trading somewhere?
-    def __init__(self, buyer:core.Character, seller:core.Character, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, current_price:econ.PriceFn, *args:Any, floor_price:float=0., ceiling_price:float=np.inf, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.buyer = buyer
         self.seller = seller
-        self.value = 0.
+        self.floor_price = floor_price
+        self.ceiling_price = ceiling_price
+        self.current_price = current_price
+
+    def _amount(self) -> float:
+        amount = super()._amount()
+        price = self.current_price(self.buyer, self.seller, self.resource)
+
+        if amount * price > self.buyer.budget(self.resource):
+            amount = np.floor(self.buyer.budget(self.resource) / price)
+        if amount * price > self.buyer.balance():
+            amount = np.floor(self.buyer.balance() / price)
+
+        # always pick a non-zero amount so we can bail if things are
+        # unaffordable later
+        if amount < 1.:
+            amount = 1.
+        return amount
 
     def _continue_transfer(self, amount:float) -> bool:
         return super()._continue_transfer(amount) and self._continue_trade(amount)
 
     def _deliver(self, amount:float) -> None:
         #TODO: make sure the buyer still wants to buy more at the given price
-        value = self._current_price() * amount
-        self.buyer.balance -= value
-        self.seller.balance += value
+        price = self.current_price(self.buyer, self.seller, self.resource)
+        self.seller.sell(self.resource, price, amount)
+        self.buyer.buy(self.resource, price, amount)
 
     def _continue_trade(self, amount:float) -> bool:
-        price = self._current_price()
-        value = amount * price
-        return self.buyer.balance >= value
-
-    def _current_price(self) -> float:
-        return 0.
-
-class SellToStationEffect(TradeTransferEffect):
-    def __init__(self, floor_price:float, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.floor_price = floor_price
-
-    def _continue_trade(self, amount:float) -> bool:
-        price = self._current_price()
-        value = amount * price
-        #return price >= self.floor_price and self.destination.budget[self.resource] >= value and self.buyer.balance >= value
-        return True
-
-
-    def _current_price(self) -> float:
-        #return self.destination.price[self.resource]
-        return True
-
-    def _deliver(self, amount:float) -> None:
-        price = self._current_price()
-        value = amount * price
-        #self.destination.budget[self.resource] -= value
-
-class BuyFromStationEffect(TradeTransferEffect):
-    def __init__(self, ceiling_price:float, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.ceiling_price = ceiling_price
-
-    def _continue_trade(self, amount:float) -> bool:
-        price = self._current_price()
-        value = amount * price
-        return price <= self.ceiling_price and self.buyer.balance >= value
-
-    def _current_price(self) -> float:
-        #return self.source.price[self.resource]
+        #TODO: what if the agents are invalid now (e.g. change agent for the station)
+        #TODO: what if one or both parties has been destroyed?
+        price = self.current_price(self.buyer, self.seller, self.resource)
+        if price < self.floor_price:
+            return False
+        if price > self.ceiling_price:
+            return False
+        if amount > self.seller.inventory(self.resource):
+            return False
+        value = price * amount
+        if self.buyer.balance() < value:
+            return False
+        if self.buyer.budget(self.resource) < value:
+            return False
         return True
 
 class MiningEffect(TransferCargoEffect):

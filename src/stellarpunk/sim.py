@@ -105,6 +105,10 @@ class Simulator:
             self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
             order.complete_order()
             ship.orders.popleft()
+
+            #TODO: seems like we don't want this any more (why does the UI need
+            #to know when every single order is complete? I think this was a
+            #testing hook. but that's not probably the right way to do this
             self.ui.order_complete(order)
         else:
             order.act(dt)
@@ -279,7 +283,7 @@ class Simulator:
                 self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
                 if self.behind_ticks > 0:
-                    self.logger.debug(f'ticks caught up with realtime, behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
 
                 self.behind_ticks = 0
                 self.behind_length = 0

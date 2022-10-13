@@ -140,10 +140,14 @@ class Sector(Entity):
         for hit in self.space.bb_query(pymunk.BB(*bbox), pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
             yield hit.body.entity
 
-    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
+    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
+        if mask is None:
+            pymunk_filter = pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())
+        else:
+            pymunk_filter = pymunk.ShapeFilter(mask=mask)
         if not max_dist:
             max_dist = np.inf
-        for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
+        for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk_filter):
             yield hit.shape.body.entity # type: ignore[union-attr]
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
@@ -483,6 +487,12 @@ class Agendum:
         self.gamestate = gamestate
         self.logger = logging.getLogger(util.fullname(self))
 
+    def start(self) -> None:
+        pass
+
+    def is_complete(self) -> bool:
+        return False
+
     def act(self) -> None:
         """ Lets the character interact. Called when scheduled. """
         pass
@@ -518,6 +528,15 @@ class Character(Entity):
         self.assets:MutableSequence[Asset] = []
         # activites this character is enaged in (how they interact)
         self.agenda:MutableSequence[Agendum] = []
+
+    def take_ownership(self, asset:Asset) -> None:
+        self.assets.append(asset)
+        asset.owner = self
+
+    def add_agendum(self, agendum:Agendum, start:bool=True) -> None:
+        self.agenda.append(agendum)
+        if start:
+            agendum.start()
 
 class Effect(abc.ABC):
     def __init__(self, sector:Sector, gamestate:Gamestate) -> None:
@@ -681,6 +700,28 @@ class PrioritizedItem:
     priority: float
     item: Any=dataclasses.field(compare=False)
 
+class EconAgent(abc.ABC):
+    @abc.abstractmethod
+    def buy_price(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def sell_price(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def balance(self) -> float: ...
+
+    @abc.abstractmethod
+    def budget(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def inventory(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def buy(self, resource:int, price:float, amount:float) -> None: ...
+
+    @abc.abstractmethod
+    def sell(self, resource:int, price:float, amount:float) -> None: ...
+
 class Gamestate:
     def __init__(self) -> None:
 
@@ -697,6 +738,12 @@ class Gamestate:
 
         # a spatial index of sectors in the universe
         self.sector_spatial = index.Index()
+
+        #TODO: this feels janky, but I do need a way to find the EconAgent
+        # representing a station if I want to trade with it.
+        #TODO: how do we keep this up to date?
+        # collection of EconAgents, by uuid of the entity they represent
+        self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
 
         self.characters:Dict[uuid.UUID, Character] = {}
         # heap of agenda items in form (scheduled timestamp, agendum)
@@ -723,12 +770,12 @@ class Gamestate:
 
         self.player = Player()
 
+    def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
+        self.econ_agents[entity_id] = agent
+
     def add_character(self, character:Character) -> None:
         self.characters[character.entity_id] = character
         self.characters_by_location[character.location.entity_id].append(character)
-
-        for agendum in character.agenda:
-            self.schedule_agendum(self.timestamp, agendum)
 
     def move_character(self, character:Character, location:SectorEntity) -> None:
         self.characters_by_location[character.location.entity_id].remove(character)

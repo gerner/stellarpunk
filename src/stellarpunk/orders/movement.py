@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Any
+from typing import Optional, Any, Union, Tuple
 
 import numpy as np
 import numpy.typing as npt
@@ -87,6 +87,8 @@ class GoToLocation(AbstractSteeringOrder):
         # surface distance away from the radius
         tries = 0
         max_tries = 15
+        target_loc = ZERO_VECTOR
+        target_arrival_distance = 0.
         while tries < max_tries:
             _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
             target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
@@ -110,7 +112,7 @@ class GoToLocation(AbstractSteeringOrder):
                 target_sector=entity.sector)
 
     @staticmethod
-    def compute_eta(ship:core.Ship, target_location:npt.NDArray[np.float64], safety_factor:float=2.0) -> float:
+    def compute_eta(ship:core.Ship, target_location:Union[npt.NDArray[np.float64], Tuple[float, float]], safety_factor:float=2.0) -> float:
         course = target_location - (ship.loc)
         distance, target_angle = util.cartesian_to_polar(course[0], course[1])
         rotate_towards = rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration(), safety_factor)

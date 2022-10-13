@@ -141,6 +141,7 @@ class MonitoringUI(interface.AbstractInterface):
         self.margin = 2e2
         self.min_neighbor_dist = np.inf
 
+        self.agenda:List[core.Agendum] = []
         self.orders:List[core.Order] = []
         self.cannot_stop_orders:List[orders.GoToLocation] = []
         self.cannot_avoid_collision_orders:List[steering.AbstractSteeringOrder] = []
@@ -160,7 +161,7 @@ class MonitoringUI(interface.AbstractInterface):
 
     def order_complete(self, order:core.Order) -> None:
         self.complete_orders.append(order)
-        if len(set(self.orders) - set(self.complete_orders)) == 0:
+        if len(self.orders) > 0 and len(set(self.orders) - set(self.complete_orders)) == 0:
             self.done = True
 
     def tick(self, timeout:float, dt:float) -> None:
@@ -168,7 +169,7 @@ class MonitoringUI(interface.AbstractInterface):
         assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
-            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]})'
+            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]}, {self.agenda})'
         else:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))*self.order_eta_error_factor, "exceeded max eta over all orders"
 
@@ -181,6 +182,11 @@ class MonitoringUI(interface.AbstractInterface):
             assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin ({margin_neighbor.entity_id})'
             if neighbor_dist < self.min_neighbor_dist:
                 self.min_neighbor_dist = neighbor_dist
+
+        #TODO: is there an event that can handle this?
+        for agendum in self.agenda:
+            if agendum.is_complete():
+                self.done = True
 
         if self.done:
             self.gamestate.quit()

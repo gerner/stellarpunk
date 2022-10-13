@@ -503,6 +503,9 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
     cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
 
+    s_x = 0.
+    s_y = 0.
+    cost = 0.
     if not cost2 < cost1:
         x = x1
         y = y1

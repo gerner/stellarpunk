@@ -192,6 +192,8 @@ class UniverseGenerator:
         # prepare edge assignments between top and bottom
         tries = 0
         has_duplicate = True
+        nstubs:List[int] = []
+        mstubs:List[int] = []
         while has_duplicate:
             if tries > self.parallel_max_edges_tries:
                 raise Exception(f'failed to generate a bipartite graph with no parallel edges after {tries} attempts')
@@ -398,7 +400,6 @@ class UniverseGenerator:
 
         direction_vec = destination.loc - sector.loc
         _, direction = util.cartesian_to_polar(*direction_vec)
-        direction
 
         # choose a location for the gate far away from the center of the sector
         # also make sure the "lane", a path in direction from gate loc to
@@ -482,8 +483,11 @@ class UniverseGenerator:
 
         return asteroids
 
-    def spawn_character(self, location:core.SectorEntity) -> core.Character:
-        return core.Character(self._choose_portrait(), location, name=self._gen_character_name())
+    def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
+        character = core.Character(self._choose_portrait(), location, name=self._gen_character_name())
+        character.balance = balance
+        self.gamestate.add_character(character)
+        return character
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
         pchain = self.gamestate.production_chain
@@ -596,16 +600,15 @@ class UniverseGenerator:
             owned_asset_ids = np.where(ownership_matrix[i] == 1)[0]
             #TODO: choose a location for the character from among their assets
             location = assets[self.r.choice(owned_asset_ids)]
+            assert isinstance(location, core.SectorEntity)
             character = self.spawn_character(location)
 
-            character.assets = list(map(lambda j: assets[j], owned_asset_ids))
-            for asset in character.assets:
+            for asset in map(lambda j: assets[j], owned_asset_ids):
+                character.take_ownership(asset)
                 if isinstance(asset, core.Ship):
-                    character.agenda.append(agenda.MiningAgendum(asset=asset, gamestate=self.gamestate))
-                else:
-                    character.agenda.append(agenda.ManagementAgendum(asset=asset, gamestate=self.gamestate))
-
-            self.gamestate.add_character(character)
+                    character.add_agendum(agenda.MiningAgendum(ship=asset, gamestate=self.gamestate))
+                elif isinstance(asset, core.Station):
+                    character.add_agendum(agenda.StationManager(station=asset, gamestate=self.gamestate))
 
         self.gamestate.add_sector(sector, sector_idx)
 

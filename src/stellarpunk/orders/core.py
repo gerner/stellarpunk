@@ -8,7 +8,7 @@ from typing import Optional, Any
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import util, core, effects
+from stellarpunk import util, core, effects, econ
 
 from .movement import GoToLocation, RotateOrder
 from .steering import ZERO_VECTOR
@@ -62,7 +62,7 @@ class TransferCargo(core.Order):
         self.max_dist = max_dist
         self.transfer_rate = 1e2
 
-        self.transfer_effect:Optional[effects.TransferCargoEffect] = None
+        self.transfer_effect:Optional[core.Effect] = None
 
     def _begin(self) -> None:
         self.init_eta = (
@@ -78,7 +78,7 @@ class TransferCargo(core.Order):
         return self.transfer_effect is not None and self.transfer_effect.is_complete()
 
     def act(self, dt:float) -> None:
-        if self.ship.sector != self.target.sector:
+        if self.ship.sector is None or self.ship.sector != self.target.sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target.sector}')
         # if we're too far away, go to the target
         distance = util.distance(self.ship.loc, self.target.loc) - self.target.radius
@@ -88,13 +88,41 @@ class TransferCargo(core.Order):
 
         #TODO: multiple goods? transfer from us to them?
         if not self.transfer_effect:
-            assert self.ship.sector is not None
-            self.transfer_effect = effects.TransferCargoEffect(
-                    self.resource, self.amount, self.ship, self.target,
-                    self.ship.sector, self.gamestate,
-                    transfer_rate=self.transfer_rate)
+            self.transfer_effect = self._initialize_transfer()
             self.ship.sector.effects.append(self.transfer_effect)
         # else wait for the transfer effect
+
+    def _initialize_transfer(self) -> core.Effect:
+        assert self.ship.sector is not None
+        return effects.TransferCargoEffect(
+                self.resource, self.amount, self.ship, self.target,
+                self.ship.sector, self.gamestate,
+                transfer_rate=self.transfer_rate)
+
+
+class TradeCargoToStation(TransferCargo):
+    def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, floor_price:float, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.buyer = buyer
+        self.seller = seller
+        self.floor_price = floor_price
+
+    def _initialize_transfer(self) -> core.Effect:
+        assert self.ship.sector is not None
+        assert self.buyer == self.gamestate.econ_agents[self.target.entity_id]
+        #TODO: what should we do if the buyer doesn't represent the station
+        # anymore (might have happened since we started the order)
+        return effects.TradeTransferEffect(
+                self.buyer, self.seller, econ.buyer_price,
+                self.resource, self.amount, self.ship, self.target,
+                self.ship.sector, self.gamestate,
+                floor_price=self.floor_price,
+                transfer_rate=self.transfer_rate)
+
+    def act(self, dt:float) -> None:
+        #TODO: what happens if the buyer changes?
+        assert self.buyer == self.gamestate.econ_agents.get(self.target.entity_id)
+        super().act(dt)
 
 class HarvestOrder(core.Order):
     def __init__(self, base:core.SectorEntity, resource:int, *args:Any, max_trips:int=0, **kwargs:Any) -> None:
