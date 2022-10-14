@@ -722,6 +722,21 @@ class EconAgent(abc.ABC):
     @abc.abstractmethod
     def sell(self, resource:int, price:float, amount:float) -> None: ...
 
+class Counters(enum.IntEnum):
+    def _generate_next_value_(name, start, count, last_values): # type: ignore
+        """generate consecutive automatic numbers starting from zero"""
+        return count
+    GOTO_ACT_FAST = enum.auto()
+    GOTO_ACT_SLOW = enum.auto()
+    ACCELERATE_FAST = enum.auto()
+    ACCELERATE_SLOW = enum.auto()
+    ACCELERATE_FAST_FORCE = enum.auto()
+    ACCELERATE_FAST_TORQUE = enum.auto()
+    ACCELERATE_SLOW_FORCE = enum.auto()
+    ACCELERATE_SLOW_TORQUE = enum.auto()
+    COLLISION_HITS_HIT = enum.auto()
+    COLLISION_HITS_MISS = enum.auto()
+
 class Gamestate:
     def __init__(self) -> None:
 
@@ -746,6 +761,7 @@ class Gamestate:
         self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
 
         self.characters:Dict[uuid.UUID, Character] = {}
+
         # heap of agenda items in form (scheduled timestamp, agendum)
         self.agenda_schedule:List[PrioritizedItem] = []
 
@@ -769,6 +785,8 @@ class Gamestate:
         self.should_raise= False
 
         self.player = Player()
+
+        self.counters = [0] * len(Counters)
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent

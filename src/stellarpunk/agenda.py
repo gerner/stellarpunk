@@ -5,7 +5,7 @@ import enum
 
 import numpy as np
 
-from stellarpunk import core, econ
+from stellarpunk import core, econ, util
 import stellarpunk.orders.core as ocore
 
 # how long to wait, idle if we can't do work
@@ -95,7 +95,7 @@ class MiningAgendum(core.OrderObserver, core.Agendum):
             if hit.cargo[hit.resource] <= 0:
                 continue
 
-            dist = np.linalg.norm(self.ship.loc - hit.loc)
+            dist = util.distance(self.ship.loc, hit.loc)
             distances.append(dist)
             candidates.append(hit)
 

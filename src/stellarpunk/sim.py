@@ -314,6 +314,7 @@ def main() -> None:
         logging.basicConfig(
                 format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
                 filename="/tmp/stellarpunk.log",
+                filemode="w",
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
@@ -353,6 +354,9 @@ def main() -> None:
         #TODO: should we just disable a gc while we're doing a tick?
         gc.set_threshold(700*4, 10*4, 10*4)
         sim.run()
+
+        counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
+        logging.info(f'counters:\n{counter_str}')
 
         logging.info("done.")
 

@@ -226,7 +226,9 @@ class GoToLocation(AbstractSteeringOrder):
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
             self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
+            self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
             return
+        self.gamestate.counters[core.Counters.GOTO_ACT_SLOW] += 1
 
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance

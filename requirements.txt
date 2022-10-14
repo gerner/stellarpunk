@@ -4,10 +4,11 @@ ipdb
 graphviz
 drawille
 pymunk
-pandas
 scipy
 msgpack
 imageio
+rtree
+tqdm
 
 # dev dependencies
 pytest

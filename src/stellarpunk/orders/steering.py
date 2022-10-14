@@ -147,7 +147,6 @@ def force_torque_for_delta_velocity(
 
 @jit(cache=True, nopython=True)
 def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
-    speed = util.magnitude(v[0], v[1])
     rel_pos = entity_pos - pos
     rel_vel = entity_v - v
 
@@ -171,6 +170,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
             return rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.
         return rel_dist, np.inf, rel_pos, rel_vel, np.inf, ZERO_VECTOR, np.inf
 
+    speed = util.magnitude(v[0], v[1])
     # compute the closest approach within max_distance
     collision_distance = speed * approach_t
     if collision_distance > max_distance:
@@ -740,10 +740,15 @@ class AbstractSteeringOrder(core.Order):
     def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
         if not force_recompute and self.gamestate.timestamp < self._next_accelerate_compute_ts:
             if self._accelerate_difference_mag != 0.:
+                self.gamestate.counters[core.Counters.ACCELERATE_FAST_FORCE] += 1
                 self.ship.apply_force(self._accelerate_force)
             if self._accelerate_torque != 0.:
+                self.gamestate.counters[core.Counters.ACCELERATE_FAST_TORQUE] += 1
                 self.ship.apply_torque(self._accelerate_torque)
+
+            self.gamestate.counters[core.Counters.ACCELERATE_FAST] += 1
             return
+        self.gamestate.counters[core.Counters.ACCELERATE_SLOW] += 1
         mass = self.ship.mass
         moment = self.ship.moment
         angle = self.ship.angle
@@ -765,9 +770,11 @@ class AbstractSteeringOrder(core.Order):
             if difference_mag > 0.:
                 self.ship.set_velocity(target_velocity)
         else:
+            self.gamestate.counters[core.Counters.ACCELERATE_SLOW_FORCE] += 1
             self.ship.apply_force(force)
 
         if torque != 0.:
+            self.gamestate.counters[core.Counters.ACCELERATE_SLOW_TORQUE] += 1
             self.ship.apply_torque(torque)
 
         self._accelerate_difference_angle = difference_angle
@@ -820,15 +827,18 @@ class AbstractSteeringOrder(core.Order):
         if self.gamestate.timestamp - self.collision_hits_age < self.collision_hits_max_age:
             #TODO: what to do if the neighbor isn't in this sector any more?
             hits = self.collision_hits
+            self.gamestate.counters[core.Counters.COLLISION_HITS_HIT] += 1
         else:
             hits = list(e for e in  sector.spatial_point(neighborhood_loc, neighborhood_dist) if e != self.ship)
             self.collision_hits_age = self.gamestate.timestamp
             self.collision_hits = hits
+            self.gamestate.counters[core.Counters.COLLISION_HITS_MISS] += 1
         self.cannot_avoid_collision = False
         self.nearest_neighbor_dist = np.inf
 
         any_prior_threats = False
         all_prior_threats = False
+
         if len(hits) > 0:
             #TODO: this is really not ideal: we go into pymunk to get hits via
             # cffi and then come back to python and then do some marshalling

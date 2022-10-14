@@ -16,7 +16,6 @@ import numpy as np
 import numpy.typing as npt
 import msgpack # type: ignore
 import tqdm # type: ignore
-from numba import jit # type: ignore
 
 from stellarpunk import util, core, generate, serialization
 

@@ -449,7 +449,7 @@ class UniverseGenerator:
 
         return asteroid
 
-    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> list[core.Asteroid]:
+    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
         resource : the type of resource
