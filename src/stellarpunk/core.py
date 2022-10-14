@@ -10,7 +10,7 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic
 import abc
 import heapq
 import dataclasses
@@ -362,7 +362,7 @@ class Ship(Asset, SectorEntity):
         # max torque for turning (in newton-meters)
         self.max_torque = 0.
 
-        self.orders: Deque[Order] = collections.deque()
+        self._orders: Deque[Order] = collections.deque()
         self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
@@ -375,7 +375,7 @@ class Ship(Asset, SectorEntity):
         return self.history
 
     def to_history(self, timestamp:float) -> HistoryEntry:
-        order_hist = self.orders[0].to_history() if self.orders else None
+        order_hist = self._orders[0].to_history() if self._orders else None
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
@@ -449,9 +449,25 @@ class Ship(Asset, SectorEntity):
     def default_order(self, gamestate: Gamestate) -> Order:
         return self.default_order_fn(self, gamestate)
 
+    def prepend_order(self, order:Order, begin:bool=True) -> None:
+        self._orders.appendleft(order)
+        if begin:
+            order.begin_order()
+
+    def append_order(self, order:Order, begin:bool=False) -> None:
+        self._orders.append(order)
+        if begin:
+            order.begin_order()
+
     def clear_orders(self) -> None:
-        while self.orders:
-            self.orders[0].cancel_order()
+        while self._orders:
+            self._orders[0].cancel_order()
+
+    def current_order(self) -> Optional[Order]:
+        if len(self._orders) > 0:
+            return self._orders[0]
+        else:
+            return None
 
 class Asteroid(SectorEntity):
 
@@ -538,14 +554,34 @@ class Character(Entity):
         if start:
             agendum.start()
 
+class EffectObserver:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def effect_begin(self, effect:"Effect") -> None:
+        pass
+
+    def effect_complete(self, effect:"Effect") -> None:
+        pass
+
+    def effect_cancel(self, effect:"Effect") -> None:
+        pass
+
 class Effect(abc.ABC):
-    def __init__(self, sector:Sector, gamestate:Gamestate) -> None:
+    def __init__(self, sector:Sector, gamestate:Gamestate, observer:Optional[EffectObserver]=None) -> None:
         self.sector = sector
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
+        self.observers:List[EffectObserver] = []
 
         self.logger = logging.getLogger(util.fullname(self))
+
+        if observer is not None:
+            self.observe(observer)
+
+    def observe(self, observer:EffectObserver) -> None:
+        self.observers.append(observer)
 
     def _begin(self) -> None:
         pass
@@ -568,9 +604,15 @@ class Effect(abc.ABC):
         self.started_at = self.gamestate.timestamp
         self._begin()
 
+        for observer in self.observers:
+            observer.effect_begin(self)
+
     def complete_effect(self) -> None:
         self.completed_at = self.gamestate.timestamp
         self._complete()
+
+        for observer in self.observers:
+            observer.effect_complete(self)
 
     def cancel_effect(self) -> None:
         try:
@@ -580,6 +622,9 @@ class Effect(abc.ABC):
             pass
 
         self._cancel()
+
+        for observer in self.observers:
+            observer.effect_cancel(self)
 
     def act(self, dt:float) -> None:
         pass
@@ -607,7 +652,7 @@ class OrderObserver:
         pass
 
 class Order:
-    def __init__(self, ship: Ship, gamestate: Gamestate) -> None:
+    def __init__(self, ship: Ship, gamestate: Gamestate, observer:Optional[OrderObserver]=None) -> None:
         self.gamestate = gamestate
         self.ship = ship
         self.logger = OrderLoggerAdapter(
@@ -621,6 +666,8 @@ class Order:
         self.child_orders:Deque[Order] = collections.deque()
 
         self.observers:List[OrderObserver] = []
+        if observer is not None:
+            self.observe(observer)
 
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
@@ -628,9 +675,9 @@ class Order:
     def observe(self, observer:OrderObserver) -> None:
         self.observers.append(observer)
 
-    def add_child(self, order:Order) -> None:
+    def _add_child(self, order:Order, begin:bool=True) -> None:
         self.child_orders.appendleft(order)
-        self.ship.orders.appendleft(order)
+        self.ship.prepend_order(order, begin=begin)
 
     def to_history(self) -> dict:
         return {"o": self.o_name}
@@ -659,6 +706,8 @@ class Order:
         for observer in self.observers:
             observer.order_begin(self)
 
+        self.gamestate.schedule_order(0, self)
+
     def complete_order(self) -> None:
         """ Called when an order is_complete and about to be removed from the
         order queue. """
@@ -675,13 +724,13 @@ class Order:
         for order in self.child_orders:
             order.cancel_order()
             try:
-                self.ship.orders.remove(order)
+                self.ship._orders.remove(order)
             except ValueError:
                 # order might already have been removed from the queue
                 pass
 
         try:
-            self.ship.orders.remove(self)
+            self.ship._orders.remove(self)
         except ValueError:
             # order might already have been removed from the queue
             pass
@@ -695,10 +744,11 @@ class Order:
         """ Performs one immediate tick's worth of action for this order """
         pass
 
+T = TypeVar("T")
 @dataclasses.dataclass(order=True)
-class PrioritizedItem:
+class PrioritizedItem(Generic[T]):
     priority: float
-    item: Any=dataclasses.field(compare=False)
+    item:T=dataclasses.field(compare=False)
 
 class EconAgent(abc.ABC):
     @abc.abstractmethod
@@ -736,6 +786,7 @@ class Counters(enum.IntEnum):
     ACCELERATE_SLOW_TORQUE = enum.auto()
     COLLISION_HITS_HIT = enum.auto()
     COLLISION_HITS_MISS = enum.auto()
+    NON_FRONT_ORDER_ACTION = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:
@@ -762,8 +813,11 @@ class Gamestate:
 
         self.characters:Dict[uuid.UUID, Character] = {}
 
+        # heap of order items in form (scheduled timestamp, agendum)
+        self.order_schedule:List[PrioritizedItem[Order]] = []
+
         # heap of agenda items in form (scheduled timestamp, agendum)
-        self.agenda_schedule:List[PrioritizedItem] = []
+        self.agenda_schedule:List[PrioritizedItem[Agendum]] = []
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
@@ -799,6 +853,9 @@ class Gamestate:
         self.characters_by_location[character.location.entity_id].remove(character)
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
+
+    def schedule_order(self, timestamp:float, order:Order) -> None:
+        heapq.heappush(self.order_schedule, PrioritizedItem(timestamp, order))
 
     def schedule_agendum(self, timestamp:float, agendum:Agendum) -> None:
         heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))

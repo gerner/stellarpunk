@@ -66,7 +66,8 @@ class GoToLocation(AbstractSteeringOrder):
             gamestate:core.Gamestate,
             surface_distance:float=2e3,
             collision_margin:float=1e3,
-            empty_arrival:bool=False) -> GoToLocation:
+            empty_arrival:bool=False,
+            observer:Optional[core.OrderObserver]=None) -> GoToLocation:
         """ Makes a GoToLocation order to get near a target entity.
 
         entity: the entity to get near
@@ -109,7 +110,8 @@ class GoToLocation(AbstractSteeringOrder):
                 target_loc, ship, gamestate,
                 arrival_distance=target_arrival_distance,
                 min_distance=0.,
-                target_sector=entity.sector)
+                target_sector=entity.sector,
+                observer=observer)
 
     @staticmethod
     def compute_eta(ship:core.Ship, target_location:Union[npt.NDArray[np.float64], Tuple[float, float]], safety_factor:float=2.0) -> float:

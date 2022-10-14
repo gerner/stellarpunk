@@ -156,9 +156,10 @@ class SectorView(interface.View):
         self.logger.info(f'selected target {entity}')
         if entity:
             if isinstance(entity, core.Ship):
-                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.orders[0]}')
-                for order in list(entity.orders)[1:]:
-                    self.interface.log_message(f'queued: {order}')
+                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.current_order()}')
+                #TODO: display queued orders?
+                #for order in list(entity.orders)[1:]:
+                #    self.interface.log_message(f'queued: {order}')
             elif isinstance(entity, core.TravelGate):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} direction: {entity.direction}')
             else:
@@ -243,22 +244,27 @@ class SectorView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise command_input.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
+            self.selected_entity.clear_orders()
+            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
+            self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'order only valid on a ship target')
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.WaitOrder(self.selected_entity, self.interface.gamestate))
+            self.selected_entity.clear_orders()
+            order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
+            self.selected_entity.prepend_order(order)
 
+        """
         def harvest(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'order only valid on a ship target')
             self.logger.info('adding harvest order to {self.selected_entity}')
             base = self.sector.stations[0]
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.HarvestOrder(base, 0, self.selected_entity, self.interface.gamestate))
+            self.selected_entity.clear_orders()
+            order = orders.HarvestOrder(base, 0, self.selected_entity, self.interface.gamestate)
+            self.selected_entity.prepend_order(order)
+        """
 
         def debug_entity(args:Sequence[str])->None: self.debug_entity = not self.debug_entity
         def debug_vectors(args:Sequence[str])->None: self.debug_entity_vectors = not self.debug_entity_vectors
@@ -312,7 +318,7 @@ class SectorView(interface.View):
                 "spawn_resources": spawn_resources,
                 "goto": goto,
                 "wait": wait,
-                "harvest": harvest,
+                #"harvest": harvest,
                 "pilot": pilot,
         }
 
@@ -342,30 +348,35 @@ class SectorView(interface.View):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.KillRotationOrder(self.selected_entity, self.interface.gamestate))
+                self.selected_entity.clear_orders()
+                kr_order = orders.KillRotationOrder(self.selected_entity, self.interface.gamestate)
+                self.selected_entity.prepend_order(kr_order)
         elif key == ord("r"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.RotateOrder(0, self.selected_entity, self.interface.gamestate))
+                self.selected_entity.clear_orders()
+                rot_order = orders.RotateOrder(0, self.selected_entity, self.interface.gamestate)
+                self.selected_entity.prepend_order(rot_order)
         elif key == ord("x"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate))
+                self.selected_entity.clear_orders()
+                kv_order = orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate)
+                self.selected_entity.prepend_order(kv_order)
         elif key == ord("g"):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
             else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate))
+                self.selected_entity.clear_orders()
+                gt_order = orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate)
+                self.selected_entity.prepend_order(gt_order)
         elif key == ord("o"):
             for ship in self.sector.ships:
                 station = self.interface.generator.r.choice(np.array((self.sector.stations)))
-                ship.orders.append(orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate))
+                gt_order = orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate)
+                ship.prepend_order(gt_order)
         elif key == ord(":"):
             self.interface.open_view(command_input.CommandInput(
                 self.interface, commands=self.command_list()))

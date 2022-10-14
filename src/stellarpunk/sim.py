@@ -94,17 +94,17 @@ class Simulator:
             h.pre_solve = self._ship_collision_detected
 
     def tick_order(self, ship: core.Ship, dt: float) -> None:
-        if not ship.orders:
-            ship.orders.append(ship.default_order(self.gamestate))
+        if not ship._orders:
+            ship.prepend_order(ship.default_order(self.gamestate))
 
-        order = ship.orders[0]
+        order = ship._orders[0]
         if order.started_at < 0:
             order.begin_order()
 
         if order.is_complete():
             self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
             order.complete_order()
-            ship.orders.popleft()
+            ship._orders.popleft()
 
             #TODO: seems like we don't want this any more (why does the UI need
             #to know when every single order is complete? I think this was a
@@ -202,11 +202,20 @@ class Simulator:
             for ship in sector.ships:
                 self.tick_order(ship, dt)
 
+        #while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
+        #    order_item = heapq.heappop(self.gamestate.order_schedule)
+        #    order = order_order.item
+        #    if order == order.ship.current_order():
+        #        order.act(dt)
+        #    else:
+        #        # else order isn't the front item, so we'll ignore this action
+        #        self.logger.warning(f'got non-front order scheduled action: {order_item.item}')
+        #        self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
+
         # let characters act on their (scheduled) agenda items
         while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
-            pqitem = heapq.heappop(self.gamestate.agenda_schedule)
-            agendum = pqitem.item
-            agendum.act()
+            agendum_item = heapq.heappop(self.gamestate.agenda_schedule)
+            agendum_item.item.act()
 
         # at this point all AI decisions have happened everywhere
         # update sector state after all ships across universe take action
@@ -239,8 +248,8 @@ class Simulator:
             for sector in self.gamestate.sectors.values():
                 for ship in sector.ships:
                     total_ships += 1
-                    if len(ship.orders) > 0:
-                        order = ship.orders[0]
+                    if len(ship._orders) > 0:
+                        order = ship._orders[0]
                         if isinstance(order, orders.movement.GoToLocation):
                             total_goto_orders += 1
                             if order.collision_threat:

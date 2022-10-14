@@ -105,7 +105,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         order = core.Order(ship, gamestate)
     else:
         raise ValueError(f'can not load {history_entry["o"]["o"]}')
-    ship.orders.append(order)
+    ship.prepend_order(order)
 
     return order
 

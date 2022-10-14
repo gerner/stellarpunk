@@ -191,7 +191,7 @@ class MiningAgendum(core.OrderObserver, core.Agendum):
                     station, resource, self.ship.cargo[resource],
                     self.ship, self.gamestate)
             self.transfer_order.observe(self)
-            self.ship.orders.appendleft(self.transfer_order)
+            self.ship.prepend_order(self.transfer_order)
         else:
             # if we don't have any resources in cargo, go mine some
 
@@ -207,7 +207,7 @@ class MiningAgendum(core.OrderObserver, core.Agendum):
             self.state = MiningAgendum.State.MINING
             self.mining_order = ocore.MineOrder(target, 1e3, self.ship, self.gamestate)
             self.mining_order.observe(self)
-            self.ship.orders.appendleft(self.mining_order)
+            self.ship.prepend_order(self.mining_order)
 
 class StationManager(core.Agendum):
     def __init__(self, station:core.Station, *args:Any, **kwargs:Any) -> None:

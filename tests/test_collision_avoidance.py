@@ -53,7 +53,7 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
     ship_blocker = generator.spawn_ship(sector, -300, 1200, v=(0,0), w=0, theta=0)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
-    ship_driver.orders.append(goto_order)
+    ship_driver.prepend_order(goto_order)
 
     # d = v_i*t + 1/2 a * t**2
     # v_i = 0
@@ -78,7 +78,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     ship_blocker = generator.spawn_ship(sector, 0, 1700, v=(0,0), w=0, theta=0)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
-    ship_driver.orders.append(goto_order)
+    ship_driver.prepend_order(goto_order)
 
     testui.eta = goto_order.estimate_eta()
     testui.orders = [goto_order]
@@ -104,7 +104,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     ship_driver.phys.velocity = tuple(ship_driver.velocity)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
-    ship_driver.orders.append(goto_order)
+    ship_driver.prepend_order(goto_order)
 
     # a "wall" of blockers to the left of our target
     generator.spawn_ship(sector, -300, 10000, v=(0,0), w=0, theta=0)
@@ -131,9 +131,9 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     ship_b = generator.spawn_ship(sector, 0, -5000, v=(0,0), w=0, theta=np.pi/2)
 
     goto_a = orders.GoToLocation(np.array((5000.,0.)), ship_a, gamestate)
-    ship_a.orders.append(goto_a)
+    ship_a.prepend_order(goto_a)
     goto_b = orders.GoToLocation(np.array((0.,5000.)), ship_b, gamestate)
-    ship_b.orders.append(goto_b)
+    ship_b.prepend_order(goto_b)
 
     a_cbdr = False
     b_cbdr = False
@@ -159,9 +159,9 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
     ship_b = generator.spawn_ship(sector, 5000, 0, v=(0,0), w=0, theta=np.pi)
 
     goto_a = orders.GoToLocation(np.array((10000.,0.)), ship_a, gamestate)
-    ship_a.orders.append(goto_a)
+    ship_a.prepend_order(goto_a)
     goto_b = orders.GoToLocation(np.array((-10000.,0.)), ship_b, gamestate)
-    ship_b.orders.append(goto_b)
+    ship_b.prepend_order(goto_b)
 
     eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
 
@@ -237,7 +237,7 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     ship_blocker = generator.spawn_station(sector, -45858.953065820686, -126065.49162802949, resource=0)
 
     goto_order = orders.GoToLocation(np.array([-61165.07884422924, -152496.78251442552]), ship_driver, gamestate)
-    ship_driver.orders.append(goto_order)
+    ship_driver.prepend_order(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
     eta = goto_order.estimate_eta()
@@ -485,7 +485,7 @@ def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
     generator.spawn_resource_field(sector, 0., 0., 0, num_blockers, width=5e3, mean_per_asteroid=1, variance_per_asteroid=0)
 
     goto_order = orders.GoToLocation(np.array([0., 0.]), ship_driver, gamestate)
-    ship_driver.orders.append(goto_order)
+    ship_driver.prepend_order(goto_order)
 
     eta = goto_order.estimate_eta()
 
@@ -528,7 +528,7 @@ def test_either_side(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["8ccb3abc-b940-453c-82f8-2d108117312e"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
@@ -544,7 +544,7 @@ def test_complicated_departure(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["951081e3-6253-4a9c-8be7-6a21cbf31feb"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -563,7 +563,7 @@ def test_20220331(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["670fff17-7333-4b69-be59-98d00286dc6f"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -583,7 +583,7 @@ def test_too_fast_small_margin(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["267924bc-6490-4561-984b-cb47dce385d5"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -604,7 +604,7 @@ def test_coalesced_cbdr(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["2b20dd4b-b5e9-4562-84ab-74d8f40db525"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -625,7 +625,7 @@ def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulat
 
     ship_a = entities["b695ac11-0021-4c52-b72f-288f715c08c5"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -651,7 +651,7 @@ def test_respond_to_new(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["dcf07fc2-5a4e-4acc-8674-2f4d871bdaf0"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -678,7 +678,7 @@ def test_failed_to_divert(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["2aac25bb-2dea-4f7b-a6cc-c44f3b18ed70"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -708,7 +708,7 @@ def test_threading_needle(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["bd9a76fa-96d4-42a3-a469-c000e5e38ebb"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -731,7 +731,7 @@ def test_collision_field(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["c12de111-949a-47bc-8570-a3d7cadac9f1"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -754,7 +754,7 @@ def test_histeresis(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["116f6f98-865b-4690-bfd1-73c8b7cd22a0"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -777,7 +777,7 @@ def test_overlapping(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["d64692e0-2206-4f24-b512-a21d90f53189"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -801,7 +801,7 @@ def test_cross_traffic(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["5e9685d2-9272-4923-9bb2-5a0a2d07692f"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -825,7 +825,7 @@ def test_traffic_lane(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["88bf287a-921f-4b19-bd6d-4deb6100c834"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -848,7 +848,7 @@ def test_arrival_occupied(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["1d68c162-c8eb-418f-b379-1bb0674742ae"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -871,7 +871,7 @@ def test_navigate_field(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["f95f25b2-c2e9-48cc-bc13-15d4c7393e72"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -898,7 +898,7 @@ def test_actual_vs_desired_velocity(gamestate, generator, sector, testui, simula
 
     ship_a = entities["d0c48ae3-b438-463a-9a6f-1f6f8ad69e4e"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -921,7 +921,7 @@ def test_overeager_arrival(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["9fac0d05-f96a-4410-8167-da3921aa22e8"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -944,7 +944,7 @@ def test_arrival_occupied2(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["b97d8d21-ec2a-476c-bc84-fce9dff8a29b"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -967,7 +967,7 @@ def test_busy_intersection(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["caf26807-a636-4408-9825-7138b9f559e1"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -994,7 +994,7 @@ def test_rotate_lag(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["0e9e97d6-2a23-4cbe-b976-a1ff9e7440e0"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -1015,7 +1015,7 @@ def test_through_asteroid_field(gamestate, generator, sector, testui, simulator)
 
     ship_a = entities["5f56e223-38ba-4c86-b055-585535b3caa6"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -1040,7 +1040,7 @@ def test_more_busy_lane(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["537958f9-536c-485d-8ca4-dfea883fc65b"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -1062,7 +1062,7 @@ def test_target_behind_asteroid(gamestate, generator, sector, testui, simulator)
 
     ship_a = entities["a4c71ae5-f3cd-47ff-a266-5a8ed4facef5"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -1084,7 +1084,7 @@ def test_more_asteroid_nav(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["28ce5698-a1bf-43df-89f6-0f0b07ee957e"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
@@ -1108,7 +1108,7 @@ def test_headon_asteroid_field(gamestate, generator, sector, testui, simulator):
 
     ship_a = entities["922e3718-1d71-4c70-ba8f-e7a5085336a9"]
     logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.orders[0]
+    goto_a = ship_a.current_order()
 
     eta = goto_a.estimate_eta()
 
