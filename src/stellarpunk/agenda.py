@@ -55,13 +55,13 @@ class MiningAgendum(core.OrderObserver, core.Agendum):
             self.mining_order = None
             # go back into idle state to start things off again
             self.state = MiningAgendum.State.IDLE
-            self.gamestate.schedule_agendum(self.gamestate.timestamp, self)
+            self.gamestate.schedule_agendum_immediate(self)
         elif self.state == MiningAgendum.State.TRADING:
             assert order == self.transfer_order
             self.transfer_order = None
             # go back into idle state to start things off again
             self.state = MiningAgendum.State.IDLE
-            self.gamestate.schedule_agendum(self.gamestate.timestamp, self)
+            self.gamestate.schedule_agendum_immediate(self)
             self.round_trips += 1
         else:
             raise ValueError("got order_complete in wrong state {self.state}")
@@ -77,7 +77,7 @@ class MiningAgendum(core.OrderObserver, core.Agendum):
             raise ValueError("got order_cancel in wrong state {self.state}")
 
         self.state = MiningAgendum.State.IDLE
-        self.gamestate.schedule_agendum(self.gamestate.timestamp, self)
+        self.gamestate.schedule_agendum_immediate(self)
 
     def _choose_asteroid(self) -> Optional[core.Asteroid]:
         if self.ship.sector is None:
@@ -157,7 +157,7 @@ class MiningAgendum(core.OrderObserver, core.Agendum):
 
     def start(self) -> None:
         assert self.state == MiningAgendum.State.IDLE
-        self.gamestate.schedule_agendum(self.gamestate.timestamp, self)
+        self.gamestate.schedule_agendum_immediate(self)
 
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.round_trips >= self.max_trips

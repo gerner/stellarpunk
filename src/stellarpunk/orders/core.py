@@ -13,7 +13,7 @@ from stellarpunk import util, core, effects, econ
 from .movement import GoToLocation, RotateOrder
 from .steering import ZERO_VECTOR
 
-class MineOrder(core.EffectObserver, core.Order):
+class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
     def __init__(self, target: core.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
@@ -34,11 +34,17 @@ class MineOrder(core.EffectObserver, core.Order):
 
     def effect_complete(self, effect:core.Effect) -> None:
         assert effect == self.mining_effect
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def effect_cancel(self, effect:core.Effect) -> None:
         assert effect == self.mining_effect
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
+
+    def order_complete(self, order:core.Order) -> None:
+        self.gamestate.schedule_order_immediate(self)
+
+    def order_cancel(self, order:core.Order) -> None:
+        self.gamestate.schedule_order_immediate(self)
 
     def is_complete(self) -> bool:
         return self.mining_effect is not None and self.mining_effect.is_complete()
@@ -49,18 +55,18 @@ class MineOrder(core.EffectObserver, core.Order):
         # grab resources from the asteroid and add to our cargo
         distance = util.distance(self.ship.loc,self.target.loc) - self.target.radius
         if distance > self.max_dist:
-            order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist)
+            order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
             self.ship.prepend_order(order)
             return
 
         if not self.mining_effect:
             assert self.ship.sector is not None
             self.mining_effect = effects.MiningEffect(
-                    self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate)
+                    self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
             self.ship.sector.effects.append(self.mining_effect)
         # else wait for the mining effect
 
-class TransferCargo(core.EffectObserver, core.Order):
+class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
     def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -85,11 +91,17 @@ class TransferCargo(core.EffectObserver, core.Order):
 
     def effect_complete(self, effect:core.Effect) -> None:
         assert effect == self.transfer_effect
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def effect_cancel(self, effect:core.Effect) -> None:
         assert effect == self.transfer_effect
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
+
+    def order_complete(self, order:core.Order) -> None:
+        self.gamestate.schedule_order_immediate(self)
+
+    def order_cancel(self, order:core.Order) -> None:
+        self.gamestate.schedule_order_immediate(self)
 
     def is_complete(self) -> bool:
         return self.transfer_effect is not None and self.transfer_effect.is_complete()
@@ -100,13 +112,14 @@ class TransferCargo(core.EffectObserver, core.Order):
         # if we're too far away, go to the target
         distance = util.distance(self.ship.loc, self.target.loc) - self.target.radius
         if distance > self.max_dist:
-            order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist)
+            order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
             self.ship.prepend_order(order)
             return
 
         #TODO: multiple goods? transfer from us to them?
         if not self.transfer_effect:
             self.transfer_effect = self._initialize_transfer()
+            self.transfer_effect.observe(self)
             self.ship.sector.effects.append(self.transfer_effect)
         # else wait for the transfer effect
 
@@ -272,11 +285,11 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
 
     def order_complete(self, order:core.Order) -> None:
         assert order == self.embark_order
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
         assert order == self.embark_order
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def is_complete(self) -> bool:
         return self.embark_order is not None and self.embark_order.is_complete()
@@ -352,7 +365,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             assert effect == self.warp_in
         else:
             assert False
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def effect_cancel(self, effect:core.Effect) -> None:
         if self.phase == self.PHASE_TRAVEL_OUT_OF_SECTOR:
@@ -361,13 +374,13 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             assert effect == self.warp_in
         else:
             assert False
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def order_complete(self, order:core.Order) -> None:
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def _act_travel_to_gate(self, dt:float) -> None:
         """ Handles action during travel to gate phase.
@@ -465,7 +478,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # continue action once the effect completes
         else:
             # lets gooooooo
-            self.ship.apply_force(self.target_gate.direction_vector * self.travel_thrust)
+            self.ship.apply_force(self.target_gate.direction_vector * self.travel_thrust, True)
             #TODO: we want to continue applying thrust for the entire interval
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
@@ -483,9 +496,9 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             self.phase = self.PHASE_COMPLETE
 
             # schedule another tick to get cleaned up
-            self.gamestate.schedule_order(0, self)
+            self.gamestate.schedule_order_immediate(self)
         else:
-            self.ship.apply_force(-1 * self.target_gate.direction_vector * self.travel_thrust)
+            self.ship.apply_force(-1 * self.target_gate.direction_vector * self.travel_thrust, True)
             #TODO: we want to continue applying thrust for the entire interval
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
@@ -526,10 +539,10 @@ class DockingOrder(core.OrderObserver, core.Order):
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
 
     def order_complete(self, order:core.Order) -> None:
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def is_complete(self) -> bool:
         distance_to_target = util.distance(self.ship.loc, self.target.loc)

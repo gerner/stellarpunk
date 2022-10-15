@@ -10,7 +10,7 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set
 import abc
 import heapq
 import dataclasses
@@ -367,8 +367,14 @@ class Ship(Asset, SectorEntity):
 
         self.collision_threat: Optional[SectorEntity] = None
 
+        self._planned_force = [0., 0.]
+        self._persistent_force = False
+        self._planned_torque = 0.
+        self._persistent_torque = False
         self._applied_force = False
         self._will_apply_force = False
+        self._will_apply_torque = False
+        self._applied_torque = False
         self.max_speed_override:Optional[float] = None
 
     def get_history(self) -> Sequence[HistoryEntry]:
@@ -402,31 +408,53 @@ class Ship(Asset, SectorEntity):
 
     def pre_tick(self, ts:float) -> None:
         # update ship positions from physics sim
-        #ship.loc.put(ZERO_ONE, ship.phys.position)
         pos = self.phys.position
 
         self.loc[0] = pos[0]
         self.loc[1] = pos[1]
         self.angle = self.phys.angle
-        #ship.velocity.put(ZERO_ONE, ship.phys.velocity)
+
         vel = self.phys.velocity
         self.velocity[0] = vel[0]
         self.velocity[1] = vel[1]
         self.angular_velocity = self.phys.angular_velocity
 
+        #TODO: kind of wish pymunk would give us this option itself
+        #if self._persistent_torque:
+        #    self.phys.torque = self._planned_torque
+        #if self._persistent_force:
+        #    self.phys.force = self._planned_force
+
     def post_tick(self) -> None:
-        self._applied_force = self._will_apply_force
-        self._will_apply_force = False
+        if self._will_apply_torque:
+            self.phys.torque = self._planned_torque
+            self._applied_torque = True
+            if not self._persistent_torque:
+                self._planned_torque = 0.
+                self._will_apply_torque = False
+        if self._will_apply_force:
+            self.phys.force = self._planned_force
+            self._applied_force = self._will_apply_force
+            if not self._persistent_force:
+                self._planned_force[0] = 0.
+                self._planned_force[1] = 0.
+                self._will_apply_force = False
 
-    def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
-        self.phys.apply_force_at_world_point(
-                (force[0], force[1]),
-                (self.loc[0], self.loc[1])
-        )
+    def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
+        #self.phys.apply_force_at_world_point(
+        #        (force[0], force[1]),
+        #        (self.loc[0], self.loc[1])
+        #)
+        self._planned_force[0] = force[0]
+        self._planned_force[1] = force[1]
         self._will_apply_force = True
+        self._persistent_force = persistent and (force[0] != 0. or force[1] != 0.)
 
-    def apply_torque(self, torque: float) -> None:
-        self.phys.torque = torque
+    def apply_torque(self, torque: float, persistent:bool) -> None:
+        #self.phys.torque = torque
+        self._planned_torque = torque
+        self._will_apply_torque = True
+        self._persistent_torque = persistent and torque != 0
 
     def set_loc(self, loc: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.position = (loc[0], loc[1])
@@ -462,6 +490,13 @@ class Ship(Asset, SectorEntity):
     def clear_orders(self) -> None:
         while self._orders:
             self._orders[0].cancel_order()
+
+    def pop_current_order(self) -> None:
+        self._orders.popleft()
+
+    def complete_current_order(self) -> None:
+        order = self._orders.popleft()
+        order.complete_order()
 
     def current_order(self) -> Optional[Order]:
         if len(self._orders) > 0:
@@ -706,7 +741,7 @@ class Order:
         for observer in self.observers:
             observer.order_begin(self)
 
-        self.gamestate.schedule_order(0, self)
+        self.gamestate.schedule_order_immediate(self)
 
     def complete_order(self) -> None:
         """ Called when an order is_complete and about to be removed from the
@@ -787,6 +822,7 @@ class Counters(enum.IntEnum):
     COLLISION_HITS_HIT = enum.auto()
     COLLISION_HITS_MISS = enum.auto()
     NON_FRONT_ORDER_ACTION = enum.auto()
+    ORDERS_PROCESSED = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:
@@ -815,9 +851,11 @@ class Gamestate:
 
         # heap of order items in form (scheduled timestamp, agendum)
         self.order_schedule:List[PrioritizedItem[Order]] = []
+        self.scheduled_orders:Set[Order] = set()
 
         # heap of agenda items in form (scheduled timestamp, agendum)
         self.agenda_schedule:List[PrioritizedItem[Agendum]] = []
+        self.scheduled_agenda:Set[Agendum] = set()
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
@@ -854,11 +892,40 @@ class Gamestate:
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
 
+    def is_order_scheduled(self, order:Order) -> bool:
+        return order in self.scheduled_orders
+
+    def schedule_order_immediate(self, order:Order) -> None:
+        self.schedule_order(self.timestamp + self.dt, order)
+
     def schedule_order(self, timestamp:float, order:Order) -> None:
+        assert order not in self.scheduled_orders
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+        self.scheduled_orders.add(order)
         heapq.heappush(self.order_schedule, PrioritizedItem(timestamp, order))
 
+    def pop_next_order(self) -> PrioritizedItem[Order]:
+        order_item = heapq.heappop(self.order_schedule)
+        assert order_item.item in self.scheduled_orders
+        self.scheduled_orders.remove(order_item.item)
+        return order_item
+
+    def schedule_agendum_immediate(self, agendum:Agendum) -> None:
+        self.schedule_agendum(self.timestamp + self.dt, agendum)
+
     def schedule_agendum(self, timestamp:float, agendum:Agendum) -> None:
+        assert agendum not in self.scheduled_agenda
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+        self.scheduled_agenda.add(agendum)
         heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))
+
+    def pop_next_agendum(self) -> PrioritizedItem[Agendum]:
+        agendum_item = heapq.heappop(self.agenda_schedule)
+        assert agendum_item.item in self.scheduled_agenda
+        self.scheduled_agenda.remove(agendum_item.item)
+        return agendum_item
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector

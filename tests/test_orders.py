@@ -92,7 +92,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
 
     eta = steering.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration(), rotate_order.safety_factor)
 
-    #testui.eta = eta
+    testui.eta = eta
     testui.orders = [rotate_order]
 
     simulator.run()

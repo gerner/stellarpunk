@@ -93,7 +93,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         if t == 0:
             self.ship.phys.angular_velocity = 0.
         else:
-            self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque))
+            self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque), False)
 
     # action functions, imply player direct input
 
@@ -105,7 +105,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_thrust)
 
         if not np.allclose(force, steering.ZERO_VECTOR):
-            self.ship.apply_force(force)
+            self.ship.apply_force(force, False)
 
     def kill_velocity(self, dt:float) -> None:
         self.has_command = True
@@ -121,7 +121,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_command = True
         #TODO: up to max angular acceleration?
-        self.ship.apply_torque(self.ship.max_torque * scale)
+        self.ship.apply_torque(self.ship.max_torque * scale, False)
 
     def translate(self, direction:float, dt:float) -> None:
         """ Translates the ship in the desired direction
@@ -134,7 +134,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_fine_thrust)
 
-        self.ship.apply_force(force)
+        self.ship.apply_force(force, False)
 
 class MouseState(enum.Enum):
     """ States to interpret mouse clicks.

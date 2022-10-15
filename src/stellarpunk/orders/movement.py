@@ -26,8 +26,13 @@ class KillRotationOrder(core.Order):
         t = self.ship.moment * -1 * self.ship.angular_velocity / dt
         if t == 0:
             self.ship.phys.angular_velocity = 0
+            # schedule again to get cleaned up on next tick
+            self.ship.apply_torque(0., False)
+            self.gamestate.schedule_order_immediate(self)
         else:
-            self.ship.apply_torque(np.clip(t, -9000, 9000))
+            self.ship.apply_torque(np.clip(t, -9000, 9000), True)
+
+            self.gamestate.schedule_order_immediate(self)
 
 class RotateOrder(AbstractSteeringOrder):
     def __init__(self, target_angle: float, *args: Any, **kwargs: Any) -> None:
@@ -35,10 +40,16 @@ class RotateOrder(AbstractSteeringOrder):
         self.target_angle = util.normalize_angle(target_angle)
 
     def is_complete(self) -> bool:
-        return self.ship.angular_velocity == 0 and util.normalize_angle(self.ship.angle) == self.target_angle
+        return self.ship.angular_velocity == 0 and util.isclose(util.normalize_angle(self.ship.angle), self.target_angle)
 
     def act(self, dt: float) -> None:
-        self._rotate_to(self.target_angle, dt)
+        period = self._rotate_to(self.target_angle, dt)
+        if period < np.inf:
+            # don't need to wake up again until the rotation is complete
+            self.gamestate.schedule_order(self.gamestate.timestamp + period/self.safety_factor, self)
+        else:
+            # schedule ourselves to get cleaned up
+            self.gamestate.schedule_order_immediate(self)
 
 class KillVelocityOrder(AbstractSteeringOrder):
     """ Applies thrust and torque to zero out velocity and angular velocity.
@@ -53,7 +64,10 @@ class KillVelocityOrder(AbstractSteeringOrder):
         return self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, ZERO_VECTOR)
 
     def act(self, dt: float) -> None:
-        self._accelerate_to(ZERO_VECTOR, dt)
+        period = self._accelerate_to(ZERO_VECTOR, dt)
+        #TODO: need a way to keep applying force
+        # don't need to wake up again until the acceleration is complete
+        self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
 
 class GoToLocation(AbstractSteeringOrder):
     class NoEmptyArrivalError(Exception):
@@ -214,7 +228,14 @@ class GoToLocation(AbstractSteeringOrder):
         if self.distance_estimate > self.arrival_distance*5:
             return False
         else:
-            return util.distance(self.target_location, self.ship.loc) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity)
+            if util.distance(self.target_location, self.ship.loc) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity):
+                #assert not self.ship._persistent_force
+                self.ship.apply_force(ZERO_VECTOR, False)
+                #assert not self.ship._persistent_torque
+                self.ship.apply_torque(0., False)
+                return True
+            else:
+                return False
 
     def _begin(self) -> None:
         self.init_eta = self.estimate_eta()
@@ -224,12 +245,17 @@ class GoToLocation(AbstractSteeringOrder):
         if self.ship.sector != self.target_sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_sector}')
 
-        #TODO: check if it's time for us to do a careful calculation or a simple one
+        # check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
-            self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
+            continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
+
+            # don't need to wake up again until the acceleration is complete
+            next_ts = min(self._next_compute_ts, self.gamestate.timestamp + continue_time)
+            self.gamestate.schedule_order(next_ts, self)
             return
+
         self.gamestate.counters[core.Counters.GOTO_ACT_SLOW] += 1
 
         # essentially the arrival steering behavior but with some added
@@ -327,7 +353,7 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            self._accelerate_to(self.target_v, dt, force_recompute=True)
+            continue_time = self._accelerate_to(self.target_v, dt, force_recompute=True)
             self._desired_velocity = self.target_v
 
             # if we previously could not avoid collision and now we have no
@@ -347,7 +373,7 @@ class GoToLocation(AbstractSteeringOrder):
                 nts_dist_low = 1e3
                 nts_dist_high = 1e4
                 nts_dist = util.interpolate(nts_dist_low, nts_low, nts_dist_high, nts_high, distance)
-                nts = min(min(nts_nnd, nts_dist), nts_high)
+                nts = max(1/70, min(min(nts_nnd, nts_dist), nts_high))
         else:
             # if we're over max speed, let's slow down in addition to avoiding
             # collision
@@ -363,7 +389,7 @@ class GoToLocation(AbstractSteeringOrder):
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
+            continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
 
             if self.cannot_avoid_collision:
                 nts = 1/70
@@ -371,6 +397,8 @@ class GoToLocation(AbstractSteeringOrder):
                 nts = nts_low
 
         self._next_compute_ts = self.gamestate.timestamp + nts
+        next_ts = self.gamestate.timestamp + min(nts, continue_time)
+        self.gamestate.schedule_order(next_ts, self)
 
         return
 
@@ -385,8 +413,15 @@ class WaitOrder(AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         if self.ship.sector is None:
             raise Exception(f'{self.ship} not in any sector')
-        self._accelerate_to(ZERO_VECTOR, dt)
-        return
+        period = self._accelerate_to(ZERO_VECTOR, dt)
+
+        if period > 0:
+            # don't need to wake up again until the acceleration is complete
+            self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
+            return
+        else:
+            #TODO: don't need to do anything, right?
+            return
 
         # avoid collisions while we're waiting
         # but only if those collisions are really imminent

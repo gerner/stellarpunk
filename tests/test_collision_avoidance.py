@@ -377,7 +377,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.2
 
-    testui.eta = eta * 2.5
+    testui.eta = eta * 4.5#2.5
     testui.orders = [goto_a, goto_b, goto_c]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
@@ -415,7 +415,7 @@ def test_followers(gamestate, generator, sector, testui, simulator):
     testui.order_eta_error_factor = 1.3
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
-    testui.cannot_stop_orders = [goto_a, goto_b]
+    #testui.cannot_stop_orders = [goto_a, goto_b]
     #testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
@@ -925,7 +925,7 @@ def test_overeager_arrival(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta*1.6
+    testui.eta = eta*2.5
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]

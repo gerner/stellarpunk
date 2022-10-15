@@ -198,23 +198,45 @@ class Simulator:
 
         # do AI stuff, e.g. let ships take action (but don't actually have the
         # actions take effect yet!)
-        for sector in self.gamestate.sectors.values():
-            for ship in sector.ships:
-                self.tick_order(ship, dt)
+        #for sector in self.gamestate.sectors.values():
+        #    for ship in sector.ships:
+        #        self.tick_order(ship, dt)
 
-        #while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
-        #    order_item = heapq.heappop(self.gamestate.order_schedule)
-        #    order = order_order.item
-        #    if order == order.ship.current_order():
-        #        order.act(dt)
-        #    else:
-        #        # else order isn't the front item, so we'll ignore this action
-        #        self.logger.warning(f'got non-front order scheduled action: {order_item.item}')
-        #        self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
+        orders_processed = 0
+        while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
+            order_item = self.gamestate.pop_next_order()
+            order = order_item.item
+            if order == order.ship.current_order():
+                if order.is_complete():
+                    ship = order.ship
+                    self.logger.debug(f'ship {ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
+                    ship.complete_current_order()
+
+                    next_order = ship.current_order()
+                    if not next_order:
+                        ship.prepend_order(ship.default_order(self.gamestate))
+                    elif not self.gamestate.is_order_scheduled(next_order):
+                        #TODO: this is kind of janky, can't we just demand that orders schedule themselves?
+                        # what about the order queue being simply a queue?
+                        self.gamestate.schedule_order_immediate(next_order)
+
+                    #TODO: seems like we don't want this any more (why does the UI need
+                    #to know when every single order is complete? I think this was a
+                    #testing hook. but that's not probably the right way to do this
+                    self.ui.order_complete(order)
+                else:
+                    order.act(dt)
+            else:
+                # else order isn't the front item, so we'll ignore this action
+                self.logger.warning(f'got non-front order scheduled action: {order_item.item}')
+                self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
+            orders_processed += 1
+
+        self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
         # let characters act on their (scheduled) agenda items
         while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
-            agendum_item = heapq.heappop(self.gamestate.agenda_schedule)
+            agendum_item = self.gamestate.pop_next_agendum()
             agendum_item.item.act()
 
         # at this point all AI decisions have happened everywhere
@@ -327,7 +349,7 @@ def main() -> None:
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
-        logging.getLogger("stellarpunk").level = logging.DEBUG
+        #logging.getLogger("stellarpunk").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions
@@ -366,6 +388,8 @@ def main() -> None:
 
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')
+
+        logging.info(f'ticks:\t{gamestate.ticks}')
 
         logging.info("done.")
 

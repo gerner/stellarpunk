@@ -719,14 +719,14 @@ class AbstractSteeringOrder(core.Order):
         history["_ada"] = self._accelerate_difference_angle
         return history
 
-    def _rotate_to(self, target_angle: float, dt: float) -> None:
+    def _rotate_to(self, target_angle: float, dt: float) -> float:
         # given current angle and angular_velocity and max torque, choose
         # torque to apply for dt now to hit target angle
 
         w = self.ship.angular_velocity
         moment = self.ship.moment
 
-        t, _ = torque_for_angle(
+        t, period = torque_for_angle(
                 target_angle, self.ship.angle, w,
                 self.ship.max_torque, moment, dt,
                 self.safety_factor)
@@ -734,20 +734,28 @@ class AbstractSteeringOrder(core.Order):
         if t == 0 and abs(util.normalize_angle(self.ship.angle - target_angle, shortest=True)) <= ANGLE_EPS:
             self.ship.set_angle(target_angle)
             self.ship.set_angular_velocity(0.)
+            self.ship.apply_torque(0., False)
         else:
-            self.ship.apply_torque(t)
+            self.ship.apply_torque(t, True)
 
-    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
+        return period
+
+    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> float:
         if not force_recompute and self.gamestate.timestamp < self._next_accelerate_compute_ts:
             if self._accelerate_difference_mag != 0.:
                 self.gamestate.counters[core.Counters.ACCELERATE_FAST_FORCE] += 1
-                self.ship.apply_force(self._accelerate_force)
+                self.ship.apply_force(self._accelerate_force, True)
+            else:
+                self.ship.apply_force(ZERO_VECTOR, False)
             if self._accelerate_torque != 0.:
                 self.gamestate.counters[core.Counters.ACCELERATE_FAST_TORQUE] += 1
-                self.ship.apply_torque(self._accelerate_torque)
+                self.ship.apply_torque(self._accelerate_torque, True)
+            else:
+                self.ship.apply_torque(0., False)
 
             self.gamestate.counters[core.Counters.ACCELERATE_FAST] += 1
-            return
+            return self._next_accelerate_compute_ts - self.gamestate.timestamp
+
         self.gamestate.counters[core.Counters.ACCELERATE_SLOW] += 1
         mass = self.ship.mass
         moment = self.ship.moment
@@ -769,19 +777,24 @@ class AbstractSteeringOrder(core.Order):
         if difference_mag < VELOCITY_EPS:
             if difference_mag > 0.:
                 self.ship.set_velocity(target_velocity)
+            self.ship.apply_force(ZERO_VECTOR, False)
         else:
             self.gamestate.counters[core.Counters.ACCELERATE_SLOW_FORCE] += 1
-            self.ship.apply_force(force)
+            self.ship.apply_force(force, True)
 
         if torque != 0.:
             self.gamestate.counters[core.Counters.ACCELERATE_SLOW_TORQUE] += 1
-            self.ship.apply_torque(torque)
+            self.ship.apply_torque(torque, True)
+        else:
+            self.ship.apply_torque(0., False)
 
         self._accelerate_difference_angle = difference_angle
         self._accelerate_difference_mag = difference_mag
         self._accelerate_force = force
         self._accelerate_torque = torque
-        self._next_accelerate_compute_ts = self.gamestate.timestamp + util.clip(continue_time, 0., 1.0)
+        continue_time = util.clip(continue_time, 0., 10.0)
+        self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
+        return continue_time
 
     def _clear_collision_info(self) -> None:
         self.collision_threat = None

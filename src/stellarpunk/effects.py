@@ -83,7 +83,11 @@ class TransferCargoEffect(core.Effect):
         return true iff transfer should continue
         """
 
-        return amount > 0 and self.destination.cargo_capacity - float(np.sum(self.destination.cargo)) >= amount
+        if amount <= 0:
+            return False
+        if self.destination.cargo_capacity - float(np.sum(self.destination.cargo)) < amount:
+            return False
+        return True
 
     def _deliver(self, amount:float) -> None:
         """ Called after one unit of transfer is completed. """
