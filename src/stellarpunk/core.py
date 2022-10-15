@@ -19,6 +19,7 @@ import graphviz # type: ignore
 import numpy as np
 import numpy.typing as npt
 import pymunk
+#import cymunk # type: ignore
 from rtree import index # type: ignore
 
 from stellarpunk import util
@@ -169,6 +170,7 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
+        assert len(entity.phys.shapes) > 0
         self.space.add(entity.phys, *(entity.phys.shapes))
         entity.sector = self
         self.entities[entity.entity_id] = entity
@@ -279,6 +281,7 @@ class SectorEntity(Entity):
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = phys
+        self.phys_shape:Any = None
         #TODO: are all entities just circles?
         self.radius = 0.
 
@@ -418,12 +421,6 @@ class Ship(Asset, SectorEntity):
         self.velocity[0] = vel[0]
         self.velocity[1] = vel[1]
         self.angular_velocity = self.phys.angular_velocity
-
-        #TODO: kind of wish pymunk would give us this option itself
-        #if self._persistent_torque:
-        #    self.phys.torque = self._planned_torque
-        #if self._persistent_force:
-        #    self.phys.force = self._planned_force
 
     def post_tick(self) -> None:
         if self._will_apply_torque:
@@ -823,6 +820,7 @@ class Counters(enum.IntEnum):
     COLLISION_HITS_MISS = enum.auto()
     NON_FRONT_ORDER_ACTION = enum.auto()
     ORDERS_PROCESSED = enum.auto()
+    ORDER_SCHEDULE_DELAY = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:
@@ -878,7 +876,7 @@ class Gamestate:
 
         self.player = Player()
 
-        self.counters = [0] * len(Counters)
+        self.counters = [0.] * len(Counters)
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
@@ -904,6 +902,7 @@ class Gamestate:
         assert timestamp < np.inf
         self.scheduled_orders.add(order)
         heapq.heappush(self.order_schedule, PrioritizedItem(timestamp, order))
+        self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
     def pop_next_order(self) -> PrioritizedItem[Order]:
         order_item = heapq.heappop(self.order_schedule)

@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
 import pymunk
+#import cymunk # type: ignore
 
 from stellarpunk import util, core, orders, agenda
 
@@ -266,6 +267,26 @@ class UniverseGenerator:
     def _choose_portrait(self) -> core.Sprite:
         return self.portraits[self.r.integers(0, len(self.portraits))]
 
+    def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> pymunk.Body:
+        if mass is None:
+            body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        else:
+            assert radius is not None
+            moment = pymunk.moment_for_circle(mass, 0, radius)
+            body = pymunk.Body(mass, moment)
+        return body
+
+    def _phys_shape(self, body:pymunk.Body, entity:core.SectorEntity, obj_flag:core.ObjectFlag, radius:float) -> pymunk.Shape:
+        shape = pymunk.Circle(body, radius)
+        shape.friction=0.1
+        shape.collision_type = entity.object_type
+        shape.filter = pymunk.ShapeFilter(categories=obj_flag)
+        body.position = (entity.loc[0], entity.loc[1])
+        body.entity = entity
+        entity.radius = radius
+        entity.phys_shape = shape
+        return shape
+
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None) -> core.Station:
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
@@ -274,18 +295,12 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-        station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        station_body = self._phys_body()
         station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
         station.loc.flags.writeable = False
         station.resource = resource
 
-        station_shape = pymunk.Circle(station_body, station_radius)
-        station_shape.friction=0.1
-        station_shape.collision_type = station.object_type
-        station_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.STATION)
-        station_body.position = (station.loc[0], station.loc[1])
-        station_body.entity = station
-        station.radius = station_radius
+        self._phys_shape(station_body, station, core.ObjectFlag.STATION, station_radius)
 
         sector.add_entity(station)
 
@@ -295,18 +310,12 @@ class UniverseGenerator:
         planet_radius = 1000.
 
         #TODO: stations are static?
-        planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        planet_body = self._phys_body()
         planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
         planet.loc.flags.writeable = False
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
-        planet_shape = pymunk.Circle(planet_body, planet_radius)
-        planet_shape.friction=0.1
-        planet_shape.collision_type = planet.object_type
-        planet_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.PLANET)
-        planet_body.position = (planet.loc[0], planet.loc[1])
-        planet_body.entity = planet
-        planet.radius = planet_radius
+        self._phys_shape(planet_body, planet, core.ObjectFlag.PLANET, planet_radius)
 
         sector.add_entity(planet)
 
@@ -355,20 +364,14 @@ class UniverseGenerator:
         # space shuttle doesn't exeed 3g during ascent
         max_torque = max_fine_thrust * 6 * ship_radius
 
-        ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
 
-        ship_body = pymunk.Body(ship_mass, ship_moment)
+        ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
 
-        ship_shape = pymunk.Circle(ship_body, ship_radius)
-        ship_shape.friction=0.1
-        ship_shape.collision_type = ship.object_type
-        ship_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.SHIP)
-        ship_body.position = ship.loc[0], ship.loc[1]
-        ship_body.entity = ship
+        self._phys_shape(ship_body, ship, core.ObjectFlag.SHIP, ship_radius)
 
         ship.mass = ship_mass
-        ship.moment = ship_moment
+        ship.moment = ship_body.moment
         ship.radius = ship_radius
         ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
@@ -418,15 +421,11 @@ class UniverseGenerator:
         theta = self.r.uniform(min_theta, max_theta)
         x,y = util.polar_to_cartesian(r, theta)
 
-        body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        body = self._phys_body()
         gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination), entity_id=entity_id)
-        shape = pymunk.Circle(body, gate_radius)
-        shape.friction=0.1
-        shape.collision_type = gate.object_type
-        shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.GATE)
-        body.position = (gate.loc[0], gate.loc[1])
-        body.entity = gate
-        gate.radius = gate_radius
+
+        self._phys_shape(body, gate, core.ObjectFlag.GATE, gate_radius)
+
         sector.add_entity(gate)
 
         return gate
@@ -436,16 +435,11 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-        body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        body = self._phys_body()
         asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
         asteroid.loc.flags.writeable = False
-        shape = pymunk.Circle(body, asteroid_radius)
-        shape.friction=0.1
-        shape.collision_type = asteroid.object_type
-        shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.ASTEROID)
-        body.position = (asteroid.loc[0], asteroid.loc[1])
-        body.entity = asteroid
-        asteroid.radius = asteroid_radius
+
+        self._phys_shape(body, asteroid, core.ObjectFlag.ASTEROID, asteroid_radius)
 
         sector.add_entity(asteroid)
 
