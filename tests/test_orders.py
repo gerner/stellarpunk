@@ -442,6 +442,6 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
     assert goto_order.is_complete()
     distance = util.distance(ship_driver.loc, station.loc)
     assert distance < arrival_distance + station.radius
-    assert distance > 1e3 + station.radius + ship_driver.radius
+    assert distance > 7e2 + station.radius + ship_driver.radius
 
     assert all(np.isclose(ship_driver.velocity, np.array((0., 0.))))

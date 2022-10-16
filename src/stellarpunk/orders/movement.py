@@ -101,7 +101,7 @@ class GoToLocation(AbstractSteeringOrder):
         # "viable" arrival band: the space between the collision margin and
         # surface distance away from the radius
         tries = 0
-        max_tries = 15
+        max_tries = 20
         target_loc = ZERO_VECTOR
         target_arrival_distance = 0.
         while tries < max_tries:
@@ -118,7 +118,6 @@ class GoToLocation(AbstractSteeringOrder):
             tries += 1
 
         if empty_arrival and tries >= max_tries:
-            raise Exception()
             raise GoToLocation.NoEmptyArrivalError()
 
         return GoToLocation(
@@ -349,7 +348,7 @@ class GoToLocation(AbstractSteeringOrder):
                 desired_direction=self.target_v)
 
         nts_low = 6/70.
-        nts_high = 1.0
+        nts_high = 2.3
 
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop

@@ -576,6 +576,7 @@ class Sprite:
         self.text = text
 
 class Character(Entity):
+    id_prefix = "CHR"
     def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 

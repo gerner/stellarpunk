@@ -218,8 +218,33 @@ class SectorView(interface.View):
         self.presenter.draw_sector_map()
         self.interface.refresh_viewscreen()
 
+    def _draw_target_info(self) -> None:
+        if self.selected_entity is None:
+            return
+
+        info_width = 12 + 1 + 16
+        status_x = self.interface.viewscreen_width - info_width
+        status_y = 1
+
+        self.viewscreen.addstr(status_y, status_x, "Target Info:")
+
+        label_id ="id:"
+        label_speed = "speed:"
+        label_location = "location:"
+        label_owner = "owner:"
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
+
+        if isinstance(self.selected_entity, core.Asset):
+            self.viewscreen.addstr(status_y+4, status_x, f'{label_owner:>12} {self.selected_entity.owner}')
+
+    def _draw_hud(self) -> None:
+        self._draw_target_info()
+
     def update_display(self) -> None:
         self.draw_sector_map()
+        self._draw_hud()
         self.interface.refresh_viewscreen()
 
     def command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:

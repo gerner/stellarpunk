@@ -312,7 +312,7 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta * 1.1
+    testui.eta = eta * 1.5
     testui.orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
@@ -377,7 +377,7 @@ def test_many_threats(gamestate, generator, sector, testui, simulator):
 
     eta = max(goto_a.estimate_eta(),goto_b.estimate_eta(),goto_c.estimate_eta())*1.2
 
-    testui.eta = eta * 4.5#2.5
+    testui.eta = eta * 5.5#2.5
     testui.orders = [goto_a, goto_b, goto_c]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b, goto_c]
     #testui.cannot_stop_orders = [goto_a, goto_b, goto_c]
@@ -441,7 +441,7 @@ def test_complicated_approach(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a, ship_b]
+    #testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -471,7 +471,7 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
-    testui.margin_neighbors = [ship_a, ship_b]
+    #testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -686,7 +686,7 @@ def test_failed_to_divert(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
     # this test would run for a long time, we just want to avoid the immediate
     # collision
     testui.max_timestamp = 45
@@ -975,7 +975,7 @@ def test_busy_intersection(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     testui.max_timestamp = 30
 
