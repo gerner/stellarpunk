@@ -9,8 +9,8 @@ import itertools
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
-import pymunk
-#import cymunk # type: ignore
+#import pymunk
+import cymunk # type: ignore
 
 from stellarpunk import util, core, orders, agenda
 
@@ -267,22 +267,23 @@ class UniverseGenerator:
     def _choose_portrait(self) -> core.Sprite:
         return self.portraits[self.r.integers(0, len(self.portraits))]
 
-    def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> pymunk.Body:
+    def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> cymunk.Body:
         if mass is None:
-            body = pymunk.Body(body_type=pymunk.Body.STATIC)
+            body = cymunk.Body()#body_type=pymunk.Body.STATIC)
         else:
             assert radius is not None
-            moment = pymunk.moment_for_circle(mass, 0, radius)
-            body = pymunk.Body(mass, moment)
+            moment = cymunk.moment_for_circle(mass, 0, radius)
+            body = cymunk.Body(mass, moment)
         return body
 
-    def _phys_shape(self, body:pymunk.Body, entity:core.SectorEntity, obj_flag:core.ObjectFlag, radius:float) -> pymunk.Shape:
-        shape = pymunk.Circle(body, radius)
+    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, obj_flag:core.ObjectFlag, radius:float) -> cymunk.Shape:
+        shape = cymunk.Circle(body, radius)
         shape.friction=0.1
         shape.collision_type = entity.object_type
-        shape.filter = pymunk.ShapeFilter(categories=obj_flag)
+        #shape.filter = pymunk.ShapeFilter(categories=obj_flag)
         body.position = (entity.loc[0], entity.loc[1])
-        body.entity = entity
+        #body.entity = entity
+        body.data = entity
         entity.radius = radius
         entity.phys_shape = shape
         return shape
@@ -379,7 +380,7 @@ class UniverseGenerator:
 
         if v is None:
             v = (self.r.normal(0, 50, 2))
-        ship_body.velocity = pymunk.vec2d.Vec2d(*v)
+        ship_body.velocity = cymunk.vec2d.Vec2d(*v)
         ship_body.angle = ship_body.velocity.angle
 
         if theta is not None:
@@ -495,7 +496,7 @@ class UniverseGenerator:
         for i in range(1, len(slices)-1):
             raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
 
-        sector = core.Sector(np.array([x, y]), radius, pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+        sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
         # habitable planet
         # plenty of resources
@@ -861,7 +862,7 @@ class UniverseGenerator:
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y) in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask]):
-            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
 
             self.gamestate.add_sector(sector, idx[0])
 

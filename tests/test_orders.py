@@ -98,7 +98,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert rotate_order.is_complete()
     assert ship_driver.angular_velocity == 0
-    assert ship_driver.angle == np.pi
+    assert util.isclose(ship_driver.angle, np.pi)
 
 @write_history
 def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator):
@@ -115,7 +115,7 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     simulator.run()
     assert rotate_order.is_complete()
     assert ship_driver.angular_velocity == 0
-    assert ship_driver.angle == rotate_order.target_angle
+    assert util.isclose(ship_driver.angle, rotate_order.target_angle)
 
     # make sure our eta estimate is within 15% of the estimate after backing
     # out the safety margin

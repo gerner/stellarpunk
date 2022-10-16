@@ -67,18 +67,19 @@ class Simulator:
         # this is not for external consumption
         self._collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
 
-    def _ship_collision_detected(self, arbiter:pymunk.Arbiter, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
+    def _ship_collision_detected(self, arbiter:pymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
         # which ship(s) are colliding?
 
         (shape_a, shape_b) = arbiter.shapes
-        sector = data["sector"]
+
+        sector = shape_a.body.data.sector
 
         tons_of_tnt = arbiter.total_ke / 4.184e9
-        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.entity.address_str()} {shape_b.body.entity.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
+        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.data.address_str()} {shape_b.body.data.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
 
         self._collisions.append((
-            shape_a.body.entity,
-            shape_b.body.entity,
+            shape_a.body.data,
+            shape_b.body.data,
             arbiter.total_impulse,
             arbiter.total_ke,
         ))
@@ -89,9 +90,10 @@ class Simulator:
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
-            h = sector.space.add_default_collision_handler()
-            h.data["sector"] = sector
-            h.pre_solve = self._ship_collision_detected
+            #h = sector.space.add_default_collision_handler()
+            #h.data["sector"] = sector
+            #h.pre_solve = self._ship_collision_detected
+            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
 
     def tick_order(self, ship: core.Ship, dt: float) -> None:
         if not ship._orders:
@@ -349,7 +351,7 @@ def main() -> None:
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
-        #logging.getLogger("stellarpunk").level = logging.DEBUG
+        logging.getLogger("stellarpunk").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions

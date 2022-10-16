@@ -18,8 +18,8 @@ import dataclasses
 import graphviz # type: ignore
 import numpy as np
 import numpy.typing as npt
-import pymunk
-#import cymunk # type: ignore
+#import pymunk
+import cymunk # type: ignore
 from rtree import index # type: ignore
 
 from stellarpunk import util
@@ -113,7 +113,7 @@ class Sector(Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:pymunk.Space, *args: Any, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
 
         # sector's position in the universe
@@ -133,23 +133,28 @@ class Sector(Entity):
         # physics space for this sector
         # we don't manage this, just have a pointer to it
         # we do rely on this to provide a spatial index of the sector
-        self.space:pymunk.Space = space
+        self.space:cymunk.Space = space
 
         self.effects: Deque[Effect] = collections.deque()
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
-        for hit in self.space.bb_query(pymunk.BB(*bbox), pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
-            yield hit.body.entity
+        for hit in self.space.bb_query(cymunk.BB(*bbox)):#, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
+            #yield hit.body.entity
+            yield hit.body.data
 
     def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
-        if mask is None:
-            pymunk_filter = pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())
-        else:
-            pymunk_filter = pymunk.ShapeFilter(mask=mask)
+        #if mask is None:
+        #    pymunk_filter = pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())
+        #else:
+        #    pymunk_filter = pymunk.ShapeFilter(mask=mask)
         if not max_dist:
             max_dist = np.inf
-        for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk_filter):
-            yield hit.shape.body.entity # type: ignore[union-attr]
+        for hit in self.space.nearest_point_query(cymunk.vec2d.Vec2d(point[0], point[1]), max_dist):#, max_dist, pymunk_filter):
+        #for hit in self.space.bb_query(cymunk.BB(point[0]-max_dist, point[1]-max_dist, point[0]+max_dist, point[1]+max_dist)):
+            #yield hit.shape.body.entity # type: ignore[union-attr]
+            #if max_dist < np.inf and util.distance(hit.body.data.loc, point) > max_dist:
+            #    continue
+            yield hit.body.data
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
@@ -170,8 +175,11 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
-        assert len(entity.phys.shapes) > 0
-        self.space.add(entity.phys, *(entity.phys.shapes))
+        #self.space.add(entity.phys, *(entity.phys.shapes))
+        if entity.phys.is_static:
+            self.space.add(entity.phys_shape)
+        else:
+            self.space.add(entity.phys, entity.phys_shape)
         entity.sector = self
         self.entities[entity.entity_id] = entity
 
@@ -193,7 +201,11 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
-        self.space.remove(entity.phys, *entity.phys.shapes)
+        #self.space.remove(entity.phys, *entity.phys.shapes)
+        if entity.phys.is_static:
+            self.space.remove(entity.phys_shape)
+        else:
+            self.space.remove(entity.phys, entity.phys_shape)
         entity.sector = None
         del self.entities[entity.entity_id]
 
@@ -264,7 +276,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -423,32 +435,37 @@ class Ship(Asset, SectorEntity):
         self.angular_velocity = self.phys.angular_velocity
 
     def post_tick(self) -> None:
-        if self._will_apply_torque:
-            self.phys.torque = self._planned_torque
-            self._applied_torque = True
-            if not self._persistent_torque:
-                self._planned_torque = 0.
-                self._will_apply_torque = False
-        if self._will_apply_force:
-            self.phys.force = self._planned_force
-            self._applied_force = self._will_apply_force
-            if not self._persistent_force:
-                self._planned_force[0] = 0.
-                self._planned_force[1] = 0.
-                self._will_apply_force = False
+        #if self._will_apply_torque:
+        #    self.phys.torque = self._planned_torque
+        #    self._applied_torque = True
+        #    if not self._persistent_torque:
+        #        self._planned_torque = 0.
+        #        self._will_apply_torque = False
+        #if self._will_apply_force:
+        #    #self.phys.force = self._planned_force
+        #    if self.phys.force["x"] > 0 or self.phys.force["y"] > 0:
+        #        raise Exception()
+        #    self.phys.apply_force(self._planned_force)
+        #    self._applied_force = self._will_apply_force
+        #    if not self._persistent_force:
+        #        self._planned_force[0] = 0.
+        #        self._planned_force[1] = 0.
+        #        self._will_apply_force = False
+        pass
 
     def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
         #self.phys.apply_force_at_world_point(
         #        (force[0], force[1]),
         #        (self.loc[0], self.loc[1])
         #)
+        self.phys.force = cymunk.vec2d.Vec2d(*force)
         self._planned_force[0] = force[0]
         self._planned_force[1] = force[1]
         self._will_apply_force = True
         self._persistent_force = persistent and (force[0] != 0. or force[1] != 0.)
 
     def apply_torque(self, torque: float, persistent:bool) -> None:
-        #self.phys.torque = torque
+        self.phys.torque = torque
         self._planned_torque = torque
         self._will_apply_torque = True
         self._persistent_torque = persistent and torque != 0

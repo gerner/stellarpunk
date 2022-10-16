@@ -79,7 +79,7 @@ class GoToLocation(AbstractSteeringOrder):
             ship:core.Ship,
             gamestate:core.Gamestate,
             surface_distance:float=2e3,
-            collision_margin:float=1e3,
+            collision_margin:float=7e2,
             empty_arrival:bool=False,
             observer:Optional[core.OrderObserver]=None) -> GoToLocation:
         """ Makes a GoToLocation order to get near a target entity.
@@ -106,18 +106,19 @@ class GoToLocation(AbstractSteeringOrder):
         target_arrival_distance = 0.
         while tries < max_tries:
             _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
-            target_angle = angle + gamestate.random.uniform(-np.pi/2, np.pi/2)
+            target_angle = angle + gamestate.random.uniform(-np.pi/1.5, np.pi/1.5)
             target_arrival_distance = (surface_distance - collision_margin)/2
             target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
 
             # check if there's other stuff nearby this point
             # note: this isn't perfect since these entities might be transient,
             # but this is best effort
-            if next(entity.sector.spatial_point(target_loc, collision_margin+target_arrival_distance), None) == None:
+            if next(entity.sector.spatial_point(target_loc, collision_margin), None) == None:
                 break
             tries += 1
 
         if empty_arrival and tries >= max_tries:
+            raise Exception()
             raise GoToLocation.NoEmptyArrivalError()
 
         return GoToLocation(

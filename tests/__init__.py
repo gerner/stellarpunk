@@ -5,6 +5,7 @@ import uuid
 from typing import Optional, List, Tuple
 
 import numpy as np
+import cymunk # type: ignore
 
 from stellarpunk import core, sim, orders, interface, util
 from stellarpunk.orders import steering
@@ -48,7 +49,7 @@ def ship_from_history(history_entry, generator, sector):
     theta = history_entry["a"]
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta, entity_id=uuid.UUID(history_entry["eid"]))
     ship.name = history_entry["eid"]
-    ship.phys.force = history_entry.get("f", (0., 0.))
+    ship.phys.force = cymunk.vec2d.Vec2d(history_entry.get("f", (0., 0.)))
     ship.phys.torque = history_entry.get("t", 0.)
     return ship
 

@@ -833,7 +833,7 @@ def test_traffic_lane(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()
