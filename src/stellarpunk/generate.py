@@ -12,7 +12,7 @@ from scipy.spatial import distance # type: ignore
 #import pymunk
 import cymunk # type: ignore
 
-from stellarpunk import util, core, orders, agenda
+from stellarpunk import util, core, orders, agenda, econ
 
 #TODO: names: sectors, planets, stations, ships, characters, raw materials,
 #   intermediate products, final products, consumer products, station products,
@@ -135,13 +135,13 @@ class UniverseGenerator:
         # load character portraits
         self.portraits:List[core.Sprite] = []
         sheet = importlib.resources.read_text("stellarpunk.data", "portraits.txt").split("\n")
-        offset_limit = (len(sheet[0]), len(sheet))
-        # portraits are 32x32 pixels, binary chars are 2x4 pixels per char
         size = (32//2, 32//4)
+        offset_limit = (len(sheet[0])//size[0], len(sheet)//size[1])
+        # portraits are 32x32 pixels, binary chars are 2x4 pixels per char
         for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
             self.portraits.append(core.Sprite(
                 [
-                    x[offset_x:offset_x+size[0]] for x in sheet[offset_y:offset_y+size[1]]
+                    x[offset_x*size[0]:offset_x*size[0]+size[0]] for x in sheet[offset_y*size[1]:offset_y*size[1]+size[1]]
                 ]
             ))
 
@@ -291,6 +291,8 @@ class UniverseGenerator:
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None) -> core.Station:
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
+
+        assert resource < self.gamestate.production_chain.num_products
 
         station_radius = 300.
 
@@ -513,7 +515,7 @@ class UniverseGenerator:
         # random number of fields per resource
         # random sizes
         # random allocation to each that sums to desired total
-        num_stations = len(pchain.prices)-pchain.ranks[-1]
+        num_stations = int((self.gamestate.production_chain.ranks.sum() - self.gamestate.production_chain.ranks[0])*2.5)
         resources_to_generate = raw_needs[:,RESOURCE_REL_STATION] *  self.r.uniform(num_stations, 2*num_stations)
         #resources_to_generate += raw_needs[:,RESOURCE_REL_SHIP] * 100
         #resources_to_generate += raw_needs[:,RESOURCE_REL_CONSUMER] * 100*100
@@ -532,18 +534,26 @@ class UniverseGenerator:
 
         self.logger.info(f'beginning entities: {len(sector.entities)}')
 
-        #TODO: production and population
         # set up production stations according to resources
         # every inhabited sector should have a complete production chain
         # exclude raw resources and final products, they are not produced
         # at stations
-        for i in range(pchain.ranks[0], len(pchain.prices)-pchain.ranks[-1]):
-            entity_loc = self._gen_sector_location(sector)
 
-            # deplete enough resources from asteroids to pay for this station
-            for resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
-                self.harvest_resources(sector, entity_loc[0], entity_loc[1], resource, amount)
-            station = self.spawn_station(sector, entity_loc[0], entity_loc[1], resource=i)
+        # assign "agents" to each production resource
+        num_agents = num_stations
+        agent_goods = econ.assign_agents_to_products(
+                self.gamestate, num_agents,
+                self.gamestate.production_chain.ranks[0])
+
+        # each of those agents gets a station producing its good
+        for i in range(num_agents):
+            # find the one resource this agent produces
+            resource = agent_goods[i].argmax()
+            entity_loc = self._gen_sector_location(sector)
+            for build_resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
+                self.harvest_resources(sector, entity_loc[0], entity_loc[1], build_resource, amount)
+            station = self.spawn_station(
+                    sector, entity_loc[0], entity_loc[1], resource=resource)
             assets.append(station)
 
         # spend resources to build additional stations
@@ -554,20 +564,44 @@ class UniverseGenerator:
         planet = self.spawn_planet(sector, entity_loc[0], entity_loc[1])
         assets.append(planet)
 
+        # some factor mining ships for every refinery
+        mining_ship_factor = 2.
+        num_mining_ships = int(agent_goods[:,self.gamestate.production_chain.ranks.cumsum()[0]:self.gamestate.production_chain.ranks.cumsum()[1]].sum() * mining_ship_factor)
 
-        num_ships = self.r.integers(15,35)
-        self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
-        for i in range(num_ships):
+        self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
+        mining_ships = set()
+        for i in range(num_mining_ships):
             ship_x, ship_y = self._gen_sector_location(sector)
             ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
-            #ship.orders.append(order_fn_harvest_random_resource(ship, self.gamestate))
             assets.append(ship)
+            mining_ships.add(ship)
+
+        # some factor trading ships as there are station -> station trade routes
+        trade_ship_factor = 1./3.
+        trade_routes_by_good = ((self.gamestate.production_chain.adj_matrix > 0).sum(axis=1))
+        num_trading_ships = int((trade_routes_by_good[np.newaxis,:] * agent_goods).sum() * trade_ship_factor)
+        self.logger.debug(f'adding {num_trading_ships} trading ships to sector {sector.short_id()}')
+
+        trading_ships = set()
+        for i in range(num_trading_ships):
+            ship_x, ship_y = self._gen_sector_location(sector)
+            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
+            assets.append(ship)
+            trading_ships.add(ship)
+
+        sum_eta = 0.
+        num_eta = 0
+        for ship in sector.ships:
+            for station in sector.stations:
+                sum_eta += orders.movement.GoToLocation.compute_eta(ship, station.loc)
+                num_eta += 1
+        self.logger.info(f'mean eta: {sum_eta / num_eta}')
 
         self.logger.info(f'ending entities: {len(sector.entities)}')
 
         # generate characters to own all the assets
-        # each asset owned by exactly 1 character, each character owns 1 to 3 assets with mean < 2
-        # 1+2*beta
+        # each asset owned by exactly 1 character, each character owns 1 to 3
+        # assets with mean < 2 1+2*beta
         mu_ownership = 1.35
         min_ownership = 1
         max_ownership = 3
@@ -603,9 +637,19 @@ class UniverseGenerator:
             for asset in map(lambda j: assets[j], owned_asset_ids):
                 character.take_ownership(asset)
                 if isinstance(asset, core.Ship):
-                    character.add_agendum(agenda.MiningAgendum(ship=asset, gamestate=self.gamestate))
+                    if asset in mining_ships:
+                        character.add_agendum(agenda.MiningAgendum(ship=asset, gamestate=self.gamestate))
+                    elif asset in trading_ships:
+                        character.add_agendum(agenda.TradingAgendum(ship=asset, gamestate=self.gamestate))
+                    else:
+                        raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
                 elif isinstance(asset, core.Station):
                     character.add_agendum(agenda.StationManager(station=asset, gamestate=self.gamestate))
+                elif isinstance(asset, core.Planet):
+                    #TODO: what to do with planet assets?
+                    pass
+                else:
+                    raise ValueError(f'got an asset of unknown type {asset}')
 
         self.gamestate.add_sector(sector, sector_idx)
 
@@ -894,18 +938,6 @@ class UniverseGenerator:
         # establish factions
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
-
-        """
-        # quick hack to populate some ships
-        for entity_id in sector_ids[habitable_mask]:
-            sector = self.gamestate.sectors[entity_id]
-            num_ships = self.r.integers(15,35)
-            self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
-            for i in range(num_ships):
-                ship_x, ship_y = self._gen_sector_location(sector)
-                ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
-                ship.orders.append(order_fn_harvest_random_resource(ship, self.gamestate))
-        """
 
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r

@@ -263,7 +263,7 @@ class UniverseView(interface.View):
             if len(self.interface.collisions) == 0:
                 raise command_input.CommandInput.UserError("no collisions to debug")
 
-            collision = self.interface.collisions[0]
+            collision = self.interface.collisions[-1]
             if isinstance(collision[0], core.Ship):
                 ship = collision[0]
             elif isinstance(collision[1], core.Ship):

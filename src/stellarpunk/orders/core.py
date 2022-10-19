@@ -66,7 +66,11 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
             self.ship.sector.effects.append(self.mining_effect)
         # else wait for the mining effect
 
-class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
+class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
+    @classmethod
+    def transfer_rate(cls) -> float:
+        return 1e2
+
     def __init__(self, target: core.SectorEntity, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -75,14 +79,13 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         self.amount = amount
         self.transferred = 0.
         self.max_dist = max_dist
-        self.transfer_rate = 1e2
 
         self.transfer_effect:Optional[core.Effect] = None
 
     def _begin(self) -> None:
         self.init_eta = (
                 DockingOrder.compute_eta(self.ship, self.target)
-                + self.amount / self.transfer_rate
+                + self.amount / self.transfer_rate()
         )
 
     def _cancel(self) -> None:
@@ -128,7 +131,7 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         return effects.TransferCargoEffect(
                 self.resource, self.amount, self.ship, self.target,
                 self.ship.sector, self.gamestate,
-                transfer_rate=self.transfer_rate)
+                transfer_rate=self.transfer_rate())
 
 class TradeCargoToStation(TransferCargo):
     def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, floor_price:float, *args:Any, **kwargs:Any) -> None:
@@ -147,11 +150,35 @@ class TradeCargoToStation(TransferCargo):
                 self.resource, self.amount, self.ship, self.target,
                 self.ship.sector, self.gamestate,
                 floor_price=self.floor_price,
-                transfer_rate=self.transfer_rate)
+                transfer_rate=self.transfer_rate())
 
     def act(self, dt:float) -> None:
         #TODO: what happens if the buyer changes?
         assert self.buyer == self.gamestate.econ_agents.get(self.target.entity_id)
+        super().act(dt)
+
+class TradeCargoFromStation(TransferCargo):
+    def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, ceiling_price:float, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.buyer = buyer
+        self.seller = seller
+        self.ceiling_price = ceiling_price
+
+    def _initialize_transfer(self) -> core.Effect:
+        assert self.ship.sector is not None
+        assert self.seller == self.gamestate.econ_agents[self.target.entity_id]
+        #TODO: what should we do if the buyer doesn't represent the station
+        # anymore (might have happened since we started the order)
+        return effects.TradeTransferEffect(
+                self.buyer, self.seller, econ.seller_price,
+                self.resource, self.amount, self.target, self.ship,
+                self.ship.sector, self.gamestate,
+                ceiling_price=self.ceiling_price,
+                transfer_rate=self.transfer_rate())
+
+    def act(self, dt:float) -> None:
+        #TODO: what happens if the buyer changes?
+        assert self.seller == self.gamestate.econ_agents.get(self.target.entity_id)
         super().act(dt)
 
 """

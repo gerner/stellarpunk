@@ -10,10 +10,11 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection
 import abc
 import heapq
 import dataclasses
+import abc
 
 import graphviz # type: ignore
 import numpy as np
@@ -82,15 +83,7 @@ class ProductionChain:
 
         return g
 
-class Asset:
-    """ A mixin for classes that are assets ownable by characters. """
-    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
-        # forward arguments onward, so implementing classes should inherit us
-        # first
-        super().__init__(*args, **kwargs)
-        self.owner = owner
-
-class Entity:
+class Entity(abc.ABC):
     id_prefix = "ENT"
 
     def __init__(self, name:str, entity_id:Optional[uuid.UUID]=None)->None:
@@ -107,6 +100,14 @@ class Entity:
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
+
+class Asset(Entity):
+    """ An abc for classes that are assets ownable by characters. """
+    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
+        # forward arguments onward, so implementing classes should inherit us
+        # first
+        super().__init__(*args, **kwargs)
+        self.owner = owner
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
@@ -301,8 +302,8 @@ class SectorEntity(Entity):
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
 
-    def __str__(self) -> str:
-        return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+    #def __str__(self) -> str:
+    #    return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
 
     def distance_to(self, other:SectorEntity) -> float:
         return util.distance(self.loc, other.loc) - self.radius - other.radius
@@ -338,7 +339,7 @@ class SectorEntity(Entity):
         else:
             return f'{self.short_id()}@None'
 
-class Planet(Asset, SectorEntity):
+class Planet(SectorEntity, Asset):
 
     id_prefix = "HAB"
     object_type = ObjectType.PLANET
@@ -347,7 +348,7 @@ class Planet(Asset, SectorEntity):
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-class Station(Asset, SectorEntity):
+class Station(SectorEntity, Asset):
 
     id_prefix = "STA"
     object_type = ObjectType.STATION
@@ -359,7 +360,7 @@ class Station(Asset, SectorEntity):
         self.next_production_time = 0.
         self.cargo_capacity = 1e5
 
-class Ship(Asset, SectorEntity):
+class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
 
     id_prefix = "SHP"
@@ -528,8 +529,8 @@ class Asteroid(SectorEntity):
         self.resource = resource
         self.cargo[self.resource] = amount
 
-    def __str__(self) -> str:
-        return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.cargo[self.resource]}'
+    #def __str__(self) -> str:
+    #    return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.cargo[self.resource]}'
 
 class TravelGate(SectorEntity):
     """ Represents a "gate" to another sector """
@@ -795,12 +796,28 @@ class Order:
         pass
 
 T = TypeVar("T")
-@dataclasses.dataclass(order=True)
 class PrioritizedItem(Generic[T]):
-    priority: float
-    item:T=dataclasses.field(compare=False)
+    def __init__(self, priority:float, item:T) -> None:
+        self.priority = priority
+        self.item = item
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, PrioritizedItem):
+            return NotImplemented
+        return self.priority == other.priority
+
+    def __lt__(self, other:Any) -> bool:
+        if not isinstance(other, PrioritizedItem):
+            return NotImplemented
+        return self.priority < other.priority
 
 class EconAgent(abc.ABC):
+    @abc.abstractmethod
+    def buy_resources(self) -> Collection: ...
+
+    @abc.abstractmethod
+    def sell_resources(self) -> Collection: ...
+
     @abc.abstractmethod
     def buy_price(self, resource:int) -> float: ...
 
@@ -827,7 +844,12 @@ class Counters(enum.IntEnum):
         """generate consecutive automatic numbers starting from zero"""
         return count
     GOTO_ACT_FAST = enum.auto()
+    GOTO_ACT_FAST_CT = enum.auto()
     GOTO_ACT_SLOW = enum.auto()
+    GOTO_THREAT_YES = enum.auto()
+    GOTO_THREAT_YES_CT = enum.auto()
+    GOTO_THREAT_NO = enum.auto()
+    GOTO_THREAT_NO_CT = enum.auto()
     ACCELERATE_FAST = enum.auto()
     ACCELERATE_SLOW = enum.auto()
     ACCELERATE_FAST_FORCE = enum.auto()
@@ -839,6 +861,10 @@ class Counters(enum.IntEnum):
     NON_FRONT_ORDER_ACTION = enum.auto()
     ORDERS_PROCESSED = enum.auto()
     ORDER_SCHEDULE_DELAY = enum.auto()
+    COLLISION_NEIGHBOR_NO_NEIGHBORS = enum.auto()
+    COLLISION_NEIGHBOR_HAS_NEIGHBORS = enum.auto()
+    COLLISION_NEIGHBOR_NUM_NEIGHBORS = enum.auto()
+    COLLISION_NEIGHBOR_NONE = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:

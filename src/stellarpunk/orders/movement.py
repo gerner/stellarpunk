@@ -128,8 +128,10 @@ class GoToLocation(AbstractSteeringOrder):
                 observer=observer)
 
     @staticmethod
-    def compute_eta(ship:core.Ship, target_location:Union[npt.NDArray[np.float64], Tuple[float, float]], safety_factor:float=2.0) -> float:
-        course = target_location - (ship.loc)
+    def compute_eta(ship:core.Ship, target_location:Union[npt.NDArray[np.float64], Tuple[float, float]], safety_factor:float=2.0, starting_loc:Optional[npt.NDArray[np.float64]]=None) -> float:
+        if starting_loc is None:
+            starting_loc = ship.loc
+        course = target_location - starting_loc
         distance, target_angle = util.cartesian_to_polar(course[0], course[1])
         rotate_towards = rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration(), safety_factor)
 
@@ -165,7 +167,7 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 2e4,
+            neighborhood_radius: float = 1.5e4,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -250,6 +252,7 @@ class GoToLocation(AbstractSteeringOrder):
             force_recompute = self.distance_estimate < self.arrival_distance * 5
             continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
+            self.gamestate.counters[core.Counters.GOTO_ACT_FAST_CT] += continue_time
 
             # don't need to wake up again until the acceleration is complete
             next_ts = min(self._next_compute_ts, self.gamestate.timestamp + continue_time)
@@ -354,6 +357,8 @@ class GoToLocation(AbstractSteeringOrder):
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
             continue_time = self._accelerate_to(self.target_v, dt, force_recompute=True)
+            self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
+            self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
             self._desired_velocity = self.target_v
 
             # if we previously could not avoid collision and now we have no
@@ -362,18 +367,20 @@ class GoToLocation(AbstractSteeringOrder):
             # normal margin
             if prev_cannot_avoid_collision:
                 nts = 1/70
-            elif distance < self.arrival_distance * 5:
+            elif distance < self.arrival_distance * 2.5:
                 nts = nts_low
             else:
                 # compute a time delta for our next desired velocity computation
-                nts_nnd_low = 2e3
-                nts_nnd_high = 1e4
+                nts_nnd_low = 2e3#5e2
+                nts_nnd_high = 1e4#5e3
                 nts_nnd = util.interpolate(nts_nnd_low, nts_low, nts_nnd_high, nts_high, self.nearest_neighbor_dist)
 
                 nts_dist_low = 1e3
                 nts_dist_high = 1e4
                 nts_dist = util.interpolate(nts_dist_low, nts_low, nts_dist_high, nts_high, distance)
-                nts = max(1/70, min(min(nts_nnd, nts_dist), nts_high))
+
+                #nts = max(1/70, min(min(nts_nnd, nts_dist), nts_high))
+                nts = max(nts_low, min(min(nts_nnd, nts_dist), nts_high))
         else:
             # if we're over max speed, let's slow down in addition to avoiding
             # collision
@@ -390,6 +397,8 @@ class GoToLocation(AbstractSteeringOrder):
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
+            self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
+            self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 
             if self.cannot_avoid_collision:
                 nts = 1/70

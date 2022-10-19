@@ -356,6 +356,8 @@ def main() -> None:
         logging.captureWarnings(True)
         # turn warnings into exceptions
         warnings.filterwarnings("error")
+        import numba
+        warnings.filterwarnings("ignore", category=numba.core.errors.NumbaPendingDeprecationWarning)
 
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()

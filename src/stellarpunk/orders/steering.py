@@ -17,7 +17,7 @@ from stellarpunk import util, core
 
 ANGLE_EPS = 2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
-VELOCITY_EPS = 1e-1
+VELOCITY_EPS = 5e-1
 
 CBDR_MIN_HIST_SEC = 0.5
 CBDR_MAX_HIST_SEC = 1.1
@@ -72,7 +72,11 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
             #desired_w = np.sign(difference_angle) * np.sqrt(abs(difference_angle + w*dt) * max_torque / (0.5 * moment))/safety_factor
             desired_w =  np.sign(difference_angle) * np.sqrt(np.abs(difference_angle) * max_torque/moment * 2) * 0.90
 
+        if abs(desired_w - w) < ANGLE_EPS:
+            return 0., np.inf
+
         t = (desired_w - w)*moment/dt
+
 
         if t < -max_torque:
             return -max_torque, abs((desired_w - w)*moment / max_torque)
@@ -89,6 +93,9 @@ def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:flo
         return ZERO_VECTOR, np.inf
 
     dv_magnitude = util.magnitude(dv[0], dv[1])
+    if dv_magnitude < VELOCITY_EPS:
+        return ZERO_VECTOR, np.inf
+
     desired_thrust = mass * dv_magnitude / dt
     if desired_thrust > max_thrust:
         return dv / dv_magnitude * max_thrust, mass * dv_magnitude/max_thrust
@@ -853,6 +860,8 @@ class AbstractSteeringOrder(core.Order):
         all_prior_threats = False
 
         if len(hits) > 0:
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NUM_NEIGHBORS] += len(hits)
             #TODO: this is really not ideal: we go into pymunk to get hits via
             # cffi and then come back to python and then do some marshalling
             # there and then back into numba. the perf win from numba here is
@@ -938,6 +947,7 @@ class AbstractSteeringOrder(core.Order):
                         threat_loc = new_loc
                         threat_radius = new_radius
         else:
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NO_NEIGHBORS] += 1
             idx = -1
             approach_time = np.inf
             relative_position = ZERO_VECTOR
@@ -955,6 +965,7 @@ class AbstractSteeringOrder(core.Order):
             coalesced_neighbors = []
 
         if idx < 0:
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NONE] += 1
             neighbor = None
         else:
             neighbor = hits[idx]

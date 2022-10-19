@@ -42,6 +42,8 @@ class SectorView(interface.View):
         self.selected_target:Optional[uuid.UUID] = None
         self.selected_entity:Optional[core.SectorEntity] = None
 
+        self.selected_character:Optional[core.Character] = None
+
         # sector zoom level, expressed in meters to fit on screen
         self.szoom = self.sector.radius*2
         self.meters_per_char_x = 0.
@@ -239,8 +241,37 @@ class SectorView(interface.View):
         if isinstance(self.selected_entity, core.Asset):
             self.viewscreen.addstr(status_y+4, status_x, f'{label_owner:>12} {self.selected_entity.owner}')
 
+    def _draw_character_info(self) -> None:
+        #TODO: not sure we want this at all, but it's a quick way to see some character info
+        if self.selected_character is None:
+            return
+
+        info_x = 1
+        info_y = 1
+
+        lineno = 0
+        for row in self.selected_character.portrait.text:
+            self.viewscreen.addstr(info_y+lineno, info_x, row)
+            lineno += 1
+
+        self.viewscreen.addstr(info_y+lineno+1, info_x, self.selected_character.short_id())
+        self.viewscreen.addstr(info_y+lineno+2, info_x, self.selected_character.name)
+        self.viewscreen.addstr(info_y+lineno+3, info_x, f'located in: {self.selected_character.location.address_str()}')
+        self.viewscreen.addstr(info_y+lineno+4, info_x, f'assets:')
+        lineno += 5
+        for asset in self.selected_character.assets:
+            self.viewscreen.addstr(info_y+lineno, info_x+2, f'{asset.short_id()}')
+            lineno+=1
+
+        self.viewscreen.addstr(info_y+lineno, info_x, f'agenda:')
+        lineno += 1
+        for agendum in self.selected_character.agenda:
+            self.viewscreen.addstr(info_y+lineno, info_x+2, f'{agendum}')
+            lineno+=1
+
     def _draw_hud(self) -> None:
         self._draw_target_info()
+        self._draw_character_info()
 
     def update_display(self) -> None:
         self.draw_sector_map()
@@ -332,6 +363,18 @@ class SectorView(interface.View):
             # suspend input until we get focus again
             self.active = False
 
+        def chr_info(args:Sequence[str])->None:
+            if not args:
+                raise command_input.CommandInput.UserError("need a valid target")
+            try:
+                target_id = uuid.UUID(args[0])
+            except ValueError:
+                raise command_input.CommandInput.UserError("not a valid character id, try tab completion.")
+            if target_id not in self.interface.gamestate.characters:
+                raise command_input.CommandInput.UserError("{args[0]} not found")
+            self.selected_character = self.interface.gamestate.characters[target_id]
+
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
@@ -345,6 +388,7 @@ class SectorView(interface.View):
                 "wait": wait,
                 #"harvest": harvest,
                 "pilot": pilot,
+                "chr_info": (chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
         }
 
     def handle_input(self, key:int, dt:float) -> bool:
@@ -427,7 +471,9 @@ class SectorView(interface.View):
                 #TODO: check if the hit is close enough
                 self.select_target(hit.entity_id, hit)
         elif key == curses.ascii.ESC: #TODO: should handle escape here
-            if self.selected_target is not None:
+            if self.selected_character is not None:
+                self.selected_character = None
+            elif self.selected_target is not None:
                 self.select_target(None, None)
             else:
                 return False

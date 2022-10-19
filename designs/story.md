@@ -43,3 +43,13 @@ giver type.
 Following up on the investigation might be rewarding from a story perspective.
 Likely the conclusion will be more status quo than reveletory for the sector.
 
+# Tidbits
+
+## Comms
+
+### Docking
+
+"This is STA-deadbe, traffic control. Our tugs have you. Welcome to The Eternal
+Rising Sun captain."
+
+

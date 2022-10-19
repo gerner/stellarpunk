@@ -58,6 +58,51 @@ assets they own.
 We want to set up a stable economy for the sector. That means we need a certain
 layout of stations and ships and prices that support production.
 
+Thematically we want to have more miners than resource stations. It makes sense
+to have more stations in the earlier tiers than the later tiers, and final tier
+stations should be very rare.
+
+In `econ_sim.py` we created a fixed number of agents and distributed them as
+goods producers with probability inversely proportional to the production chain
+prices. Assuming production rates are similar across goods (perhaps not correct
+for mining), this creates roughly the right amount of aggregate production at
+each node in the production chain. Unless we want to create an imbalance for
+some reason, this balanced production chain seems like a good place to start.
+
+Example distribution from `econ_sim.py` with 300 agents:
+
+* miners   (149): 24, 10, 74, 10, 10, 21
+* refinery (114): 10, 10, 61, 11,  7, 15
+* lo-tech   (28):  1,  1, 11,  3,  2,  5,  2,  3
+* hi-tech    (6):  1,  1,  1,  2,  1
+* final      (3):  1,  1,  1
+
+And batch sizes:
+
+* miners:    3,  3,  3,  3,  3,  3
+* refinery: 15, 27, 30,  9,  6,  9
+* lo-tech:  21,  9, 21, 12, 24, 15, 12,  6
+* hi-tech:   3,  3, 50, 48, 45
+* final:     1,  1,  1
+
+This seems like too many refineries.
+
+Production rate = 3 * batch size * batch rate
+batch rate = 1 / 60 sec
+batch size = min(next step need), e.g. [3,50]
+Production rate, e.g., [.15,2.5]/sec
+
+Trading rate = cargo capacity / (transport time + 2 * transfer time)
+transport time, e.g. = 162 sec
+cargo capacity = 1e3
+transfer rate = 1e2/sec
+Trading rate = 55 / sec
+
+Mining rate = cargo capacity / (transport time + mining time + transfer time)
+mining time = cargo capacity / mining rate
+mining rate = 1e2/sec
+Mining rate = 55 / sec
+
 ## AI Changes
 
 We want characters to manage high-level choices about mining, trading, price
