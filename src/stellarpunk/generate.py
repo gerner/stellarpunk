@@ -9,7 +9,6 @@ import itertools
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
-#import pymunk
 import cymunk # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ
@@ -300,7 +299,6 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
         station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
-        station.loc.flags.writeable = False
         station.resource = resource
 
         self._phys_shape(station_body, station, core.ObjectFlag.STATION, station_radius)
@@ -315,7 +313,6 @@ class UniverseGenerator:
         #TODO: stations are static?
         planet_body = self._phys_body()
         planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
-        planet.loc.flags.writeable = False
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
         self._phys_shape(planet_body, planet, core.ObjectFlag.PLANET, planet_radius)
@@ -393,9 +390,6 @@ class UniverseGenerator:
         else:
             ship_body.angular_velocity = w
 
-        ship.velocity = np.array(ship_body.velocity, dtype=np.float64)
-        ship.angular_velocity = ship_body.angular_velocity
-        ship.angle = ship_body.angle
         sector.add_entity(ship)
 
         ship.default_order_fn = default_order_fn
@@ -441,7 +435,6 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         body = self._phys_body()
         asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
-        asteroid.loc.flags.writeable = False
 
         self._phys_shape(body, asteroid, core.ObjectFlag.ASTEROID, asteroid_radius)
 

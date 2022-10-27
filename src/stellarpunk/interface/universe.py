@@ -43,6 +43,8 @@ class UniverseView(interface.View):
         # if we receive focus, this should be dead
         self.sector_view:Optional[sector_interface.SectorView] = None
 
+        self._ci = command_input.CommandInput(self.interface, commands=self.command_list())
+
     def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
 
@@ -300,8 +302,7 @@ class UniverseView(interface.View):
             # suspend input until we get focus again
             self.active = False
         elif key == ord(":"):
-            ci = command_input.CommandInput(self.interface, commands=self.command_list())
-            self.interface.open_view(ci)
+            self.interface.open_view(self._ci)
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()
             m_id, m_x, m_y, m_z, bstate = m_tuple

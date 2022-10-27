@@ -178,8 +178,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
 @write_history
 def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
-    ship_driver.velocity = np.array((0., -10.)) * 50.
-    ship_driver.phys.velocity = tuple(ship_driver.velocity)
+    ship_driver.set_velocity(np.array((0., -10.)) * 50.)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
@@ -205,8 +204,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
 @write_history
 def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, 0, 15000, v=(0,0), w=0, theta=0)
-    ship_driver.velocity = np.array((-4., -10.)) * 50.
-    ship_driver.phys.velocity = tuple(ship_driver.velocity)
+    ship_driver.set_velocity(np.array((-4., -10.)) * 50.)
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)

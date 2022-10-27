@@ -559,10 +559,13 @@ class Interface(AbstractInterface):
         self.logscreen.addstr(self.logscreen_height,0, message+"\n")
         self.refresh_logscreen()
 
-    def status_message(self, message:str="", attr:int=0) -> None:
+    def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:
         """ Adds a status message. """
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
+
+        if cursor:
+            self.stdscr.addstr(self.screen_height-1, len(message), " ", curses.A_REVERSE)
 
         if message:
             self.status_message_clear_time = self.gamestate.timestamp + self.status_message_lifetime

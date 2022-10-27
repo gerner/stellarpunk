@@ -100,8 +100,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     # travel along course and observe no collision
 
     ship_driver = generator.spawn_ship(sector, -400, 20000, v=(0.,0.), w=0., theta=0.)
-    ship_driver.velocity = np.array((0., 0.))
-    ship_driver.phys.velocity = tuple(ship_driver.velocity)
+    ship_driver.set_velocity(np.array((0., 0.)))
 
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)

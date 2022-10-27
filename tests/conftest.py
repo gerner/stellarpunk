@@ -1,6 +1,5 @@
 import pytest
 
-#import pymunk
 import cymunk # type: ignore
 import numpy as np
 

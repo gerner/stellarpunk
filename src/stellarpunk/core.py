@@ -19,7 +19,6 @@ import abc
 import graphviz # type: ignore
 import numpy as np
 import numpy.typing as npt
-#import pymunk
 import cymunk # type: ignore
 from rtree import index # type: ignore
 
@@ -285,10 +284,8 @@ class SectorEntity(Entity):
         # some physical properties (in SI units)
         self.mass = 0.
         self.moment = 0.
-        self.loc = loc
-        self.velocity:npt.NDArray[np.float64] = np.array((0.,0.), dtype=np.float64)
-        self.angle = 0.
-        self.angular_velocity = 0.
+
+        phys.position = (loc[0], loc[1])
 
         self.cargo_capacity = 1e3
 
@@ -301,6 +298,15 @@ class SectorEntity(Entity):
         self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return np.array(self.phys.velocity)
+    @property
+    def angle(self) -> float: return self.phys.angle
+    @property
+    def angular_velocity(self) -> float: return self.phys.angular_velocity
 
     #def __str__(self) -> str:
     #    return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
@@ -329,8 +335,8 @@ class SectorEntity(Entity):
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc.copy(), self.radius, self.angle,
-                self.velocity.copy(), self.angular_velocity,
+                self.loc, self.radius, self.angle,
+                self.velocity, self.angular_velocity,
                 (0.,0.), 0,
         )
     def address_str(self) -> str:
@@ -400,8 +406,8 @@ class Ship(SectorEntity, Asset):
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc.copy(), self.radius, self.angle,
-                self.velocity.copy(), self.angular_velocity,
+                self.loc, self.radius, self.angle,
+                self.velocity, self.angular_velocity,
                 self.phys.force, self.phys.torque,
                 order_hist,
         )
@@ -417,38 +423,6 @@ class Ship(SectorEntity, Asset):
 
     def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
-
-    def pre_tick(self, ts:float) -> None:
-        # update ship positions from physics sim
-        pos = self.phys.position
-
-        self.loc[0] = pos[0]
-        self.loc[1] = pos[1]
-        self.angle = self.phys.angle
-
-        vel = self.phys.velocity
-        self.velocity[0] = vel[0]
-        self.velocity[1] = vel[1]
-        self.angular_velocity = self.phys.angular_velocity
-
-    def post_tick(self) -> None:
-        #if self._will_apply_torque:
-        #    self.phys.torque = self._planned_torque
-        #    self._applied_torque = True
-        #    if not self._persistent_torque:
-        #        self._planned_torque = 0.
-        #        self._will_apply_torque = False
-        #if self._will_apply_force:
-        #    #self.phys.force = self._planned_force
-        #    if self.phys.force["x"] > 0 or self.phys.force["y"] > 0:
-        #        raise Exception()
-        #    self.phys.apply_force(self._planned_force)
-        #    self._applied_force = self._will_apply_force
-        #    if not self._persistent_force:
-        #        self._planned_force[0] = 0.
-        #        self._planned_force[1] = 0.
-        #        self._will_apply_force = False
-        pass
 
     def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
         #self.phys.apply_force_at_world_point(
@@ -469,21 +443,15 @@ class Ship(SectorEntity, Asset):
 
     def set_loc(self, loc: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.position = (loc[0], loc[1])
-        self.loc[0] = loc[0]
-        self.loc[1] = loc[1]
 
     def set_velocity(self, velocity: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.velocity = (velocity[0], velocity[1])
-        self.velocity[0] = velocity[0]
-        self.velocity[1] = velocity[1]
 
     def set_angle(self, angle: float) -> None:
         self.phys.angle = angle
-        self.angle = angle
 
     def set_angular_velocity(self, angular_velocity:float) -> None:
         self.phys.angular_velocity = angular_velocity
-        self.angular_velocity = angular_velocity
 
     def default_order(self, gamestate: Gamestate) -> Order:
         return self.default_order_fn(self, gamestate)

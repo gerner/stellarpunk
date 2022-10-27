@@ -11,7 +11,7 @@ import collections
 import heapq
 
 import numpy as np
-import pymunk
+import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
@@ -67,7 +67,7 @@ class Simulator:
         # this is not for external consumption
         self._collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
 
-    def _ship_collision_detected(self, arbiter:pymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
+    def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
         # which ship(s) are colliding?
 
         (shape_a, shape_b) = arbiter.shapes
@@ -192,17 +192,11 @@ class Simulator:
                 # keep _collisions clear for next time
                 self._collisions.clear()
 
-            for ship in sector.ships:
-                ship.pre_tick(self.gamestate.timestamp)
-
         # at this point all physics sim is done for the tick and the gamestate
         # is up to date across the universe
 
         # do AI stuff, e.g. let ships take action (but don't actually have the
         # actions take effect yet!)
-        #for sector in self.gamestate.sectors.values():
-        #    for ship in sector.ships:
-        #        self.tick_order(ship, dt)
 
         orders_processed = 0
         while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
@@ -244,8 +238,6 @@ class Simulator:
         # at this point all AI decisions have happened everywhere
         # update sector state after all ships across universe take action
         for sector in self.gamestate.sectors.values():
-            for ship in sector.ships:
-                ship.post_tick()
             self.tick_sector(sector, dt)
 
         self.gamestate.ticks += 1
