@@ -49,7 +49,11 @@ def ship_from_history(history_entry, generator, sector):
     theta = history_entry["a"]
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta, entity_id=uuid.UUID(history_entry["eid"]))
     ship.name = history_entry["eid"]
-    ship.phys.force = cymunk.vec2d.Vec2d(history_entry.get("f", (0., 0.)))
+    # some histories have force as a vector, some as a dict
+    f = history_entry.get("f", (0., 0.))
+    if isinstance(f, dict):
+        f = [f["x"], f["y"]]
+    ship.phys.force = cymunk.vec2d.Vec2d(f)
     ship.phys.torque = history_entry.get("t", 0.)
     return ship
 
@@ -71,7 +75,7 @@ def planet_from_history(history_entry, generator, sector):
     planet.name = history_entry["eid"]
     return planet
 
-def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamestate):
+def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamestate, load_ct:bool=True):
     assert ship.sector
     order_type = history_entry["o"]["o"]
     if order_type in ("stellarpunk.orders.GoToLocation", "stellarpunk.orders.movement.GoToLocation"):
@@ -86,9 +90,9 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
             gorder.neighborhood_density = history_entry["o"]["nd"]
 
-        """
-        if "ct" in history_entry["o"]:
+        if load_ct and "ct" in history_entry["o"]:
             gorder.collision_threat = ship.sector.entities[uuid.UUID(history_entry["o"]["ct"])]
+            gorder.collision_threat_time = history_entry["o"]["ct_ts"] - history_entry["ts"]
             gorder.collision_coalesced_neighbors.extend(
                     next(ship.sector.spatial_point(np.array(x), 100)) for x in history_entry["o"]["ct_cn"]
             )
@@ -97,7 +101,11 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder.cannot_avoid_collision = history_entry["o"]["cac"]
             gorder.cannot_avoid_collision_hold = history_entry["o"]["cach"]
             gorder.collision_cbdr = history_entry["o"]["cbdr"]
-        """
+
+        if "msc" in history_entry["o"]:
+            gorder.max_speed_cap = history_entry["o"]["msc"]
+            gorder.max_speed_cap_ts = history_entry["o"]["msc_ts"] - history_entry["ts"]
+            gorder.max_speed_cap_alpha = history_entry["o"]["msc_a"]
 
         order:core.Order=gorder
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
@@ -110,7 +118,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
 
     return order
 
-def history_from_file(fname, generator, sector, gamestate):
+def history_from_file(fname, generator, sector, gamestate, load_ct:bool=True):
     entities = {}
 
     with open(fname, "rt") as f:
@@ -132,7 +140,7 @@ def history_from_file(fname, generator, sector, gamestate):
             else:
                 raise ValueError(f'unknown prefix {entry["p"]}')
         for entry, ship in order_entries:
-            order_from_history(entry, ship, gamestate)
+            order_from_history(entry, ship, gamestate, load_ct)
     return entities
 
 class MonitoringUI(interface.AbstractInterface):

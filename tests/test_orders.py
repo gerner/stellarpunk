@@ -39,6 +39,7 @@ def test_coalesce():
             min_sep,
             threat_count,
             coalesced_threats,
+            non_coalesced_threats,
             threat_radius,
             threat_loc,
             threat_velocity,
@@ -117,9 +118,9 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     assert ship_driver.angular_velocity == 0
     assert util.isclose(ship_driver.angle, rotate_order.target_angle)
 
-    # make sure our eta estimate is within 15% of the estimate after backing
+    # make sure our eta estimate is within 18% of the estimate after backing
     # out the safety margin
-    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.15)
+    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.18)
 
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):

@@ -60,6 +60,7 @@ class TransferCargoEffect(core.Effect):
 
         amount = self._amount()
         if not self._continue_transfer(amount):
+            self.logger.debug(f'aborting transfer')
             #TODO: the transfer isn't really complete, how to communicate that?
             self._completed_transfer = True
             return
@@ -122,7 +123,11 @@ class TradeTransferEffect(TransferCargoEffect):
         return amount
 
     def _continue_transfer(self, amount:float) -> bool:
-        return super()._continue_transfer(amount) and self._continue_trade(amount)
+        if not super()._continue_transfer(amount):
+            return False
+        if not self._continue_trade(amount):
+            return False
+        return True
 
     def _deliver(self, amount:float) -> None:
         #TODO: make sure the buyer still wants to buy more at the given price
@@ -134,18 +139,9 @@ class TradeTransferEffect(TransferCargoEffect):
         #TODO: what if the agents are invalid now (e.g. change agent for the station)
         #TODO: what if one or both parties has been destroyed?
         price = self.current_price(self.buyer, self.seller, self.resource)
-        if price < self.floor_price:
-            return False
-        if price > self.ceiling_price:
-            return False
-        if amount > self.seller.inventory(self.resource):
-            return False
-        value = price * amount
-        if self.buyer.balance() < value:
-            return False
-        if self.buyer.budget(self.resource) < value:
-            return False
-        return True
+        return econ.trade_valid(
+                self.buyer, self.seller, self.resource, price, amount,
+                self.floor_price, self.ceiling_price)
 
 class MiningEffect(TransferCargoEffect):
     """ Subclass of TransferCargoEffect to get different visuals. """

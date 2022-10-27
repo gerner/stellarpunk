@@ -399,6 +399,7 @@ class UniverseGenerator:
         sector.add_entity(ship)
 
         ship.default_order_fn = default_order_fn
+        ship.prepend_order(ship.default_order(self.gamestate))
 
         return ship
 
@@ -638,13 +639,13 @@ class UniverseGenerator:
                 character.take_ownership(asset)
                 if isinstance(asset, core.Ship):
                     if asset in mining_ships:
-                        character.add_agendum(agenda.MiningAgendum(ship=asset, gamestate=self.gamestate))
+                        character.add_agendum(agenda.MiningAgendum(ship=asset, character=character, gamestate=self.gamestate))
                     elif asset in trading_ships:
-                        character.add_agendum(agenda.TradingAgendum(ship=asset, gamestate=self.gamestate))
+                        character.add_agendum(agenda.TradingAgendum(ship=asset, character=character, gamestate=self.gamestate))
                     else:
                         raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
                 elif isinstance(asset, core.Station):
-                    character.add_agendum(agenda.StationManager(station=asset, gamestate=self.gamestate))
+                    character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
                 elif isinstance(asset, core.Planet):
                     #TODO: what to do with planet assets?
                     pass
@@ -870,7 +871,7 @@ class UniverseGenerator:
 
     def generate_sectors(self,
             width:int=7, height:int=7,
-            sector_radius:float=1e5,
+            sector_radius:float=3e5,
             sector_radius_std:float=1e5*0.25,
             sector_edge_length:float=1e5*15,
             n_habitable_sectors:int=15,

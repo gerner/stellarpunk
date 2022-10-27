@@ -12,7 +12,7 @@ import numpy as np
 
 from stellarpunk import util
 
-TS_EPS = 1/60/2*10
+TS_EPS = 1/30/2*10
 
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)

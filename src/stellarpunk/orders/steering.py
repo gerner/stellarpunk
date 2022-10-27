@@ -64,24 +64,36 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
         # desired w is w such that braking_angle = difference_angle
         # braking_angle =  -1 * np.sign(w) * -0.5 * w*w * moment / max_torque
         # sqrt(difference_angle * max_torque / (0.5 * moment)) = w
-        arrival_angle = ANGLE_EPS
         if abs(difference_angle) < ANGLE_EPS:
             desired_w = 0.
         else:
             # w_f**2 = w_i**2 + 2 * a (d_theta)
             #desired_w = np.sign(difference_angle) * np.sqrt(abs(difference_angle + w*dt) * max_torque / (0.5 * moment))/safety_factor
-            desired_w =  np.sign(difference_angle) * np.sqrt(np.abs(difference_angle) * max_torque/moment * 2) * 0.90
+            desired_w =  np.sign(difference_angle) * np.sqrt(np.abs(difference_angle) * max_torque/moment * 2) * 0.9
 
-        if abs(desired_w - w) < ANGLE_EPS:
+        arrival_angle = 5e-1
+        if abs(difference_angle) < arrival_angle:
+            w_dampener = util.interpolate(
+                arrival_angle, 1.0,
+                -arrival_angle, 0.,
+                abs(difference_angle)
+            )
+            assert w_dampener > 0.
+            assert w_dampener <= 1.
+            desired_w = desired_w * w_dampener
+
+        difference_w = abs(desired_w - w)
+
+        if difference_w < ANGLE_EPS:
             return 0., np.inf
 
         t = (desired_w - w)*moment/dt
 
 
         if t < -max_torque:
-            return -max_torque, abs((desired_w - w)*moment / max_torque)
+            return -max_torque, difference_w * moment / max_torque
         elif t > max_torque:
-            return max_torque, abs((desired_w - w)*moment / max_torque)
+            return max_torque, difference_w * moment / max_torque
         else:
             return t, dt
 
@@ -208,6 +220,7 @@ def _analyze_neighbors(
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
             float,
+            int,
             int,
             int,
             float,
@@ -339,6 +352,7 @@ def _analyze_neighbors(
     # include.
     # see https://github.com/marmakoide/miniball and https://github.com/weddige/miniball
     coalesced_threats = 0
+    non_coalesced_threats = 0
     ct = []
     if idx >= 0:
         threat_radius = hits_r[idx]
@@ -379,16 +393,18 @@ def _analyze_neighbors(
                     threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
                     coalesced_threats += 1
                     ct.append(eidx)
+                else:
+                    non_coalesced_threats += 1
     else:
         # no threat found, return some default values
         threat_radius = 0.
         threat_loc = ZERO_VECTOR
         threat_velocity = ZERO_VECTOR
 
-    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
+    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, non_coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
 @jit(cache=True, nopython=True)
-def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, delta_v_budget:float) -> npt.NDArray[np.float64]:
+def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
     relative to the desired velocity.
@@ -419,7 +435,8 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     else:
         do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
-        return v_d
+        if util.magnitude(a[0], a[1]) <= delta_v_budget:
+            return v_d
 
     if util.magnitude(r[0], r[1]) <= margin:
         raise ValueError()
@@ -510,6 +527,9 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
     cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
 
+    assert not (math.isnan(cost1) or math.isinf(cost1))
+    assert not (math.isnan(cost2) or math.isinf(cost2))
+
     s_x = 0.
     s_y = 0.
     cost = 0.
@@ -529,20 +549,43 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         # not exactly sure why either would be nan, but hopefully one is not
         assert not math.isnan(cost1) or not math.isnan(cost2)
 
-    if cbdr:
-        if util.isclose(s_x, 0):
-            dx = 0
-            dy = np.sqrt(cost*2)
-            y += np.sqrt(cost*2)
-        elif util.isclose(s_y, 0):
-            dx = np.sqrt(cost*2)
-            dy = 0
-            x += dx
-        else:
-            dx = np.sqrt(cost*2 / ((s_y/s_x)**2 + 1))
-            dy = s_y/s_x * dx
-            x += dx
-            y += dy
+    #if cbdr:
+    #    # prefer diversion in the same direction in case of cbdr
+    #    # the sign of cross1 and cross2 indicate the direction of the divert
+    #    # (clockwise or counter-clockwise)
+    #    cross1 = v[0]*y1-v[1]*x1
+    #    cross2 = v[0]*y2-v[1]*x2
+    #    if cross1 > cross2:
+    #        x = x1
+    #        y = y1
+    #        s_x = s_1x
+    #        s_y = s_1y
+    #        cost = cost1
+    #    else:
+    #        x = x2
+    #        y = y2
+    #        s_x = s_2x
+    #        s_y = s_2y
+    #        cost = cost2
+
+    if cbdr and cbdr_bias < 0:
+        return np.array((0.,0.))
+
+    #if cbdr:
+    #    # swap our choices if our bias is negative
+    #    if cbdr_bias < 0:
+    #        if not cost2 < cost1:
+    #            x = x2
+    #            y = y2
+    #            s_x = s_2x
+    #            s_y = s_2y
+    #            cost = cost2
+    #        elif not cost1 < cost2:
+    #            x = x1
+    #            y = y1
+    #            s_x = s_1x
+    #            s_y = s_1y
+    #            cost = cost1
 
     # useful assert when testing
     # this asserts that the resulting x,y point matches the the contraint on
@@ -682,6 +725,8 @@ class AbstractSteeringOrder(core.Order):
         self._accelerate_difference_angle:float = 0.
         self._accelerate_difference_mag:float = 0.
 
+        # cache this so we can use it over and over
+        self.worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
     def to_history(self) -> dict:
         history = super().to_history()
         if self.collision_threat:
@@ -690,6 +735,7 @@ class AbstractSteeringOrder(core.Order):
             history["ct_loc"] = (self.collision_threat.loc[0], self.collision_threat.loc[1])
             history["ct_v"] = (self.collision_threat.velocity[0], self.collision_threat.velocity[1])
             history["ct_ts"] = self.collision_threat_time
+            history["ct_at"] = self.collision_approach_time
             history["ct_dv"] = (self.collision_dv[0], self.collision_dv[1])
             history["ct_tc"] = self.collision_threat_count
             history["ct_ct"] = self.collision_coalesced_threats
@@ -884,6 +930,7 @@ class AbstractSteeringOrder(core.Order):
                     minimum_separation,
                     threat_count,
                     coalesced_threats,
+                    non_coalesced_threats,
                     threat_radius,
                     threat_loc,
                     threat_velocity,
@@ -956,6 +1003,7 @@ class AbstractSteeringOrder(core.Order):
             collision_loc = ZERO_VECTOR
             threat_count = 0
             coalesced_threats = 0
+            non_coalesced_threats = 0
             nearest_neighbor_idx = -1
             nearest_neighbor_dist = np.inf
             threat_loc = ZERO_VECTOR
@@ -1056,6 +1104,12 @@ class AbstractSteeringOrder(core.Order):
             self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
 
+        base_bias = 2.
+        if self.ship.entity_id < neighbor.entity_id:
+            cbdr_bias = -base_bias
+        else:
+            cbdr_bias = base_bias
+
         if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.gamestate.timestamp, CBDR_MIN_HIST_SEC):
             self.collision_cbdr = True
         else:
@@ -1111,15 +1165,15 @@ class AbstractSteeringOrder(core.Order):
             if ddv_mag > max_dv_available:
                 desired_delta_velocity = desired_delta_velocity / ddv_mag * max_dv_available
 
-            worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
-            delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - worst_case_rot_time)
+            delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - self.worst_case_rot_time)
 
             delta_velocity = _collision_dv(
                     current_threat_loc, threat_velocity,
                     self.ship.loc, self.ship.velocity,
                     desired_margin, desired_delta_velocity,
-                    self.collision_cbdr,
-                    delta_v_budget)
+                    self.collision_cbdr, cbdr_bias,
+                    delta_v_budget,
+            )
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

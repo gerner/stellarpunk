@@ -21,22 +21,22 @@ ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
 class Simulator:
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
 
-        self.pause_on_collision = False
+        self.pause_on_collision = True
 
         # time between ticks, this is the framerate
-        self.desired_dt = dt
+        self.desired_dt = gamestate.desired_dt
         if not max_dt:
-            max_dt = dt
+            max_dt = self.desired_dt
         self.max_dt = max_dt
         self.dt_scaleup = 1.5
         self.dt_scaledown = 0.9
         # dt is "best effort" constant but varies between desired_dt and max_dt
-        self.dt = dt
+        self.dt = self.desired_dt
 
         # number of ticks we're currently behind
         self.behind_ticks = 0.
@@ -230,7 +230,7 @@ class Simulator:
                     order.act(dt)
             else:
                 # else order isn't the front item, so we'll ignore this action
-                self.logger.warning(f'got non-front order scheduled action: {order_item.item}')
+                self.logger.warning(f'got non-front order scheduled action: {order=} vs {order.ship.current_order()=}')
                 self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
             orders_processed += 1
 
@@ -356,8 +356,6 @@ def main() -> None:
         logging.captureWarnings(True)
         # turn warnings into exceptions
         warnings.filterwarnings("error")
-        import numba
-        warnings.filterwarnings("ignore", category=numba.core.errors.NumbaPendingDeprecationWarning)
 
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
@@ -379,8 +377,7 @@ def main() -> None:
 
         stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
-        dt = 1/60
-        sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5, economy_log=economy_log)
+        sim = Simulator(gamestate, ui, max_dt=1/5, economy_log=economy_log)
         sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick

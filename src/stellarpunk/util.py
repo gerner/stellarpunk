@@ -141,7 +141,7 @@ def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
 def either_nan_or_inf(v:npt.NDArray[np.float64]) -> bool:
     return math.isnan(v[0]) or math.isnan(v[1]) or math.isinf(v[0]) or math.isinf(v[1])
 
-#@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True)
 def interpolate(x1:float, y1:float, x2:float, y2:float, x:float) -> float:
     """ interpolates the y given x and two points on a line. """
     m = (y2 - y1) / (x2 - x1)

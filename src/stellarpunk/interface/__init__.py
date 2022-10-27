@@ -288,7 +288,7 @@ class Interface(AbstractInterface):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.min_ui_timeout = 0
+        self.min_ui_timeout = 1/120
 
         # the size of the global screen, containing other viewports
         self.screen_width = 0
@@ -323,10 +323,10 @@ class Interface(AbstractInterface):
         # last view has focus for input handling
         self.views:List[View] = []
 
-        # list of frame times
-        self.frame_history:Deque[float] = collections.deque()
-        # max frame history to keep in seconds
-        self.max_frame_history = 1.
+        # list of frame render times
+        # keep a fixed number of them so we can calculate how many frames per
+        # (real-time) second we're rendering
+        self.frame_history:Deque[float] = collections.deque(maxlen=20)
 
         self.show_fps = True
 
@@ -386,7 +386,12 @@ class Interface(AbstractInterface):
             self.logger.info("done")
 
     def fps(self) -> float:
-        return len(self.frame_history) / self.max_frame_history
+        num_frames = len(self.frame_history)
+        if num_frames > 1:
+            now = time.perf_counter()
+            return num_frames / (now - self.frame_history[0])
+        else:
+            return 0.
 
     def choose_viewport_sizes(self) -> None:
         """ Chooses viewport sizes and locations for viewscreen and the log."""
@@ -651,8 +656,8 @@ class Interface(AbstractInterface):
             # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
             start_time = time.perf_counter()
             self.frame_history.append(start_time)
-            while self.frame_history[0] < start_time - self.max_frame_history:
-                self.frame_history.popleft()
+            #while self.frame_history[0] < start_time - self.max_frame_history:
+            #    self.frame_history.popleft()
 
             if self.one_time_step:
                 self.gamestate.paused = True
@@ -669,6 +674,11 @@ class Interface(AbstractInterface):
             self.stdscr.noutrefresh()
 
             curses.doupdate()
+        else:
+            self.show_diagnostics()
+            self.stdscr.noutrefresh()
+            curses.doupdate()
+
 
         #TODO: this can block in the case of mouse clicks
         #TODO: see note above about setting mouseinterval to 0 which fixes this?
@@ -678,7 +688,11 @@ class Interface(AbstractInterface):
 
         # process input according to what has focus (i.e. umap, smap, pilot, command)
         #self.stdscr.timeout(int(timeout*100))
+
+        # clear out any buffered keys
         key = self.stdscr.getch()
+        while self.stdscr.getch() != -1:
+            pass
 
         if key == -1:
             return

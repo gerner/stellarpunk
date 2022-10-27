@@ -8,6 +8,9 @@ import numpy.typing as npt
 
 from stellarpunk import core, util
 
+#TODO: unify this with the one in effects
+AMOUNT_EPS = 0.5
+
 def assign_agents_to_products(gamestate:core.Gamestate, num_agents:int, assign_start:int=0, assign_end:int=-1) -> npt.NDArray[np.float64]:
     """ Creates an assignment matrix from agents to goods.
 
@@ -51,6 +54,20 @@ def assign_agents_to_products(gamestate:core.Gamestate, num_agents:int, assign_s
 
     return agent_goods
 
+def trade_valid(buyer:core.EconAgent, seller:core.EconAgent, resource:int, price:float, amount:float, floor_price:float=0., ceiling_price:float=np.inf) -> bool:
+    if price < floor_price:
+        return False
+    if price > ceiling_price:
+        return False
+    if amount > seller.inventory(resource):
+        return False
+    value = amount * price
+    if buyer.balance() < value:
+        return False
+    if buyer.budget(resource) < value:
+        return False
+    return True
+
 PriceFn = Callable[[core.EconAgent, core.EconAgent, int], float]
 
 def buyer_price(buyer:core.EconAgent, seller:core.EconAgent, resource:int) -> float:
@@ -82,7 +99,10 @@ class StationAgent(core.EconAgent):
         return self._sell_resources
 
     def buy_price(self, resource:int) -> float:
-        return self._buy_price[resource]
+        if self.station.cargo.sum()+AMOUNT_EPS > self.station.cargo_capacity:
+            return 0.
+        else:
+            return self._buy_price[resource]
 
     def sell_price(self, resource:int) -> float:
         return self._sell_price[resource]

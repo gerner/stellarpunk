@@ -16,7 +16,7 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
 
     ship_owner = generator.spawn_character(ship)
     ship_owner.take_ownership(ship)
-    mining_agendum = agenda.MiningAgendum(ship, gamestate)
+    mining_agendum = agenda.MiningAgendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
 
     station_owner = generator.spawn_character(station)
@@ -80,7 +80,7 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     price = 10.
     ship_owner = generator.spawn_character(ship)
     ship_owner.take_ownership(ship)
-    mining_agendum = agenda.MiningAgendum(ship, gamestate)
+    mining_agendum = agenda.MiningAgendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
 
     station_owner = generator.spawn_character(station, balance=1.5 * 5e2 * price + price/2)

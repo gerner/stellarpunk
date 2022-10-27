@@ -100,6 +100,7 @@ def choose_station_to_buy_from(
 def choose_station_to_sell_to(
         gamestate:core.Gamestate,
         ship:core.Ship,
+        ship_agent:core.EconAgent,
         allowed_resources:List[int],
         allowed_stations:Optional[List[core.SectorEntity]]
         ) -> Optional[Tuple[int, core.Station, core.EconAgent]]:
@@ -128,11 +129,8 @@ def choose_station_to_sell_to(
             continue
         agent = gamestate.econ_agents[hit.entity_id]
         for resource in agent.buy_resources():
-            if ship.cargo[resource] == 0.:
-                continue
-            if agent.buy_price(resource) <= 0:
-                continue
-            if agent.budget(resource) <= 0.:
+            price = agent.buy_price(resource)
+            if not econ.trade_valid(agent, ship_agent, resource, price, 1.):
                 continue
 
             sales[resource].append((
@@ -280,7 +278,10 @@ class MiningAgendum(core.Agendum, core.OrderObserver):
         if np.any(self.ship.cargo[self.allowed_resources] > 0.):
             # if we've got resources to sell, find a station to sell to
 
-            station_ret = choose_station_to_sell_to(self.gamestate, self.ship, self.allowed_resources, self.allowed_stations)
+            station_ret = choose_station_to_sell_to(
+                    self.gamestate, self.ship, self.agent,
+                    self.allowed_resources, self.allowed_stations,
+            )
             if station_ret is None:
                 self.logger.debug(f'cannot find a station buying my mined resources. Sleeping...')
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
@@ -400,9 +401,9 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
             # if we've got resources to sell, find a station to sell to
 
             station_ret = choose_station_to_sell_to(
-                    self.gamestate, self.ship,
-                    self.allowed_goods,
-                    self.sell_to_stations)
+                    self.gamestate, self.ship, self.agent,
+                    self.allowed_goods, self.sell_to_stations,
+            )
             if station_ret is None:
                 self.logger.debug(f'cannot find a station buying my trade goods. Sleeping...')
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME, self)

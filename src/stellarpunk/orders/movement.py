@@ -197,6 +197,14 @@ class GoToLocation(AbstractSteeringOrder):
             min_distance = self.arrival_distance * 0.9
         self.min_distance = min_distance
 
+        # a cap on max speed to apply histeresis
+        # we'll keep track of the lowest it gets and when we last *dropped* it
+        # the actual cap will be computed as
+        # cap = max_speed_cap * (1+alpha)^(time_since_drop)
+        self.max_speed_cap = self.ship.max_speed()
+        self.max_speed_cap_ts = 0.
+        self.max_speed_cap_alpha = 0.2
+
         self.cannot_stop = False
 
         self.distance_estimate = 0.
@@ -216,6 +224,9 @@ class GoToLocation(AbstractSteeringOrder):
         data["scm"] = self.scaled_collision_margin
         data["_ncts"] = self._next_compute_ts
         data["_dv"] = [self._desired_velocity[0], self._desired_velocity[1]]
+        data["msc"] = self.max_speed_cap
+        data["msc_ts"] = self.max_speed_cap_ts
+        data["msc_a"] = self.max_speed_cap_alpha
 
         return data
 
@@ -293,6 +304,17 @@ class GoToLocation(AbstractSteeringOrder):
         nn_max_speed = util.clip(util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist), nn_s_low, max_speed)
 
         max_speed = min(max_speed, density_max_speed, nn_max_speed)
+
+        # keep track of how low max speed gets to so we can apply histeresis
+        max_speed_cap = self.max_speed_cap * (1+self.max_speed_cap_alpha)**(self.gamestate.timestamp - self.max_speed_cap_ts)
+        if max_speed < max_speed_cap:
+            self.max_speed_cap = max_speed
+            self.max_speed_cap_ts = self.gamestate.timestamp
+        else:
+            # apply the max speed histeresis
+            # max_speed decays exponentially
+            # max_speed * (1+alpha)^t
+            max_speed = min(max_speed_cap, max_speed)
 
         prev_cannot_avoid_collision = self.cannot_avoid_collision
 
@@ -414,6 +436,7 @@ class GoToLocation(AbstractSteeringOrder):
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        self.wait_wakup_period = 10.
 
     def is_complete(self) -> bool:
         # wait forever
@@ -424,12 +447,12 @@ class WaitOrder(AbstractSteeringOrder):
             raise Exception(f'{self.ship} not in any sector')
         period = self._accelerate_to(ZERO_VECTOR, dt)
 
-        if period > 0:
+        if period < np.inf:
             # don't need to wake up again until the acceleration is complete
             self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
             return
         else:
-            #TODO: don't need to do anything, right?
+            self.gamestate.schedule_order(self.gamestate.timestamp + self.wait_wakup_period, self)
             return
 
         # avoid collisions while we're waiting

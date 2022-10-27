@@ -391,7 +391,6 @@ class Ship(SectorEntity, Asset):
         self._will_apply_force = False
         self._will_apply_torque = False
         self._applied_torque = False
-        self.max_speed_override:Optional[float] = None
 
     def get_history(self) -> Sequence[HistoryEntry]:
         return self.history
@@ -408,10 +407,7 @@ class Ship(SectorEntity, Asset):
         )
 
     def max_speed(self) -> float:
-        if self.max_speed_override:
-            return self.max_speed_override
-        else:
-            return self.max_thrust / self.mass * 30
+        return self.max_thrust / self.mass * 30
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
@@ -545,13 +541,27 @@ class TravelGate(SectorEntity):
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
 
+class AgendumLoggerAdapter(logging.LoggerAdapter):
+    def __init__(self, character:Character, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.character = character
+
+    def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
+        return f'{self.character.short_id()}:{self.character.location.address_str()} {msg}', kwargs
+
 class Agendum:
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
 
-    def __init__(self, gamestate:Gamestate) -> None:
+    def __init__(self, character:Character, gamestate:Gamestate) -> None:
+        self.character = character
         self.gamestate = gamestate
-        self.logger = logging.getLogger(util.fullname(self))
+        self.logger = AgendumLoggerAdapter(
+                self.character,
+                logging.getLogger(util.fullname(self)),
+        )
+
+        logging.getLogger(util.fullname(self))
 
     def start(self) -> None:
         pass
@@ -906,7 +916,7 @@ class Gamestate:
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
 
-        self.dt = 1/60
+        self.desired_dt = 1/30
         # how many seconds of simulation (as in dt) should elapse per second
         self.time_accel_rate = 1.0
         self.ticks = 0
@@ -938,7 +948,7 @@ class Gamestate:
         return order in self.scheduled_orders
 
     def schedule_order_immediate(self, order:Order) -> None:
-        self.schedule_order(self.timestamp + self.dt, order)
+        self.schedule_order(self.timestamp + self.desired_dt, order)
 
     def schedule_order(self, timestamp:float, order:Order) -> None:
         assert order not in self.scheduled_orders
@@ -955,7 +965,7 @@ class Gamestate:
         return order_item
 
     def schedule_agendum_immediate(self, agendum:Agendum) -> None:
-        self.schedule_agendum(self.timestamp + self.dt, agendum)
+        self.schedule_agendum(self.timestamp + self.desired_dt, agendum)
 
     def schedule_agendum(self, timestamp:float, agendum:Agendum) -> None:
         assert agendum not in self.scheduled_agenda
