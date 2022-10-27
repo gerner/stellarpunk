@@ -38,7 +38,7 @@ COLLISION_MARGIN_HISTERESIS_FACTOR = 0.1
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def rotation_time(delta_angle: float, angular_velocity: float, max_angular_acceleration: float, safety_factor:float) -> float:
     # theta_f = theta_0 + omega_0*t + 1/2 * alpha * t^2
     # assume omega_0 = 0 <--- assumes we're not currently rotating!
@@ -47,7 +47,7 @@ def rotation_time(delta_angle: float, angular_velocity: float, max_angular_accel
     return (abs(angular_velocity)/max_angular_acceleration + 2*np.sqrt(abs(delta_angle + 0.5*angular_velocity**2/max_angular_acceleration)/max_angular_acceleration))*safety_factor
 
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float, moment:float, dt:float, safety_factor:float) -> Tuple[float, float]:
     """ What torque to apply to achieve target angle """
 
@@ -97,7 +97,7 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
         else:
             return t, dt
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:float) -> Tuple[np.ndarray, float]:
     """ What force to apply to get dv change in velocity. Ignores heading. """
 
@@ -114,7 +114,7 @@ def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:flo
     else:
         return dv / dv_magnitude * desired_thrust, dt
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def force_torque_for_delta_velocity(
         target_velocity:np.ndarray, mass:float, moment:float, angle:float,
         w:float, v:np.ndarray, max_speed:float, max_torque:float,
@@ -164,7 +164,7 @@ def force_torque_for_delta_velocity(
 
     return force, torque, target_velocity, difference_mag, difference_angle, continue_time
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
     rel_pos = entity_pos - pos
     rel_vel = entity_v - v
@@ -202,7 +202,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
 
     return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def _analyze_neighbors(
         hits_l:npt.NDArray[np.float64],
         hits_v:npt.NDArray[np.float64],
@@ -403,7 +403,7 @@ def _analyze_neighbors(
 
     return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, non_coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
@@ -605,7 +605,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
             nb.float64[::1], nb.float64, nb.float64,
             nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
             nb.float64, nb.float64, nb.float64, nb.float64
-        ), cache=True, nopython=True)
+        ), cache=True, nopython=True, fastmath=True)
 def find_target_v(
         target_location:np.ndarray, arrival_distance:float, min_distance:float,
         current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
@@ -944,6 +944,9 @@ class AbstractSteeringOrder(core.Order):
                     max_distance, self.ship.radius, margin, neighborhood_dist,
                     self.ship.max_acceleration())
 
+            self.gamestate.counters[core.Counters.COLLISION_THREATS_C] += coalesced_threats
+            self.gamestate.counters[core.Counters.COLLISION_THREATS_NC] += non_coalesced_threats
+
             prior_threats = set(self.collision_coalesced_neighbors)
             coalesced_neighbors = [hits[i] for i in coalesced_idx]
             any_prior_threats = any(x in prior_threats for x in coalesced_neighbors)
@@ -1105,7 +1108,7 @@ class AbstractSteeringOrder(core.Order):
             return ZERO_VECTOR, np.inf, np.inf, 0
 
         base_bias = 2.
-        if self.ship.entity_id < neighbor.entity_id:
+        if self.ship.entity_id < neighbor.entity_id and not util.both_almost_zero(neighbor.velocity):
             cbdr_bias = -base_bias
         else:
             cbdr_bias = base_bias

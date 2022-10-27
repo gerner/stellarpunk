@@ -207,6 +207,7 @@ class View(abc.ABC):
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.active = True
+        self.fast_render = False
         self.interface = interface
 
     @property
@@ -288,7 +289,8 @@ class Interface(AbstractInterface):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.min_ui_timeout = 1/120
+        self.fps_cap = (1/gamestate.desired_dt)+1
+        self.min_ui_timeout = gamestate.desired_dt/4
 
         # the size of the global screen, containing other viewports
         self.screen_width = 0
@@ -651,13 +653,11 @@ class Interface(AbstractInterface):
         }
 
     def tick(self, timeout:float, dt:float) -> None:
-        # only render a frame if there's enough time
-        if timeout > self.min_ui_timeout:
+        # only render a frame if there's enough time and it won't exceed the fps cap
+        if timeout > self.min_ui_timeout and self.fps() <= self.fps_cap:
             # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
             start_time = time.perf_counter()
             self.frame_history.append(start_time)
-            #while self.frame_history[0] < start_time - self.max_frame_history:
-            #    self.frame_history.popleft()
 
             if self.one_time_step:
                 self.gamestate.paused = True
@@ -675,6 +675,10 @@ class Interface(AbstractInterface):
 
             curses.doupdate()
         else:
+            # only update a couple of fast things
+            for view in self.views:
+                if view.active and view.fast_render:
+                    view.update_display()
             self.show_diagnostics()
             self.stdscr.noutrefresh()
             curses.doupdate()

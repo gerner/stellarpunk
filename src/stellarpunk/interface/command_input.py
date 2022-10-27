@@ -31,6 +31,8 @@ class CommandInput(interface.View):
         self.partial = ""
         self.command = ""
 
+        self.fast_render = True
+
     def _command_name(self) -> str:
         i = self.command.strip(" ").find(" ")
         if i < 0:

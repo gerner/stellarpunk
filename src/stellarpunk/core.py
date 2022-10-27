@@ -871,10 +871,13 @@ class Counters(enum.IntEnum):
     NON_FRONT_ORDER_ACTION = enum.auto()
     ORDERS_PROCESSED = enum.auto()
     ORDER_SCHEDULE_DELAY = enum.auto()
+    ORDER_SCHEDULE_IMMEDIATE = enum.auto()
     COLLISION_NEIGHBOR_NO_NEIGHBORS = enum.auto()
     COLLISION_NEIGHBOR_HAS_NEIGHBORS = enum.auto()
     COLLISION_NEIGHBOR_NUM_NEIGHBORS = enum.auto()
     COLLISION_NEIGHBOR_NONE = enum.auto()
+    COLLISION_THREATS_C = enum.auto()
+    COLLISION_THREATS_NC = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:
@@ -948,6 +951,7 @@ class Gamestate:
         return order in self.scheduled_orders
 
     def schedule_order_immediate(self, order:Order) -> None:
+        self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
         self.schedule_order(self.timestamp + self.desired_dt, order)
 
     def schedule_order(self, timestamp:float, order:Order) -> None:

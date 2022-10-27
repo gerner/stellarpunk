@@ -8,6 +8,7 @@ import curses.textpad
 import curses.ascii
 import time
 import uuid
+import re
 from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union
 
 import drawille # type: ignore
@@ -374,6 +375,18 @@ class SectorView(interface.View):
                 raise command_input.CommandInput.UserError("{args[0]} not found")
             self.selected_character = self.interface.gamestate.characters[target_id]
 
+        def scursor(args:Sequence[str])->None:
+            if not args:
+                raise command_input.CommandInput.UserError("need a valid target")
+            try:
+                m = re.match(r"(?P<x>[+-]?([0-9]*[.])?[0-9]+),(?P<y>[+-]?([0-9]*[.])?[0-9]+)", args[0])
+                res = m.groupdict() # type: ignore
+                x = float(res["x"])
+                y = float(res["y"])
+            except:
+                raise command_input.CommandInput.UserError("not a valid coordinate")
+
+            self.set_scursor(x,y)
 
         return {
                 "debug_entity": debug_entity,
@@ -389,6 +402,7 @@ class SectorView(interface.View):
                 #"harvest": harvest,
                 "pilot": pilot,
                 "chr_info": (chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
+                "scursor": scursor,
         }
 
     def handle_input(self, key:int, dt:float) -> bool:
@@ -413,39 +427,39 @@ class SectorView(interface.View):
                         self.sector.entities[self.selected_target].loc[0],
                         self.sector.entities[self.selected_target].loc[1]
                 )
-        elif key == ord("k"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.clear_orders()
-                kr_order = orders.KillRotationOrder(self.selected_entity, self.interface.gamestate)
-                self.selected_entity.prepend_order(kr_order)
-        elif key == ord("r"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.clear_orders()
-                rot_order = orders.RotateOrder(0, self.selected_entity, self.interface.gamestate)
-                self.selected_entity.prepend_order(rot_order)
-        elif key == ord("x"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.clear_orders()
-                kv_order = orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate)
-                self.selected_entity.prepend_order(kv_order)
-        elif key == ord("g"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.clear_orders()
-                gt_order = orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate)
-                self.selected_entity.prepend_order(gt_order)
-        elif key == ord("o"):
-            for ship in self.sector.ships:
-                station = self.interface.generator.r.choice(np.array((self.sector.stations)))
-                gt_order = orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate)
-                ship.prepend_order(gt_order)
+        #elif key == ord("k"):
+        #    if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+        #        self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+        #    else:
+        #        self.selected_entity.clear_orders()
+        #        kr_order = orders.KillRotationOrder(self.selected_entity, self.interface.gamestate)
+        #        self.selected_entity.prepend_order(kr_order)
+        #elif key == ord("r"):
+        #    if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+        #        self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+        #    else:
+        #        self.selected_entity.clear_orders()
+        #        rot_order = orders.RotateOrder(0, self.selected_entity, self.interface.gamestate)
+        #        self.selected_entity.prepend_order(rot_order)
+        #elif key == ord("x"):
+        #    if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+        #        self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+        #    else:
+        #        self.selected_entity.clear_orders()
+        #        kv_order = orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate)
+        #        self.selected_entity.prepend_order(kv_order)
+        #elif key == ord("g"):
+        #    if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+        #        self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
+        #    else:
+        #        self.selected_entity.clear_orders()
+        #        gt_order = orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate)
+        #        self.selected_entity.prepend_order(gt_order)
+        #elif key == ord("o"):
+        #    for ship in self.sector.ships:
+        #        station = self.interface.generator.r.choice(np.array((self.sector.stations)))
+        #        gt_order = orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate)
+        #        ship.prepend_order(gt_order)
         elif key == ord(":"):
             self.interface.open_view(command_input.CommandInput(
                 self.interface, commands=self.command_list()))
