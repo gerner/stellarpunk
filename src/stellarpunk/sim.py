@@ -6,7 +6,7 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO
+from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO, Set
 import collections
 import heapq
 
@@ -26,7 +26,8 @@ class Simulator:
         self.gamestate = gamestate
         self.ui = ui
 
-        self.pause_on_collision = True
+        self.pause_on_collision = False
+        self.enable_collisions = False
 
         # time between ticks, this is the framerate
         self.desired_dt = gamestate.desired_dt
@@ -65,12 +66,20 @@ class Simulator:
 
         # a little book-keeping for storing collisions during step callbacks
         # this is not for external consumption
-        self._collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+        self._collisions:List[Tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+        self._colliders:Set[str] = set()
+        self._last_colliders:Set[str] = set()
 
     def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
         # which ship(s) are colliding?
 
         (shape_a, shape_b) = arbiter.shapes
+
+        # ignore collisions between the same bodies on consecutive ticks
+        colliders = "".join(sorted(map(str, [shape_a.body.data.entity_id, shape_b.body.data.entity_id])))
+        self._colliders.add(colliders)
+        if colliders in self._last_colliders:
+            return self.enable_collisions
 
         sector = shape_a.body.data.sector
 
@@ -85,7 +94,7 @@ class Simulator:
         ))
 
         # return if the collision should happen
-        return False
+        return self.enable_collisions
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
@@ -176,7 +185,13 @@ class Simulator:
         for sector in self.gamestate.sectors.values():
             sector.space.step(dt)
 
+            # keep track of this tick collisions (if any) so we can ignore
+            # collisions that last over several consecutive ticks
+            self._last_colliders = self._colliders
+            self._colliders = set()
+
             if self._collisions:
+                self.gamestate.counters[core.Counters.COLLISIONS] += len(self._collisions)
                 #TODO: use kinetic energy from the collision to cause damage
                 # metals have an impact strength between 0.34e3 and 145e3
                 # joules / meter^2
@@ -298,6 +313,7 @@ class Simulator:
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
             if now - next_tick > self.dt:
+                self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
                 #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt

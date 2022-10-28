@@ -43,6 +43,34 @@ def test_collision_dv_sanity():
 
     assert all(np.isclose(dv2, dv))
 
+def test_collision_dv_solution_assert():
+    current_threat_loc = np.array([-198584.96875  , -106311.2421875])
+    threat_velocity = np.array([ 11.43229866, -99.34436035])
+    ship_loc = np.array([-198324.96875, -106061.25   ])
+    ship_velocity = np.array([ 11.13045979, -99.37863159])
+    desired_margin = 260.0
+    desired_delta_velocity = np.array([ 7.59949604e-07, -2.16841866e-06])
+    collision_cbdr = False
+    cbdr_bias = -2.0
+    delta_v_budget = 94181.78058053002
+
+    delta_velocity = steering._collision_dv(
+            current_threat_loc, threat_velocity,
+            ship_loc, ship_velocity,
+            desired_margin, desired_delta_velocity,
+            collision_cbdr, cbdr_bias,
+            delta_v_budget,
+    )
+
+    desired_delta_velocity = np.array([15., 25.])
+    delta_velocity = steering._collision_dv(
+            current_threat_loc, threat_velocity,
+            ship_loc, ship_velocity,
+            desired_margin, desired_delta_velocity,
+            collision_cbdr, cbdr_bias,
+            delta_v_budget,
+    )
+
 @write_history
 def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog):
     # set up a sector, including space

@@ -287,7 +287,7 @@ class UniverseGenerator:
         entity.phys_shape = shape
         return shape
 
-    def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None) -> core.Station:
+    def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
 
@@ -300,6 +300,9 @@ class UniverseGenerator:
         station_body = self._phys_body()
         station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
         station.resource = resource
+
+        station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
+        assert station.cargo.sum() <= station.cargo_capacity
 
         self._phys_shape(station_body, station, core.ObjectFlag.STATION, station_radius)
 
@@ -547,7 +550,7 @@ class UniverseGenerator:
             for build_resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
                 self.harvest_resources(sector, entity_loc[0], entity_loc[1], build_resource, amount)
             station = self.spawn_station(
-                    sector, entity_loc[0], entity_loc[1], resource=resource)
+                    sector, entity_loc[0], entity_loc[1], resource=resource, batches_on_hand=25)
             assets.append(station)
 
         # spend resources to build additional stations
@@ -864,8 +867,8 @@ class UniverseGenerator:
 
     def generate_sectors(self,
             width:int=7, height:int=7,
-            sector_radius:float=3e5,
-            sector_radius_std:float=1e5*0.25,
+            sector_radius:float=5e5,
+            sector_radius_std:float=1e5,
             sector_edge_length:float=1e5*15,
             n_habitable_sectors:int=15,
             mean_habitable_resources:float=1e9,

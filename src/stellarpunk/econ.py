@@ -10,6 +10,7 @@ from stellarpunk import core, util
 
 #TODO: unify this with the one in effects
 AMOUNT_EPS = 0.5
+PRICE_EPS = 1e-05
 
 def assign_agents_to_products(gamestate:core.Gamestate, num_agents:int, assign_start:int=0, assign_end:int=-1) -> npt.NDArray[np.float64]:
     """ Creates an assignment matrix from agents to goods.
@@ -62,9 +63,9 @@ def trade_valid(buyer:core.EconAgent, seller:core.EconAgent, resource:int, price
     if amount > seller.inventory(resource):
         return False
     value = amount * price
-    if buyer.balance() < value:
+    if buyer.balance()+PRICE_EPS < value:
         return False
-    if buyer.budget(resource) < value:
+    if buyer.budget(resource)+PRICE_EPS < value:
         return False
     return True
 
@@ -76,6 +77,38 @@ def buyer_price(buyer:core.EconAgent, seller:core.EconAgent, resource:int) -> fl
 def seller_price(buyer:core.EconAgent, seller:core.EconAgent, resource:int) -> float:
     return seller.sell_price(resource)
 
+class YesAgent(core.EconAgent):
+    """ EconAgent that always buys, sells, has budget, etc. """
+    def __init__(self, production_chain:core.ProductionChain) -> None:
+        self._resources = tuple(range(production_chain.num_products))
+
+    def buy_resources(self) -> Collection:
+        return self._resources
+
+    def sell_resources(self) -> Collection:
+        return self._resources
+
+    def buy_price(self, resource:int) -> float:
+        return np.inf
+
+    def sell_price(self, resource:int) -> float:
+        return np.inf
+
+    def balance(self) -> float:
+        return np.inf
+
+    def budget(self, resource:int) -> float:
+        return np.inf
+
+    def inventory(self, resource:int) -> float:
+        return np.inf
+
+    def buy(self, resource:int, price:float, amount:float) -> None:
+        raise ValueError("do not trade with the YesAgent")
+
+    def sell(self, resource:int, price:float, amount:float) -> None:
+        raise ValueError("do not trade with the YesAgent")
+
 class StationAgent(core.EconAgent):
     """ Agent for a Station.
 
@@ -85,11 +118,23 @@ class StationAgent(core.EconAgent):
     def __init__(self, station:core.Station, production_chain:core.ProductionChain) -> None:
         if station.resource is None:
             raise ValueError("cannot make a StationAgent if station has no resource set")
+
+        resource = station.resource
+        inputs = production_chain.inputs_of(resource)
+
         self._buy_resources = tuple(np.where(production_chain.adj_matrix[:,station.resource] > 0)[0])
-        self._sell_resources:Tuple[int] = (station.resource,)
+        self._sell_resources:Tuple[int] = (resource,)
+
         self._buy_price = np.zeros((production_chain.num_products,))
+        inputs_markup = 1 + (0.5 * (production_chain.markup[resource]-1))
+        assert inputs_markup > 1
+        self._buy_price[inputs] = production_chain.prices[inputs] * inputs_markup
+
         self._sell_price = np.full((production_chain.num_products,), np.inf)
+        self._sell_price[resource] = production_chain.prices[resource]
+
         self._budget = np.zeros((production_chain.num_products,))
+        self._budget[inputs] = np.inf
         self.station = station
 
     def buy_resources(self) -> Collection:
@@ -122,7 +167,7 @@ class StationAgent(core.EconAgent):
         value = price * amount
 
         assert self._budget[resource] >= value
-        assert self.balance() >= value
+        assert self.balance()+PRICE_EPS >= value
         assert self.station.cargo.sum() <= self.station.cargo_capacity
 
         self._budget[resource] -= value
@@ -177,7 +222,7 @@ class ShipTraderAgent(core.EconAgent):
         assert self.ship.owner is not None
         value = price * amount
 
-        assert self.balance() >= value
+        assert self.balance()+PRICE_EPS >= value
         assert self.ship.cargo.sum() <= self.ship.cargo_capacity
 
         self.ship.cargo[resource] += amount

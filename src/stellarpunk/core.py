@@ -287,7 +287,7 @@ class SectorEntity(Entity):
 
         phys.position = (loc[0], loc[1])
 
-        self.cargo_capacity = 1e3
+        self.cargo_capacity = 5e2
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = phys
@@ -846,6 +846,8 @@ class Counters(enum.IntEnum):
     COLLISION_NEIGHBOR_NONE = enum.auto()
     COLLISION_THREATS_C = enum.auto()
     COLLISION_THREATS_NC = enum.auto()
+    COLLISIONS = enum.auto()
+    BEHIND_TICKS = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:
@@ -918,14 +920,18 @@ class Gamestate:
     def is_order_scheduled(self, order:Order) -> bool:
         return order in self.scheduled_orders
 
-    def schedule_order_immediate(self, order:Order) -> None:
+    def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
         self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
-        self.schedule_order(self.timestamp + self.desired_dt, order)
+        self.schedule_order(self.timestamp + self.desired_dt, order, jitter)
 
-    def schedule_order(self, timestamp:float, order:Order) -> None:
+    def schedule_order(self, timestamp:float, order:Order, jitter:float=0.) -> None:
         assert order not in self.scheduled_orders
         assert timestamp > self.timestamp
         assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
         self.scheduled_orders.add(order)
         heapq.heappush(self.order_schedule, PrioritizedItem(timestamp, order))
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
@@ -936,13 +942,17 @@ class Gamestate:
         self.scheduled_orders.remove(order_item.item)
         return order_item
 
-    def schedule_agendum_immediate(self, agendum:Agendum) -> None:
-        self.schedule_agendum(self.timestamp + self.desired_dt, agendum)
+    def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
+        self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)
 
-    def schedule_agendum(self, timestamp:float, agendum:Agendum) -> None:
+    def schedule_agendum(self, timestamp:float, agendum:Agendum, jitter:float=0.) -> None:
         assert agendum not in self.scheduled_agenda
         assert timestamp > self.timestamp
         assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
         self.scheduled_agenda.add(agendum)
         heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))
 

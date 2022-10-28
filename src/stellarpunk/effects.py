@@ -10,7 +10,7 @@ import numpy.typing as npt
 from stellarpunk import core, econ, util
 
 AMOUNT_EPS = 0.5
-TRANSFER_PERIOD = 0.5
+TRANSFER_PERIOD = 1.0
 
 class TransferCargoEffect(core.Effect):
     def __init__(
@@ -56,7 +56,6 @@ class TransferCargoEffect(core.Effect):
         if self.sofar == self.amount:
             self._completed_transfer = True
             return
-
 
         amount = self._amount()
         if not self._continue_transfer(amount):

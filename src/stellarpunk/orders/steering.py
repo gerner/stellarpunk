@@ -435,8 +435,8 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     else:
         do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
-        if util.magnitude(a[0], a[1]) <= delta_v_budget:
-            return v_d
+        #if util.magnitude(a[0], a[1]) <= delta_v_budget:
+        return v_d
 
     if util.magnitude(r[0], r[1]) <= margin:
         raise ValueError()
@@ -484,10 +484,20 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         s_2x = (-q_b+np.sqrt(q_b**2-4*q_a*q_c)) / (2*q_a)
 
     # y roots are y_i and -y_i, but only one each for i=0,1 will be on the curve
-    s_1y = np.sqrt(p-s_1x**2)
+
+    # if p and s_2x**2 are close, this can appear to go negative
+    if p - s_1x**2 < 0.:
+        s_1y = 0.
+    else:
+        s_1y = np.sqrt(p-s_1x**2)
     if not util.isclose((s_1x - r[0])**2 + (s_1y - r[1])**2, m**2):
         s_1y = -s_1y
-    s_2y = np.sqrt(p-s_2x**2)
+
+    # if p and s_2x**2 are close, this can appear to go negative
+    if p-s_2x**2 < 0.:
+        s_2y = 0.
+    else:
+        s_2y = np.sqrt(p-s_2x**2)
     if not util.isclose((s_2x - r[0])**2 + (s_2y - r[1])**2, m**2):
         s_2y = -s_2y
 
@@ -502,12 +512,12 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         # tangent line is vertical
         # implies perpendicular is horizontal
         y1 = a[1]
-        x1 = 0
+        x1 = -2*v[0]
     elif util.isclose(s_1y, 0):
         # tangent line is horizontal
         # implies perpendicular is vertical
         x1 = a[0]
-        y1 = 0
+        y1 = -2*v[1]
     else:
         # solve (1) for y in terms of x and plug into (2), solve for x
         x1 = (s_1x/s_1y*a[0]+a[1] - s_1y/s_1x*2*v[0] + 2*v[1]) / (s_1y/s_1x + s_1x/s_1y)
@@ -516,10 +526,10 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 
     if util.isclose(s_2x, 0):
         y2 = a[1]
-        x2 = 0
+        x2 = -2*v[0]
     elif util.isclose(s_2y, 0):
         x2 = a[0]
-        y2 = 0
+        y2 = -2*v[1]
     else:
         x2 = (s_2x/s_2y*a[0]+a[1] - s_2y/s_2x*2*v[0] + 2*v[1]) / (s_2y/s_2x + s_2x/s_2y)
         y2 = s_2y/s_2x * (x2+2*v[0]) - 2*v[1]
