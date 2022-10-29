@@ -73,7 +73,7 @@ accumulate power.
 
 - [x] basic economic simulation (PoC)
 - [ ] integrating simulation into rest of game
-- [ ] trading/cargo transport + manufacturing facilities interaction
+- [x] trading/cargo transport + manufacturing facilities interaction
 - [ ] economic indicators hooked into news generation
 
 ### Economic Simulation
@@ -98,6 +98,8 @@ accumulate power.
 ## Other Stuff
 
 - [ ] news generation
+- [ ] TBD progression (agenda experience? questlets?)
+- [ ] content: storylet system
 
 ### World Generation
 

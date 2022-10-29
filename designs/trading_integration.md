@@ -136,9 +136,9 @@ price (as set by the station) is compatible with the floor/ceiling.
 - [ ] player controlled character
 - [ ] info view for `Character` (including player)
 - [ ] info view for `SectorEntity`
-- [ ] booting up the economy/initial asset/character/settings
-- [ ] implement trading (agreed upon cargo/money swap)
-- [ ] miners choosing asteroids to mine and station to sell at
-- [ ] traders choosing good and stations to buy/sell at
+- [x] booting up the economy/initial asset/character/settings
+- [x] implement trading (agreed upon cargo/money swap)
+- [x] miners choosing asteroids to mine and station to sell at
+- [x] traders choosing good and stations to buy/sell at
 - [ ] station owners choosing prices/budget
 - [ ] testing and tuning on economy
