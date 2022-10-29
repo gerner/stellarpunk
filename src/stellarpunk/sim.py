@@ -6,11 +6,12 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO
+from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO, Set
 import collections
+import heapq
 
 import numpy as np
-import pymunk
+import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
@@ -20,22 +21,23 @@ ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
 class Simulator:
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, dt:float=1/60, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
 
         self.pause_on_collision = False
+        self.enable_collisions = False
 
         # time between ticks, this is the framerate
-        self.desired_dt = dt
+        self.desired_dt = gamestate.desired_dt
         if not max_dt:
-            max_dt = dt
+            max_dt = self.desired_dt
         self.max_dt = max_dt
         self.dt_scaleup = 1.5
         self.dt_scaledown = 0.9
         # dt is "best effort" constant but varies between desired_dt and max_dt
-        self.dt = dt
+        self.dt = self.desired_dt
 
         # number of ticks we're currently behind
         self.behind_ticks = 0.
@@ -64,49 +66,40 @@ class Simulator:
 
         # a little book-keeping for storing collisions during step callbacks
         # this is not for external consumption
-        self._collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+        self._collisions:List[Tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+        self._colliders:Set[str] = set()
+        self._last_colliders:Set[str] = set()
 
-    def _ship_collision_detected(self, arbiter:pymunk.Arbiter, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
+    def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
         # which ship(s) are colliding?
 
         (shape_a, shape_b) = arbiter.shapes
-        sector = data["sector"]
+
+        # ignore collisions between the same bodies on consecutive ticks
+        colliders = "".join(sorted(map(str, [shape_a.body.data.entity_id, shape_b.body.data.entity_id])))
+        self._colliders.add(colliders)
+        if colliders in self._last_colliders:
+            return self.enable_collisions
+
+        sector = shape_a.body.data.sector
 
         tons_of_tnt = arbiter.total_ke / 4.184e9
-        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.entity.address_str()} {shape_b.body.entity.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
+        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.data.address_str()} {shape_b.body.data.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
 
         self._collisions.append((
-            shape_a.body.entity,
-            shape_b.body.entity,
+            shape_a.body.data,
+            shape_b.body.data,
             arbiter.total_impulse,
             arbiter.total_ke,
         ))
 
         # return if the collision should happen
-        return False
+        return self.enable_collisions
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
-            h = sector.space.add_default_collision_handler()
-            h.data["sector"] = sector
-            h.pre_solve = self._ship_collision_detected
-
-    def tick_order(self, ship: core.Ship, dt: float) -> None:
-        if not ship.orders:
-            ship.orders.append(ship.default_order(self.gamestate))
-
-        order = ship.orders[0]
-        if order.started_at < 0:
-            order.begin_order()
-
-        if order.is_complete():
-            self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
-            order.complete_order()
-            ship.orders.popleft()
-            self.ui.order_complete(order)
-        else:
-            order.act(dt)
+            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
 
     def produce_at_station(self, station:core.Station) -> None:
         # waiting for production to finish case
@@ -169,7 +162,13 @@ class Simulator:
         for sector in self.gamestate.sectors.values():
             sector.space.step(dt)
 
+            # keep track of this tick collisions (if any) so we can ignore
+            # collisions that last over several consecutive ticks
+            self._last_colliders = self._colliders
+            self._colliders = set()
+
             if self._collisions:
+                self.gamestate.counters[core.Counters.COLLISIONS] += len(self._collisions)
                 #TODO: use kinetic energy from the collision to cause damage
                 # metals have an impact strength between 0.34e3 and 145e3
                 # joules / meter^2
@@ -185,23 +184,52 @@ class Simulator:
                 # keep _collisions clear for next time
                 self._collisions.clear()
 
-            for ship in sector.ships:
-                ship.pre_tick(self.gamestate.timestamp)
-
         # at this point all physics sim is done for the tick and the gamestate
         # is up to date across the universe
 
         # do AI stuff, e.g. let ships take action (but don't actually have the
         # actions take effect yet!)
-        for sector in self.gamestate.sectors.values():
-            for ship in sector.ships:
-                self.tick_order(ship, dt)
+
+        orders_processed = 0
+        while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
+            order_item = self.gamestate.pop_next_order()
+            order = order_item.item
+            if order == order.ship.current_order():
+                if order.is_complete():
+                    ship = order.ship
+                    self.logger.debug(f'ship {ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
+                    ship.complete_current_order()
+
+                    next_order = ship.current_order()
+                    if not next_order:
+                        ship.prepend_order(ship.default_order(self.gamestate))
+                    elif not self.gamestate.is_order_scheduled(next_order):
+                        #TODO: this is kind of janky, can't we just demand that orders schedule themselves?
+                        # what about the order queue being simply a queue?
+                        self.gamestate.schedule_order_immediate(next_order)
+
+                    #TODO: seems like we don't want this any more (why does the UI need
+                    #to know when every single order is complete? I think this was a
+                    #testing hook. but that's not probably the right way to do this
+                    self.ui.order_complete(order)
+                else:
+                    order.act(dt)
+            else:
+                # else order isn't the front item, so we'll ignore this action
+                self.logger.warning(f'got non-front order scheduled action: {order=} vs {order.ship.current_order()=}')
+                self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
+            orders_processed += 1
+
+        self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
+
+        # let characters act on their (scheduled) agenda items
+        while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
+            agendum_item = self.gamestate.pop_next_agendum()
+            agendum_item.item.act()
 
         # at this point all AI decisions have happened everywhere
         # update sector state after all ships across universe take action
         for sector in self.gamestate.sectors.values():
-            for ship in sector.ships:
-                ship.post_tick()
             self.tick_sector(sector, dt)
 
         self.gamestate.ticks += 1
@@ -228,8 +256,8 @@ class Simulator:
             for sector in self.gamestate.sectors.values():
                 for ship in sector.ships:
                     total_ships += 1
-                    if len(ship.orders) > 0:
-                        order = ship.orders[0]
+                    if len(ship._orders) > 0:
+                        order = ship._orders[0]
                         if isinstance(order, orders.movement.GoToLocation):
                             total_goto_orders += 1
                             if order.collision_threat:
@@ -262,6 +290,7 @@ class Simulator:
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
             if now - next_tick > self.dt:
+                self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
                 #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
@@ -272,7 +301,7 @@ class Simulator:
                 self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
                 if self.behind_ticks > 0:
-                    self.logger.debug(f'ticks caught up with realtime, behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
 
                 self.behind_ticks = 0
                 self.behind_length = 0
@@ -303,6 +332,7 @@ def main() -> None:
         logging.basicConfig(
                 format="%(asctime)s %(name)-12s %(levelname)-8s %(message)s",
                 filename="/tmp/stellarpunk.log",
+                filemode="w",
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
@@ -330,10 +360,9 @@ def main() -> None:
         #logging.info("running simulation...")
         #stellar_punk.run()
 
-        stellar_punk.production_chain.viz().render("production_chain", format="pdf")
+        stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
-        dt = 1/60
-        sim = Simulator(gamestate, ui, dt=dt, max_dt=1/5, economy_log=economy_log)
+        sim = Simulator(gamestate, ui, max_dt=1/5, economy_log=economy_log)
         sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
@@ -342,6 +371,11 @@ def main() -> None:
         #TODO: should we just disable a gc while we're doing a tick?
         gc.set_threshold(700*4, 10*4, 10*4)
         sim.run()
+
+        counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
+        logging.info(f'counters:\n{counter_str}')
+
+        logging.info(f'ticks:\t{gamestate.ticks}')
 
         logging.info("done.")
 

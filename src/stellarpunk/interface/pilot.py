@@ -93,7 +93,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         if t == 0:
             self.ship.phys.angular_velocity = 0.
         else:
-            self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque))
+            self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque), False)
 
     # action functions, imply player direct input
 
@@ -105,7 +105,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_thrust)
 
         if not np.allclose(force, steering.ZERO_VECTOR):
-            self.ship.apply_force(force)
+            self.ship.apply_force(force, False)
 
     def kill_velocity(self, dt:float) -> None:
         self.has_command = True
@@ -121,7 +121,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_command = True
         #TODO: up to max angular acceleration?
-        self.ship.apply_torque(self.ship.max_torque * scale)
+        self.ship.apply_torque(self.ship.max_torque * scale, False)
 
     def translate(self, direction:float, dt:float) -> None:
         """ Translates the ship in the desired direction
@@ -134,7 +134,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_fine_thrust)
 
-        self.ship.apply_force(force)
+        self.ship.apply_force(force, False)
 
 class MouseState(enum.Enum):
     """ States to interpret mouse clicks.
@@ -197,7 +197,8 @@ class PilotView(interface.View):
         def order_jump(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
                 raise command_input.CommandInput.UserError("can only jump through travel gates as selected target")
-            self.ship.orders.insert(0, orders.TravelThroughGate(self.selected_entity, self.ship, self.interface.gamestate))
+            order = orders.TravelThroughGate(self.selected_entity, self.ship, self.interface.gamestate)
+            self.ship.prepend_order(order)
 
         def goto(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
@@ -209,8 +210,9 @@ class PilotView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise command_input.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
+            self.selected_entity.clear_orders()
+            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
+            self.selected_entity.prepend_order(order)
 
         return {
             "clear_orders": lambda x: self.ship.clear_orders(),
@@ -251,7 +253,7 @@ class PilotView(interface.View):
             if self.control_order is not None:
                 raise ValueError("autopilot off, but has control order while toggling autopilot")
             control_order = PlayerControlOrder(self.ship, self.interface.gamestate)
-            self.ship.orders.insert(0, control_order)
+            self.ship.prepend_order(control_order)
             self.control_order = control_order
             self.autopilot_on = True
 
@@ -331,7 +333,7 @@ class PilotView(interface.View):
                 self.goto_order.cancel_order()
 
             goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.interface.gamestate, arrival_distance=5e2)
-            self.ship.orders.insert(0, goto_order)
+            self.ship.prepend_order(goto_order)
             self.goto_order = goto_order
 
             self.mouse_state = MouseState.EMPTY
@@ -528,7 +530,7 @@ class PilotView(interface.View):
         self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
 
     def _draw_status(self) -> None:
-        current_order = next(iter(self.ship.orders), None)
+        current_order = self.ship.current_order()
 
         status_x = 1
         status_y = 1

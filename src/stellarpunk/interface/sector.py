@@ -8,6 +8,7 @@ import curses.textpad
 import curses.ascii
 import time
 import uuid
+import re
 from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union
 
 import drawille # type: ignore
@@ -41,6 +42,8 @@ class SectorView(interface.View):
         # entity id of the currently selected target
         self.selected_target:Optional[uuid.UUID] = None
         self.selected_entity:Optional[core.SectorEntity] = None
+
+        self.selected_character:Optional[core.Character] = None
 
         # sector zoom level, expressed in meters to fit on screen
         self.szoom = self.sector.radius*2
@@ -156,9 +159,10 @@ class SectorView(interface.View):
         self.logger.info(f'selected target {entity}')
         if entity:
             if isinstance(entity, core.Ship):
-                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.orders[0]}')
-                for order in list(entity.orders)[1:]:
-                    self.interface.log_message(f'queued: {order}')
+                self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.current_order()}')
+                #TODO: display queued orders?
+                #for order in list(entity.orders)[1:]:
+                #    self.interface.log_message(f'queued: {order}')
             elif isinstance(entity, core.TravelGate):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} direction: {entity.direction}')
             else:
@@ -217,8 +221,62 @@ class SectorView(interface.View):
         self.presenter.draw_sector_map()
         self.interface.refresh_viewscreen()
 
+    def _draw_target_info(self) -> None:
+        if self.selected_entity is None:
+            return
+
+        info_width = 12 + 1 + 16
+        status_x = self.interface.viewscreen_width - info_width
+        status_y = 1
+
+        self.viewscreen.addstr(status_y, status_x, "Target Info:")
+
+        label_id ="id:"
+        label_speed = "speed:"
+        label_location = "location:"
+        label_owner = "owner:"
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
+
+        if isinstance(self.selected_entity, core.Asset):
+            self.viewscreen.addstr(status_y+4, status_x, f'{label_owner:>12} {self.selected_entity.owner}')
+
+    def _draw_character_info(self) -> None:
+        #TODO: not sure we want this at all, but it's a quick way to see some character info
+        if self.selected_character is None:
+            return
+
+        info_x = 1
+        info_y = 1
+
+        lineno = 0
+        for row in self.selected_character.portrait.text:
+            self.viewscreen.addstr(info_y+lineno, info_x, row)
+            lineno += 1
+
+        self.viewscreen.addstr(info_y+lineno+1, info_x, self.selected_character.short_id())
+        self.viewscreen.addstr(info_y+lineno+2, info_x, self.selected_character.name)
+        self.viewscreen.addstr(info_y+lineno+3, info_x, f'located in: {self.selected_character.location.address_str()}')
+        self.viewscreen.addstr(info_y+lineno+4, info_x, f'assets:')
+        lineno += 5
+        for asset in self.selected_character.assets:
+            self.viewscreen.addstr(info_y+lineno, info_x+2, f'{asset.short_id()}')
+            lineno+=1
+
+        self.viewscreen.addstr(info_y+lineno, info_x, f'agenda:')
+        lineno += 1
+        for agendum in self.selected_character.agenda:
+            self.viewscreen.addstr(info_y+lineno, info_x+2, f'{agendum}')
+            lineno+=1
+
+    def _draw_hud(self) -> None:
+        self._draw_target_info()
+        self._draw_character_info()
+
     def update_display(self) -> None:
         self.draw_sector_map()
+        self._draw_hud()
         self.interface.refresh_viewscreen()
 
     def command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
@@ -243,22 +301,16 @@ class SectorView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise command_input.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate))
+            self.selected_entity.clear_orders()
+            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
+            self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'order only valid on a ship target')
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.WaitOrder(self.selected_entity, self.interface.gamestate))
-
-        def harvest(args:Sequence[str])->None:
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
-            self.logger.info('adding harvest order to {self.selected_entity}')
-            base = self.sector.stations[0]
-            self.selected_entity.orders.clear()
-            self.selected_entity.orders.append(orders.HarvestOrder(base, 0, self.selected_entity, self.interface.gamestate))
+            self.selected_entity.clear_orders()
+            order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
+            self.selected_entity.prepend_order(order)
 
         def debug_entity(args:Sequence[str])->None: self.debug_entity = not self.debug_entity
         def debug_vectors(args:Sequence[str])->None: self.debug_entity_vectors = not self.debug_entity_vectors
@@ -301,6 +353,30 @@ class SectorView(interface.View):
             # suspend input until we get focus again
             self.active = False
 
+        def chr_info(args:Sequence[str])->None:
+            if not args:
+                raise command_input.CommandInput.UserError("need a valid target")
+            try:
+                target_id = uuid.UUID(args[0])
+            except ValueError:
+                raise command_input.CommandInput.UserError("not a valid character id, try tab completion.")
+            if target_id not in self.interface.gamestate.characters:
+                raise command_input.CommandInput.UserError("{args[0]} not found")
+            self.selected_character = self.interface.gamestate.characters[target_id]
+
+        def scursor(args:Sequence[str])->None:
+            if not args:
+                raise command_input.CommandInput.UserError("need a valid target")
+            try:
+                m = re.match(r"(?P<x>[+-]?([0-9]*[.])?[0-9]+),(?P<y>[+-]?([0-9]*[.])?[0-9]+)", args[0])
+                res = m.groupdict() # type: ignore
+                x = float(res["x"])
+                y = float(res["y"])
+            except:
+                raise command_input.CommandInput.UserError("not a valid coordinate")
+
+            self.set_scursor(x,y)
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
@@ -312,8 +388,9 @@ class SectorView(interface.View):
                 "spawn_resources": spawn_resources,
                 "goto": goto,
                 "wait": wait,
-                "harvest": harvest,
                 "pilot": pilot,
+                "chr_info": (chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
+                "scursor": scursor,
         }
 
     def handle_input(self, key:int, dt:float) -> bool:
@@ -338,34 +415,6 @@ class SectorView(interface.View):
                         self.sector.entities[self.selected_target].loc[0],
                         self.sector.entities[self.selected_target].loc[1]
                 )
-        elif key == ord("k"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.KillRotationOrder(self.selected_entity, self.interface.gamestate))
-        elif key == ord("r"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.RotateOrder(0, self.selected_entity, self.interface.gamestate))
-        elif key == ord("x"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.KillVelocityOrder(self.selected_entity, self.interface.gamestate))
-        elif key == ord("g"):
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                self.interface.status_message(f'order only valid on a ship target', curses.color_pair(1))
-            else:
-                self.selected_entity.orders.clear()
-                self.selected_entity.orders.append(orders.GoToLocation(np.array((0,0)), self.selected_entity, self.interface.gamestate))
-        elif key == ord("o"):
-            for ship in self.sector.ships:
-                station = self.interface.generator.r.choice(np.array((self.sector.stations)))
-                ship.orders.append(orders.GoToLocation(np.array((station.loc[0], station.loc[1])), ship, self.interface.gamestate))
         elif key == ord(":"):
             self.interface.open_view(command_input.CommandInput(
                 self.interface, commands=self.command_list()))
@@ -391,7 +440,9 @@ class SectorView(interface.View):
                 #TODO: check if the hit is close enough
                 self.select_target(hit.entity_id, hit)
         elif key == curses.ascii.ESC: #TODO: should handle escape here
-            if self.selected_target is not None:
+            if self.selected_character is not None:
+                self.selected_character = None
+            elif self.selected_target is not None:
                 self.select_target(None, None)
             else:
                 return False

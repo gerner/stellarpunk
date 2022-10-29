@@ -2,18 +2,24 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload
+import importlib.resources
+import itertools
 
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
-import pymunk
+import cymunk # type: ignore
 
-from stellarpunk import util, core, orders
+from stellarpunk import util, core, orders, agenda, econ
 
 #TODO: names: sectors, planets, stations, ships, characters, raw materials,
 #   intermediate products, final products, consumer products, station products,
 #   ship products
+
+RESOURCE_REL_SHIP = 0
+RESOURCE_REL_STATION = 1
+RESOURCE_REL_CONSUMER = 2
 
 
 def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np.float64]:
@@ -42,6 +48,37 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np
         V[edge[1]] = True
     return E
 
+"""
+@overload
+def peaked_bounded_random(r:np.random.Generator, mu:float, sigma:float, lb:float=0., ub:float=1.0) -> float: ...
+
+@overload
+def peaked_bounded_random(r:np.random.Generator, mu:float, sigma:float, size:Union[int, Sequence[int]], lb:float=0., ub:float=1.0) -> npt.NDArray[np.float64]: ...
+"""
+
+def peaked_bounded_random(
+        r:np.random.Generator, mu:float, sigma:float,
+        size:Optional[Union[int, Sequence[int]]]=None,
+        lb:float=0., ub:float=1.0) -> Union[float, npt.NDArray[np.float64]]:
+    if mu <= lb or mu >= ub:
+        raise ValueError(f'mu={mu} must be lb<mu<ub')
+    if sigma <= 0.:
+        raise ValueError(f'sigma={sigma} must be > 0.')
+
+    scale = ub-lb
+    mu = (mu-lb)/scale
+    sigma = (sigma-lb)/scale
+    phi = mu * (1-mu)/(sigma**2.)-1.
+    if phi <= 1./mu or phi <= 1./(1.-mu):
+        raise ValueError(f'sigma={sigma} must be s.t. after transforming mu and sigma to 0,1, mu * (1-mu)/(sigma**2.)-1. < 1/mu and < 1/(1-mu)')
+    alpha = mu * phi
+    beta = (1-mu) * phi
+    # make sure alpha/beta > 1, which makes beta unimodal between 0,1
+    assert alpha > 1.
+    assert beta > 1.
+
+    return lb+scale*r.beta(alpha, beta, size=size)
+
 class GenerationListener:
     def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
         pass
@@ -67,6 +104,7 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
+"""
 def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     if ship.sector is None:
         raise Exception("cannot harvest if ship isn't in a sector")
@@ -80,6 +118,7 @@ def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -
     resource = gamestate.production_chain.inputs_of(station.resource)[0]
 
     return orders.HarvestOrder(station, resource, ship, gamestate)
+"""
 
 class UniverseGenerator:
     def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None) -> None:
@@ -92,7 +131,18 @@ class UniverseGenerator:
 
         self.parallel_max_edges_tries = 10000
 
-
+        # load character portraits
+        self.portraits:List[core.Sprite] = []
+        sheet = importlib.resources.read_text("stellarpunk.data", "portraits.txt").split("\n")
+        size = (32//2, 32//4)
+        offset_limit = (len(sheet[0])//size[0], len(sheet)//size[1])
+        # portraits are 32x32 pixels, binary chars are 2x4 pixels per char
+        for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
+            self.portraits.append(core.Sprite(
+                [
+                    x[offset_x*size[0]:offset_x*size[0]+size[0]] for x in sheet[offset_y*size[1]:offset_y*size[1]+size[1]]
+                ]
+            ))
 
     def _random_bipartite_graph(
             self,
@@ -110,6 +160,8 @@ class UniverseGenerator:
         total_w: sum of weights on edges from top to bottom
         min_w: min weight on edges
         max_w: max weight on edges
+
+        returns an ndarray edge weight matrix (from, to)
         """
 
         # check that a random bipartite graph is possible
@@ -127,7 +179,7 @@ class UniverseGenerator:
 
         def choose_seq(n:int, k:int, min_deg:int, max_deg:int) -> npt.NDArray[np.int64]:
             """ Generates a sequence of integers from [0,n) of length k where
-            each number occurs at least once and at most max_deg """
+            each number occurs at least min_deg and at most max_deg """
 
             nseq = np.zeros(n, dtype=int) + min_deg
 
@@ -142,6 +194,8 @@ class UniverseGenerator:
         # prepare edge assignments between top and bottom
         tries = 0
         has_duplicate = True
+        nstubs:List[int] = []
+        mstubs:List[int] = []
         while has_duplicate:
             if tries > self.parallel_max_edges_tries:
                 raise Exception(f'failed to generate a bipartite graph with no parallel edges after {tries} attempts')
@@ -201,7 +255,7 @@ class UniverseGenerator:
         return "Some Ship"
 
     def _gen_character_name(self) -> str:
-        return "Somebody"
+        return "Bob Dole"
 
     def _gen_asteroid_name(self) -> str:
         return "Asteroid X"
@@ -209,26 +263,46 @@ class UniverseGenerator:
     def _gen_gate_name(self, destination:core.Sector) -> str:
         return f"Gate to {destination.short_id()}"
 
-    def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None) -> core.Station:
+    def _choose_portrait(self) -> core.Sprite:
+        return self.portraits[self.r.integers(0, len(self.portraits))]
+
+    def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> cymunk.Body:
+        if mass is None:
+            body = cymunk.Body()
+        else:
+            assert radius is not None
+            moment = cymunk.moment_for_circle(mass, 0, radius)
+            body = cymunk.Body(mass, moment)
+        return body
+
+    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, obj_flag:core.ObjectFlag, radius:float) -> cymunk.Shape:
+        shape = cymunk.Circle(body, radius)
+        shape.friction=0.1
+        shape.collision_type = entity.object_type
+        body.position = (entity.loc[0], entity.loc[1])
+        body.data = entity
+        entity.radius = radius
+        entity.phys_shape = shape
+        return shape
+
+    def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
+
+        assert resource < self.gamestate.production_chain.num_products
 
         station_radius = 300.
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-        station_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        station_body = self._phys_body()
         station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
-        station.loc.flags.writeable = False
         station.resource = resource
 
-        station_shape = pymunk.Circle(station_body, station_radius)
-        station_shape.friction=0.1
-        station_shape.collision_type = station.object_type
-        station_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.STATION)
-        station_body.position = (station.loc[0], station.loc[1])
-        station_body.entity = station
-        station.radius = station_radius
+        station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
+        assert station.cargo.sum() <= station.cargo_capacity
+
+        self._phys_shape(station_body, station, core.ObjectFlag.STATION, station_radius)
 
         sector.add_entity(station)
 
@@ -238,18 +312,11 @@ class UniverseGenerator:
         planet_radius = 1000.
 
         #TODO: stations are static?
-        planet_body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        planet_body = self._phys_body()
         planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
-        planet.loc.flags.writeable = False
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
-        planet_shape = pymunk.Circle(planet_body, planet_radius)
-        planet_shape.friction=0.1
-        planet_shape.collision_type = planet.object_type
-        planet_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.PLANET)
-        planet_body.position = (planet.loc[0], planet.loc[1])
-        planet_body.entity = planet
-        planet.radius = planet_radius
+        self._phys_shape(planet_body, planet, core.ObjectFlag.PLANET, planet_radius)
 
         sector.add_entity(planet)
 
@@ -298,20 +365,14 @@ class UniverseGenerator:
         # space shuttle doesn't exeed 3g during ascent
         max_torque = max_fine_thrust * 6 * ship_radius
 
-        ship_moment = pymunk.moment_for_circle(ship_mass, 0, ship_radius)
 
-        ship_body = pymunk.Body(ship_mass, ship_moment)
+        ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
 
-        ship_shape = pymunk.Circle(ship_body, ship_radius)
-        ship_shape.friction=0.1
-        ship_shape.collision_type = ship.object_type
-        ship_shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.SHIP)
-        ship_body.position = ship.loc[0], ship.loc[1]
-        ship_body.entity = ship
+        self._phys_shape(ship_body, ship, core.ObjectFlag.SHIP, ship_radius)
 
         ship.mass = ship_mass
-        ship.moment = ship_moment
+        ship.moment = ship_body.moment
         ship.radius = ship_radius
         ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
@@ -319,7 +380,7 @@ class UniverseGenerator:
 
         if v is None:
             v = (self.r.normal(0, 50, 2))
-        ship_body.velocity = pymunk.vec2d.Vec2d(*v)
+        ship_body.velocity = cymunk.vec2d.Vec2d(*v)
         ship_body.angle = ship_body.velocity.angle
 
         if theta is not None:
@@ -330,12 +391,10 @@ class UniverseGenerator:
         else:
             ship_body.angular_velocity = w
 
-        ship.velocity = np.array(ship_body.velocity, dtype=np.float64)
-        ship.angular_velocity = ship_body.angular_velocity
-        ship.angle = ship_body.angle
         sector.add_entity(ship)
 
         ship.default_order_fn = default_order_fn
+        ship.prepend_order(ship.default_order(self.gamestate))
 
         return ship
 
@@ -345,7 +404,6 @@ class UniverseGenerator:
 
         direction_vec = destination.loc - sector.loc
         _, direction = util.cartesian_to_polar(*direction_vec)
-        direction
 
         # choose a location for the gate far away from the center of the sector
         # also make sure the "lane", a path in direction from gate loc to
@@ -362,15 +420,11 @@ class UniverseGenerator:
         theta = self.r.uniform(min_theta, max_theta)
         x,y = util.polar_to_cartesian(r, theta)
 
-        body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        body = self._phys_body()
         gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination), entity_id=entity_id)
-        shape = pymunk.Circle(body, gate_radius)
-        shape.friction=0.1
-        shape.collision_type = gate.object_type
-        shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.GATE)
-        body.position = (gate.loc[0], gate.loc[1])
-        body.entity = gate
-        gate.radius = gate_radius
+
+        self._phys_shape(body, gate, core.ObjectFlag.GATE, gate_radius)
+
         sector.add_entity(gate)
 
         return gate
@@ -380,22 +434,16 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-        body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        body = self._phys_body()
         asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
-        asteroid.loc.flags.writeable = False
-        shape = pymunk.Circle(body, asteroid_radius)
-        shape.friction=0.1
-        shape.collision_type = asteroid.object_type
-        shape.filter = pymunk.ShapeFilter(categories=core.ObjectFlag.ASTEROID)
-        body.position = (asteroid.loc[0], asteroid.loc[1])
-        body.entity = asteroid
-        asteroid.radius = asteroid_radius
+
+        self._phys_shape(body, asteroid, core.ObjectFlag.ASTEROID, asteroid_radius)
 
         sector.add_entity(asteroid)
 
         return asteroid
 
-    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> list[core.Asteroid]:
+    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
         resource : the type of resource
@@ -428,6 +476,179 @@ class UniverseGenerator:
             total_amount -= amount
 
         return asteroids
+
+    def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
+        character = core.Character(self._choose_portrait(), location, name=self._gen_character_name())
+        character.balance = balance
+        self.gamestate.add_character(character)
+        return character
+
+    def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+        pchain = self.gamestate.production_chain
+
+        # compute how many raw resources are needed, transitively via
+        # production chain, to build each good
+        slices = [np.s_[pchain.ranks[0:i].sum():pchain.ranks[0:i+1].sum()] for i in range(len(pchain.ranks))]
+        raw_needs = pchain.adj_matrix[slices[0], slices[0+1]]
+        for i in range(1, len(slices)-1):
+            raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
+
+        sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+        self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
+        # habitable planet
+        # plenty of resources
+        # plenty of production
+
+        assets:List[core.Asset] = []
+
+        #TODO: resources we get should be enough to build out a full
+        #production chain, plus some more in neighboring sectors, plus
+        #fleet of ships, plus support population for a long time (from
+        #expansion through the fall)
+
+        #TODO: set up resource fields
+        # random number of fields per resource
+        # random sizes
+        # random allocation to each that sums to desired total
+        num_stations = int((self.gamestate.production_chain.ranks.sum() - self.gamestate.production_chain.ranks[0])*2.5)
+        resources_to_generate = raw_needs[:,RESOURCE_REL_STATION] *  self.r.uniform(num_stations, 2*num_stations)
+        #resources_to_generate += raw_needs[:,RESOURCE_REL_SHIP] * 100
+        #resources_to_generate += raw_needs[:,RESOURCE_REL_CONSUMER] * 100*100
+        asteroids:Dict[int, List[core.Asteroid]] = {}
+        for resource, amount in enumerate(resources_to_generate):
+            self.logger.info(f'spawning resource fields for {amount} units of {resource} in sector {sector.short_id()}')
+            # choose a number of fields to start off with
+            # divide resource amount across them
+            field_amounts = [amount]
+            # generate a field for each one
+            asteroids[resource] = []
+            for field_amount in field_amounts:
+                loc = self._gen_sector_location(sector)
+                asteroids[resource].extend(self.spawn_resource_field(sector, loc[0], loc[1], resource, amount))
+            self.logger.info(f'generated {len(asteroids[resource])} asteroids for resource {resource} in sector {sector.short_id()}')
+
+        self.logger.info(f'beginning entities: {len(sector.entities)}')
+
+        # set up production stations according to resources
+        # every inhabited sector should have a complete production chain
+        # exclude raw resources and final products, they are not produced
+        # at stations
+
+        # assign "agents" to each production resource
+        num_agents = num_stations
+        agent_goods = econ.assign_agents_to_products(
+                self.gamestate, num_agents,
+                self.gamestate.production_chain.ranks[0])
+
+        # each of those agents gets a station producing its good
+        for i in range(num_agents):
+            # find the one resource this agent produces
+            resource = agent_goods[i].argmax()
+            entity_loc = self._gen_sector_location(sector)
+            for build_resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
+                self.harvest_resources(sector, entity_loc[0], entity_loc[1], build_resource, amount)
+            station = self.spawn_station(
+                    sector, entity_loc[0], entity_loc[1], resource=resource, batches_on_hand=25)
+            assets.append(station)
+
+        # spend resources to build additional stations
+        # consume resources to establish and support population
+
+        # set up population according to production capacity
+        entity_loc = self._gen_sector_location(sector)
+        planet = self.spawn_planet(sector, entity_loc[0], entity_loc[1])
+        assets.append(planet)
+
+        # some factor mining ships for every refinery
+        mining_ship_factor = 2.
+        num_mining_ships = int(agent_goods[:,self.gamestate.production_chain.ranks.cumsum()[0]:self.gamestate.production_chain.ranks.cumsum()[1]].sum() * mining_ship_factor)
+
+        self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
+        mining_ships = set()
+        for i in range(num_mining_ships):
+            ship_x, ship_y = self._gen_sector_location(sector)
+            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
+            assets.append(ship)
+            mining_ships.add(ship)
+
+        # some factor trading ships as there are station -> station trade routes
+        trade_ship_factor = 1./3.
+        trade_routes_by_good = ((self.gamestate.production_chain.adj_matrix > 0).sum(axis=1))
+        num_trading_ships = int((trade_routes_by_good[np.newaxis,:] * agent_goods).sum() * trade_ship_factor)
+        self.logger.debug(f'adding {num_trading_ships} trading ships to sector {sector.short_id()}')
+
+        trading_ships = set()
+        for i in range(num_trading_ships):
+            ship_x, ship_y = self._gen_sector_location(sector)
+            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
+            assets.append(ship)
+            trading_ships.add(ship)
+
+        sum_eta = 0.
+        num_eta = 0
+        for ship in sector.ships:
+            for station in sector.stations:
+                sum_eta += orders.movement.GoToLocation.compute_eta(ship, station.loc)
+                num_eta += 1
+        self.logger.info(f'mean eta: {sum_eta / num_eta}')
+
+        self.logger.info(f'ending entities: {len(sector.entities)}')
+
+        # generate characters to own all the assets
+        # each asset owned by exactly 1 character, each character owns 1 to 3
+        # assets with mean < 2 1+2*beta
+        mu_ownership = 1.35
+        min_ownership = 1
+        max_ownership = 3
+        sigma_ownership = 0.12 * (max_ownership-min_ownership) + min_ownership
+        mean_ownership = peaked_bounded_random(self.r, mu_ownership, sigma_ownership, lb=min_ownership, ub=max_ownership)
+        num_assets = len(assets)
+        num_owners = int(np.ceil(num_assets/mean_ownership))
+        assert num_assets/num_owners >= min_ownership
+        assert num_assets/num_owners <= max_ownership
+        ownership_matrix = self._random_bipartite_graph(
+                num_owners, num_assets, num_assets,
+                max_ownership, min_ownership, num_assets, 1, 1)
+
+        # sanity check on the ownership matrix: every asset owned by exactly 1
+        # character and every character owns between min and max
+        assert ownership_matrix.shape == (num_owners, num_assets)
+        assert ownership_matrix.max() == 1
+        assert ownership_matrix.sum() == num_assets
+        assert (ownership_matrix == 1).sum() == num_assets
+        assert ownership_matrix.sum(axis=1).min() >= min_ownership
+        assert ownership_matrix.sum(axis=1).max() <= max_ownership
+        assert ownership_matrix.sum(axis=0).min() == 1
+        assert ownership_matrix.sum(axis=0).max() == 1
+
+        # set up characters according to ownership_matrix
+        for i in range(num_owners):
+            owned_asset_ids = np.where(ownership_matrix[i] == 1)[0]
+            #TODO: choose a location for the character from among their assets
+            location = assets[self.r.choice(owned_asset_ids)]
+            assert isinstance(location, core.SectorEntity)
+            character = self.spawn_character(location)
+
+            for asset in map(lambda j: assets[j], owned_asset_ids):
+                character.take_ownership(asset)
+                if isinstance(asset, core.Ship):
+                    if asset in mining_ships:
+                        character.add_agendum(agenda.MiningAgendum(ship=asset, character=character, gamestate=self.gamestate))
+                    elif asset in trading_ships:
+                        character.add_agendum(agenda.TradingAgendum(ship=asset, character=character, gamestate=self.gamestate))
+                    else:
+                        raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
+                elif isinstance(asset, core.Station):
+                    character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
+                elif isinstance(asset, core.Planet):
+                    #TODO: what to do with planet assets?
+                    pass
+                else:
+                    raise ValueError(f'got an asset of unknown type {asset}')
+
+        self.gamestate.add_sector(sector, sector_idx)
+
+        return sector
 
     def harvest_resources(self, sector: core.Sector, x: float, y: float, resource: int, amount: float) -> None:
         if amount <= 0:
@@ -611,10 +832,7 @@ class UniverseGenerator:
         adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
         prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products] # type: ignore
 
-        prices = prices.round()
         assert not np.any(np.isnan(prices))
-        #TODO: this can fail because of the rounding we do with the prices I think
-        # make sure that the prices are more than the cost to produce
         assert np.all(prices > (prices[:, np.newaxis] * adj_matrix).sum(axis=0))
 
         # set up production times and batch sizes
@@ -644,17 +862,13 @@ class UniverseGenerator:
 
     def generate_sectors(self,
             width:int=7, height:int=7,
-            sector_radius:float=1e5,
-            sector_radius_std:float=1e5*0.25,
+            sector_radius:float=5e5,
+            sector_radius_std:float=1e5,
             sector_edge_length:float=1e5*15,
             n_habitable_sectors:int=15,
             mean_habitable_resources:float=1e9,
             mean_uninhabitable_resources:float=1e7) -> None:
         # set up pre-expansion sectors, resources
-
-        RESOURCE_REL_SHIP = 0
-        RESOURCE_REL_STATION = 1
-        RESOURCE_REL_CONSUMER = 2
 
         # compute the raw resource needs for each product sink
         pchain = self.gamestate.production_chain
@@ -680,68 +894,11 @@ class UniverseGenerator:
         # implies a more robust and complete production chain
         # implies a bigger population
         for idx, entity_id, (x,y) in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask]):
-            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
-            self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
-            # habitable planet
-            # plenty of resources
-            # plenty of production
-
-            #TODO: resources we get should be enough to build out a full
-            #production chain, plus some more in neighboring sectors, plus
-            #fleet of ships, plus support population for a long time (from
-            #expansion through the fall)
-
-            #TODO: set up resource fields
-            # random number of fields per resource
-            # random sizes
-            # random allocation to each that sums to desired total
-            num_stations = len(pchain.prices)-pchain.ranks[-1]
-            resources_to_generate = raw_needs[:,RESOURCE_REL_STATION] *  self.r.uniform(num_stations, 2*num_stations)
-            #resources_to_generate += raw_needs[:,RESOURCE_REL_SHIP] * 100
-            #resources_to_generate += raw_needs[:,RESOURCE_REL_CONSUMER] * 100*100
-            asteroids:Dict[int, List[core.Asteroid]] = {}
-            for resource, amount in enumerate(resources_to_generate):
-                self.logger.info(f'spawning resource fields for {amount} units of {resource} in sector {sector.short_id()}')
-                # choose a number of fields to start off with
-                # divide resource amount across them
-                field_amounts = [amount]
-                # generate a field for each one
-                asteroids[resource] = []
-                for field_amount in field_amounts:
-                    loc = self._gen_sector_location(sector)
-                    asteroids[resource].extend(self.spawn_resource_field(sector, loc[0], loc[1], resource, amount))
-                self.logger.info(f'generated {len(asteroids[resource])} asteroids for resource {resource} in sector {sector.short_id()}')
-
-            self.logger.info(f'beginning entities: {len(sector.entities)}')
-
-
-            #TODO: production and population
-            # set up production stations according to resources
-            # every inhabited sector should have a complete production chain
-            # exclude raw resources and final products, they are not produced
-            # at stations
-            for i in range(pchain.ranks[0], len(pchain.prices)-pchain.ranks[-1]):
-                entity_loc = self._gen_sector_location(sector)
-
-                # deplete enough resources from asteroids to pay for this station
-                for resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
-                    self.harvest_resources(sector, entity_loc[0], entity_loc[1], resource, amount)
-                self.spawn_station(sector, entity_loc[0], entity_loc[1], resource=i)
-
-            # spend resources to build additional stations
-            # consume resources to establish and support population
-
-            # set up population according to production capacity
-            entity_loc = self._gen_sector_location(sector)
-            self.spawn_planet(sector, entity_loc[0], entity_loc[1])
-
-            self.logger.info(f'ending entities: {len(sector.entities)}')
-
-            self.gamestate.add_sector(sector, idx[0])
+            self.spawn_habitable_sector(x, y, entity_id, self.r.gamma(sector_k, sector_theta), idx[0])
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y) in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask]):
-            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), pymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
 
             self.gamestate.add_sector(sector, idx[0])
 
@@ -773,16 +930,6 @@ class UniverseGenerator:
         # establish factions
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
-
-        # quick hack to populate some ships
-        for entity_id in sector_ids[habitable_mask]:
-            sector = self.gamestate.sectors[entity_id]
-            num_ships = self.r.integers(15,35)
-            self.logger.debug(f'adding {num_ships} ships to sector {sector.short_id()}')
-            for i in range(num_ships):
-                ship_x, ship_y = self._gen_sector_location(sector)
-                ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
-                ship.orders.append(order_fn_harvest_random_resource(ship, self.gamestate))
 
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r

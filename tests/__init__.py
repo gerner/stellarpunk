@@ -5,6 +5,7 @@ import uuid
 from typing import Optional, List, Tuple
 
 import numpy as np
+import cymunk # type: ignore
 
 from stellarpunk import core, sim, orders, interface, util
 from stellarpunk.orders import steering
@@ -48,7 +49,11 @@ def ship_from_history(history_entry, generator, sector):
     theta = history_entry["a"]
     ship = generator.spawn_ship(sector, x, y, v=v, w=w, theta=theta, entity_id=uuid.UUID(history_entry["eid"]))
     ship.name = history_entry["eid"]
-    ship.phys.force = history_entry.get("f", (0., 0.))
+    # some histories have force as a vector, some as a dict
+    f = history_entry.get("f", (0., 0.))
+    if isinstance(f, dict):
+        f = [f["x"], f["y"]]
+    ship.phys.force = cymunk.vec2d.Vec2d(f)
     ship.phys.torque = history_entry.get("t", 0.)
     return ship
 
@@ -70,7 +75,7 @@ def planet_from_history(history_entry, generator, sector):
     planet.name = history_entry["eid"]
     return planet
 
-def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamestate):
+def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamestate, load_ct:bool=True):
     assert ship.sector
     order_type = history_entry["o"]["o"]
     if order_type in ("stellarpunk.orders.GoToLocation", "stellarpunk.orders.movement.GoToLocation"):
@@ -85,9 +90,9 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
             gorder.neighborhood_density = history_entry["o"]["nd"]
 
-        """
-        if "ct" in history_entry["o"]:
+        if load_ct and "ct" in history_entry["o"]:
             gorder.collision_threat = ship.sector.entities[uuid.UUID(history_entry["o"]["ct"])]
+            gorder.collision_threat_time = history_entry["o"]["ct_ts"] - history_entry["ts"]
             gorder.collision_coalesced_neighbors.extend(
                     next(ship.sector.spatial_point(np.array(x), 100)) for x in history_entry["o"]["ct_cn"]
             )
@@ -96,7 +101,11 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder.cannot_avoid_collision = history_entry["o"]["cac"]
             gorder.cannot_avoid_collision_hold = history_entry["o"]["cach"]
             gorder.collision_cbdr = history_entry["o"]["cbdr"]
-        """
+
+        if "msc" in history_entry["o"]:
+            gorder.max_speed_cap = history_entry["o"]["msc"]
+            gorder.max_speed_cap_ts = history_entry["o"]["msc_ts"] - history_entry["ts"]
+            gorder.max_speed_cap_alpha = history_entry["o"]["msc_a"]
 
         order:core.Order=gorder
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
@@ -105,11 +114,11 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         order = core.Order(ship, gamestate)
     else:
         raise ValueError(f'can not load {history_entry["o"]["o"]}')
-    ship.orders.append(order)
+    ship.prepend_order(order)
 
     return order
 
-def history_from_file(fname, generator, sector, gamestate):
+def history_from_file(fname, generator, sector, gamestate, load_ct:bool=True):
     entities = {}
 
     with open(fname, "rt") as f:
@@ -131,7 +140,7 @@ def history_from_file(fname, generator, sector, gamestate):
             else:
                 raise ValueError(f'unknown prefix {entry["p"]}')
         for entry, ship in order_entries:
-            order_from_history(entry, ship, gamestate)
+            order_from_history(entry, ship, gamestate, load_ct)
     return entities
 
 class MonitoringUI(interface.AbstractInterface):
@@ -141,6 +150,7 @@ class MonitoringUI(interface.AbstractInterface):
         self.margin = 2e2
         self.min_neighbor_dist = np.inf
 
+        self.agenda:List[core.Agendum] = []
         self.orders:List[core.Order] = []
         self.cannot_stop_orders:List[orders.GoToLocation] = []
         self.cannot_avoid_collision_orders:List[steering.AbstractSteeringOrder] = []
@@ -160,7 +170,7 @@ class MonitoringUI(interface.AbstractInterface):
 
     def order_complete(self, order:core.Order) -> None:
         self.complete_orders.append(order)
-        if len(set(self.orders) - set(self.complete_orders)) == 0:
+        if len(self.orders) > 0 and len(set(self.orders) - set(self.complete_orders)) == 0:
             self.done = True
 
     def tick(self, timeout:float, dt:float) -> None:
@@ -168,7 +178,7 @@ class MonitoringUI(interface.AbstractInterface):
         assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
-            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]})'
+            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]}, {self.agenda})'
         else:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))*self.order_eta_error_factor, "exceeded max eta over all orders"
 
@@ -181,6 +191,11 @@ class MonitoringUI(interface.AbstractInterface):
             assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin ({margin_neighbor.entity_id})'
             if neighbor_dist < self.min_neighbor_dist:
                 self.min_neighbor_dist = neighbor_dist
+
+        #TODO: is there an event that can handle this?
+        for agendum in self.agenda:
+            if agendum.is_complete():
+                self.done = True
 
         if self.done:
             self.gamestate.quit()

@@ -17,7 +17,7 @@ from stellarpunk import util, core
 
 ANGLE_EPS = 2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
-VELOCITY_EPS = 1e-1
+VELOCITY_EPS = 5e-1
 
 CBDR_MIN_HIST_SEC = 0.5
 CBDR_MAX_HIST_SEC = 1.1
@@ -38,7 +38,7 @@ COLLISION_MARGIN_HISTERESIS_FACTOR = 0.1
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def rotation_time(delta_angle: float, angular_velocity: float, max_angular_acceleration: float, safety_factor:float) -> float:
     # theta_f = theta_0 + omega_0*t + 1/2 * alpha * t^2
     # assume omega_0 = 0 <--- assumes we're not currently rotating!
@@ -47,7 +47,7 @@ def rotation_time(delta_angle: float, angular_velocity: float, max_angular_accel
     return (abs(angular_velocity)/max_angular_acceleration + 2*np.sqrt(abs(delta_angle + 0.5*angular_velocity**2/max_angular_acceleration)/max_angular_acceleration))*safety_factor
 
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float, moment:float, dt:float, safety_factor:float) -> Tuple[float, float]:
     """ What torque to apply to achieve target angle """
 
@@ -64,24 +64,40 @@ def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float
         # desired w is w such that braking_angle = difference_angle
         # braking_angle =  -1 * np.sign(w) * -0.5 * w*w * moment / max_torque
         # sqrt(difference_angle * max_torque / (0.5 * moment)) = w
-        arrival_angle = ANGLE_EPS
         if abs(difference_angle) < ANGLE_EPS:
             desired_w = 0.
         else:
             # w_f**2 = w_i**2 + 2 * a (d_theta)
             #desired_w = np.sign(difference_angle) * np.sqrt(abs(difference_angle + w*dt) * max_torque / (0.5 * moment))/safety_factor
-            desired_w =  np.sign(difference_angle) * np.sqrt(np.abs(difference_angle) * max_torque/moment * 2) * 0.90
+            desired_w =  np.sign(difference_angle) * np.sqrt(np.abs(difference_angle) * max_torque/moment * 2) * 0.9
+
+        arrival_angle = 5e-1
+        if abs(difference_angle) < arrival_angle:
+            w_dampener = util.interpolate(
+                arrival_angle, 1.0,
+                -arrival_angle, 0.,
+                abs(difference_angle)
+            )
+            assert w_dampener > 0.
+            assert w_dampener <= 1.
+            desired_w = desired_w * w_dampener
+
+        difference_w = abs(desired_w - w)
+
+        if difference_w < ANGLE_EPS:
+            return 0., np.inf
 
         t = (desired_w - w)*moment/dt
 
+
         if t < -max_torque:
-            return -max_torque, abs((desired_w - w)*moment / max_torque)
+            return -max_torque, difference_w * moment / max_torque
         elif t > max_torque:
-            return max_torque, abs((desired_w - w)*moment / max_torque)
+            return max_torque, difference_w * moment / max_torque
         else:
             return t, dt
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:float) -> Tuple[np.ndarray, float]:
     """ What force to apply to get dv change in velocity. Ignores heading. """
 
@@ -89,13 +105,16 @@ def force_for_delta_velocity(dv:np.ndarray, max_thrust:float, mass:float, dt:flo
         return ZERO_VECTOR, np.inf
 
     dv_magnitude = util.magnitude(dv[0], dv[1])
+    if dv_magnitude < VELOCITY_EPS:
+        return ZERO_VECTOR, np.inf
+
     desired_thrust = mass * dv_magnitude / dt
     if desired_thrust > max_thrust:
         return dv / dv_magnitude * max_thrust, mass * dv_magnitude/max_thrust
     else:
         return dv / dv_magnitude * desired_thrust, dt
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def force_torque_for_delta_velocity(
         target_velocity:np.ndarray, mass:float, moment:float, angle:float,
         w:float, v:np.ndarray, max_speed:float, max_torque:float,
@@ -145,9 +164,8 @@ def force_torque_for_delta_velocity(
 
     return force, torque, target_velocity, difference_mag, difference_angle, continue_time
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
-    speed = util.magnitude(v[0], v[1])
     rel_pos = entity_pos - pos
     rel_vel = entity_v - v
 
@@ -171,6 +189,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
             return rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.
         return rel_dist, np.inf, rel_pos, rel_vel, np.inf, ZERO_VECTOR, np.inf
 
+    speed = util.magnitude(v[0], v[1])
     # compute the closest approach within max_distance
     collision_distance = speed * approach_t
     if collision_distance > max_distance:
@@ -183,7 +202,7 @@ def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_
 
     return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def _analyze_neighbors(
         hits_l:npt.NDArray[np.float64],
         hits_v:npt.NDArray[np.float64],
@@ -201,6 +220,7 @@ def _analyze_neighbors(
             npt.NDArray[np.float64],
             npt.NDArray[np.float64],
             float,
+            int,
             int,
             int,
             float,
@@ -332,6 +352,7 @@ def _analyze_neighbors(
     # include.
     # see https://github.com/marmakoide/miniball and https://github.com/weddige/miniball
     coalesced_threats = 0
+    non_coalesced_threats = 0
     ct = []
     if idx >= 0:
         threat_radius = hits_r[idx]
@@ -372,16 +393,18 @@ def _analyze_neighbors(
                     threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
                     coalesced_threats += 1
                     ct.append(eidx)
+                else:
+                    non_coalesced_threats += 1
     else:
         # no threat found, return some default values
         threat_radius = 0.
         threat_loc = ZERO_VECTOR
         threat_velocity = ZERO_VECTOR
 
-    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
+    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, non_coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
-@jit(cache=True, nopython=True)
-def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, delta_v_budget:float) -> npt.NDArray[np.float64]:
+@jit(cache=True, nopython=True, fastmath=True)
+def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> npt.NDArray[np.float64]:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
     relative to the desired velocity.
@@ -412,6 +435,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     else:
         do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
     if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
+        #if util.magnitude(a[0], a[1]) <= delta_v_budget:
         return v_d
 
     if util.magnitude(r[0], r[1]) <= margin:
@@ -460,10 +484,20 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         s_2x = (-q_b+np.sqrt(q_b**2-4*q_a*q_c)) / (2*q_a)
 
     # y roots are y_i and -y_i, but only one each for i=0,1 will be on the curve
-    s_1y = np.sqrt(p-s_1x**2)
+
+    # if p and s_2x**2 are close, this can appear to go negative
+    if p - s_1x**2 < 0.:
+        s_1y = 0.
+    else:
+        s_1y = np.sqrt(p-s_1x**2)
     if not util.isclose((s_1x - r[0])**2 + (s_1y - r[1])**2, m**2):
         s_1y = -s_1y
-    s_2y = np.sqrt(p-s_2x**2)
+
+    # if p and s_2x**2 are close, this can appear to go negative
+    if p-s_2x**2 < 0.:
+        s_2y = 0.
+    else:
+        s_2y = np.sqrt(p-s_2x**2)
     if not util.isclose((s_2x - r[0])**2 + (s_2y - r[1])**2, m**2):
         s_2y = -s_2y
 
@@ -478,12 +512,12 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         # tangent line is vertical
         # implies perpendicular is horizontal
         y1 = a[1]
-        x1 = 0
+        x1 = -2*v[0]
     elif util.isclose(s_1y, 0):
         # tangent line is horizontal
         # implies perpendicular is vertical
         x1 = a[0]
-        y1 = 0
+        y1 = -2*v[1]
     else:
         # solve (1) for y in terms of x and plug into (2), solve for x
         x1 = (s_1x/s_1y*a[0]+a[1] - s_1y/s_1x*2*v[0] + 2*v[1]) / (s_1y/s_1x + s_1x/s_1y)
@@ -492,10 +526,10 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
 
     if util.isclose(s_2x, 0):
         y2 = a[1]
-        x2 = 0
+        x2 = -2*v[0]
     elif util.isclose(s_2y, 0):
         x2 = a[0]
-        y2 = 0
+        y2 = -2*v[1]
     else:
         x2 = (s_2x/s_2y*a[0]+a[1] - s_2y/s_2x*2*v[0] + 2*v[1]) / (s_2y/s_2x + s_2x/s_2y)
         y2 = s_2y/s_2x * (x2+2*v[0]) - 2*v[1]
@@ -503,6 +537,12 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
     cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
 
+    assert not (math.isnan(cost1) or math.isinf(cost1))
+    assert not (math.isnan(cost2) or math.isinf(cost2))
+
+    s_x = 0.
+    s_y = 0.
+    cost = 0.
     if not cost2 < cost1:
         x = x1
         y = y1
@@ -519,20 +559,46 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         # not exactly sure why either would be nan, but hopefully one is not
         assert not math.isnan(cost1) or not math.isnan(cost2)
 
-    if cbdr:
-        if util.isclose(s_x, 0):
-            dx = 0
-            dy = np.sqrt(cost*2)
-            y += np.sqrt(cost*2)
-        elif util.isclose(s_y, 0):
-            dx = np.sqrt(cost*2)
-            dy = 0
-            x += dx
-        else:
-            dx = np.sqrt(cost*2 / ((s_y/s_x)**2 + 1))
-            dy = s_y/s_x * dx
-            x += dx
-            y += dy
+    #if cbdr:
+    #    # prefer diversion in the same direction in case of cbdr
+    #    # the sign of cross1 and cross2 indicate the direction of the divert
+    #    # (clockwise or counter-clockwise)
+    #    cross1 = v[0]*y1-v[1]*x1
+    #    cross2 = v[0]*y2-v[1]*x2
+    #    if cross1 > cross2:
+    #        x = x1
+    #        y = y1
+    #        s_x = s_1x
+    #        s_y = s_1y
+    #        cost = cost1
+    #    else:
+    #        x = x2
+    #        y = y2
+    #        s_x = s_2x
+    #        s_y = s_2y
+    #        cost = cost2
+
+    #TODO: this assumes the other guy will move which seems very risky
+    # we should come back to this in the future and do something more
+    # proactive, but still cooperative
+    if cbdr and cbdr_bias < 0:
+        return np.array((0.,0.))
+
+    #if cbdr:
+    #    # swap our choices if our bias is negative
+    #    if cbdr_bias < 0:
+    #        if not cost2 < cost1:
+    #            x = x2
+    #            y = y2
+    #            s_x = s_2x
+    #            s_y = s_2y
+    #            cost = cost2
+    #        elif not cost1 < cost2:
+    #            x = x1
+    #            y = y1
+    #            s_x = s_1x
+    #            s_y = s_1y
+    #            cost = cost1
 
     # useful assert when testing
     # this asserts that the resulting x,y point matches the the contraint on
@@ -552,7 +618,7 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
             nb.float64[::1], nb.float64, nb.float64,
             nb.float64[::1], nb.float64[::1], nb.float64, nb.float64, nb.float64,
             nb.float64, nb.float64, nb.float64, nb.float64
-        ), cache=True, nopython=True)
+        ), cache=True, nopython=True, fastmath=True)
 def find_target_v(
         target_location:np.ndarray, arrival_distance:float, min_distance:float,
         current_location:np.ndarray, v:np.ndarray, theta:float, omega:float,
@@ -672,6 +738,8 @@ class AbstractSteeringOrder(core.Order):
         self._accelerate_difference_angle:float = 0.
         self._accelerate_difference_mag:float = 0.
 
+        # cache this so we can use it over and over
+        self.worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
     def to_history(self) -> dict:
         history = super().to_history()
         if self.collision_threat:
@@ -680,6 +748,7 @@ class AbstractSteeringOrder(core.Order):
             history["ct_loc"] = (self.collision_threat.loc[0], self.collision_threat.loc[1])
             history["ct_v"] = (self.collision_threat.velocity[0], self.collision_threat.velocity[1])
             history["ct_ts"] = self.collision_threat_time
+            history["ct_at"] = self.collision_approach_time
             history["ct_dv"] = (self.collision_dv[0], self.collision_dv[1])
             history["ct_tc"] = self.collision_threat_count
             history["ct_ct"] = self.collision_coalesced_threats
@@ -716,14 +785,14 @@ class AbstractSteeringOrder(core.Order):
         history["_ada"] = self._accelerate_difference_angle
         return history
 
-    def _rotate_to(self, target_angle: float, dt: float) -> None:
+    def _rotate_to(self, target_angle: float, dt: float) -> float:
         # given current angle and angular_velocity and max torque, choose
         # torque to apply for dt now to hit target angle
 
         w = self.ship.angular_velocity
         moment = self.ship.moment
 
-        t, _ = torque_for_angle(
+        t, period = torque_for_angle(
                 target_angle, self.ship.angle, w,
                 self.ship.max_torque, moment, dt,
                 self.safety_factor)
@@ -731,16 +800,29 @@ class AbstractSteeringOrder(core.Order):
         if t == 0 and abs(util.normalize_angle(self.ship.angle - target_angle, shortest=True)) <= ANGLE_EPS:
             self.ship.set_angle(target_angle)
             self.ship.set_angular_velocity(0.)
+            self.ship.apply_torque(0., False)
         else:
-            self.ship.apply_torque(t)
+            self.ship.apply_torque(t, True)
 
-    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> None:
+        return period
+
+    def _accelerate_to(self, target_velocity: np.ndarray, dt: float, force_recompute:bool=False, time_step:float=0.) -> float:
         if not force_recompute and self.gamestate.timestamp < self._next_accelerate_compute_ts:
             if self._accelerate_difference_mag != 0.:
-                self.ship.apply_force(self._accelerate_force)
+                self.gamestate.counters[core.Counters.ACCELERATE_FAST_FORCE] += 1
+                self.ship.apply_force(self._accelerate_force, True)
+            else:
+                self.ship.apply_force(ZERO_VECTOR, False)
             if self._accelerate_torque != 0.:
-                self.ship.apply_torque(self._accelerate_torque)
-            return
+                self.gamestate.counters[core.Counters.ACCELERATE_FAST_TORQUE] += 1
+                self.ship.apply_torque(self._accelerate_torque, True)
+            else:
+                self.ship.apply_torque(0., False)
+
+            self.gamestate.counters[core.Counters.ACCELERATE_FAST] += 1
+            return self._next_accelerate_compute_ts - self.gamestate.timestamp
+
+        self.gamestate.counters[core.Counters.ACCELERATE_SLOW] += 1
         mass = self.ship.mass
         moment = self.ship.moment
         angle = self.ship.angle
@@ -761,17 +843,24 @@ class AbstractSteeringOrder(core.Order):
         if difference_mag < VELOCITY_EPS:
             if difference_mag > 0.:
                 self.ship.set_velocity(target_velocity)
+            self.ship.apply_force(ZERO_VECTOR, False)
         else:
-            self.ship.apply_force(force)
+            self.gamestate.counters[core.Counters.ACCELERATE_SLOW_FORCE] += 1
+            self.ship.apply_force(force, True)
 
         if torque != 0.:
-            self.ship.apply_torque(torque)
+            self.gamestate.counters[core.Counters.ACCELERATE_SLOW_TORQUE] += 1
+            self.ship.apply_torque(torque, True)
+        else:
+            self.ship.apply_torque(0., False)
 
         self._accelerate_difference_angle = difference_angle
         self._accelerate_difference_mag = difference_mag
         self._accelerate_force = force
         self._accelerate_torque = torque
-        self._next_accelerate_compute_ts = self.gamestate.timestamp + util.clip(continue_time, 0., 1.0)
+        continue_time = util.clip(continue_time, 0., 10.0)
+        self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
+        return continue_time
 
     def _clear_collision_info(self) -> None:
         self.collision_threat = None
@@ -817,16 +906,21 @@ class AbstractSteeringOrder(core.Order):
         if self.gamestate.timestamp - self.collision_hits_age < self.collision_hits_max_age:
             #TODO: what to do if the neighbor isn't in this sector any more?
             hits = self.collision_hits
+            self.gamestate.counters[core.Counters.COLLISION_HITS_HIT] += 1
         else:
             hits = list(e for e in  sector.spatial_point(neighborhood_loc, neighborhood_dist) if e != self.ship)
             self.collision_hits_age = self.gamestate.timestamp
             self.collision_hits = hits
+            self.gamestate.counters[core.Counters.COLLISION_HITS_MISS] += 1
         self.cannot_avoid_collision = False
         self.nearest_neighbor_dist = np.inf
 
         any_prior_threats = False
         all_prior_threats = False
+
         if len(hits) > 0:
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NUM_NEIGHBORS] += len(hits)
             #TODO: this is really not ideal: we go into pymunk to get hits via
             # cffi and then come back to python and then do some marshalling
             # there and then back into numba. the perf win from numba here is
@@ -849,6 +943,7 @@ class AbstractSteeringOrder(core.Order):
                     minimum_separation,
                     threat_count,
                     coalesced_threats,
+                    non_coalesced_threats,
                     threat_radius,
                     threat_loc,
                     threat_velocity,
@@ -861,6 +956,9 @@ class AbstractSteeringOrder(core.Order):
                     pos, v,
                     max_distance, self.ship.radius, margin, neighborhood_dist,
                     self.ship.max_acceleration())
+
+            self.gamestate.counters[core.Counters.COLLISION_THREATS_C] += coalesced_threats
+            self.gamestate.counters[core.Counters.COLLISION_THREATS_NC] += non_coalesced_threats
 
             prior_threats = set(self.collision_coalesced_neighbors)
             coalesced_neighbors = [hits[i] for i in coalesced_idx]
@@ -912,6 +1010,7 @@ class AbstractSteeringOrder(core.Order):
                         threat_loc = new_loc
                         threat_radius = new_radius
         else:
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NO_NEIGHBORS] += 1
             idx = -1
             approach_time = np.inf
             relative_position = ZERO_VECTOR
@@ -920,6 +1019,7 @@ class AbstractSteeringOrder(core.Order):
             collision_loc = ZERO_VECTOR
             threat_count = 0
             coalesced_threats = 0
+            non_coalesced_threats = 0
             nearest_neighbor_idx = -1
             nearest_neighbor_dist = np.inf
             threat_loc = ZERO_VECTOR
@@ -929,6 +1029,7 @@ class AbstractSteeringOrder(core.Order):
             coalesced_neighbors = []
 
         if idx < 0:
+            self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NONE] += 1
             neighbor = None
         else:
             neighbor = hits[idx]
@@ -1019,6 +1120,12 @@ class AbstractSteeringOrder(core.Order):
             self.collision_dv = ZERO_VECTOR
             return ZERO_VECTOR, np.inf, np.inf, 0
 
+        base_bias = 2.
+        if self.ship.entity_id < neighbor.entity_id and not util.both_almost_zero(neighbor.velocity):
+            cbdr_bias = -base_bias
+        else:
+            cbdr_bias = base_bias
+
         if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.gamestate.timestamp, CBDR_MIN_HIST_SEC):
             self.collision_cbdr = True
         else:
@@ -1074,15 +1181,15 @@ class AbstractSteeringOrder(core.Order):
             if ddv_mag > max_dv_available:
                 desired_delta_velocity = desired_delta_velocity / ddv_mag * max_dv_available
 
-            worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
-            delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - worst_case_rot_time)
+            delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - self.worst_case_rot_time)
 
             delta_velocity = _collision_dv(
                     current_threat_loc, threat_velocity,
                     self.ship.loc, self.ship.velocity,
                     desired_margin, desired_delta_velocity,
-                    self.collision_cbdr,
-                    delta_v_budget)
+                    self.collision_cbdr, cbdr_bias,
+                    delta_v_budget,
+            )
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

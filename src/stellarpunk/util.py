@@ -86,28 +86,28 @@ def screen_to_sector(
             (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
     )
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def magnitude(x:float, y:float) -> float:
     return math.sqrt(x*x + y*y)
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
     return magnitude((s - t)[0], (s - t)[1])
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
     r = math.hypot(x, y)
     a = math.atan2(y, x)
     return r, a
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def polar_to_cartesian(r:float, theta:float) -> tuple[float, float]:
     x = r * np.cos(theta)
     y = r * np.sin(theta)
     return (x,y)
 
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def normalize_angle(angle:float, shortest:bool=False) -> float:
     angle = angle % (2*np.pi)
     angle = (angle + 2*np.pi) if angle < 0 else angle
@@ -116,32 +116,32 @@ def normalize_angle(angle:float, shortest:bool=False) -> float:
     else:
         return angle - 2*np.pi
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def clip(x:float, min_x:float, max_x:float) -> float:
     return min_x if x < min_x else max_x if x > max_x else x
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def isclose(a:float, b:float) -> bool:
     return abs(a-b) <= (1e-08 + 1e-05 * abs(b))
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def isclose_flex(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     # numba gets confused with default parameters sometimes, so we have this
     # "overload"
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def both_almost_zero(v:npt.NDArray[np.float64]) -> bool:
     return isclose(v[0], 0.) and isclose(v[1], 0.)
 
 def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def either_nan_or_inf(v:npt.NDArray[np.float64]) -> bool:
     return math.isnan(v[0]) or math.isnan(v[1]) or math.isinf(v[0]) or math.isinf(v[1])
 
-#@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def interpolate(x1:float, y1:float, x2:float, y2:float, x:float) -> float:
     """ interpolates the y given x and two points on a line. """
     m = (y2 - y1) / (x2 - x1)
@@ -157,7 +157,7 @@ def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float,
 
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
 
-@jit(cache=True, nopython=True)
+@jit(cache=True, nopython=True, fastmath=True)
 def enclosing_circle(c1:npt.NDArray[np.float64], r1:float, c2:npt.NDArray[np.float64], r2:float) -> Tuple[npt.NDArray[np.float64], float]:
     """ Finds the smallest circle enclosing two other circles.
 

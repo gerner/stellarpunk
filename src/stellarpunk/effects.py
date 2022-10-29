@@ -7,10 +7,10 @@ from typing import Any, Tuple
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, util
+from stellarpunk import core, econ, util
 
 AMOUNT_EPS = 0.5
-TRANSFER_PERIOD = 0.5
+TRANSFER_PERIOD = 1.0
 
 class TransferCargoEffect(core.Effect):
     def __init__(
@@ -35,9 +35,6 @@ class TransferCargoEffect(core.Effect):
         # next timestamp we should act on
         self.next_effect_time = 0.
 
-        # amount held in escrow between actions
-        self.escrow = 0.
-
     def bbox(self) -> Tuple[float, float, float, float]:
         locs = np.asarray((self.source.loc, self.destination.loc))
         min_x, min_y = np.min(locs, axis=0)
@@ -52,7 +49,7 @@ class TransferCargoEffect(core.Effect):
             return
 
         if self.destination.distance_to(self.source) > self.max_distance:
-            self.cancel_effect()
+            #TODO: the transfer isn't really complete, how to communicate that?
             self._completed_transfer = True
             return
 
@@ -60,49 +57,95 @@ class TransferCargoEffect(core.Effect):
             self._completed_transfer = True
             return
 
-        if self.destination.cargo_capacity - np.sum(self.destination.cargo) < self.escrow:
-            self.logger.info(f'dropping {self.escrow - np.sum(self.destination.cargo)} units of resource {self.resource} because no more cargo space')
-            self.escrow = self.destination.cargo_capacity - np.sum(self.destination.cargo) # type: ignore
-
-        self.destination.cargo[self.resource] += self.escrow
-        self.sofar += self.escrow
-        self.escrow = 0.
-
-        if self.destination.cargo_full() or self.source.cargo[self.resource] <= 0.:
+        amount = self._amount()
+        if not self._continue_transfer(amount):
+            self.logger.debug(f'aborting transfer')
+            #TODO: the transfer isn't really complete, how to communicate that?
             self._completed_transfer = True
             return
 
+        self.sofar += amount
+        self._deliver(amount)
+        self.next_effect_time = self.gamestate.timestamp + TRANSFER_PERIOD
+
+    def _amount(self) -> float:
         amount = min(
                 self.destination.cargo_capacity - np.sum(self.destination.cargo),
                 util.clip(self.amount-self.sofar, 0, self.source.cargo[self.resource])
         )
         amount = min((self.transfer_rate * TRANSFER_PERIOD), amount)
-        self.escrow = amount
+        return amount
+
+    def _continue_transfer(self, amount:float) -> bool:
+        """ Called during the transfer to see if transfer should continue.
+
+        amount: the next amount to transfer atomically
+        return true iff transfer should continue
+        """
+
+        if amount <= 0:
+            return False
+        if self.destination.cargo_capacity - float(np.sum(self.destination.cargo)) < amount:
+            return False
+        return True
+
+    def _deliver(self, amount:float) -> None:
+        """ Called after one unit of transfer is completed. """
         self.source.cargo[self.resource] -= amount
-        self._extract(amount)
         if self.source.cargo[self.resource] < AMOUNT_EPS:
             self.source.cargo[self.resource] = 0.
+        self.destination.cargo[self.resource] += amount
 
-        self.next_effect_time = self.gamestate.timestamp + TRANSFER_PERIOD
+class TradeTransferEffect(TransferCargoEffect):
+    #TODO: do we want to log trading somewhere?
+    def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, current_price:econ.PriceFn, *args:Any, floor_price:float=0., ceiling_price:float=np.inf, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.buyer = buyer
+        self.seller = seller
+        self.floor_price = floor_price
+        self.ceiling_price = ceiling_price
+        self.current_price = current_price
 
-    def _extract(self, amount:float) -> None:
-        """ Helper triggered when we extract resources from source. """
-        pass
+    def _amount(self) -> float:
+        amount = super()._amount()
+        price = self.current_price(self.buyer, self.seller, self.resource)
 
-    def _cancel(self) -> None:
-        """ cancel the mining effect and return escrow amount back to source.
-        """
-        if self.escrow > 0:
-            #TODO: worry about max capacity at the source?
-            self.source.cargo[self.resource] += self.escrow
-            self._extract(-1. * self.escrow)
+        if amount * price > self.buyer.budget(self.resource):
+            amount = np.floor(self.buyer.budget(self.resource) / price)
+        if amount * price > self.buyer.balance():
+            amount = np.floor(self.buyer.balance() / price)
+
+        # always pick a non-zero amount so we can bail if things are
+        # unaffordable later
+        if amount < 1.:
+            amount = 1.
+        return amount
+
+    def _continue_transfer(self, amount:float) -> bool:
+        if not super()._continue_transfer(amount):
+            return False
+        if not self._continue_trade(amount):
+            return False
+        return True
+
+    def _deliver(self, amount:float) -> None:
+        #TODO: make sure the buyer still wants to buy more at the given price
+        price = self.current_price(self.buyer, self.seller, self.resource)
+        self.seller.sell(self.resource, price, amount)
+        self.buyer.buy(self.resource, price, amount)
+
+    def _continue_trade(self, amount:float) -> bool:
+        #TODO: what if the agents are invalid now (e.g. change agent for the station)
+        #TODO: what if one or both parties has been destroyed?
+        price = self.current_price(self.buyer, self.seller, self.resource)
+        return econ.trade_valid(
+                self.buyer, self.seller, self.resource, price, amount,
+                self.floor_price, self.ceiling_price)
 
 class MiningEffect(TransferCargoEffect):
     """ Subclass of TransferCargoEffect to get different visuals. """
-    def _extract(self, amount:float) -> None:
-        #TODO: record the mining somehow
-        #self.gamestate.production_chain.resources_mined[self.resource] += amount
-        pass
+    #TODO: do we want to log mining somewhere?
+    pass
 
 class WarpOutEffect(core.Effect):
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:

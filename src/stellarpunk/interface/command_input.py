@@ -3,6 +3,53 @@ from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, C
 
 from stellarpunk import interface, util
 
+class CommandHistory:
+    """ Readlines-like command history editor.
+
+    Model is that you've got a history of commands, you are editing an entry in it.
+    The last entry is replaced by the command you enter. """
+    def __init__(self) -> None:
+        self._history:List[str] = [""]
+        self._history_index = 0
+
+    def _get_command(self) -> str:
+        return self._history[self._history_index]
+
+    def _set_command(self, value:str) -> None:
+        self._history[self._history_index] = value
+
+    command = property(fget=_get_command, fset=_set_command)
+
+    def initialize_command(self) -> None:
+        self._history_index = len(self._history)-1
+        self._history[self._history_index] = ""
+
+    def enter_command(self) -> None:
+        """ makes sure the latest command is saved to history
+
+        most recent command duplicates are removed """
+
+        if len(self._history) > 1:
+            if self._history[-2] != self.command:
+                self._history[-1] = self.command
+                self._history.append("")
+            else:
+                self._history[-1] = ""
+        else:
+            self._history.append("")
+
+    def prev_command(self) -> str:
+        self._history_index -= 1
+        if self._history_index < 0:
+            self._history_index = 0
+        return self._history[self._history_index]
+
+    def next_command(self) -> str:
+        self._history_index += 1
+        if self._history_index >= len(self._history):
+            self._history_index = len(self._history)-1
+        return self._history[self._history_index]
+
 class CommandInput(interface.View):
     """ Command mode: typing in a command to execute. """
 
@@ -29,9 +76,16 @@ class CommandInput(interface.View):
                 self.commands[c] = carg
 
         self.partial = ""
-        self.command = ""
+        self._command_history = CommandHistory()
+
+        self.fast_render = True
+
+    def _get_command(self) -> str: return self._command_history.command
+    def _set_command(self, value:str) -> None: self._command_history.command = value
+    command = property(fget=_get_command, fset=_set_command)
 
     def _command_name(self) -> str:
+        """ Returns just the first word of the input command. """
         i = self.command.strip(" ").find(" ")
         if i < 0:
             return self.command.strip()
@@ -47,8 +101,12 @@ class CommandInput(interface.View):
                 self.commands[c] = f
         self.logger.info("entering command mode")
 
+    def focus(self) -> None:
+        super().focus()
+        self._command_history.initialize_command()
+
     def update_display(self) -> None:
-        self.interface.status_message(f':{self.command}')
+        self.interface.status_message(f':{self.command}', cursor=True)
 
     def handle_input(self, key:int, dt:float) -> bool:
         if key in (ord('\n'), ord('\r')):
@@ -65,7 +123,12 @@ class CommandInput(interface.View):
                     self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
             else:
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
+            self._command_history.enter_command()
             return False
+        elif key == curses.KEY_UP:
+            self._command_history.prev_command()
+        elif key == curses.KEY_DOWN:
+            self._command_history.next_command()
         elif chr(key).isprintable():
             self.command += chr(key)
             self.partial = self.command

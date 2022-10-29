@@ -207,6 +207,7 @@ class View(abc.ABC):
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.active = True
+        self.fast_render = False
         self.interface = interface
 
     @property
@@ -288,7 +289,8 @@ class Interface(AbstractInterface):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.min_ui_timeout = 0
+        self.fps_cap = (1/gamestate.desired_dt)+1
+        self.min_ui_timeout = gamestate.desired_dt/4
 
         # the size of the global screen, containing other viewports
         self.screen_width = 0
@@ -323,10 +325,10 @@ class Interface(AbstractInterface):
         # last view has focus for input handling
         self.views:List[View] = []
 
-        # list of frame times
-        self.frame_history:Deque[float] = collections.deque()
-        # max frame history to keep in seconds
-        self.max_frame_history = 1.
+        # list of frame render times
+        # keep a fixed number of them so we can calculate how many frames per
+        # (real-time) second we're rendering
+        self.frame_history:Deque[float] = collections.deque(maxlen=20)
 
         self.show_fps = True
 
@@ -386,7 +388,12 @@ class Interface(AbstractInterface):
             self.logger.info("done")
 
     def fps(self) -> float:
-        return len(self.frame_history) / self.max_frame_history
+        num_frames = len(self.frame_history)
+        if num_frames > 1:
+            now = time.perf_counter()
+            return num_frames / (now - self.frame_history[0])
+        else:
+            return 0.
 
     def choose_viewport_sizes(self) -> None:
         """ Chooses viewport sizes and locations for viewscreen and the log."""
@@ -552,10 +559,13 @@ class Interface(AbstractInterface):
         self.logscreen.addstr(self.logscreen_height,0, message+"\n")
         self.refresh_logscreen()
 
-    def status_message(self, message:str="", attr:int=0) -> None:
+    def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:
         """ Adds a status message. """
         self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
         self.stdscr.addstr(self.screen_height-1, 0, message, attr)
+
+        if cursor:
+            self.stdscr.addstr(self.screen_height-1, len(message), " ", curses.A_REVERSE)
 
         if message:
             self.status_message_clear_time = self.gamestate.timestamp + self.status_message_lifetime
@@ -646,13 +656,11 @@ class Interface(AbstractInterface):
         }
 
     def tick(self, timeout:float, dt:float) -> None:
-        # only render a frame if there's enough time
-        if timeout > self.min_ui_timeout:
+        # only render a frame if there's enough time and it won't exceed the fps cap
+        if timeout > self.min_ui_timeout and self.fps() <= self.fps_cap:
             # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
             start_time = time.perf_counter()
             self.frame_history.append(start_time)
-            while self.frame_history[0] < start_time - self.max_frame_history:
-                self.frame_history.popleft()
 
             if self.one_time_step:
                 self.gamestate.paused = True
@@ -669,6 +677,15 @@ class Interface(AbstractInterface):
             self.stdscr.noutrefresh()
 
             curses.doupdate()
+        else:
+            # only update a couple of fast things
+            for view in self.views:
+                if view.active and view.fast_render:
+                    view.update_display()
+            self.show_diagnostics()
+            self.stdscr.noutrefresh()
+            curses.doupdate()
+
 
         #TODO: this can block in the case of mouse clicks
         #TODO: see note above about setting mouseinterval to 0 which fixes this?
@@ -678,7 +695,11 @@ class Interface(AbstractInterface):
 
         # process input according to what has focus (i.e. umap, smap, pilot, command)
         #self.stdscr.timeout(int(timeout*100))
+
+        # clear out any buffered keys
         key = self.stdscr.getch()
+        while self.stdscr.getch() != -1:
+            pass
 
         if key == -1:
             return

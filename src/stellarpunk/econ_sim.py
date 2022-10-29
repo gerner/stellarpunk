@@ -16,9 +16,8 @@ import numpy as np
 import numpy.typing as npt
 import msgpack # type: ignore
 import tqdm # type: ignore
-from numba import jit # type: ignore
 
-from stellarpunk import util, core, generate, serialization
+from stellarpunk import util, core, generate, serialization, econ
 
 # sometimes we're willing to manufacture a very small amount of cash to avoid
 # precision errors
@@ -367,6 +366,7 @@ class EconomySimulation:
 
         self.num_products = num_products
 
+        """
         # set up agents, at least one in every good, the rest can be random
         self.agent_goods = np.zeros((self.num_agents, self.num_products))
         #TODO: how to choose resource each agent is involved in?
@@ -385,6 +385,9 @@ class EconomySimulation:
         # this simplifying restriction in the future...)
         assert np.all(self.agent_goods.sum(axis=1) == 1)
         assert np.all(self.agent_goods.sum(axis=1) == 1)
+        """
+
+        self.agent_goods = econ.assign_agents_to_products(self.gamestate, num_agents)
 
         self.batch_sizes = self.gamestate.production_chain.batch_sizes[np.newaxis,:] * self.agent_goods
         self.production_goods = (self.agent_goods @ self.gamestate.production_chain.adj_matrix.T)
@@ -1326,12 +1329,11 @@ def main() -> None:
         econ = EconomySimulation(data_logger)
         econ.initialize(num_agents=300)
 
-
         # warm up anything (helps if we're profiling)
         econ.run(max_ticks=1)
-        econ.run(max_ticks=250000)
+        #econ.run(max_ticks=250000)
         #econ.run(max_ticks=50000)
-        #econ.run(max_ticks=2000)
+        econ.run(max_ticks=2000)
 
         econ.log_report()
 

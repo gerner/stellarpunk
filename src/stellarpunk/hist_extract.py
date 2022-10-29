@@ -12,7 +12,9 @@ import numpy as np
 
 from stellarpunk import util
 
-TS_EPS = 1/60/2*10
+# This should be sized to select a single history entry given a timestamp, so
+# it depends on the timestep used in the simulation.
+TS_EPS = 1/30/2*10
 
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)

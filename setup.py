@@ -21,6 +21,7 @@ setuptools.setup(
         'stellarpunk': ['py.typed'],
         'stellarpunk.interface': ['py.typed'],
         'stellarpunk.orders': ['py.typed'],
+        'stellarpunk.data': ['*'],
     },
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -33,6 +34,8 @@ setuptools.setup(
         "graphviz",
         "drawille",
         "pymunk",
+        "rtree",
+        "tqdm",
     ],
     python_requires='>=3.8',
     entry_points={

@@ -10,13 +10,16 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection
+import abc
+import heapq
+import dataclasses
 import abc
 
 import graphviz # type: ignore
 import numpy as np
 import numpy.typing as npt
-import pymunk
+import cymunk # type: ignore
 from rtree import index # type: ignore
 
 from stellarpunk import util
@@ -79,7 +82,7 @@ class ProductionChain:
 
         return g
 
-class Entity:
+class Entity(abc.ABC):
     id_prefix = "ENT"
 
     def __init__(self, name:str, entity_id:Optional[uuid.UUID]=None)->None:
@@ -97,12 +100,20 @@ class Entity:
     def __str__(self) -> str:
         return f'{self.short_id()}'
 
+class Asset(Entity):
+    """ An abc for classes that are assets ownable by characters. """
+    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
+        # forward arguments onward, so implementing classes should inherit us
+        # first
+        super().__init__(*args, **kwargs)
+        self.owner = owner
+
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 
     id_prefix = "SEC"
 
-    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:pymunk.Space, *args: Any, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
 
         # sector's position in the universe
@@ -122,19 +133,20 @@ class Sector(Entity):
         # physics space for this sector
         # we don't manage this, just have a pointer to it
         # we do rely on this to provide a spatial index of the sector
-        self.space:pymunk.Space = space
+        self.space:cymunk.Space = space
 
         self.effects: Deque[Effect] = collections.deque()
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
-        for hit in self.space.bb_query(pymunk.BB(*bbox), pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
-            yield hit.body.entity
+        for hit in self.space.bb_query(cymunk.BB(*bbox)):
+            yield hit.body.data
 
-    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
+    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
+        #TODO: honor mask
         if not max_dist:
-            max_dist = self.radius*3
-        for hit in self.space.point_query((point[0], point[1]), max_dist, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
-            yield hit.shape.body.entity # type: ignore[union-attr]
+            max_dist = np.inf
+        for hit in self.space.nearest_point_query(cymunk.vec2d.Vec2d(point[0], point[1]), max_dist):
+            yield hit.body.data
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
@@ -155,7 +167,10 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
-        self.space.add(entity.phys, *(entity.phys.shapes))
+        if entity.phys.is_static:
+            self.space.add(entity.phys_shape)
+        else:
+            self.space.add(entity.phys, entity.phys_shape)
         entity.sector = self
         self.entities[entity.entity_id] = entity
 
@@ -177,7 +192,10 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
-        self.space.remove(entity.phys, *entity.phys.shapes)
+        if entity.phys.is_static:
+            self.space.remove(entity.phys_shape)
+        else:
+            self.space.remove(entity.phys, entity.phys_shape)
         entity.sector = None
         del self.entities[entity.entity_id]
 
@@ -248,7 +266,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: pymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector: Optional[Sector] = None
@@ -256,15 +274,14 @@ class SectorEntity(Entity):
         # some physical properties (in SI units)
         self.mass = 0.
         self.moment = 0.
-        self.loc = loc
-        self.velocity:npt.NDArray[np.float64] = np.array((0.,0.), dtype=np.float64)
-        self.angle = 0.
-        self.angular_velocity = 0.
 
-        self.cargo_capacity = 1e3
+        phys.position = (loc[0], loc[1])
+
+        self.cargo_capacity = 5e2
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
         self.phys = phys
+        self.phys_shape:Any = None
         #TODO: are all entities just circles?
         self.radius = 0.
 
@@ -272,8 +289,14 @@ class SectorEntity(Entity):
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
 
-    def __str__(self) -> str:
-        return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return np.array(self.phys.velocity)
+    @property
+    def angle(self) -> float: return self.phys.angle
+    @property
+    def angular_velocity(self) -> float: return self.phys.angular_velocity
 
     def distance_to(self, other:SectorEntity) -> float:
         return util.distance(self.loc, other.loc) - self.radius - other.radius
@@ -299,8 +322,8 @@ class SectorEntity(Entity):
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc.copy(), self.radius, self.angle,
-                self.velocity.copy(), self.angular_velocity,
+                self.loc, self.radius, self.angle,
+                self.velocity, self.angular_velocity,
                 (0.,0.), 0,
         )
     def address_str(self) -> str:
@@ -309,16 +332,16 @@ class SectorEntity(Entity):
         else:
             return f'{self.short_id()}@None'
 
-class Planet(SectorEntity):
+class Planet(SectorEntity, Asset):
 
-    id_prefix = "PLT"
+    id_prefix = "HAB"
     object_type = ObjectType.PLANET
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-class Station(SectorEntity):
+class Station(SectorEntity, Asset):
 
     id_prefix = "STA"
     object_type = ObjectType.STATION
@@ -330,7 +353,7 @@ class Station(SectorEntity):
         self.next_production_time = 0.
         self.cargo_capacity = 1e5
 
-class Ship(SectorEntity):
+class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
 
     id_prefix = "SHP"
@@ -348,34 +371,27 @@ class Ship(SectorEntity):
         # max torque for turning (in newton-meters)
         self.max_torque = 0.
 
-        self.orders: Deque[Order] = collections.deque()
+        self._orders: Deque[Order] = collections.deque()
         self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
-
-        self._applied_force = False
-        self._will_apply_force = False
-        self.max_speed_override:Optional[float] = None
 
     def get_history(self) -> Sequence[HistoryEntry]:
         return self.history
 
     def to_history(self, timestamp:float) -> HistoryEntry:
-        order_hist = self.orders[0].to_history() if self.orders else None
+        order_hist = self._orders[0].to_history() if self._orders else None
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc.copy(), self.radius, self.angle,
-                self.velocity.copy(), self.angular_velocity,
+                self.loc, self.radius, self.angle,
+                self.velocity, self.angular_velocity,
                 self.phys.force, self.phys.torque,
                 order_hist,
         )
 
     def max_speed(self) -> float:
-        if self.max_speed_override:
-            return self.max_speed_override
-        else:
-            return self.max_thrust / self.mass * 30
+        return self.max_thrust / self.mass * 30
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass
@@ -386,58 +402,53 @@ class Ship(SectorEntity):
     def max_angular_acceleration(self) -> float:
         return self.max_torque / self.moment
 
-    def pre_tick(self, ts:float) -> None:
-        # update ship positions from physics sim
-        #ship.loc.put(ZERO_ONE, ship.phys.position)
-        pos = self.phys.position
+    def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
+        self.phys.force = cymunk.vec2d.Vec2d(*force)
 
-        self.loc[0] = pos[0]
-        self.loc[1] = pos[1]
-        self.angle = self.phys.angle
-        #ship.velocity.put(ZERO_ONE, ship.phys.velocity)
-        vel = self.phys.velocity
-        self.velocity[0] = vel[0]
-        self.velocity[1] = vel[1]
-        self.angular_velocity = self.phys.angular_velocity
-
-    def post_tick(self) -> None:
-        self._applied_force = self._will_apply_force
-        self._will_apply_force = False
-
-    def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
-        self.phys.apply_force_at_world_point(
-                (force[0], force[1]),
-                (self.loc[0], self.loc[1])
-        )
-        self._will_apply_force = True
-
-    def apply_torque(self, torque: float) -> None:
+    def apply_torque(self, torque: float, persistent:bool) -> None:
         self.phys.torque = torque
 
     def set_loc(self, loc: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.position = (loc[0], loc[1])
-        self.loc[0] = loc[0]
-        self.loc[1] = loc[1]
 
     def set_velocity(self, velocity: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.velocity = (velocity[0], velocity[1])
-        self.velocity[0] = velocity[0]
-        self.velocity[1] = velocity[1]
 
     def set_angle(self, angle: float) -> None:
         self.phys.angle = angle
-        self.angle = angle
 
     def set_angular_velocity(self, angular_velocity:float) -> None:
         self.phys.angular_velocity = angular_velocity
-        self.angular_velocity = angular_velocity
 
     def default_order(self, gamestate: Gamestate) -> Order:
         return self.default_order_fn(self, gamestate)
 
+    def prepend_order(self, order:Order, begin:bool=True) -> None:
+        self._orders.appendleft(order)
+        if begin:
+            order.begin_order()
+
+    def append_order(self, order:Order, begin:bool=False) -> None:
+        self._orders.append(order)
+        if begin:
+            order.begin_order()
+
     def clear_orders(self) -> None:
-        while self.orders:
-            self.orders[0].cancel_order()
+        while self._orders:
+            self._orders[0].cancel_order()
+
+    def pop_current_order(self) -> None:
+        self._orders.popleft()
+
+    def complete_current_order(self) -> None:
+        order = self._orders.popleft()
+        order.complete_order()
+
+    def current_order(self) -> Optional[Order]:
+        if len(self._orders) > 0:
+            return self._orders[0]
+        else:
+            return None
 
 class Asteroid(SectorEntity):
 
@@ -448,9 +459,6 @@ class Asteroid(SectorEntity):
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.cargo[self.resource] = amount
-
-    def __str__(self) -> str:
-        return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.cargo[self.resource]}'
 
 class TravelGate(SectorEntity):
     """ Represents a "gate" to another sector """
@@ -465,18 +473,101 @@ class TravelGate(SectorEntity):
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
 
+class AgendumLoggerAdapter(logging.LoggerAdapter):
+    def __init__(self, character:Character, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.character = character
+
+    def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
+        return f'{self.character.short_id()}:{self.character.location.address_str()} {msg}', kwargs
+
+class Agendum:
+    """ Represents an activity a Character is engaged in and how they can
+    interact with the world. """
+
+    def __init__(self, character:Character, gamestate:Gamestate) -> None:
+        self.character = character
+        self.gamestate = gamestate
+        self.logger = AgendumLoggerAdapter(
+                self.character,
+                logging.getLogger(util.fullname(self)),
+        )
+
+        logging.getLogger(util.fullname(self))
+
+    def start(self) -> None:
+        pass
+
+    def is_complete(self) -> bool:
+        return False
+
+    def act(self) -> None:
+        """ Lets the character interact. Called when scheduled. """
+        pass
+
+class Sprite:
+    """ A "sprite" from a text file that can be drawn in text """
+
+    def __init__(self, text:Sequence[str]) -> None:
+        self.text = text
+
 class Character(Entity):
-    def __init__(self, *args:Any, **kwargs:Any):
+    id_prefix = "CHR"
+    def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
+        self.portrait:Sprite = sprite
+        #TODO: other character background stuff
+
+        #TODO: does location matter?
+        self.location:SectorEntity = location
+
+        # how much money
+        self.balance:float = 0.
+
+        # owned assets (ships, stations)
+        #TODO: are these actually SectorEntity instances? maybe a new co-class (Asset)
+        self.assets:MutableSequence[Asset] = []
+        # activites this character is enaged in (how they interact)
+        self.agenda:MutableSequence[Agendum] = []
+
+    def take_ownership(self, asset:Asset) -> None:
+        self.assets.append(asset)
+        asset.owner = self
+
+    def add_agendum(self, agendum:Agendum, start:bool=True) -> None:
+        self.agenda.append(agendum)
+        if start:
+            agendum.start()
+
+class EffectObserver:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def effect_begin(self, effect:"Effect") -> None:
+        pass
+
+    def effect_complete(self, effect:"Effect") -> None:
+        pass
+
+    def effect_cancel(self, effect:"Effect") -> None:
+        pass
+
 class Effect(abc.ABC):
-    def __init__(self, sector:Sector, gamestate:Gamestate) -> None:
+    def __init__(self, sector:Sector, gamestate:Gamestate, observer:Optional[EffectObserver]=None) -> None:
         self.sector = sector
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
+        self.observers:List[EffectObserver] = []
 
         self.logger = logging.getLogger(util.fullname(self))
+
+        if observer is not None:
+            self.observe(observer)
+
+    def observe(self, observer:EffectObserver) -> None:
+        self.observers.append(observer)
 
     def _begin(self) -> None:
         pass
@@ -499,9 +590,15 @@ class Effect(abc.ABC):
         self.started_at = self.gamestate.timestamp
         self._begin()
 
+        for observer in self.observers:
+            observer.effect_begin(self)
+
     def complete_effect(self) -> None:
         self.completed_at = self.gamestate.timestamp
         self._complete()
+
+        for observer in self.observers:
+            observer.effect_complete(self)
 
     def cancel_effect(self) -> None:
         try:
@@ -511,6 +608,9 @@ class Effect(abc.ABC):
             pass
 
         self._cancel()
+
+        for observer in self.observers:
+            observer.effect_cancel(self)
 
     def act(self, dt:float) -> None:
         pass
@@ -524,8 +624,21 @@ class OrderLoggerAdapter(logging.LoggerAdapter):
         assert self.ship.sector is not None
         return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
+class OrderObserver:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def order_begin(self, order:"Order") -> None:
+        pass
+
+    def order_complete(self, order:"Order") -> None:
+        pass
+
+    def order_cancel(self, order:"Order") -> None:
+        pass
+
 class Order:
-    def __init__(self, ship: Ship, gamestate: Gamestate) -> None:
+    def __init__(self, ship: Ship, gamestate: Gamestate, observer:Optional[OrderObserver]=None) -> None:
         self.gamestate = gamestate
         self.ship = ship
         self.logger = OrderLoggerAdapter(
@@ -538,12 +651,19 @@ class Order:
         self.init_eta = np.inf
         self.child_orders:Deque[Order] = collections.deque()
 
+        self.observers:List[OrderObserver] = []
+        if observer is not None:
+            self.observe(observer)
+
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
 
-    def add_child(self, order:Order) -> None:
+    def observe(self, observer:OrderObserver) -> None:
+        self.observers.append(observer)
+
+    def _add_child(self, order:Order, begin:bool=True) -> None:
         self.child_orders.appendleft(order)
-        self.ship.orders.appendleft(order)
+        self.ship.prepend_order(order, begin=begin)
 
     def to_history(self) -> dict:
         return {"o": self.o_name}
@@ -569,11 +689,19 @@ class Order:
         self.started_at = self.gamestate.timestamp
         self._begin()
 
+        for observer in self.observers:
+            observer.order_begin(self)
+
+        self.gamestate.schedule_order_immediate(self)
+
     def complete_order(self) -> None:
         """ Called when an order is_complete and about to be removed from the
         order queue. """
         self.completed_at = self.gamestate.timestamp
         self._complete()
+
+        for observer in self.observers:
+            observer.order_complete(self)
 
     def cancel_order(self) -> None:
         """ Called when an order is removed from the order queue, but not
@@ -582,22 +710,101 @@ class Order:
         for order in self.child_orders:
             order.cancel_order()
             try:
-                self.ship.orders.remove(order)
+                self.ship._orders.remove(order)
             except ValueError:
                 # order might already have been removed from the queue
                 pass
 
         try:
-            self.ship.orders.remove(self)
+            self.ship._orders.remove(self)
         except ValueError:
             # order might already have been removed from the queue
             pass
 
         self._cancel()
 
+        for observer in self.observers:
+            observer.order_cancel(self)
+
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """
         pass
+
+T = TypeVar("T")
+class PrioritizedItem(Generic[T]):
+    def __init__(self, priority:float, item:T) -> None:
+        self.priority = priority
+        self.item = item
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, PrioritizedItem):
+            return NotImplemented
+        return self.priority == other.priority
+
+    def __lt__(self, other:Any) -> bool:
+        if not isinstance(other, PrioritizedItem):
+            return NotImplemented
+        return self.priority < other.priority
+
+class EconAgent(abc.ABC):
+    @abc.abstractmethod
+    def buy_resources(self) -> Collection: ...
+
+    @abc.abstractmethod
+    def sell_resources(self) -> Collection: ...
+
+    @abc.abstractmethod
+    def buy_price(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def sell_price(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def balance(self) -> float: ...
+
+    @abc.abstractmethod
+    def budget(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def inventory(self, resource:int) -> float: ...
+
+    @abc.abstractmethod
+    def buy(self, resource:int, price:float, amount:float) -> None: ...
+
+    @abc.abstractmethod
+    def sell(self, resource:int, price:float, amount:float) -> None: ...
+
+class Counters(enum.IntEnum):
+    def _generate_next_value_(name, start, count, last_values): # type: ignore
+        """generate consecutive automatic numbers starting from zero"""
+        return count
+    GOTO_ACT_FAST = enum.auto()
+    GOTO_ACT_FAST_CT = enum.auto()
+    GOTO_ACT_SLOW = enum.auto()
+    GOTO_THREAT_YES = enum.auto()
+    GOTO_THREAT_YES_CT = enum.auto()
+    GOTO_THREAT_NO = enum.auto()
+    GOTO_THREAT_NO_CT = enum.auto()
+    ACCELERATE_FAST = enum.auto()
+    ACCELERATE_SLOW = enum.auto()
+    ACCELERATE_FAST_FORCE = enum.auto()
+    ACCELERATE_FAST_TORQUE = enum.auto()
+    ACCELERATE_SLOW_FORCE = enum.auto()
+    ACCELERATE_SLOW_TORQUE = enum.auto()
+    COLLISION_HITS_HIT = enum.auto()
+    COLLISION_HITS_MISS = enum.auto()
+    NON_FRONT_ORDER_ACTION = enum.auto()
+    ORDERS_PROCESSED = enum.auto()
+    ORDER_SCHEDULE_DELAY = enum.auto()
+    ORDER_SCHEDULE_IMMEDIATE = enum.auto()
+    COLLISION_NEIGHBOR_NO_NEIGHBORS = enum.auto()
+    COLLISION_NEIGHBOR_HAS_NEIGHBORS = enum.auto()
+    COLLISION_NEIGHBOR_NUM_NEIGHBORS = enum.auto()
+    COLLISION_NEIGHBOR_NONE = enum.auto()
+    COLLISION_THREATS_C = enum.auto()
+    COLLISION_THREATS_NC = enum.auto()
+    COLLISIONS = enum.auto()
+    BEHIND_TICKS = enum.auto()
 
 class Gamestate:
     def __init__(self) -> None:
@@ -616,14 +823,30 @@ class Gamestate:
         # a spatial index of sectors in the universe
         self.sector_spatial = index.Index()
 
-        #self.characters = []
+        #TODO: this feels janky, but I do need a way to find the EconAgent
+        # representing a station if I want to trade with it.
+        #TODO: how do we keep this up to date?
+        # collection of EconAgents, by uuid of the entity they represent
+        self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
+
+        self.characters:Dict[uuid.UUID, Character] = {}
+
+        # heap of order items in form (scheduled timestamp, agendum)
+        self.order_schedule:List[PrioritizedItem[Order]] = []
+        self.scheduled_orders:Set[Order] = set()
+
+        # heap of agenda items in form (scheduled timestamp, agendum)
+        self.agenda_schedule:List[PrioritizedItem[Agendum]] = []
+        self.scheduled_agenda:Set[Agendum] = set()
+
+        self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
         self.keep_running = True
 
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
 
-        self.dt = 1/60
+        self.desired_dt = 1/30
         # how many seconds of simulation (as in dt) should elapse per second
         self.time_accel_rate = 1.0
         self.ticks = 0
@@ -636,6 +859,65 @@ class Gamestate:
         self.should_raise= False
 
         self.player = Player()
+
+        self.counters = [0.] * len(Counters)
+
+    def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
+        self.econ_agents[entity_id] = agent
+
+    def add_character(self, character:Character) -> None:
+        self.characters[character.entity_id] = character
+        self.characters_by_location[character.location.entity_id].append(character)
+
+    def move_character(self, character:Character, location:SectorEntity) -> None:
+        self.characters_by_location[character.location.entity_id].remove(character)
+        self.characters_by_location[location.entity_id].append(character)
+        character.location = location
+
+    def is_order_scheduled(self, order:Order) -> bool:
+        return order in self.scheduled_orders
+
+    def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
+        self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
+        self.schedule_order(self.timestamp + self.desired_dt, order, jitter)
+
+    def schedule_order(self, timestamp:float, order:Order, jitter:float=0.) -> None:
+        assert order not in self.scheduled_orders
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
+        self.scheduled_orders.add(order)
+        heapq.heappush(self.order_schedule, PrioritizedItem(timestamp, order))
+        self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
+
+    def pop_next_order(self) -> PrioritizedItem[Order]:
+        order_item = heapq.heappop(self.order_schedule)
+        assert order_item.item in self.scheduled_orders
+        self.scheduled_orders.remove(order_item.item)
+        return order_item
+
+    def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
+        self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)
+
+    def schedule_agendum(self, timestamp:float, agendum:Agendum, jitter:float=0.) -> None:
+        assert agendum not in self.scheduled_agenda
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
+        self.scheduled_agenda.add(agendum)
+        heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))
+
+    def pop_next_agendum(self) -> PrioritizedItem[Agendum]:
+        agendum_item = heapq.heappop(self.agenda_schedule)
+        assert agendum_item.item in self.scheduled_agenda
+        self.scheduled_agenda.remove(agendum_item.item)
+        return agendum_item
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
@@ -693,5 +975,5 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
 
 class Player:
     def __init__(self) -> None:
-        # which ship the player is in command of, if any
-        self.ship: Optional[Ship] = None
+        # which character the player controls
+        self.character:Character = None # type: ignore[assignment]
