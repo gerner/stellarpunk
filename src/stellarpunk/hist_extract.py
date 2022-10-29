@@ -12,6 +12,8 @@ import numpy as np
 
 from stellarpunk import util
 
+# This should be sized to select a single history entry given a timestamp, so
+# it depends on the timestep used in the simulation.
 TS_EPS = 1/30/2*10
 
 def main() -> None:

@@ -268,7 +268,7 @@ class UniverseGenerator:
 
     def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> cymunk.Body:
         if mass is None:
-            body = cymunk.Body()#body_type=pymunk.Body.STATIC)
+            body = cymunk.Body()
         else:
             assert radius is not None
             moment = cymunk.moment_for_circle(mass, 0, radius)
@@ -279,9 +279,7 @@ class UniverseGenerator:
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
         shape.collision_type = entity.object_type
-        #shape.filter = pymunk.ShapeFilter(categories=obj_flag)
         body.position = (entity.loc[0], entity.loc[1])
-        #body.entity = entity
         body.data = entity
         entity.radius = radius
         entity.phys_shape = shape
@@ -834,10 +832,7 @@ class UniverseGenerator:
         adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
         prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products] # type: ignore
 
-        #prices = prices.round()
         assert not np.any(np.isnan(prices))
-        #TODO: this can fail because of the rounding we do with the prices I think
-        # make sure that the prices are more than the cost to produce
         assert np.all(prices > (prices[:, np.newaxis] * adj_matrix).sum(axis=0))
 
         # set up production times and batch sizes

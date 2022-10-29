@@ -578,6 +578,9 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
     #        s_y = s_2y
     #        cost = cost2
 
+    #TODO: this assumes the other guy will move which seems very risky
+    # we should come back to this in the future and do something more
+    # proactive, but still cooperative
     if cbdr and cbdr_bias < 0:
         return np.array((0.,0.))
 

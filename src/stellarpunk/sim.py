@@ -99,30 +99,7 @@ class Simulator:
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
-            #h = sector.space.add_default_collision_handler()
-            #h.data["sector"] = sector
-            #h.pre_solve = self._ship_collision_detected
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
-
-    def tick_order(self, ship: core.Ship, dt: float) -> None:
-        if not ship._orders:
-            ship.prepend_order(ship.default_order(self.gamestate))
-
-        order = ship._orders[0]
-        if order.started_at < 0:
-            order.begin_order()
-
-        if order.is_complete():
-            self.logger.debug(f'{ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
-            order.complete_order()
-            ship._orders.popleft()
-
-            #TODO: seems like we don't want this any more (why does the UI need
-            #to know when every single order is complete? I think this was a
-            #testing hook. but that's not probably the right way to do this
-            self.ui.order_complete(order)
-        else:
-            order.act(dt)
 
     def produce_at_station(self, station:core.Station) -> None:
         # waiting for production to finish case

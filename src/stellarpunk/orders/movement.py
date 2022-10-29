@@ -401,7 +401,6 @@ class GoToLocation(AbstractSteeringOrder):
                 nts_dist_high = 1e4
                 nts_dist = util.interpolate(nts_dist_low, nts_low, nts_dist_high, nts_high, distance)
 
-                #nts = max(1/70, min(min(nts_nnd, nts_dist), nts_high))
                 nts = max(nts_low, min(min(nts_nnd, nts_dist), nts_high))
         else:
             # if we're over max speed, let's slow down in addition to avoiding

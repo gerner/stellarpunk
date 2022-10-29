@@ -138,22 +138,14 @@ class Sector(Entity):
         self.effects: Deque[Effect] = collections.deque()
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
-        for hit in self.space.bb_query(cymunk.BB(*bbox)):#, pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())):
-            #yield hit.body.entity
+        for hit in self.space.bb_query(cymunk.BB(*bbox)):
             yield hit.body.data
 
     def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
-        #if mask is None:
-        #    pymunk_filter = pymunk.ShapeFilter(categories=pymunk.ShapeFilter.ALL_CATEGORIES())
-        #else:
-        #    pymunk_filter = pymunk.ShapeFilter(mask=mask)
+        #TODO: honor mask
         if not max_dist:
             max_dist = np.inf
-        for hit in self.space.nearest_point_query(cymunk.vec2d.Vec2d(point[0], point[1]), max_dist):#, max_dist, pymunk_filter):
-        #for hit in self.space.bb_query(cymunk.BB(point[0]-max_dist, point[1]-max_dist, point[0]+max_dist, point[1]+max_dist)):
-            #yield hit.shape.body.entity # type: ignore[union-attr]
-            #if max_dist < np.inf and util.distance(hit.body.data.loc, point) > max_dist:
-            #    continue
+        for hit in self.space.nearest_point_query(cymunk.vec2d.Vec2d(point[0], point[1]), max_dist):
             yield hit.body.data
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
@@ -175,7 +167,6 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
-        #self.space.add(entity.phys, *(entity.phys.shapes))
         if entity.phys.is_static:
             self.space.add(entity.phys_shape)
         else:
@@ -201,7 +192,6 @@ class Sector(Entity):
         else:
             raise ValueError(f'unknown entity type {entity.__class__}')
 
-        #self.space.remove(entity.phys, *entity.phys.shapes)
         if entity.phys.is_static:
             self.space.remove(entity.phys_shape)
         else:
@@ -308,9 +298,6 @@ class SectorEntity(Entity):
     @property
     def angular_velocity(self) -> float: return self.phys.angular_velocity
 
-    #def __str__(self) -> str:
-    #    return f'{self.short_id()} at {self.loc} v:{self.velocity} theta:{self.angle:.1f} w:{self.angular_velocity:.1f}'
-
     def distance_to(self, other:SectorEntity) -> float:
         return util.distance(self.loc, other.loc) - self.radius - other.radius
 
@@ -389,15 +376,6 @@ class Ship(SectorEntity, Asset):
 
         self.collision_threat: Optional[SectorEntity] = None
 
-        self._planned_force = [0., 0.]
-        self._persistent_force = False
-        self._planned_torque = 0.
-        self._persistent_torque = False
-        self._applied_force = False
-        self._will_apply_force = False
-        self._will_apply_torque = False
-        self._applied_torque = False
-
     def get_history(self) -> Sequence[HistoryEntry]:
         return self.history
 
@@ -425,21 +403,10 @@ class Ship(SectorEntity, Asset):
         return self.max_torque / self.moment
 
     def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
-        #self.phys.apply_force_at_world_point(
-        #        (force[0], force[1]),
-        #        (self.loc[0], self.loc[1])
-        #)
         self.phys.force = cymunk.vec2d.Vec2d(*force)
-        self._planned_force[0] = force[0]
-        self._planned_force[1] = force[1]
-        self._will_apply_force = True
-        self._persistent_force = persistent and (force[0] != 0. or force[1] != 0.)
 
     def apply_torque(self, torque: float, persistent:bool) -> None:
         self.phys.torque = torque
-        self._planned_torque = torque
-        self._will_apply_torque = True
-        self._persistent_torque = persistent and torque != 0
 
     def set_loc(self, loc: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.position = (loc[0], loc[1])
@@ -493,9 +460,6 @@ class Asteroid(SectorEntity):
         self.resource = resource
         self.cargo[self.resource] = amount
 
-    #def __str__(self) -> str:
-    #    return f'{self.short_id()} at {self.loc} r:{self.resource} a:{self.cargo[self.resource]}'
-
 class TravelGate(SectorEntity):
     """ Represents a "gate" to another sector """
 
@@ -540,13 +504,6 @@ class Agendum:
     def act(self) -> None:
         """ Lets the character interact. Called when scheduled. """
         pass
-
-#TODO: Agenda:
-# mine: look for profitable mining runs for one or several resources
-# trade: look for profitable trades for one or several or any goods
-# manage production: setting buy/sell prices and budget for a station
-# captain ship: rly?
-# crew ship: rly?
 
 class Sprite:
     """ A "sprite" from a text file that can be drawn in text """
