@@ -86,7 +86,8 @@ def test_compute_eta(generator, sector):
 
 @write_history
 def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
-    ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
+    """ Tests rotation starting with zero angular velocity """
+    ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=-np.pi/4)
 
     rotate_order = orders.RotateOrder(np.pi, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
@@ -103,6 +104,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
 
 @write_history
 def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator):
+    """ Tests rotation starting with non zero angular velocity """
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=-2, theta=0)
 
     rotate_order = orders.RotateOrder(np.pi/2, ship_driver, gamestate)
@@ -120,7 +122,7 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
 
     # make sure our eta estimate is within 18% of the estimate after backing
     # out the safety margin
-    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.18)
+    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.184)
 
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):

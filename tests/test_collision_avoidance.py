@@ -539,7 +539,7 @@ def test_more_headon(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     testui.cannot_stop_orders = [goto_a, goto_b]
-    #testui.margin_neighbors = [ship_a, ship_b]
+    testui.margin_neighbors = [ship_a, ship_b]
 
     simulator.run()
     assert goto_a.is_complete()
@@ -1186,7 +1186,7 @@ def test_more_cbdr(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]
-    testui.margin_neighbors = [ship_a]
+    #testui.margin_neighbors = [ship_a]
 
     simulator.run()
     assert goto_a.is_complete()

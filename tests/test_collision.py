@@ -7,6 +7,7 @@ from stellarpunk.orders import collision
 def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
     ship_a = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
     ship_b = generator.spawn_ship(sector, 100, 100, v=(0,0), w=0, theta=0)
+    ship_c = generator.spawn_ship(sector, 1000, 1000, v=(0,0), w=0, theta=0)
 
     (
             threat,
@@ -23,13 +24,17 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
             nearest_neighbor_idx,
             nearest_neighbor_dist,
             neighborhood_density,
+            num_neighbors,
             coalesced_neighbors,
     ) = collision.analyze_neighbors(
             ship_a.phys, sector.space,
-            1e4, ship_a.radius, 5e2, 1e4, ship_a.max_acceleration())
+            1e4, ship_a.radius, 5e2,
+            ship_a.phys.position, 1e4,
+            ship_a.max_acceleration())
 
     assert threat.data == ship_b
     assert threat_count == 1
+    assert num_neighbors == 2
     assert approach_time == 0
     assert np.isclose(min_sep, np.linalg.norm(np.array((100,100))))
     assert rel_pos == np.array((100,100))
@@ -69,12 +74,14 @@ def test_coalesce(generator, sector):
             nearest_neighbor_idx,
             nearest_neighbor_dist,
             neighborhood_density,
+            num_neighbors,
             coalesced_neighbors,
     ) = collision.analyze_neighbors(
             ship_a.phys, sector.space,
             max_distance=1e4,
             ship_radius=30.,
             margin=5e2,
+            neighborhood_loc=ship_a.phys.position,
             neighborhood_radius=1e4,
             maximum_acceleration=100.)
 

@@ -1,6 +1,7 @@
 from typing import Tuple
 import cython
 from libcpp.vector cimport vector
+from libcpp.set cimport set
 
 import numpy.typing as npt
 import numpy as np
@@ -13,19 +14,19 @@ cdef struct CollisionThreat:
     ccymunk.cpVect c_loc
 
 cdef struct NeighborAnalysis:
-    float neighborhood_radius
-    float ship_radius
-    float margin
-    float max_distance
-    float maximum_acceleration
+    double neighborhood_radius
+    double ship_radius
+    double margin
+    double max_distance
+    double maximum_acceleration
     ccymunk.cpBody *body
 
-    float worst_ultimate_separation
-    float nearest_neighbor_dist
-    float approach_time
+    double worst_ultimate_separation
+    double nearest_neighbor_dist
+    double approach_time
     ccymunk.cpVect relative_position
     ccymunk.cpVect relative_velocity
-    float minimum_separation
+    double minimum_separation
     ccymunk.cpVect collision_loc
     int neighborhood_size
     int threat_count
@@ -34,23 +35,24 @@ cdef struct NeighborAnalysis:
     ccymunk.cpShape *nearest_neighbor_shape
     vector[CollisionThreat] collision_threats
     vector[ccymunk.cpShape *] coalesced_threats
+    set[ccymunk.cpHashValue] considered_shapes
 
-    float threat_radius
+    double threat_radius
     ccymunk.cpVect threat_loc
     ccymunk.cpVect threat_velocity
 
 cdef struct AnalyzedNeighbor:
-    float rel_dist
-    float approach_t
+    double rel_dist
+    double approach_t
     ccymunk.cpVect rel_pos
     ccymunk.cpVect rel_vel
-    float min_sep
+    double min_sep
     ccymunk.cpVect c_loc
-    float collision_distance
+    double collision_distance
 
 cdef ccymunk.cpVect ZERO_VECTOR = ccymunk.cpv(0.,0.)
 cdef ccymunk.Vec2d PY_ZERO_VECTOR = ccymunk.Vec2d(0.,0.)
-cdef float VELOCITY_EPS = 5e-1
+cdef double VELOCITY_EPS = 5e-1
 
 # cymunk fails to export this type from chipmunk
 ctypedef struct cpCircleShape :
@@ -67,17 +69,17 @@ cdef ccymunk.Vec2d cpvtoVec2d(ccymunk.cpVect v):
 @cython.cdivision(True)
 @cython.infer_types(False)
 @cython.nonecheck(False)
-cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpShape *shape, float margin):
+cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpShape *shape, double margin):
     # we make the assumption that all shapes are circles here
     cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
-    cdef float entity_radius = circle_shape.r
+    cdef double entity_radius = circle_shape.r
     cdef ccymunk.cpVect entity_pos = shape.body.p
     cdef ccymunk.cpVect entity_v = shape.body.v
     cdef ccymunk.cpVect rel_pos = ccymunk.cpvsub(entity_pos ,analysis.body.p)
     cdef ccymunk.cpVect rel_vel = ccymunk.cpvsub(entity_v, analysis.body.v)
 
-    cdef float rel_speed = ccymunk.cpvlength(rel_vel)
-    cdef float rel_dist = ccymunk.cpvlength(rel_pos)
+    cdef double rel_speed = ccymunk.cpvlength(rel_vel)
+    cdef double rel_dist = ccymunk.cpvlength(rel_pos)
 
     # check for parallel paths
     if rel_speed == 0:
@@ -87,7 +89,7 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
         return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, ZERO_VECTOR, ccymunk.INFINITY)
 
     cdef ccymunk.cpVect rel_tangent = ccymunk.cpvmult(rel_vel, 1. / rel_speed)
-    cdef float approach_t = -1 * ccymunk.cpvdot(rel_tangent, rel_pos) / rel_speed
+    cdef double approach_t = -1 * ccymunk.cpvdot(rel_tangent, rel_pos) / rel_speed
 
     if approach_t <= 0:
         if rel_dist < margin + entity_radius:
@@ -95,9 +97,9 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
         return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, ZERO_VECTOR, ccymunk.INFINITY)
 
-    cdef float speed = ccymunk.cpvlength(analysis.body.v)
+    cdef double speed = ccymunk.cpvlength(analysis.body.v)
     # compute the closest approach within max_distance
-    cdef float collision_distance = speed * approach_t
+    cdef double collision_distance = speed * approach_t
     if collision_distance > analysis.max_distance:
         approach_t = analysis.max_distance / speed
         collision_distance = analysis.max_distance - VELOCITY_EPS
@@ -112,27 +114,40 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
                 ccymunk.cpvmult(entity_v, approach_t)
             )
     )
-    cdef float min_sep = ccymunk.cpvlength(sep_vec)
+    cdef double min_sep = ccymunk.cpvlength(sep_vec)
     cdef ccymunk.cpVect collision_loc = ccymunk.cpvadd(entity_pos, ccymunk.cpvmult(entity_v, approach_t))
 
     return AnalyzedNeighbor(rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance)
+
+cdef void _sensor_point_callback(ccymunk.cpShape *shape, ccymunk.cpFloat distance, ccymunk.cpVect point, void *data):
+    _analyze_neighbor_callback(shape, data)
+
+cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointSet *points, void *data):
+    _analyze_neighbor_callback(shape, data)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
 @cython.infer_types(False)
 @cython.nonecheck(False)
-cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, ccymunk.cpFloat distance, ccymunk.cpVect point, void *data):
+cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     cdef NeighborAnalysis *analysis = <NeighborAnalysis *>data
 
     # ignore ourself
     if shape.body == analysis.body:
         return
 
+    # ignore stuff we've already procesed
+    if analysis.considered_shapes.count(shape.hashid_private) > 0:
+        return
+
+    # keep track of shapes we've considered (we can compose multiple queries)
+    analysis.considered_shapes.insert(shape.hashid_private)
+
     cdef AnalyzedNeighbor neighbor = _analyze_neighbor(analysis, shape, analysis.ship_radius+analysis.margin)
 
-    if neighbor.rel_dist < analysis.neighborhood_radius:
-        analysis.neighborhood_size += 1
+    #if neighbor.rel_dist < analysis.neighborhood_radius:
+    analysis.neighborhood_size += 1
 
     if neighbor.rel_dist < analysis.nearest_neighbor_dist:
         analysis.nearest_neighbor_shape = shape
@@ -145,7 +160,7 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, ccymunk.cpFloat dis
     # we need to keep track of all collision threats for coalescing later
     analysis.collision_threats.push_back(CollisionThreat(shape, neighbor.c_loc))
     cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
-    cdef float entity_radius = circle_shape.r
+    cdef double entity_radius = circle_shape.r
     if neighbor.min_sep > entity_radius + analysis.ship_radius + analysis.margin:
         return
 
@@ -154,7 +169,7 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, ccymunk.cpFloat dis
     # keep track of "worst margin offender", prioritizing a tradeoff
     # between minimum separation and approach time by assuming we
     # accelerate constantly to maximize the separation
-    cdef float ultimate_sep = neighbor.min_sep - entity_radius - analysis.ship_radius + 0.5 * analysis.maximum_acceleration * neighbor.approach_t ** 2
+    cdef double ultimate_sep = neighbor.min_sep - entity_radius - analysis.ship_radius + 0.5 * analysis.maximum_acceleration * neighbor.approach_t ** 2
     if ultimate_sep < analysis.worst_ultimate_separation:
         analysis.worst_ultimate_separation = ultimate_sep
         analysis.approach_time = neighbor.approach_t
@@ -172,7 +187,7 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, ccymunk.cpFloat dis
 cdef void coalesce_threats(NeighborAnalysis *analysis):
     cdef cpCircleShape *circle_shape
     cdef int coalesced_threats
-    cdef float t_radius, t_dist, t_angle, coalesced_radius
+    cdef double t_radius, t_dist, t_angle, coalesced_radius
     cdef CollisionThreat collision_threat
     cdef ccymunk.cpVect t_loc, t_velocity, t_rel_pos, c_rel
 
@@ -236,6 +251,7 @@ def analyze_neighbors(
         max_distance:float,
         ship_radius:float,
         margin:float,
+        neighborhood_loc:cymunk.Vec2d,
         neighborhood_radius:float,
         maximum_acceleration:float
         ) -> Tuple[
@@ -256,8 +272,14 @@ def analyze_neighbors(
             npt.NDArray[np.int64],
         ]:
 
-    cdef ccymunk.Space cyspace = <ccymunk.Space>space
-    cdef ccymunk.Body cybody = <ccymunk.Body>body
+    if not isinstance(space, ccymunk.Space):
+        raise TypeError()
+
+    if not isinstance(body, ccymunk.Body):
+        raise TypeError()
+
+    cdef ccymunk.Space cyspace = <ccymunk.Space?>space
+    cdef ccymunk.Body cybody = <ccymunk.Body?>body
     cdef ccymunk.cpShape *ct
 
     cdef NeighborAnalysis analysis
@@ -273,7 +295,37 @@ def analyze_neighbors(
     analysis.neighborhood_size = 0
     analysis.threat_count = 0
 
-    ccymunk.cpSpaceNearestPointQuery(cyspace._space, cybody._body.p, neighborhood_radius, 1, 0, _analyze_neighbor_callback, &analysis)
+    # look for threats in a circle
+    ccymunk.cpSpaceNearestPointQuery(cyspace._space, neighborhood_loc.v, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
+
+    # look for threats in a cone facing the direction of our velocity
+    cdef v_normalized = ccymunk.cpvnormalize(cybody._body.v)
+    cdef v_perp = ccymunk.cpvperp(v_normalized)
+    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cybody._body.p, ccymunk.cpvmult(v_normalized, ship_radius+margin))
+    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cybody._body.p, ccymunk.cpvmult(v_normalized, neighborhood_radius*5))
+
+    ccymunk.cpSpaceSegmentQuery(cyspace._space, start_point, end_point, 1, 0, _sensor_point_callback, &analysis)
+    #for i in range(1, 200):
+    #    ccymunk.cpSpaceSegmentQuery(cyspace._space, start_point,  ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, i*ship_radius)), 1, 0, _sensor_point_callback, &analysis)
+    #    ccymunk.cpSpaceSegmentQuery(cyspace._space, start_point, ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -i*ship_radius)), 1, 0, _sensor_point_callback, &analysis)
+
+    #cdef ccymunk.cpVect[4] sensor_cone;
+    # points are ordered to get a convex shape with the proper winding
+    #sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)))
+    #sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)))
+    #sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)*100))
+    #sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)*100))
+
+    #print("looking for hits in")
+    #print(sensor_cone[1])
+    #print(sensor_cone[0])
+    #print(sensor_cone[2])
+    #print(sensor_cone[3])
+    #cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
+    #print(ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ZERO_VECTOR))
+    #print(sensor_cone_shape.bb)
+    #ccymunk.cpSpaceShapeQuery(cyspace._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
+    #TODO: do we need to deallocate the cone shape?
 
     coalesce_threats(&analysis)
 
@@ -292,6 +344,7 @@ def analyze_neighbors(
     #        nearest_neighbor_idx, #nearest_neighbor
     #        nearest_neighbor_dist,
     #        neighborhood_density,
+    #        num_neighbors,
     #        coalesced_idx, #coalesced_neighbors
 
     if analysis.nearest_neighbor_dist < ccymunk.INFINITY:
@@ -311,12 +364,13 @@ def analyze_neighbors(
                 0,
                 0,
                 0,
-                0,
                 PY_ZERO_VECTOR,
                 PY_ZERO_VECTOR,
                 nearest_neighbor,
                 analysis.nearest_neighbor_dist,
                 neighborhood_density,
+                analysis.neighborhood_size,
+                [],
         ))
     else:
         threat = space.shapes[analysis.threat_shape.hashid_private].body
@@ -341,5 +395,6 @@ def analyze_neighbors(
                 nearest_neighbor,
                 analysis.nearest_neighbor_dist,
                 neighborhood_density,
+                analysis.neighborhood_size,
                 coalesced_neighbors,
         ))

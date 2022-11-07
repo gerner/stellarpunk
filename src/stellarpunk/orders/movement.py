@@ -435,7 +435,7 @@ class GoToLocation(AbstractSteeringOrder):
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        self.wait_wakup_period = 10.
+        self.wait_wakeup_period = 10.
 
     def is_complete(self) -> bool:
         # wait forever
@@ -451,7 +451,7 @@ class WaitOrder(AbstractSteeringOrder):
             self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
             return
         else:
-            self.gamestate.schedule_order(self.gamestate.timestamp + self.wait_wakup_period, self)
+            self.gamestate.schedule_order(self.gamestate.timestamp + self.wait_wakeup_period, self, jitter=self.wait_wakeup_period/2)
             return
 
         # avoid collisions while we're waiting

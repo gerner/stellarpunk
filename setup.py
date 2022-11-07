@@ -21,7 +21,8 @@ ext_modules=[
 
 extensions = cythonize(
         ext_modules,
-        annotate=True
+        build_dir="build",
+        annotate=True,
 )
 
 setuptools.setup(
