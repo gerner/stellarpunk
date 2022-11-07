@@ -221,10 +221,10 @@ class HistoryEntry:
             prefix:str,
             entity_id:uuid.UUID,
             ts:float,
-            loc:np.ndarray,
+            loc:tuple,
             radius:float,
             angle:float,
-            velocity:np.ndarray,
+            velocity:tuple,
             angular_velocity:float,
             force:tuple[float,float],
             torque:float,
@@ -251,10 +251,10 @@ class HistoryEntry:
             "p": self.prefix,
             "eid": str(self.entity_id),
             "ts": self.ts,
-            "loc": self.loc.tolist(),
+            "loc": self.loc,
             "r": self.radius,
             "a": self.angle,
-            "v": self.velocity.tolist(),
+            "v": self.velocity,
             "av": self.angular_velocity,
             "f": self.force,
             "t": self.torque,
@@ -309,8 +309,8 @@ class SectorEntity(Entity):
         return (HistoryEntry(
                 self.id_prefix,
                 self.entity_id, 0,
-                self.loc, self.radius, self.angle,
-                self.velocity, self.angular_velocity,
+                tuple(self.phys.position), self.radius, self.angle,
+                tuple(self.phys.velocity), self.angular_velocity,
                 (0.,0.), 0,
         ),)
         return self.history
@@ -322,8 +322,8 @@ class SectorEntity(Entity):
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc, self.radius, self.angle,
-                self.velocity, self.angular_velocity,
+                tuple(self.phys.position), self.radius, self.angle,
+                tuple(self.phys.velocity), self.angular_velocity,
                 (0.,0.), 0,
         )
     def address_str(self) -> str:
@@ -384,8 +384,8 @@ class Ship(SectorEntity, Asset):
         return HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
-                self.loc, self.radius, self.angle,
-                self.velocity, self.angular_velocity,
+                tuple(self.phys.position), self.radius, self.angle,
+                tuple(self.phys.velocity), self.angular_velocity,
                 self.phys.force, self.phys.torque,
                 order_hist,
         )

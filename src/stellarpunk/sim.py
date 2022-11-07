@@ -16,7 +16,7 @@ import cymunk # type: ignore
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
-TICKS_PER_HIST_SAMPLE = 10
+TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
@@ -236,10 +236,11 @@ class Simulator:
         self.gamestate.timestamp += dt
 
         # record some state about the final state of this tick
-        for sector in self.gamestate.sectors.values():
-            if self.gamestate.ticks % self.ticks_per_hist_sample == sector.entity_id.int % self.ticks_per_hist_sample:
-                for ship in sector.ships:
-                    ship.history.append(ship.to_history(self.gamestate.timestamp))
+        if self.ticks_per_hist_sample > 0:
+            for sector in self.gamestate.sectors.values():
+                if self.gamestate.ticks % self.ticks_per_hist_sample == sector.entity_id.int % self.ticks_per_hist_sample:
+                    for ship in sector.ships:
+                        ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
             #TODO: revisit economic logging
