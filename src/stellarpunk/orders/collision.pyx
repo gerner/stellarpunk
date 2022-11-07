@@ -51,6 +51,7 @@ cdef struct AnalyzedNeighbor:
     double collision_distance
 
 cdef ccymunk.cpVect ZERO_VECTOR = ccymunk.cpv(0.,0.)
+cdef ccymunk.cpVect ONE_VECTOR = ccymunk.cpv(1.,0.)
 cdef ccymunk.Vec2d PY_ZERO_VECTOR = ccymunk.Vec2d(0.,0.)
 cdef double VELOCITY_EPS = 5e-1
 
@@ -273,13 +274,17 @@ def analyze_neighbors(
         ]:
 
     if not isinstance(space, ccymunk.Space):
-        raise TypeError()
+        raise TypeError("space must be cymunk.Space")
 
     if not isinstance(body, ccymunk.Body):
-        raise TypeError()
+        raise TypeError("body must be cymunk.Body")
+
+    if not isinstance(neighborhood_loc, ccymunk.Vec2d):
+        raise TypeError("neighborhood_loc must be cymunk.Vec2d")
 
     cdef ccymunk.Space cyspace = <ccymunk.Space?>space
     cdef ccymunk.Body cybody = <ccymunk.Body?>body
+    cdef ccymunk.Vec2d cneighborhood_loc = <ccymunk.Vec2d?>neighborhood_loc
     cdef ccymunk.cpShape *ct
 
     cdef NeighborAnalysis analysis
@@ -296,35 +301,27 @@ def analyze_neighbors(
     analysis.threat_count = 0
 
     # look for threats in a circle
-    ccymunk.cpSpaceNearestPointQuery(cyspace._space, neighborhood_loc.v, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
+    ccymunk.cpSpaceNearestPointQuery(cyspace._space, cneighborhood_loc.v, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
 
     # look for threats in a cone facing the direction of our velocity
-    cdef v_normalized = ccymunk.cpvnormalize(cybody._body.v)
-    cdef v_perp = ccymunk.cpvperp(v_normalized)
-    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cybody._body.p, ccymunk.cpvmult(v_normalized, ship_radius+margin))
-    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cybody._body.p, ccymunk.cpvmult(v_normalized, neighborhood_radius*5))
+    # cone is truncated, starts at the edge of our nearest point query circle
+    # goes until another 4 neighborhood radii in direction of our velocity
+    # cone starts at margin
+    cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(cybody._body.v)
+    cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
+    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc.v, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
+    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc.v, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
 
-    ccymunk.cpSpaceSegmentQuery(cyspace._space, start_point, end_point, 1, 0, _sensor_point_callback, &analysis)
-    #for i in range(1, 200):
-    #    ccymunk.cpSpaceSegmentQuery(cyspace._space, start_point,  ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, i*ship_radius)), 1, 0, _sensor_point_callback, &analysis)
-    #    ccymunk.cpSpaceSegmentQuery(cyspace._space, start_point, ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -i*ship_radius)), 1, 0, _sensor_point_callback, &analysis)
-
-    #cdef ccymunk.cpVect[4] sensor_cone;
+    cdef ccymunk.cpVect[4] sensor_cone;
     # points are ordered to get a convex shape with the proper winding
-    #sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)))
-    #sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)))
-    #sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)*100))
-    #sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)*100))
+    sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin*2)))
+    sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin*2)))
+    sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)*5))
+    sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)*5))
 
-    #print("looking for hits in")
-    #print(sensor_cone[1])
-    #print(sensor_cone[0])
-    #print(sensor_cone[2])
-    #print(sensor_cone[3])
-    #cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
-    #print(ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ZERO_VECTOR))
-    #print(sensor_cone_shape.bb)
-    #ccymunk.cpSpaceShapeQuery(cyspace._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
+    cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
+    ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)
+    ccymunk.cpSpaceShapeQuery(cyspace._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
     #TODO: do we need to deallocate the cone shape?
 
     coalesce_threats(&analysis)
