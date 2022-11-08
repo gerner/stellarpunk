@@ -2,6 +2,7 @@ from typing import Tuple
 import cython
 from libcpp.vector cimport vector
 from libcpp.set cimport set
+from libc.stdlib cimport malloc
 
 import numpy.typing as npt
 import numpy as np
@@ -312,7 +313,7 @@ def analyze_neighbors(
     cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc.v, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
     cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc.v, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
 
-    cdef ccymunk.cpVect[4] sensor_cone;
+    cdef ccymunk.cpVect sensor_cone[4]
     # points are ordered to get a convex shape with the proper winding
     sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin*2)))
     sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin*2)))
@@ -322,6 +323,7 @@ def analyze_neighbors(
     cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
     ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)
     ccymunk.cpSpaceShapeQuery(cyspace._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
+    ccymunk.cpShapeFree(sensor_cone_shape)
     #TODO: do we need to deallocate the cone shape?
 
     coalesce_threats(&analysis)
