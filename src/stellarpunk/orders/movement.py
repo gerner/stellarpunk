@@ -6,10 +6,12 @@ from typing import Optional, Any, Union, Tuple
 
 import numpy as np
 import numpy.typing as npt
+import cymunk # type: ignore
 
 from stellarpunk import util, core
 
 from .steering import VELOCITY_EPS, ZERO_VECTOR, rotation_time, find_target_v, AbstractSteeringOrder
+from stellarpunk.orders import collision
 
 class KillRotationOrder(core.Order):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -43,7 +45,8 @@ class RotateOrder(AbstractSteeringOrder):
         return self.ship.angular_velocity == 0 and util.isclose(util.normalize_angle(self.ship.angle), self.target_angle)
 
     def act(self, dt: float) -> None:
-        period = self._rotate_to(self.target_angle, dt)
+        #period = self._rotate_to(self.target_angle, dt)
+        period = collision.rotate_to(self.ship.phys, self.target_angle, dt, self.ship.max_torque)
         if period < np.inf:
             # don't need to wake up again until the rotation is complete
             self.gamestate.schedule_order(self.gamestate.timestamp + period/self.safety_factor, self)
@@ -261,7 +264,8 @@ class GoToLocation(AbstractSteeringOrder):
         # check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
-            continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
+            #continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
+            continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST_CT] += continue_time
 
@@ -378,7 +382,8 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            continue_time = self._accelerate_to(self.target_v, dt, force_recompute=True)
+            #continue_time = self._accelerate_to(self.target_v, dt, force_recompute=True)
+            continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
             self._desired_velocity = self.target_v
@@ -417,7 +422,9 @@ class GoToLocation(AbstractSteeringOrder):
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
+            #continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
+            continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            #raise Exception()
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 

@@ -1,6 +1,7 @@
 """ Tests for the collision helper lib """
 
 import numpy as np
+import cymunk # type: ignore
 
 from stellarpunk.orders import collision
 
@@ -94,3 +95,24 @@ def test_coalesce(generator, sector):
 
     for neighbor in coalesced_neighbors:
         assert np.linalg.norm(np.array(neighbor.position) - np.array(threat_loc))+neighbor.data.radius <= threat_radius
+
+def test_force_for_delta_velocity():
+    # dv = f/m * t
+
+    # time constrained (timestep is long enough that we have to reduce our force)
+    (force, time) = collision.force_for_delta_velocity(cymunk.Vec2d(10,0), 2, 100, 20)
+    # 10 = f/2 * 20
+    # 1 = f
+    assert force.length <= 100
+    assert force.x == 1.0
+    assert force.y == 0.0
+    assert time == 20
+
+    # force constrained (timestep is short enough that we want to exceed max thrust)
+    (force, time) = collision.force_for_delta_velocity(cymunk.Vec2d(10,0), 2, 10, 1)
+    # 10 = 10/2 * t
+    # 2 = t
+    assert force.length <= 10
+    assert force.x == 10
+    assert force.y == 0.0
+    assert time == 2
