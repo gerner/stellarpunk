@@ -10,6 +10,7 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
     ship_b = generator.spawn_ship(sector, 100, 100, v=(0,0), w=0, theta=0)
     ship_c = generator.spawn_ship(sector, 1000, 1000, v=(0,0), w=0, theta=0)
 
+    neighbor_analyzer = collision.NeighborAnalyzer(sector.space, ship_a.phys)
     (
             threat,
             approach_time,
@@ -26,13 +27,11 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
             nearest_neighbor_dist,
             neighborhood_density,
             num_neighbors,
-            coalesced_neighbors,
-    ) = collision.analyze_neighbors(
-            ship_a.phys, sector.space,
-            1e4, ship_a.radius, 5e2,
-            ship_a.phys.position, 1e4,
+            prior_threat_count,
+    ) = neighbor_analyzer.analyze_neighbors(
+            1e4, ship_a.radius, 5e2, 1e4,
             ship_a.max_acceleration(),
-            [])
+    )
 
     assert threat.data == ship_b
     assert threat_count == 1
@@ -61,6 +60,7 @@ def test_coalesce(generator, sector):
         ):
         other_ships.append(generator.spawn_ship(sector, pos[0], pos[1], v=(0,0), w=0, theta=0))
 
+    neighbor_analyzer = collision.NeighborAnalyzer(sector.space, ship_a.phys)
     (
             threat,
             approach_time,
@@ -77,16 +77,14 @@ def test_coalesce(generator, sector):
             nearest_neighbor_dist,
             neighborhood_density,
             num_neighbors,
-            coalesced_neighbors,
-    ) = collision.analyze_neighbors(
-            ship_a.phys, sector.space,
+            prior_threat_count,
+    ) = neighbor_analyzer.analyze_neighbors(
             max_distance=1e4,
             ship_radius=30.,
             margin=5e2,
-            neighborhood_loc=ship_a.phys.position,
             neighborhood_radius=1e4,
             maximum_acceleration=100.,
-            prior_threats=[])
+    )
 
     assert threat.data == other_ships[0]
     assert np.allclose(np.array(rel_pos), (2000., 0.))
@@ -95,8 +93,9 @@ def test_coalesce(generator, sector):
     assert threat_count == 4
     assert coalesced_threats == 3
 
-    for neighbor in coalesced_neighbors:
-        assert np.linalg.norm(np.array(neighbor.position) - np.array(threat_loc))+neighbor.data.radius <= threat_radius
+    for neighbor_loc in neighbor_analyzer.coalesced_neighbor_locations():
+        neighbor_radius = ship_a.radius # assume all ships have same radius
+        assert np.linalg.norm(np.array(neighbor_loc) - np.array(threat_loc))+neighbor_radius <= threat_radius
 
 def test_force_for_delta_velocity():
     # dv = f/m * t

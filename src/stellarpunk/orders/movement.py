@@ -170,7 +170,7 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 8e3,
+            neighborhood_radius: float = 8.5e3,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -361,24 +361,10 @@ class GoToLocation(AbstractSteeringOrder):
         #    # if we're very near a neighbor, we want a smaller margin
         #    self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/20), self.collision_margin)
 
-        if speed > 0:
-            # offset looking for threats in the direction we're travelling,
-            # depending on our speed
-            noff_low = 0
-            noff_speed_low = 0
-            noff_high = 2.5e4
-            noff_speed_high = 2500
-            neighborhood_offset = util.clip(
-                    util.interpolate(noff_speed_low, noff_low, noff_speed_high, noff_high, speed),
-                    0, self.neighborhood_radius - self.collision_margin)
-            neighborhood_loc = self.ship.loc + neighborhood_offset / speed * v
-        else:
-            neighborhood_loc = self.ship.loc
-
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, neighborhood_loc, self.neighborhood_radius, self.scaled_collision_margin,
+                self.ship.sector, self.neighborhood_radius, self.scaled_collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

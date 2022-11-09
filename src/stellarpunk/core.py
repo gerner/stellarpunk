@@ -226,7 +226,7 @@ class HistoryEntry:
             angle:float,
             velocity:tuple,
             angular_velocity:float,
-            force:tuple[float,float],
+            force:tuple,
             torque:float,
             order_hist:Optional[dict]=None
     ) -> None:

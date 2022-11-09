@@ -120,6 +120,13 @@ cdef ccymunk.cpVect ONE_VECTOR = ccymunk.cpv(1.,0.)
 cdef ccymunk.Vec2d PY_ZERO_VECTOR = ccymunk.Vec2d(0.,0.)
 cdef double VELOCITY_EPS = 5e-1
 
+# neighborhood location interpolation parameters to move the center of our
+# neighborhood search in the direction of our velocity depending on our speed
+cdef double NOFF_LOW = 0
+cdef double NOFF_SPEED_LOW = 0
+cdef double NOFF_HIGH = 2.5e4
+cdef double NOFF_SPEED_HIGH = 2500
+
 # cymunk fails to export this type from chipmunk
 ctypedef struct cpCircleShape :
     ccymunk.cpShape shape;
@@ -314,163 +321,203 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
 
     return
 
-def analyze_neighbors(
-        body:cymunk.Body,
-        space:cymunk.Space,
-        max_distance:float,
-        ship_radius:float,
-        margin:float,
-        neighborhood_loc:cymunk.Vec2d,
-        neighborhood_radius:float,
-        maximum_acceleration:float,
-        prior_threats:List[cymunk.Body],
-        ) -> Tuple[
-            int,
-            float,
-            npt.NDArray[np.float64],
-            npt.NDArray[np.float64],
-            float,
-            int,
-            int,
-            int,
-            float,
-            npt.NDArray[np.float64],
-            npt.NDArray[np.float64],
-            int,
-            float,
-            float,
-            npt.NDArray[np.int64],
-        ]:
+cdef class NeighborAnalyzer:
+    cdef ccymunk.Space space
+    cdef ccymunk.Body body
+    # list of prior threat shape ids, be careful to check that these are still
+    # in the space before
+    cdef vector[ccymunk.cpHashValue] prior_threat_ids
 
-    if not isinstance(space, ccymunk.Space):
-        raise TypeError("space must be cymunk.Space")
+    def __cinit__(self, space:cymunk.Space, body:cymunk.Body) -> None:
+        self.space = <ccymunk.Space?> space
+        self.body = <ccymunk.Body?> body
 
-    if not isinstance(body, ccymunk.Body):
-        raise TypeError("body must be cymunk.Body")
+    def add_neighbor_shape(self, shape:cymunk.Shape) -> None:
+        """ Testing helper to set up NeighborAnalyzer """
+        self.prior_threat_ids.push_back((<ccymunk.Shape?>shape)._shape.hashid_private)
 
-    if not isinstance(neighborhood_loc, ccymunk.Vec2d):
-        raise TypeError("neighborhood_loc must be cymunk.Vec2d")
+    def coalesced_neighbor_locations(self) -> List[Tuple[float, float]]:
+        cdef ccymunk.Shape cyshape
 
-    cdef ccymunk.Space cyspace = <ccymunk.Space?>space
-    cdef ccymunk.Body cybody = <ccymunk.Body?>body
-    cdef ccymunk.Vec2d cneighborhood_loc = <ccymunk.Vec2d?>neighborhood_loc
-    cdef ccymunk.cpShape *ct
-    cdef ccymunk.Body cythreat_body
+        locs = []
+        for shape_id in self.prior_threat_ids:
+            shape = self.space._shapes.get(shape_id)
+            if shape_id is not None:
+                # we strongly assume that all values in space._shape are Shapes
+                cyshape = <ccymunk.Shape> shape
+                locs.append((cyshape._shape.body.p.x, cyshape._shape.body.p.y))
 
-    cdef NeighborAnalysis analysis
-    analysis.neighborhood_radius = neighborhood_radius
-    analysis.ship_radius = ship_radius
-    analysis.margin = margin
-    analysis.max_distance = max_distance
-    analysis.maximum_acceleration = maximum_acceleration
-    analysis.body = cybody._body
-    analysis.worst_ultimate_separation = ccymunk.INFINITY
-    analysis.approach_time = ccymunk.INFINITY
-    analysis.nearest_neighbor_dist = ccymunk.INFINITY
-    analysis.neighborhood_size = 0
-    analysis.threat_count = 0
+        return locs
 
-    # start by considering prior threats
-    for threat_body in prior_threats:
-        cythreat_body = <ccymunk.Body?>threat_body
-        ccymunk.cpBodyEachShape(cythreat_body._body, _body_shape_callback, &analysis)
+    def foo(self, x):
+        return x
 
-    # look for threats in a circle
-    ccymunk.cpSpaceNearestPointQuery(cyspace._space, cneighborhood_loc.v, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
+    def analyze_neighbors(
+            self,
+            max_distance:float,
+            ship_radius:float,
+            margin:float,
+            neighborhood_radius:float,
+            maximum_acceleration:float,
+            ) -> Tuple[
+                int,
+                float,
+                npt.NDArray[np.float64],
+                npt.NDArray[np.float64],
+                float,
+                int,
+                int,
+                int,
+                float,
+                npt.NDArray[np.float64],
+                npt.NDArray[np.float64],
+                int,
+                float,
+                float,
+                npt.NDArray[np.int64],
+                int,
+            ]:
 
-    # look for threats in a cone facing the direction of our velocity
-    # cone is truncated, starts at the edge of our nearest point query circle
-    # goes until another 4 neighborhood radii in direction of our velocity
-    # cone starts at margin
-    cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(cybody._body.v)
-    cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
-    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc.v, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
-    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc.v, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
+        cdef ccymunk.cpShape *ct
+        cdef ccymunk.Body cythreat_body
+        cdef double speed = ccymunk.cpvlength(self.body._body.v)
+        cdef double neighborhood_offset
+        cdef ccymunk.cpVect cneighborhood_loc
+        cdef set[ccymunk.cpHashValue] prior_shapes
+        cdef int prior_threat_count
 
-    cdef ccymunk.cpVect sensor_cone[4]
-    # points are ordered to get a convex shape with the proper winding
-    sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin*2)))
-    sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin*2)))
-    sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)*5))
-    sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)*5))
+        if speed > 0:
+            # offset looking for threats in the direction we're travelling,
+            # depending on our speed
+            neighborhood_offset = clip(
+                    interpolate(
+                        NOFF_SPEED_LOW, NOFF_LOW, NOFF_SPEED_HIGH, NOFF_HIGH,
+                        speed
+                    ),
+                    0, neighborhood_radius - margin)
+            cneighborhood_loc = ccymunk.cpvadd(self.body._body.p, ccymunk.cpvmult(self.body._body.v, neighborhood_offset / speed))
+        else:
+            cneighborhood_loc = self.body._body.p
 
-    cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
-    ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)
-    ccymunk.cpSpaceShapeQuery(cyspace._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
-    ccymunk.cpShapeFree(sensor_cone_shape)
-    #TODO: do we need to deallocate the cone shape?
 
-    coalesce_threats(&analysis)
+        cdef NeighborAnalysis analysis
+        analysis.neighborhood_radius = neighborhood_radius
+        analysis.ship_radius = ship_radius
+        analysis.margin = margin
+        analysis.max_distance = max_distance
+        analysis.maximum_acceleration = maximum_acceleration
+        analysis.body = self.body._body
+        analysis.worst_ultimate_separation = ccymunk.INFINITY
+        analysis.approach_time = ccymunk.INFINITY
+        analysis.nearest_neighbor_dist = ccymunk.INFINITY
+        analysis.neighborhood_size = 0
+        analysis.threat_count = 0
 
-    # to return:
-    #        idx, #neighbor
-    #        approach_time,
-    #        relative_position,
-    #        relative_velocity,
-    #        minimum_separation,
-    #        threat_count,
-    #        coalesced_threats,
-    #        non_coalesced_threats,
-    #        threat_radius,
-    #        threat_loc,
-    #        threat_velocity,
-    #        nearest_neighbor_idx, #nearest_neighbor
-    #        nearest_neighbor_dist,
-    #        neighborhood_density,
-    #        num_neighbors,
-    #        coalesced_idx, #coalesced_neighbors
+        # start by considering prior threats
+        for shape_id in self.prior_threat_ids:
+            shape = self.space._shapes.get(shape_id)
+            if shape_id is not None:
+                _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &analysis)
 
-    if analysis.nearest_neighbor_dist < ccymunk.INFINITY:
-        nearest_neighbor = space.shapes[analysis.nearest_neighbor_shape.hashid_private].body
-    else:
-        nearest_neighbor = None
-    neighborhood_density = analysis.neighborhood_size / (math.pi * analysis.neighborhood_radius ** 2)
+        # grab a copy of the shape ids for prior shapes
+        prior_shape_ids = analysis.considered_shapes
 
-    if analysis.threat_count == 0:
-        return tuple((
-                None,
-                ccymunk.INFINITY,
-                PY_ZERO_VECTOR,
-                PY_ZERO_VECTOR,
-                ccymunk.INFINITY,
-                0,
-                0,
-                0,
-                0,
-                PY_ZERO_VECTOR,
-                PY_ZERO_VECTOR,
-                nearest_neighbor,
-                analysis.nearest_neighbor_dist,
-                neighborhood_density,
-                analysis.neighborhood_size,
-                [],
-        ))
-    else:
-        threat = space.shapes[analysis.threat_shape.hashid_private].body
-        coalesced_neighbors = []
-        for ct in analysis.coalesced_threats:
-            coalesced_neighbors.append(
-                space.shapes[ct.hashid_private].body
-            )
+        # look for threats in a circle
+        ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
 
-        return tuple((
-                threat,
-                analysis.approach_time,
-                cpvtoVec2d(analysis.relative_position),
-                cpvtoVec2d(analysis.relative_velocity),
-                analysis.minimum_separation,
-                analysis.threat_count,
-                analysis.coalesced_threats.size(),
-                analysis.threat_count - analysis.coalesced_threats.size(),
-                analysis.threat_radius,
-                cpvtoVec2d(analysis.threat_loc),
-                cpvtoVec2d(analysis.threat_velocity),
-                nearest_neighbor,
-                analysis.nearest_neighbor_dist,
-                neighborhood_density,
-                analysis.neighborhood_size,
-                coalesced_neighbors,
-        ))
+        # look for threats in a cone facing the direction of our velocity
+        # cone is truncated, starts at the edge of our nearest point query circle
+        # goes until another 4 neighborhood radii in direction of our velocity
+        # cone starts at margin
+        cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(self.body._body.v)
+        cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
+        cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
+        cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
+
+        cdef ccymunk.cpVect sensor_cone[4]
+        # points are ordered to get a convex shape with the proper winding
+        sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin*2)))
+        sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin*2)))
+        sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)*5))
+        sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)*5))
+
+        cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
+        ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)
+        ccymunk.cpSpaceShapeQuery(self.space._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
+        ccymunk.cpShapeFree(sensor_cone_shape)
+        #TODO: do we need to deallocate the cone shape?
+
+        coalesce_threats(&analysis)
+
+        # to return:
+        #        idx, #neighbor
+        #        approach_time,
+        #        relative_position,
+        #        relative_velocity,
+        #        minimum_separation,
+        #        threat_count,
+        #        coalesced_threats,
+        #        non_coalesced_threats,
+        #        threat_radius,
+        #        threat_loc,
+        #        threat_velocity,
+        #        nearest_neighbor_idx, #nearest_neighbor
+        #        nearest_neighbor_dist,
+        #        neighborhood_density,
+        #        num_neighbors,
+        #        coalesced_idx, #coalesced_neighbors
+
+        if analysis.nearest_neighbor_dist < ccymunk.INFINITY:
+            nearest_neighbor = self.space.shapes[analysis.nearest_neighbor_shape.hashid_private].body
+        else:
+            nearest_neighbor = None
+        neighborhood_density = analysis.neighborhood_size / (math.pi * analysis.neighborhood_radius ** 2)
+
+        if analysis.threat_count == 0:
+            return tuple((
+                    None,
+                    ccymunk.INFINITY,
+                    PY_ZERO_VECTOR,
+                    PY_ZERO_VECTOR,
+                    ccymunk.INFINITY,
+                    0,
+                    0,
+                    0,
+                    0,
+                    PY_ZERO_VECTOR,
+                    PY_ZERO_VECTOR,
+                    nearest_neighbor,
+                    analysis.nearest_neighbor_dist,
+                    neighborhood_density,
+                    analysis.neighborhood_size,
+                    False
+            ))
+        else:
+            threat = self.space.shapes[analysis.threat_shape.hashid_private].body
+            self.prior_threat_ids.clear()
+            prior_threat_count = 0
+            for ct in analysis.coalesced_threats:
+                self.prior_threat_ids.push_back(ct.hashid_private)
+                prior_threat_count += prior_shape_ids.count(ct.hashid_private)
+
+            return tuple((
+                    threat,
+                    analysis.approach_time,
+                    cpvtoVec2d(analysis.relative_position),
+                    cpvtoVec2d(analysis.relative_velocity),
+                    analysis.minimum_separation,
+                    analysis.threat_count,
+                    analysis.coalesced_threats.size(),
+                    analysis.threat_count - analysis.coalesced_threats.size(),
+                    analysis.threat_radius,
+                    cpvtoVec2d(analysis.threat_loc),
+                    cpvtoVec2d(analysis.threat_velocity),
+                    nearest_neighbor,
+                    analysis.nearest_neighbor_dist,
+                    neighborhood_density,
+                    analysis.neighborhood_size,
+                    prior_threat_count,
+            ))
 
 cdef double ANGLE_EPS = 5e-2 # about 3 degrees
 cdef double COARSE_VELOCITY_MATCH = 2e0

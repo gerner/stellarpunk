@@ -706,6 +706,9 @@ class AbstractSteeringOrder(core.Order):
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
 
+        assert self.ship.sector is not None
+        self.neighbor_analyzer = collision.NeighborAnalyzer(self.ship.sector.space, self.ship.phys)
+
         self.nearest_neighbor:Optional[core.SectorEntity] = None
         self.nearest_neighbor_dist = np.inf
 
@@ -720,7 +723,6 @@ class AbstractSteeringOrder(core.Order):
         self.collision_cbdr = False
         self.collision_cbdr_divert_angle = np.pi/4
         self.collision_coalesced_threats = 0.
-        self.collision_coalesced_neighbors:list[core.SectorEntity] = []
         self.collision_threat_loc = ZERO_VECTOR
         self.collision_threat_radius = 0.
         self.collision_margin_histeresis = 0.
@@ -759,7 +761,7 @@ class AbstractSteeringOrder(core.Order):
             history["ct_ct"] = self.collision_coalesced_threats
             history["ct_cloc"] = (self.collision_threat_loc[0], self.collision_threat_loc[1])
             history["ct_cradius"] = self.collision_threat_radius
-            history["ct_cn"] = [(cn.loc[0], cn.loc[1]) for cn in self.collision_coalesced_neighbors]
+            history["ct_cn"] = self.neighbor_analyzer.coalesced_neighbor_locations
             history["ct_mh"] = self.collision_margin_histeresis
             history["ct_dv_override"] = self.desired_divert_override
             history["cac"] = bool(self.cannot_avoid_collision)
@@ -888,7 +890,6 @@ class AbstractSteeringOrder(core.Order):
     def _collision_neighbor(
             self,
             sector: core.Sector,
-            neighborhood_loc: np.ndarray,
             neighborhood_dist: float,
             margin: float,
             max_distance: float
@@ -902,71 +903,13 @@ class AbstractSteeringOrder(core.Order):
             np.ndarray,
             np.ndarray,
             float,
-            bool,
             bool]:
-
-        #pos = self.ship.loc
-        #v = self.ship.velocity
 
         last_collision_threat = self.collision_threat
 
-        # cache the neighborhood for a short period. note we cache the entities
-        # (not the locations or velocities) since we want to get updated
-        # loc/vel data for the neighbors.
-
-        #if self.gamestate.timestamp - self.collision_hits_age < self.collision_hits_max_age:
-        #    #TODO: what to do if the neighbor isn't in this sector any more?
-        #    hits = self.collision_hits
-        #    self.gamestate.counters[core.Counters.COLLISION_HITS_HIT] += 1
-        #else:
-        #    hits = list(e for e in  sector.spatial_point(neighborhood_loc, neighborhood_dist) if e != self.ship)
-        #    self.collision_hits_age = self.gamestate.timestamp
-        #    self.collision_hits = hits
-        #    self.gamestate.counters[core.Counters.COLLISION_HITS_MISS] += 1
         self.cannot_avoid_collision = False
         self.nearest_neighbor_dist = np.inf
 
-        any_prior_threats = False
-        all_prior_threats = False
-
-        #if len(hits) > 0:
-        #    self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
-        #    self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NUM_NEIGHBORS] += len(hits)
-        #    #TODO: this is really not ideal: we go into pymunk to get hits via
-        #    # cffi and then come back to python and then do some marshalling
-        #    # there and then back into numba. the perf win from numba here is
-        #    # actually fairly small since we're doing a lot of iteration in
-        #    # python
-        #    hits_l:npt.NDArray[np.float64] = np.empty((len(hits),2), np.float64)
-        #    hits_v:npt.NDArray[np.float64] = np.empty((len(hits),2), np.float64)
-        #    hits_r:npt.NDArray[np.float64] = np.empty((len(hits),), np.float64)
-
-        #    for i, e in enumerate(hits):
-        #        hits_l[i] = e.loc
-        #        hits_v[i] = e.velocity
-        #        hits_r[i] = e.radius
-
-        #    (
-        #            idx,
-        #            approach_time,
-        #            relative_position,
-        #            relative_velocity,
-        #            minimum_separation,
-        #            threat_count,
-        #            coalesced_threats,
-        #            non_coalesced_threats,
-        #            threat_radius,
-        #            threat_loc,
-        #            threat_velocity,
-        #            nearest_neighbor_idx,
-        #            nearest_neighbor_dist,
-        #            neighborhood_density,
-        #            coalesced_idx,
-        #    ) = _analyze_neighbors(
-        #            hits_l, hits_v, hits_r,
-        #            pos, v,
-        #            max_distance, self.ship.radius, margin, neighborhood_dist,
-        #            self.ship.max_acceleration())
         (
                 threat,
                 approach_time,
@@ -983,14 +926,12 @@ class AbstractSteeringOrder(core.Order):
                 nearest_neighbor_dist,
                 neighborhood_density,
                 num_neighbors,
-                coalesced_neighbors,
-        ) = collision.analyze_neighbors(
-            self.ship.phys, sector.space,
-            max_distance, self.ship.radius, margin,
-            cymunk.Vec2d(*neighborhood_loc), neighborhood_dist,
+                prior_threat_count,
+        ) = self.neighbor_analyzer.analyze_neighbors(
+            max_distance, self.ship.radius, margin, neighborhood_dist,
             self.ship.max_acceleration(),
-            list(x.phys for x in self.collision_coalesced_neighbors),
         )
+        any_prior_threats = prior_threat_count > 0
 
         if neighborhood_density > 0:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
@@ -999,14 +940,9 @@ class AbstractSteeringOrder(core.Order):
             relative_velocity = np.array(relative_velocity)
             threat_loc = np.array(threat_loc)
             threat_velocity = np.array(threat_velocity)
-            coalesced_neighbors = [x.data for x in coalesced_neighbors]
 
             self.gamestate.counters[core.Counters.COLLISION_THREATS_C] += coalesced_threats
             self.gamestate.counters[core.Counters.COLLISION_THREATS_NC] += non_coalesced_threats
-
-            prior_threats = set(self.collision_coalesced_neighbors)
-            any_prior_threats = any(x in prior_threats for x in coalesced_neighbors)
-            all_prior_threats = all(x in prior_threats for x in coalesced_neighbors)
 
             if not self.cannot_avoid_collision_hold:
                 # we want to avoid nearby, dicontinuous changes to threat loc and
@@ -1068,7 +1004,6 @@ class AbstractSteeringOrder(core.Order):
             threat_velocity = ZERO_VECTOR
             threat_radius = 0.
             neighborhood_density = 0.
-            coalesced_neighbors = []
 
         if threat_count == 0:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NONE] += 1
@@ -1097,13 +1032,12 @@ class AbstractSteeringOrder(core.Order):
 
         self.collision_minimum_separation = minimum_separation
         self.collision_coalesced_threats = coalesced_threats
-        self.collision_coalesced_neighbors = coalesced_neighbors
         self.collision_threat_loc = threat_loc
         self.collision_threat_radius = threat_radius
 
-        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats, all_prior_threats
+        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats
 
-    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_loc: np.ndarray, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
+    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
 
         sector
@@ -1138,7 +1072,7 @@ class AbstractSteeringOrder(core.Order):
         neighbor_margin = margin + self.collision_margin_histeresis
 
         # find neighbor with soonest closest appraoch
-        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats, all_prior_threats  = self._collision_neighbor(sector, neighborhood_loc, neighborhood_dist, neighbor_margin, max_distance)
+        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, max_distance)
 
         if any_prior_threats:
             # if there's any overlap, keep the margin extra big

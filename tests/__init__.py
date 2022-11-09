@@ -93,9 +93,9 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         if load_ct and "ct" in history_entry["o"]:
             gorder.collision_threat = ship.sector.entities[uuid.UUID(history_entry["o"]["ct"])]
             gorder.collision_threat_time = history_entry["o"]["ct_ts"] - history_entry["ts"]
-            gorder.collision_coalesced_neighbors.extend(
-                    next(ship.sector.spatial_point(np.array(x), 100)) for x in history_entry["o"]["ct_cn"]
-            )
+            for x in history_entry["o"]["ct_cn"]:
+                gorder.neighbor_analyzer.add_neighbor_shape(next(ship.sector.spatial_point(np.array(x), 100)).phys_shape)
+
             gorder.collision_threat_loc = np.array(history_entry["o"]["ct_cloc"])
             gorder.collision_threat_radius = history_entry["o"]["ct_cradius"]
             gorder.cannot_avoid_collision = history_entry["o"]["cac"]
