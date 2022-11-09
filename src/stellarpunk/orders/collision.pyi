@@ -37,6 +37,12 @@ def rotate_to(
         body:cymunk.Body, target_angle:float, dt:float,
         max_torque:float) -> float: ...
 
+def find_target_v(
+        body:cymunk.Body,
+        target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float,
+        max_acceleration:float, max_angular_acceleration:float, max_speed: float,
+        dt: float, safety_factor:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
+
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
         max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float: ...

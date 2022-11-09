@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, List
 import cython
 from libcpp.vector cimport vector
 from libcpp.set cimport set
@@ -55,6 +55,22 @@ cdef double interpolate(double x1, double y1, double x2, double y2, double x):
     cdef double m = (y2 - y1) / (x2 - x1)
     cdef double b = y1 - m * x1
     return m * x + b
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.infer_types(False)
+@cython.nonecheck(False)
+cdef double clip(double d, double m, double M):
+    cdef double t
+    if d < m:
+        t = m
+    else:
+        t = d
+    if t > M:
+        return M
+    else:
+        return t
 
 # collision detection types
 
@@ -173,6 +189,9 @@ cdef void _sensor_point_callback(ccymunk.cpShape *shape, ccymunk.cpFloat distanc
     _analyze_neighbor_callback(shape, data)
 
 cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointSet *points, void *data):
+    _analyze_neighbor_callback(shape, data)
+
+cdef void _body_shape_callback(ccymunk.cpBody *body, ccymunk.cpShape *shape, void *data):
     _analyze_neighbor_callback(shape, data)
 
 @cython.boundscheck(False)
@@ -303,7 +322,8 @@ def analyze_neighbors(
         margin:float,
         neighborhood_loc:cymunk.Vec2d,
         neighborhood_radius:float,
-        maximum_acceleration:float
+        maximum_acceleration:float,
+        prior_threats:List[cymunk.Body],
         ) -> Tuple[
             int,
             float,
@@ -335,6 +355,7 @@ def analyze_neighbors(
     cdef ccymunk.Body cybody = <ccymunk.Body?>body
     cdef ccymunk.Vec2d cneighborhood_loc = <ccymunk.Vec2d?>neighborhood_loc
     cdef ccymunk.cpShape *ct
+    cdef ccymunk.Body cythreat_body
 
     cdef NeighborAnalysis analysis
     analysis.neighborhood_radius = neighborhood_radius
@@ -348,6 +369,11 @@ def analyze_neighbors(
     analysis.nearest_neighbor_dist = ccymunk.INFINITY
     analysis.neighborhood_size = 0
     analysis.threat_count = 0
+
+    # start by considering prior threats
+    for threat_body in prior_threats:
+        cythreat_body = <ccymunk.Body?>threat_body
+        ccymunk.cpBodyEachShape(cythreat_body._body, _body_shape_callback, &analysis)
 
     # look for threats in a circle
     ccymunk.cpSpaceNearestPointQuery(cyspace._space, cneighborhood_loc.v, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
@@ -668,6 +694,97 @@ def rotate_to(
         cybody._body.t = torque_result.torque
 
     return torque_result.continue_time
+
+cdef struct DeltaVResult:
+    ccymunk.cpVect target_velocity,
+    double distance
+    double distance_estimate
+    bool cannot_stop
+    double delta_speed
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.infer_types(False)
+@cython.nonecheck(False)
+cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_location, double arrival_distance, double min_distance, double max_acceleration, double max_angular_acceleration, double max_speed, double dt, double safety_factor):
+    """ Given goto location params, determine the desired velocity.
+
+    returns a tuple:
+        target velocity vector
+        distance to the target location
+        an estimate of the distance to the target location after dt
+        boolean indicator if we cannot stop before reaching location
+        delta speed between current and target
+    """
+
+    cdef ccymunk.cpVect target_v
+    cdef double desired_speed
+    cdef double a
+    cdef double s
+    cdef double rot_time
+
+    cdef ccymunk.cpVect course = ccymunk.cpvsub(target_location, body.p)
+    cdef double distance = ccymunk.cpvlength(course)
+    cdef double target_angle = ccymunk.cpvtoangle(course)
+
+    #TODO: conservative estimate of distance?
+    cdef double distance_estimate = distance - max_speed*dt
+
+    # if we were to cancel the velocity component in the direction of the
+    # target, will we travel enough so that we cross min_distance?
+    cdef double d = (ccymunk.cpvdot(body.v, course) / distance)**2 / (2* max_acceleration)
+
+    cdef bool cannot_stop
+    if d > distance-min_distance:
+        cannot_stop = 1
+    else:
+        cannot_stop = 0
+
+    if distance < arrival_distance + VELOCITY_EPS:
+        target_v = ZERO_VECTOR
+        desired_speed = 0.
+    else:
+        rot_time = _rotation_time(fabs(normalize_angle(body.a-(target_angle+pi), shortest=1)), body.w, max_angular_acceleration)*safety_factor
+
+        # choose a desired speed such that if we were at that speed right
+        # now we would have enough time to rotate 180 degrees and
+        # decelerate to a stop at full thrust by the time we reach arrival
+        # distance
+        a = max_acceleration
+        s = distance - min_distance
+        if s < 0:
+            s = 0
+
+        desired_speed = (-2 * a * rot_time + sqrt((2 * a  * rot_time) ** 2 + 8 * a * s))/2
+        desired_speed = clip(desired_speed/safety_factor, 0, max_speed)
+
+        target_v = ccymunk.cpvmult(ccymunk.cpvmult(course, 1./distance), desired_speed)
+
+    return DeltaVResult(target_v, distance, distance_estimate, cannot_stop, fabs(ccymunk.cpvlength(body.v) - desired_speed))
+
+
+def find_target_v(
+        body:cymunk.Body,
+        target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float,
+        max_acceleration:float, max_angular_acceleration:float, max_speed: float,
+        dt: float, safety_factor:float):
+    """ Given goto location params, determine the desired velocity.
+
+    returns a tuple:
+        target velocity vector
+        distance to the target location
+        an estimate of the distance to the target location after dt
+        boolean indicator if we cannot stop before reaching location
+        delta speed between current and target
+    """
+
+    cdef ccymunk.Body cybody = <ccymunk.Body?> body
+    cdef ccymunk.Vec2d cytarget_location = <ccymunk.Vec2d?> target_location
+
+    cdef DeltaVResult result = _find_target_v(cybody._body, cytarget_location.v, arrival_distance, min_distance, max_acceleration, max_angular_acceleration, max_speed, dt, safety_factor)
+
+    return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,

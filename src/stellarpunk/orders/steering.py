@@ -34,7 +34,7 @@ COARSE_ANGLE_MATCH = np.pi/16
 # still covered by the previous threat radius
 THREAT_RADIUS_SCALE_FACTOR = 0.995
 THREAT_LOCATION_ALPHA = 0.001
-COLLISION_MARGIN_HISTERESIS_FACTOR = 0.1
+COLLISION_MARGIN_HISTERESIS_FACTOR = 0.65
 
 # a convenient zero vector to avoid needless array creations
 ZERO_VECTOR = np.array((0.,0.))
@@ -48,6 +48,14 @@ def rotation_time(delta_angle: float, angular_velocity: float, max_angular_accel
     # other half
     return (abs(angular_velocity)/max_angular_acceleration + 2*np.sqrt(abs(delta_angle + 0.5*angular_velocity**2/max_angular_acceleration)/max_angular_acceleration))*safety_factor
 
+def dv_time_cost(dv: npt.NDArray[np.float64], angle:float, angular_velocity:float, max_acceleration:float, max_fine_acceleration:float, max_angular_acceleration:float) -> float:
+    dv_mag, dv_angle = util.cartesian_to_polar(dv[0], dv[1])
+    delta_angle = util.normalize_angle(angle-dv_angle, shortest=True)
+    rot_time = rotation_time(delta_angle, angular_velocity, max_angular_acceleration, 1.0)
+    if dv_mag / max_fine_acceleration < rot_time:
+        return dv_mag / max_fine_acceleration
+    burn_time = (dv_mag - max_fine_acceleration*rot_time) / max_acceleration
+    return rot_time + burn_time
 
 @jit(cache=True, nopython=True, fastmath=True)
 def torque_for_angle(target_angle: float, angle:float, w:float, max_torque:float, moment:float, dt:float, safety_factor:float) -> Tuple[float, float]:
@@ -335,10 +343,6 @@ def _analyze_neighbors(
     #    collision_loc = collide_collision_loc
 
     if worst_idx >= 0 and worst_idx != idx:
-        #if collide_idx >= 0 and worst_idx != collide_idx:
-        #    raise Exception()
-        #if worst_idx != idx:
-        #    raise Exception()
         approach_time = worst_approach_time
         idx = worst_idx
         relative_position = worst_relative_position
@@ -561,30 +565,30 @@ def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.
         # not exactly sure why either would be nan, but hopefully one is not
         assert not math.isnan(cost1) or not math.isnan(cost2)
 
-    #if cbdr:
-    #    # prefer diversion in the same direction in case of cbdr
-    #    # the sign of cross1 and cross2 indicate the direction of the divert
-    #    # (clockwise or counter-clockwise)
-    #    cross1 = v[0]*y1-v[1]*x1
-    #    cross2 = v[0]*y2-v[1]*x2
-    #    if cross1 > cross2:
-    #        x = x1
-    #        y = y1
-    #        s_x = s_1x
-    #        s_y = s_1y
-    #        cost = cost1
-    #    else:
-    #        x = x2
-    #        y = y2
-    #        s_x = s_2x
-    #        s_y = s_2y
-    #        cost = cost2
+    if cbdr:
+        # prefer diversion in the same direction in case of cbdr
+        # the sign of cross1 and cross2 indicate the direction of the divert
+        # (clockwise or counter-clockwise)
+        cross1 = v[0]*y1-v[1]*x1
+        cross2 = v[0]*y2-v[1]*x2
+        if cross1 > cross2:
+            x = x1
+            y = y1
+            s_x = s_1x
+            s_y = s_1y
+            cost = cost1
+        else:
+            x = x2
+            y = y2
+            s_x = s_2x
+            s_y = s_2y
+            cost = cost2
 
     #TODO: this assumes the other guy will move which seems very risky
     # we should come back to this in the future and do something more
     # proactive, but still cooperative
-    if cbdr and cbdr_bias < 0:
-        return np.array((0.,0.))
+    #if cbdr and cbdr_bias < 0:
+    #    return np.array((0.,0.))
 
     #if cbdr:
     #    # swap our choices if our bias is negative
@@ -633,6 +637,7 @@ def find_target_v(
         distance to the target location
         an estimate of the distance to the target location after dt
         boolean indicator if we cannot stop before reaching location
+        delta speed between current and target
     """
 
     course = target_location - current_location
@@ -694,7 +699,7 @@ def detect_cbdr(rel_pos_hist:Deque[Tuple[float, np.ndarray]], now:float, min_his
     latest_rel_pos = rel_pos_hist[-1][1]
     latest_distance, latest_bearing = util.cartesian_to_polar(latest_rel_pos[0], latest_rel_pos[1])
 
-    return abs(oldest_bearing - latest_bearing) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
+    return abs(util.normalize_angle(oldest_bearing - latest_bearing, shortest=True)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
 class AbstractSteeringOrder(core.Order):
     def __init__(self, *args: Any, safety_factor:float=2., **kwargs: Any) -> None:
@@ -714,7 +719,6 @@ class AbstractSteeringOrder(core.Order):
         self.collision_rel_pos_hist:Deque[Tuple[float, np.ndarray]] = collections.deque()
         self.collision_cbdr = False
         self.collision_cbdr_divert_angle = np.pi/4
-        self.collision_threat_count = 0.
         self.collision_coalesced_threats = 0.
         self.collision_coalesced_neighbors:list[core.SectorEntity] = []
         self.collision_threat_loc = ZERO_VECTOR
@@ -752,11 +756,11 @@ class AbstractSteeringOrder(core.Order):
             history["ct_ts"] = self.collision_threat_time
             history["ct_at"] = self.collision_approach_time
             history["ct_dv"] = (self.collision_dv[0], self.collision_dv[1])
-            history["ct_tc"] = self.collision_threat_count
             history["ct_ct"] = self.collision_coalesced_threats
             history["ct_cloc"] = (self.collision_threat_loc[0], self.collision_threat_loc[1])
             history["ct_cradius"] = self.collision_threat_radius
             history["ct_cn"] = [(cn.loc[0], cn.loc[1]) for cn in self.collision_coalesced_neighbors]
+            history["ct_mh"] = self.collision_margin_histeresis
             history["ct_dv_override"] = self.desired_divert_override
             history["cac"] = bool(self.cannot_avoid_collision)
             history["cach"] = bool(self.cannot_avoid_collision_hold)
@@ -984,9 +988,9 @@ class AbstractSteeringOrder(core.Order):
             self.ship.phys, sector.space,
             max_distance, self.ship.radius, margin,
             cymunk.Vec2d(*neighborhood_loc), neighborhood_dist,
-            self.ship.max_acceleration()
+            self.ship.max_acceleration(),
+            list(x.phys for x in self.collision_coalesced_neighbors),
         )
-
 
         if neighborhood_density > 0:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
@@ -1138,12 +1142,36 @@ class AbstractSteeringOrder(core.Order):
 
         if any_prior_threats:
             # if there's any overlap, keep the margin extra big
-            self.collision_margin_histeresis = margin_histeresis
+            #self.collision_margin_histeresis = margin_histeresis
+
+            # expand margin up to margin histeresis
+            # this is the iterative form of the inverse of expoential decay
+            # which we use below to decay the margin histeresis when there's no
+            # overlap
+            if self.collision_margin_histeresis < margin_histeresis:
+                y = self.collision_margin_histeresis
+                b = margin_histeresis
+                m = COLLISION_MARGIN_HISTERESIS_FACTOR
+                y_next = (b - y)*(1-m)+y
+                # numerical precision means we might exceed the upper bound
+                if y_next > margin_histeresis:
+                    y_next = margin_histeresis
+                self.collision_margin_histeresis = y_next
+            elif self.collision_margin_histeresis > margin_histeresis:
+                self.collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
+                if self.collision_margin_histeresis < margin_histeresis:
+                    self.collision_margin_histeresis = margin_histeresis
+
+            assert self.collision_margin_histeresis >= 0
+
         else:
             # if there's no overlap, start collapsing collision margin
             self.collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
             # if there's no overlap, clear the cannot avoid collision flag
             self.cannot_avoid_collision_hold = False
+
+            assert self.collision_margin_histeresis >= 0
+            #assert self.collision_margin_histeresis <= margin_histeresis
 
         self.desired_divert_override = False
 
@@ -1160,6 +1188,7 @@ class AbstractSteeringOrder(core.Order):
             cbdr_bias = -base_bias
         else:
             cbdr_bias = base_bias
+
 
         if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.gamestate.timestamp, CBDR_MIN_HIST_SEC):
             self.collision_cbdr = True

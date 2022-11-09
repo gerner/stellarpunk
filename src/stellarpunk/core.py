@@ -386,7 +386,7 @@ class Ship(SectorEntity, Asset):
                 self.entity_id, timestamp,
                 tuple(self.phys.position), self.radius, self.angle,
                 tuple(self.phys.velocity), self.angular_velocity,
-                self.phys.force, self.phys.torque,
+                tuple((self.phys.force["x"], self.phys.force["y"])), self.phys.torque,
                 order_hist,
         )
 

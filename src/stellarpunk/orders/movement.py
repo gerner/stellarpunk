@@ -322,11 +322,17 @@ class GoToLocation(AbstractSteeringOrder):
 
         prev_cannot_avoid_collision = self.cannot_avoid_collision
 
-        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = find_target_v(
-                self.target_location, self.arrival_distance, self.min_distance,
-                self.ship.loc, v, theta, omega,
+        #self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = find_target_v(
+        #        self.target_location, self.arrival_distance, self.min_distance,
+        #        self.ship.loc, v, theta, omega,
+        #        max_acceleration, max_angular_acceleration, max_speed,
+        #        dt, self.safety_factor)
+        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = collision.find_target_v(
+                self.ship.phys,
+                cymunk.Vec2d(*self.target_location), self.arrival_distance, self.min_distance,
                 max_acceleration, max_angular_acceleration, max_speed,
                 dt, self.safety_factor)
+        self.target_v = np.array(self.target_v)
 
         if self.cannot_stop:
             max_distance = np.inf
@@ -424,7 +430,6 @@ class GoToLocation(AbstractSteeringOrder):
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
             #continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
             continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
-            #raise Exception()
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 
@@ -450,7 +455,7 @@ class WaitOrder(AbstractSteeringOrder):
 
     def act(self, dt:float) -> None:
         if self.ship.sector is None:
-            raise Exception(f'{self.ship} not in any sector')
+            raise ValueError(f'{self.ship} not in any sector')
         period = self._accelerate_to(ZERO_VECTOR, dt)
 
         if period < np.inf:

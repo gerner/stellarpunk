@@ -31,7 +31,8 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
             ship_a.phys, sector.space,
             1e4, ship_a.radius, 5e2,
             ship_a.phys.position, 1e4,
-            ship_a.max_acceleration())
+            ship_a.max_acceleration(),
+            [])
 
     assert threat.data == ship_b
     assert threat_count == 1
@@ -84,7 +85,8 @@ def test_coalesce(generator, sector):
             margin=5e2,
             neighborhood_loc=ship_a.phys.position,
             neighborhood_radius=1e4,
-            maximum_acceleration=100.)
+            maximum_acceleration=100.,
+            prior_threats=[])
 
     assert threat.data == other_ships[0]
     assert np.allclose(np.array(rel_pos), (2000., 0.))
