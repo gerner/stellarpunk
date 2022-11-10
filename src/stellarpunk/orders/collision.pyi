@@ -2,6 +2,10 @@ from typing import Tuple, List
 
 import cymunk # type: ignore
 
+def make_enclosing_circle(
+        c1:cymunk.Vec2d, r1:float,
+        c2:cymunk.Vec2d, r2:float) -> Tuple[cymunk.Vec2d, float]: ...
+
 class NeighborAnalyzer:
     def __init__(self, space:cymunk.Space, body:cymunk.Body) -> None: ...
 
@@ -58,3 +62,8 @@ def find_target_v(
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
         max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float: ...
+
+def migrate_threat_location(
+        inref_loc:cymunk.Vec2d, inref_radius:float,
+        inold_loc:cymunk.Vec2d, inold_radius:float,
+        innew_loc:cymunk.Vec2d, innew_radius:float) -> Tuple[cymunk.Vec2d, float]: ...

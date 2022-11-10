@@ -3,6 +3,7 @@
 import numpy as np
 import cymunk # type: ignore
 
+from stellarpunk import util
 from stellarpunk.orders import collision
 
 def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
@@ -119,3 +120,26 @@ def test_force_for_delta_velocity():
     assert force.x == 10
     assert force.y == 0.0
     assert time == 2
+
+def test_enclosing_circle():
+    def contains(c1, r1, c2, r2):
+        d = util.distance(np.array(c1),np.array(c2))
+        return r1+5e-1 >= d+r2
+    c1 = cymunk.Vec2d(-5, 0)
+    r1 = 10.
+    c2 = cymunk.Vec2d(5,0)
+    r2 = 10.
+    c, r = collision.make_enclosing_circle(c1, r1, c2, r2)
+    assert contains(c, r, c1, r1)
+    assert contains(c, r, c2, r2)
+    assert r == 15
+    assert c[0] == 0
+    assert c[1] == 0
+
+    c1 = cymunk.Vec2d(-15235.3324, 2342348.53)
+    r1 = 30
+    c2 = cymunk.Vec2d(-16225.5422, 23432641.48)
+    r2 = 88.7789
+    c, r = collision.make_enclosing_circle(c1, r1, c2, r2)
+    assert contains(c, r, c1, r1)
+    assert contains(c, r, c2, r2)

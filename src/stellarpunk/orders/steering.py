@@ -25,15 +25,12 @@ COARSE_VELOCITY_MATCH = 2e0
 # pi/16 is ~11 degrees
 COARSE_ANGLE_MATCH = np.pi/16
 
-# the scale (per tick) we use to scale down threat radii if the new threat is
-# still covered by the previous threat radius
-THREAT_RADIUS_SCALE_FACTOR = 0.995
-THREAT_LOCATION_ALPHA = 0.001
 COLLISION_MARGIN_HISTERESIS_FACTOR = 0.65
 
 # a convenient zero vector to avoid needless array creations
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
+CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
 @jit(cache=True, nopython=True, fastmath=True)
 def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> npt.NDArray[np.float64]:
@@ -259,7 +256,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_approach_time = np.inf
         self.collision_cbdr = False
         self.collision_coalesced_threats = 0.
-        self.collision_threat_loc = ZERO_VECTOR
+        self.collision_threat_loc = CYZERO_VECTOR
         self.collision_threat_radius = 0.
         self.collision_margin_histeresis = 0.
 
@@ -354,56 +351,22 @@ class AbstractSteeringOrder(core.Order):
         if neighborhood_density > 0:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NUM_NEIGHBORS] += num_neighbors
-            threat_loc = np.array(threat_loc)
-            threat_velocity = np.array(threat_velocity)
 
             self.gamestate.counters[core.Counters.COLLISION_THREATS_C] += coalesced_threats
             self.gamestate.counters[core.Counters.COLLISION_THREATS_NC] += non_coalesced_threats
 
-            if not self.cannot_avoid_collision_hold:
-                # we want to avoid nearby, dicontinuous changes to threat loc and
-                # radius. this can happen when two threats are near each other.
-                # if the new and old threat circles overlap "significantly", we are
-                # careful about discontinuous changes
-                new_old_dist = util.distance(self.collision_threat_loc, threat_loc)
-                if new_old_dist < 2*threat_radius or new_old_dist < 2*self.collision_threat_radius:
-                    old_loc = self.collision_threat_loc
-                    old_radius = self.collision_threat_radius
-                    if new_old_dist + threat_radius > old_radius + VELOCITY_EPS:
-                        # the new circle does not completely eclipse the old
-                        # find the smallest enclosing circle for both
-                        old_loc, old_radius = util.enclosing_circle(threat_loc, threat_radius, self.collision_threat_loc, self.collision_threat_radius)
-                        new_old_dist = util.distance(old_loc, threat_loc)
+            if not self.cannot_avoid_collision_hold and self.collision_threat_radius > 0:
+                threat_loc, threat_radius = collision.migrate_threat_location(
+                        self.ship.phys.position, self.ship.radius,
+                        self.collision_threat_loc, self.collision_threat_radius,
+                        threat_loc, threat_radius
+                )
 
-                    new_old_vec = threat_loc - old_loc
+            self.collision_threat_loc = threat_loc
+            self.collision_threat_radius = threat_radius
 
-                    # the new threat is smaller than the old one and completely
-                    # contained in the old one. let's scale and translate the old
-                    # one toward the new one so that it still contains it, but
-                    # asymptotically approaches it. this will avoid
-                    # discontinuities.
-                    new_radius = util.clip(
-                        old_radius * THREAT_RADIUS_SCALE_FACTOR,
-                        threat_radius,
-                        old_radius
-                    )
-                    if util.isclose(new_old_dist, 0.):
-                        new_loc = old_loc
-                    else:
-                        new_loc = (
-                            new_old_vec/new_old_dist
-                            * (old_radius-new_radius)
-                            + old_loc
-                        )
-                    # useful assert during testing
-                    #assert np.linalg.norm(threat_loc - new_loc) + threat_radius <= new_radius + VELOCITY_EPS
-
-                    # if we're not already inside the margin for this new location
-                    # take it, otherwise stick with the one computed for the actual
-                    # threats we have, discontinuities be damned
-                    if util.distance(self.ship.loc, new_loc) > new_radius + self.ship.radius:
-                        threat_loc = new_loc
-                        threat_radius = new_radius
+            threat_velocity = np.array(threat_velocity)
+            threat_loc = np.array(threat_loc)
         else:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NO_NEIGHBORS] += 1
             approach_time = np.inf
@@ -418,6 +381,9 @@ class AbstractSteeringOrder(core.Order):
             threat_velocity = ZERO_VECTOR
             threat_radius = 0.
             neighborhood_density = 0.
+
+            self.collision_threat_loc = CYZERO_VECTOR
+            self.collision_threat_radius = 0
 
         if threat_count == 0:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NONE] += 1
@@ -436,8 +402,6 @@ class AbstractSteeringOrder(core.Order):
 
         self.collision_minimum_separation = minimum_separation
         self.collision_coalesced_threats = coalesced_threats
-        self.collision_threat_loc = threat_loc
-        self.collision_threat_radius = threat_radius
 
         return neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, prior_threat_count > 0
 
@@ -527,10 +491,7 @@ class AbstractSteeringOrder(core.Order):
             cbdr_bias = base_bias
 
 
-        if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and self.neighbor_analyzer.detect_cbdr(self.gamestate.timestamp):
-            self.collision_cbdr = True
-        else:
-            self.collision_cbdr = False
+        self.collision_cbdr = self.neighbor_analyzer.detect_cbdr(self.gamestate.timestamp)
 
         desired_margin = neighbor_margin + threat_radius + self.ship.radius
         current_threat_loc = threat_loc-threat_velocity*approach_time

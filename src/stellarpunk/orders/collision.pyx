@@ -73,6 +73,54 @@ cdef double clip(double d, double m, double M):
     else:
         return t
 
+cdef struct Circle:
+    ccymunk.cpVect center
+    double radius
+
+#@cython.boundscheck(False)
+#@cython.wraparound(False)
+#@cython.cdivision(True)
+#@cython.infer_types(False)
+#@cython.nonecheck(False)
+cdef Circle enclosing_circle(
+        ccymunk.cpVect c1, double r1,
+        ccymunk.cpVect c2, double r2):
+    """ Finds the smallest circle enclosing two other circles.
+
+    courtesey: https://stackoverflow.com/a/36736270/553580
+    """
+    cdef double dx = c2.x - c1.x
+    cdef double dy = c2.y - c1.y
+    #center-center distance
+    cdef double dc = math.sqrt(dx**2 + dy**2)
+    cdef double rmin = min(r1, r2)
+    cdef double rmax = max(r1, r2)
+
+    cdef ccymunk.cpVect cret
+    cdef double R
+
+    if rmin + dc < rmax:
+        if r1 < r2:
+            cret = c2
+            R = r2
+        else:
+            cret = c1
+            R = r1
+    else:
+        R = 0.5 * (r1 + r2 + dc)
+        cret = ccymunk.cpv(
+            c1.x + (R - r1) * dx / dc,
+            c1.y + (R - r1) * dy / dc
+        )
+
+    return Circle(cret, R)
+
+def make_enclosing_circle(
+        c1:cymunk.Vec2d, r1:float,
+        c2:cymunk.Vec2d, r2:float) -> Tuple[cymunk.Vec2d, float]:
+    cdef Circle ret = enclosing_circle(c1.v, r1, c2.v, r2)
+    return (cpvtoVec2d(ret.center), ret.radius)
+
 # collision detection types
 
 cdef struct CollisionThreat:
@@ -133,6 +181,10 @@ cdef double CBDR_MIN_HIST_SEC = 0.5
 cdef double CBDR_MAX_HIST_SEC = 1.1
 cdef double CBDR_ANGLE_EPS = 1e-1 # about 6 degrees
 cdef double CBDR_DIST_EPS = 5
+
+# the scale (per tick) we use to scale down threat radii if the new threat is
+# still covered by the previous threat radius
+cdef double THREAT_RADIUS_SCALE_FACTOR = 0.995
 
 # cymunk fails to export this type from chipmunk
 ctypedef struct cpCircleShape :
@@ -331,13 +383,21 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
 cdef struct RelPosHistoryEntry:
     double timestamp
     ccymunk.cpVect rel_pos
+    ccymunk.cpVect velocity
 
 cdef class NeighborAnalyzer:
     cdef ccymunk.Space space
     cdef ccymunk.Body body
 
     # some state we keep from one analysis call to the next
+
+    # shape hash id of the most recent threat (the shape might have been
+    # removed from the space since we found it)
     cdef ccymunk.cpHashValue last_threat_id
+    # actual location of the most recent threat (not projected location)
+    cdef ccymunk.cpVect last_threat_loc
+    # actual velocity of the most recent threat
+    cdef ccymunk.cpVect last_threat_velocity
     # list of prior threat shape ids, be careful to check that these are still
     # in the space before
     cdef vector[ccymunk.cpHashValue] prior_threat_ids
@@ -503,6 +563,8 @@ cdef class NeighborAnalyzer:
 
         if analysis.threat_count == 0:
             self.last_threat_id = 0
+            self.last_threat_velocity = ZERO_VECTOR
+            self.last_threat_loc = ZERO_VECTOR
             self.prior_threat_ids.clear()
             self.rel_pos_history.clear()
             return tuple((
@@ -526,15 +588,17 @@ cdef class NeighborAnalyzer:
         else:
             prior_threat_id = self.last_threat_id
             self.last_threat_id = analysis.threat_shape.hashid_private
+            self.last_threat_loc = analysis.threat_loc
+            self.last_threat_velocity = analysis.threat_velocity
             if self.last_threat_id == prior_threat_id:
-                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position))
+                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position, analysis.threat_velocity))
                 # nuke history entries that are too old
                 while current_timestamp - self.rel_pos_history.front().timestamp > CBDR_MAX_HIST_SEC:
                     self.rel_pos_history.pop_front()
 
             else:
                 self.rel_pos_history.clear()
-                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position))
+                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position, analysis.threat_velocity))
 
             threat = self.space.shapes[analysis.threat_shape.hashid_private].body
             self.prior_threat_ids.clear()
@@ -566,6 +630,9 @@ cdef class NeighborAnalyzer:
         if self.rel_pos_history.size() < 2:
             return False
         if current_timestamp - self.rel_pos_history.front().timestamp < CBDR_MIN_HIST_SEC:
+            return False
+
+        if ccymunk.cpvlength(self.last_threat_velocity) == 0:
             return False
 
         cdef double oldest_distance = ccymunk.cpvlength(self.rel_pos_history.front().rel_pos)
@@ -926,3 +993,73 @@ def accelerate_to(
         cybody._body.t = 0.
 
     return ft_result.continue_time
+
+def migrate_threat_location(
+        inref_loc:cymunk.Vec2d, inref_radius:float,
+        inold_loc:cymunk.Vec2d, inold_radius:float,
+        innew_loc:cymunk.Vec2d, innew_radius:float) -> Tuple[cymunk.Vec2d, float]:
+    """ Migrate from the old circle towards the new circle.
+
+    This happens such that the migrated circle always contains the new circle.
+    Migration is aborted if the migrated circle would include the reference
+    circle. """
+
+    cdef ccymunk.cpVect ref_loc = (<ccymunk.Vec2d?>inref_loc).v
+    cdef double ref_radius = <double?> inref_radius
+    cdef ccymunk.cpVect old_loc = (<ccymunk.Vec2d?>inold_loc).v
+    cdef double old_radius = <double?> inold_radius
+    cdef ccymunk.cpVect new_loc = (<ccymunk.Vec2d?> innew_loc).v
+    cdef double new_radius = <double?> innew_radius
+
+    cdef double new_old_dist
+    cdef Circle enclosing_c
+    cdef ccymunk.cpVect new_old_vec
+    cdef ccymunk.cpVect migrated_loc
+    cdef double migrated_radius
+
+    new_old_dist = ccymunk.cpvdist(old_loc, new_loc)
+    if new_old_dist < 2*new_radius or new_old_dist < 2*old_radius:
+        if new_old_dist + new_radius > old_radius + VELOCITY_EPS:
+            # the new circle does not completely eclipse the old
+            # find the smallest enclosing circle for both
+            enclosing_c = enclosing_circle(
+                    new_loc, new_radius, old_loc, old_radius)
+            old_loc = enclosing_c.center
+            old_radius = enclosing_c.radius
+            new_old_dist = ccymunk.cpvdist(old_loc, new_loc)
+
+        new_old_vec = ccymunk.cpvsub(new_loc, old_loc)
+
+        # the new threat is smaller than the old one and completely
+        # contained in the old one. let's scale and translate the old
+        # one toward the new one so that it still contains it, but
+        # asymptotically approaches it. this will avoid
+        # discontinuities.
+        migrated_radius = clip(
+            old_radius * THREAT_RADIUS_SCALE_FACTOR,
+            new_radius,
+            old_radius
+        )
+        if isclose(0, new_old_dist):
+            migrated_loc = old_loc
+        else:
+            migrated_loc = ccymunk.cpvadd(
+                ccymunk.cpvmult(
+                    new_old_vec,
+                    1./new_old_dist * (old_radius-migrated_radius)
+                ),
+                old_loc
+            )
+        # useful assert during testing
+        #assert ccymunk.cpvdist(new_loc, migrated_loc) + new_radius >= migrated_radius + VELOCITY_EPS:
+
+        # if we're already inside the margin for this migrated location stick
+        # with the one computed for the actual threats we have, discontinuities
+        # be damned
+        if ccymunk.cpvdist(ref_loc, migrated_loc) < migrated_radius + ref_radius:
+            migrated_loc = new_loc
+            migrated_radius = new_radius
+
+        return (cpvtoVec2d(migrated_loc), migrated_radius)
+    else:
+        return (innew_loc, innew_radius)
