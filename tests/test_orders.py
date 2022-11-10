@@ -7,7 +7,7 @@ import pytest
 import numpy as np
 
 from stellarpunk import core, sim, generate, orders, util
-from stellarpunk.orders import steering
+from stellarpunk.orders import steering, collision
 from . import write_history, nearest_neighbor
 
 TESTDIR = os.path.dirname(__file__)
@@ -39,7 +39,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     rotate_order = orders.RotateOrder(np.pi, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
 
-    eta = steering.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration(), rotate_order.safety_factor)
+    eta = collision.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration())
 
     testui.eta = eta
     testui.orders = [rotate_order]
@@ -57,9 +57,9 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     rotate_order = orders.RotateOrder(np.pi/2, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
 
-    eta = steering.rotation_time(rotate_order.target_angle, ship_driver.angular_velocity, ship_driver.max_angular_acceleration(), rotate_order.safety_factor)
+    eta = collision.rotation_time(rotate_order.target_angle, ship_driver.angular_velocity, ship_driver.max_angular_acceleration())
 
-    testui.eta = eta
+    testui.eta = eta*1.15
     testui.orders = [rotate_order]
 
     simulator.run()
@@ -67,9 +67,9 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     assert ship_driver.angular_velocity == 0
     assert util.isclose(ship_driver.angle, rotate_order.target_angle)
 
-    # make sure our eta estimate is within 18% of the estimate after backing
+    # make sure our eta estimate is within 15% of the estimate after backing
     # out the safety margin
-    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.184)
+    assert np.isclose(gamestate.timestamp, eta, rtol=0.15)
 
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):

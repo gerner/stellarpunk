@@ -9,10 +9,11 @@ import enum
 from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping, Sequence
 
 import numpy as np
+import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders
 from stellarpunk.interface import presenter, command_input
-from stellarpunk.orders import steering, movement
+from stellarpunk.orders import steering, movement, collision
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
 TRANSLATE_KEYS = tuple(map(lambda x: ord(x), "ijkl"))
@@ -86,6 +87,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             return
 
         # otherwise try to kill rotation
+        #TODO: this won't work under a model where act isn't called every tick
         if self.ship.phys.angular_velocity == 0.:
             return
 
@@ -111,7 +113,11 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         self.has_command = True
         if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
             return
-        self._accelerate_to(steering.ZERO_VECTOR, dt)
+        #TODO: handle continuous force/torque
+        period = collision.accelerate_to(
+                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.max_speed(), self.ship.max_torque,
+                self.ship.max_thrust, self.ship.max_fine_thrust)
 
     def rotate(self, scale:float, dt:float) -> None:
         """ Rotates the ship in desired direction

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Optional, Any, Union, Tuple
+import math
 
 import numpy as np
 import numpy.typing as npt
@@ -10,7 +11,7 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core
 
-from .steering import VELOCITY_EPS, ZERO_VECTOR, rotation_time, find_target_v, AbstractSteeringOrder
+from .steering import VELOCITY_EPS, ZERO_VECTOR, AbstractSteeringOrder
 from stellarpunk.orders import collision
 
 class KillRotationOrder(core.Order):
@@ -67,7 +68,10 @@ class KillVelocityOrder(AbstractSteeringOrder):
         return self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, ZERO_VECTOR)
 
     def act(self, dt: float) -> None:
-        period = self._accelerate_to(ZERO_VECTOR, dt)
+        period = collision.accelerate_to(
+                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.max_speed(), self.ship.max_torque,
+                self.ship.max_thrust, self.ship.max_fine_thrust)
         #TODO: need a way to keep applying force
         # don't need to wake up again until the acceleration is complete
         self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
@@ -136,7 +140,7 @@ class GoToLocation(AbstractSteeringOrder):
             starting_loc = ship.loc
         course = target_location - starting_loc
         distance, target_angle = util.cartesian_to_polar(course[0], course[1])
-        rotate_towards = rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration(), safety_factor)
+        rotate_towards = collision.rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration())
 
         # we cap at max_speed, so need to account for that by considering a
         # "cruise" period where we travel at max_speed, but only if we have
@@ -153,7 +157,7 @@ class GoToLocation(AbstractSteeringOrder):
             d_cruise = distance - 2*d_accelerate
             cruise = d_cruise / ship.max_speed()# * safety_factor
 
-        rotate_away = rotation_time(np.pi, 0, ship.max_angular_acceleration(), safety_factor)
+        rotate_away = collision.rotation_time(np.pi, 0, ship.max_angular_acceleration())
         accelerate_down = accelerate_up
 
         assert rotate_towards >= 0.
@@ -207,6 +211,10 @@ class GoToLocation(AbstractSteeringOrder):
         self.max_speed_cap = self.ship.max_speed()
         self.max_speed_cap_ts = 0.
         self.max_speed_cap_alpha = 0.2
+        self.min_max_speed = 100
+        # max speed cap decays, the longest that could take to be irrelevant is
+        # this long
+        self.max_speed_cap_max_expiration = math.log(self.ship.max_speed()/self.min_max_speed)/math.log(1+self.max_speed_cap_alpha)
 
         self.cannot_stop = False
 
@@ -290,7 +298,7 @@ class GoToLocation(AbstractSteeringOrder):
         d_low = 1/(np.pi*self.neighborhood_radius**2)
         s_high = max_speed
         d_high = 30/(np.pi*self.neighborhood_radius**2)
-        s_low = 100
+        s_low = self.min_max_speed
         density_max_speed = util.clip(util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density), s_low, max_speed)
 
         # also ramp down speed with distance to nearest neighbor
@@ -299,20 +307,25 @@ class GoToLocation(AbstractSteeringOrder):
         nn_d_high = 2e3
         nn_s_high = 1000#max_speed
         nn_d_low = 5e2
-        nn_s_low = 100
+        nn_s_low = self.min_max_speed
         nn_max_speed = util.clip(util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist), nn_s_low, max_speed)
 
         max_speed = min(max_speed, density_max_speed, nn_max_speed)
 
         # keep track of how low max speed gets to so we can apply histeresis
-        max_speed_cap = self.max_speed_cap * (1+self.max_speed_cap_alpha)**(self.gamestate.timestamp - self.max_speed_cap_ts)
+        if self.gamestate.timestamp - self.max_speed_cap_ts > self.max_speed_cap_max_expiration:
+            # this avoids overflow in the exponentiation when it's irrelevant
+            max_speed_cap = max_speed
+        else:
+            # max_speed_cap decays back up to the max speed
+            max_speed_cap = self.max_speed_cap * (1+self.max_speed_cap_alpha)**(self.gamestate.timestamp - self.max_speed_cap_ts)
+
         if max_speed < max_speed_cap:
+            # keep track of the lowest our max speed is capped to
             self.max_speed_cap = max_speed
             self.max_speed_cap_ts = self.gamestate.timestamp
         else:
-            # apply the max speed histeresis
-            # max_speed decays exponentially
-            # max_speed * (1+alpha)^t
+            # apply our historic (decaying) max speed cap
             max_speed = min(max_speed_cap, max_speed)
 
         prev_cannot_avoid_collision = self.cannot_avoid_collision
@@ -369,7 +382,6 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            #continue_time = self._accelerate_to(self.target_v, dt, force_recompute=True)
             continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
@@ -409,7 +421,6 @@ class GoToLocation(AbstractSteeringOrder):
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            #continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
             continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
@@ -437,7 +448,10 @@ class WaitOrder(AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         if self.ship.sector is None:
             raise ValueError(f'{self.ship} not in any sector')
-        period = self._accelerate_to(ZERO_VECTOR, dt)
+        period = collision.accelerate_to(
+                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.max_speed(), self.ship.max_torque,
+                self.ship.max_thrust, self.ship.max_fine_thrust)
 
         if period < np.inf:
             # don't need to wake up again until the acceleration is complete
@@ -452,7 +466,7 @@ class WaitOrder(AbstractSteeringOrder):
         # we want to have enough time to get away
         collision_dv, approach_time, min_separation, distance=self._avoid_collisions_dv(self.ship.sector, self.ship.loc, 5e3, 3e2)
         if distance > 0:
-            t = approach_time - rotation_time(2*np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
+            t = approach_time - collision.rotation_time(2*np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration())
             if t < 0 or distance > 1/2 * self.ship.max_acceleration()*t**2 / self.safety_factor:
                 self._accelerate_to(collision_dv, dt)
                 return

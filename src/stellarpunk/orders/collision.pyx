@@ -609,6 +609,12 @@ cdef double _rotation_time(
     # other half
     return (fabs(angular_velocity)/max_angular_acceleration + 2*sqrt(fabs(delta_angle + 0.5*angular_velocity**2/max_angular_acceleration)/max_angular_acceleration))
 
+def rotation_time(
+        delta_angle:float, angular_velocity:float,
+        max_acceleration:float) -> float:
+    """ Estimates the time to rotate by a given delta angle amount. """
+    return _rotation_time(delta_angle, angular_velocity, max_acceleration)
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)

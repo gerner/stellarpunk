@@ -109,7 +109,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
-    testui.eta = goto_order.estimate_eta()
+    testui.eta = goto_order.estimate_eta() * 1.1
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
     testui.cannot_avoid_collision_orders = [goto_order]
