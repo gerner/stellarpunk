@@ -12,59 +12,6 @@ from . import write_history, nearest_neighbor
 
 TESTDIR = os.path.dirname(__file__)
 
-def test_coalesce():
-    """ Test that coalescing threats actually covers them. """
-
-    # set up: ship heading toward several static points all within twice the
-    # collision margin
-
-    pos = np.array((0.,0.))
-    v = np.array((10.,0.))
-
-    hits_l = np.array((
-        ((2000., 0.)),
-        ((2500., 500.)),
-        ((2500., -500.)),
-        ((5000., 0.)), # not part of the group, but a threat
-        ((2500., -5000.)), # not part of the group
-    ))
-    hits_v = np.array([(0.,0.)]*len(hits_l))
-    hits_r = np.array([30.]*len(hits_l))
-
-    (
-            idx,
-            approach_time,
-            rel_pos,
-            rel_vel,
-            min_sep,
-            threat_count,
-            coalesced_threats,
-            non_coalesced_threats,
-            threat_radius,
-            threat_loc,
-            threat_velocity,
-            nearest_neighbor_idx,
-            nearest_neighbor_dist,
-            neighborhood_density,
-            coalesed_idx,
-    ) = steering._analyze_neighbors(
-            hits_l, hits_v, hits_r, pos, v,
-            max_distance=1e4,
-            ship_radius=30.,
-            margin=5e2,
-            neighborhood_radius=1e4,
-            maximum_acceleration=100.)
-
-    assert idx == 0
-    assert np.allclose(rel_pos, (2000., 0.))
-    assert np.allclose(rel_vel, v*-1)
-    assert min_sep == 0.
-    assert threat_count == 4
-    assert coalesced_threats == 3
-
-    for i in range(coalesced_threats):
-        assert np.linalg.norm(hits_l[i] - threat_loc)+hits_r[i] <= threat_radius
-
 def test_goto_entity(gamestate, generator, sector):
     ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
     station = generator.spawn_station(sector, 0, 0, resource=0)

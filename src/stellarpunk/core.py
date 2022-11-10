@@ -294,6 +294,8 @@ class SectorEntity(Entity):
     @property
     def velocity(self) -> npt.NDArray[np.float64]: return np.array(self.phys.velocity)
     @property
+    def speed(self) -> float: return self.phys.velocity.length
+    @property
     def angle(self) -> float: return self.phys.angle
     @property
     def angular_velocity(self) -> float: return self.phys.angular_velocity
@@ -314,9 +316,6 @@ class SectorEntity(Entity):
                 (0.,0.), 0,
         ),)
         return self.history
-
-    def speed(self) -> float:
-        return util.magnitude(self.velocity[0], self.velocity[1])
 
     def to_history(self, timestamp:float) -> HistoryEntry:
         return HistoryEntry(

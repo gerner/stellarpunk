@@ -173,7 +173,7 @@ class Presenter:
             last_y = hist_y
 
         if not isinstance(entity, core.Asteroid):
-            speed = entity.speed()
+            speed = entity.speed
             if speed > 0.:
                 name_tag = f' {entity.short_id()} {speed:.0f}'
             else:

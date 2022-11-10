@@ -236,7 +236,7 @@ class SectorView(interface.View):
         label_location = "location:"
         label_owner = "owner:"
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed:.0f}m/s')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
 
         if isinstance(self.selected_entity, core.Asset):

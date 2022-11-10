@@ -524,7 +524,7 @@ class PilotView(interface.View):
         # convert bearing so 0, North is negative y, instead of positive x
         bearing += np.pi/2
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed:.0f}m/s')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
@@ -542,7 +542,7 @@ class PilotView(interface.View):
         label_order = "order:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed:.0f}m/s')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}°')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')

@@ -279,11 +279,6 @@ class GoToLocation(AbstractSteeringOrder):
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
 
-        v = self.ship.velocity
-        speed = util.magnitude(v[0], v[1])
-        theta = self.ship.angle
-        omega = self.ship.angular_velocity
-
         max_acceleration = self.ship.max_acceleration()
         max_angular_acceleration = self.ship.max_angular_acceleration()
         max_speed = self.ship.max_speed()
@@ -336,7 +331,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         if self.cannot_stop:
             max_distance = np.inf
-            self.logger.debug(f'cannot stop in time distance: {distance} v: {v}')
+            self.logger.debug(f'cannot stop in time distance: {distance} v: {self.ship.velocity}')
         else:
             max_distance = distance-self.min_distance
 
@@ -348,7 +343,7 @@ class GoToLocation(AbstractSteeringOrder):
             cm_high = self.collision_margin*5
             cm_speed_low = 100
             cm_speed_high = 1500
-            self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
+            self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, self.ship.speed)
             self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
 
         if distance < self.arrival_distance and distance > self.min_distance:
@@ -409,7 +404,7 @@ class GoToLocation(AbstractSteeringOrder):
             #v_mag = util.magnitude(v[0], v[1])
             #if v_mag > max_speed:
             #    v = v / v_mag * max_speed
-            self._desired_velocity = v + collision_dv
+            self._desired_velocity = self.ship.velocity + collision_dv
             #TODO: see todo above about slowing down
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:

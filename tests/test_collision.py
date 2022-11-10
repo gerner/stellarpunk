@@ -29,6 +29,7 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
             num_neighbors,
             prior_threat_count,
     ) = neighbor_analyzer.analyze_neighbors(
+            0.,
             1e4, ship_a.radius, 5e2, 1e4,
             ship_a.max_acceleration(),
     )
@@ -79,6 +80,7 @@ def test_coalesce(generator, sector):
             num_neighbors,
             prior_threat_count,
     ) = neighbor_analyzer.analyze_neighbors(
+            0.,
             max_distance=1e4,
             ship_radius=30.,
             margin=5e2,

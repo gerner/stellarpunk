@@ -21,11 +21,6 @@ PARALLEL_EPS = 0.5e-1
 VELOCITY_EPS = 5e-1
 COARSE_VELOCITY_MATCH = 2e0
 
-CBDR_MIN_HIST_SEC = 0.5
-CBDR_MAX_HIST_SEC = 1.1
-CBDR_ANGLE_EPS = 1e-1 # about 6 degrees
-CBDR_DIST_EPS = 5
-
 # think of this as the gimballing angle (?)
 # pi/16 is ~11 degrees
 COARSE_ANGLE_MATCH = np.pi/16
@@ -173,241 +168,6 @@ def force_torque_for_delta_velocity(
         continue_time = min(torque_time, thrust_time)
 
     return force, torque, target_velocity, difference_mag, difference_angle, continue_time
-
-@jit(cache=True, nopython=True, fastmath=True)
-def _analyze_neighbor(pos:np.ndarray, v:np.ndarray, entity_radius:float, entity_pos:np.ndarray, entity_v:np.ndarray, max_distance:float, max_approach_time:float, margin:float) -> tuple[float, float, np.ndarray, np.ndarray, float, np.ndarray, float]:
-    rel_pos = entity_pos - pos
-    rel_vel = entity_v - v
-
-    rel_speed = util.magnitude(rel_vel[0], rel_vel[1])
-
-    rel_dist = util.magnitude(rel_pos[0], rel_pos[1])
-
-    # check for parallel paths
-    if rel_speed == 0:
-        if rel_dist < margin + entity_radius:
-            # this can cause discontinuities in approach_time
-            return rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.
-        return rel_dist, np.inf, rel_pos, rel_vel, np.inf, ZERO_VECTOR, np.inf
-
-    rel_tangent = rel_vel / rel_speed
-    approach_t = -1 * rel_tangent.dot(rel_pos) / rel_speed
-
-    if approach_t <= 0 or approach_t >= max_approach_time:
-        if rel_dist < margin + entity_radius:
-            # this can cause discontinuities in approach_time
-            return rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.
-        return rel_dist, np.inf, rel_pos, rel_vel, np.inf, ZERO_VECTOR, np.inf
-
-    speed = util.magnitude(v[0], v[1])
-    # compute the closest approach within max_distance
-    collision_distance = speed * approach_t
-    if collision_distance > max_distance:
-        approach_t = max_distance / speed
-        collision_distance = max_distance - VELOCITY_EPS
-
-    sep_vec = (pos + v*approach_t) - (entity_pos + entity_v*approach_t)
-    min_sep = util.magnitude(sep_vec[0], sep_vec[1])
-    collision_loc = entity_pos + entity_v * approach_t
-
-    return rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance
-
-@jit(cache=True, nopython=True, fastmath=True)
-def _analyze_neighbors(
-        hits_l:npt.NDArray[np.float64],
-        hits_v:npt.NDArray[np.float64],
-        hits_r:npt.NDArray[np.float64],
-        pos:npt.NDArray[np.float64],
-        v:npt.NDArray[np.float64],
-        max_distance:float,
-        ship_radius:float,
-        margin:float,
-        neighborhood_radius:float,
-        maximum_acceleration:float,
-        ) -> tuple[
-            int,
-            float,
-            npt.NDArray[np.float64],
-            npt.NDArray[np.float64],
-            float,
-            int,
-            int,
-            int,
-            float,
-            npt.NDArray[np.float64],
-            npt.NDArray[np.float64],
-            int,
-            float,
-            float,
-            npt.NDArray[np.int64],
-        ]:
-    """ Analyzes neighbors and determines collision threat parameters. """
-
-    # keep track of soonest margin violation
-    approach_time = np.inf
-    idx = -1
-    relative_position = ZERO_VECTOR
-    relative_velocity = ZERO_VECTOR
-    minimum_separation = np.inf
-    collision_loc = ZERO_VECTOR
-
-    # also keep track of soonest collision
-    collide_approach_time = np.inf
-    collide_idx = -1
-    collide_relative_position = ZERO_VECTOR
-    collide_relative_velocity = ZERO_VECTOR
-    collide_minimum_separation = np.inf
-    collide_collision_loc = ZERO_VECTOR
-
-    # keep track of worst offender, closest projected separation if we
-    # accelerate to maximize the separation
-    worst_ultimate_separation = np.inf
-    worst_approach_time = np.inf
-    worst_idx = -1
-    worst_relative_position = ZERO_VECTOR
-    worst_relative_velocity = ZERO_VECTOR
-    worst_minimum_separation = np.inf
-    worst_collision_loc = ZERO_VECTOR
-
-    nearest_neighbor_idx = -1
-    nearest_neighbor_dist = np.inf
-
-    collision_threats:list[tuple[int, tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], float], npt.NDArray[np.float64]]] = []
-
-    neighborhood_size = 0.
-    threat_count = 0
-    for eidx in range(len(hits_l)):
-        entity_pos = hits_l[eidx]
-        entity_v = hits_v[eidx]
-        entity_radius = hits_r[eidx]
-
-        rel_dist, approach_t, rel_pos, rel_vel, min_sep, c_loc, collision_distance = _analyze_neighbor(
-                pos, v, entity_radius, entity_pos, entity_v, max_distance, np.inf, ship_radius + margin)
-
-        if rel_dist < neighborhood_radius:
-            neighborhood_size += 1.
-
-        if rel_dist < nearest_neighbor_dist:
-            nearest_neighbor_idx = eidx
-            nearest_neighbor_dist = rel_dist
-
-        # this neighbor isn't going to collide with us
-        if not (min_sep < np.inf):
-            continue
-
-        # we need to keep track of all collision threats for coalescing later
-        collision_threats.append((eidx, (entity_pos, entity_v, entity_radius), c_loc))
-        if min_sep > entity_radius + ship_radius + margin:
-            continue
-
-        threat_count += 1
-
-        # keep track of soonest violation of margin
-        if approach_t < approach_time:
-            approach_time = approach_t
-            idx = eidx
-            relative_position = rel_pos
-            relative_velocity = rel_vel
-            minimum_separation = float(min_sep)
-            collision_loc = c_loc
-
-        # also keep track of soonest actual collision
-        if min_sep < entity_radius + ship_radius and approach_t < collide_approach_time:
-            collide_approach_time = approach_t
-            collide_idx = eidx
-            collide_relative_position = rel_pos
-            collide_relative_velocity = rel_vel
-            collide_minimum_separation = float(min_sep)
-            collide_collision_loc = c_loc
-
-        # keep track of "worst margin offender", prioritizing a tradeoff
-        # between minimum separation and approach time by assuming we
-        # accelerate constantly to maximize the separation
-        ultimate_sep = min_sep - entity_radius - ship_radius + 0.5 * maximum_acceleration * approach_t ** 2
-        if ultimate_sep < worst_ultimate_separation:
-            worst_ultimate_separation = ultimate_sep
-            worst_approach_time = approach_t
-            worst_idx = eidx
-            worst_relative_position = rel_pos
-            worst_relative_velocity = rel_vel
-            worst_minimum_separation = min_sep
-            worst_collision_loc = c_loc
-
-    # prioritize actual collisions over near misses
-    #if collide_idx >= 0 and collide_idx != idx:
-    #    approach_time = collide_approach_time
-    #    idx = collide_idx
-    #    relative_position = collide_relative_position
-    #    relative_velocity = collide_relative_velocity
-    #    minimum_separation = collide_minimum_separation
-    #    collision_loc = collide_collision_loc
-
-    if worst_idx >= 0 and worst_idx != idx:
-        approach_time = worst_approach_time
-        idx = worst_idx
-        relative_position = worst_relative_position
-        relative_velocity = worst_relative_velocity
-        minimum_separation = worst_minimum_separation
-        collision_loc = worst_collision_loc
-
-    # Once we have a single most threatening future collision, coalesce nearby
-    # threats so we can avoid all of them at once, instead of avoiding one only
-    # to make another inevitable.
-    # this isn't exactly going to yield a circumcircle around the points. For
-    # one thing it's not clear there's an "optimal" way to choose the points to
-    # include.
-    # see https://github.com/marmakoide/miniball and https://github.com/weddige/miniball
-    coalesced_threats = 0
-    non_coalesced_threats = 0
-    ct = []
-    if idx >= 0:
-        threat_radius = hits_r[idx]
-        threat_loc = collision_loc
-        threat_velocity = hits_v[idx]
-
-        # coalesce nearby threats
-        # this avoids flapping in collision targets
-        coalesced_threats = 1
-        ct.append(idx)
-        if threat_count > 1:
-            threat_loc = threat_loc.copy()
-            for eidx, (t_loc, t_velocity, t_radius), t_loc in collision_threats:
-                if idx == eidx:
-                    continue
-                t_rel_pos = (threat_loc - t_loc)
-                t_dist, t_angle = util.cartesian_to_polar(t_rel_pos[0], t_rel_pos[1])
-                if t_dist + t_radius < threat_radius:
-                    # the old radius completely covers the new one
-                    threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
-                    coalesced_threats += 1
-                    ct.append(eidx)
-                elif t_dist < threat_radius + t_radius + 2*margin:
-                    # new is within coalesce dist, but not already covered
-                    # coalesced threat should just cover both
-                    # diameter = 2*threat_radius + 2*t_radius + (t_dist - threat_radius - t_radius)
-                    # diameter = t_dist + threat_radius + t_radius
-                    coalesced_radius = (t_dist + threat_radius + t_radius)/2
-
-                    c_rel_x, c_rel_y = util.polar_to_cartesian(coalesced_radius - threat_radius, t_angle+np.pi)
-
-                    #assert np.linalg.norm((c_rel_x, c_rel_y)) + threat_radius < coalesced_radius + VELOCITY_EPS
-                    #assert np.linalg.norm((threat_loc[0]+c_rel_x - t_loc[0], threat_loc[1]+c_rel_y - t_loc[1])) + t_radius < coalesced_radius + VELOCITY_EPS
-
-                    threat_loc[0] += c_rel_x
-                    threat_loc[1] += c_rel_y
-                    threat_radius = coalesced_radius
-                    threat_velocity = (threat_velocity * coalesced_threats + t_velocity)/(coalesced_threats + 1)
-                    coalesced_threats += 1
-                    ct.append(eidx)
-                else:
-                    non_coalesced_threats += 1
-    else:
-        # no threat found, return some default values
-        threat_radius = 0.
-        threat_loc = ZERO_VECTOR
-        threat_velocity = ZERO_VECTOR
-
-    return idx, approach_time, relative_position, relative_velocity, minimum_separation, threat_count, coalesced_threats, non_coalesced_threats, threat_radius, threat_loc, threat_velocity, nearest_neighbor_idx, nearest_neighbor_dist, neighborhood_size / (np.pi * neighborhood_radius ** 2), np.array(ct)
 
 @jit(cache=True, nopython=True, fastmath=True)
 def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> npt.NDArray[np.float64]:
@@ -687,20 +447,6 @@ def find_target_v(
 
     return target_v, distance, distance_estimate, cannot_stop, abs(current_speed - desired_speed)
 
-def detect_cbdr(rel_pos_hist:Deque[Tuple[float, np.ndarray]], now:float, min_hist:float) -> bool:
-    if len(rel_pos_hist) < 2:
-        return False
-    if now - rel_pos_hist[0][0] < min_hist:
-        return False
-
-    oldest_rel_pos = rel_pos_hist[0][1]
-    oldest_distance, oldest_bearing = util.cartesian_to_polar(oldest_rel_pos[0], oldest_rel_pos[1])
-
-    latest_rel_pos = rel_pos_hist[-1][1]
-    latest_distance, latest_bearing = util.cartesian_to_polar(latest_rel_pos[0], latest_rel_pos[1])
-
-    return abs(util.normalize_angle(oldest_bearing - latest_bearing, shortest=True)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
-
 class AbstractSteeringOrder(core.Order):
     def __init__(self, *args: Any, safety_factor:float=2., **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -716,10 +462,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_minimum_separation:Optional[float] = None
         self.collision_dv = ZERO_VECTOR
         self.collision_threat_time = 0.
-        self.collision_relative_velocity = ZERO_VECTOR
-        self.collision_relative_position = ZERO_VECTOR
         self.collision_approach_time = np.inf
-        self.collision_rel_pos_hist:Deque[Tuple[float, np.ndarray]] = collections.deque()
         self.collision_cbdr = False
         self.collision_cbdr_divert_angle = np.pi/4
         self.collision_coalesced_threats = 0.
@@ -761,7 +504,7 @@ class AbstractSteeringOrder(core.Order):
             history["ct_ct"] = self.collision_coalesced_threats
             history["ct_cloc"] = (self.collision_threat_loc[0], self.collision_threat_loc[1])
             history["ct_cradius"] = self.collision_threat_radius
-            history["ct_cn"] = self.neighbor_analyzer.coalesced_neighbor_locations
+            history["ct_cn"] = self.neighbor_analyzer.coalesced_neighbor_locations()
             history["ct_mh"] = self.collision_margin_histeresis
             history["ct_dv_override"] = self.desired_divert_override
             history["cac"] = bool(self.cannot_avoid_collision)
@@ -770,21 +513,7 @@ class AbstractSteeringOrder(core.Order):
 
             # just get the oldest and newest cbdr history cause it's expensive
             # to iterating over it
-            if len(self.collision_rel_pos_hist) > 1:
-                cbdr_loc_old = self.collision_rel_pos_hist[0][1]
-                cbdr_loc_new = self.collision_rel_pos_hist[-1][1]
-                cbdr_hist_summary = [
-                        (cbdr_loc_old[0], cbdr_loc_old[1]),
-                        (cbdr_loc_new[0], cbdr_loc_new[1]),
-                ]
-            elif len(self.collision_rel_pos_hist) > 0:
-                cbdr_loc_old = self.collision_rel_pos_hist[0][1]
-                cbdr_hist_summary = [
-                        (cbdr_loc_old[0], cbdr_loc_old[1]),
-                ]
-            else:
-                cbdr_hist_summary = []
-            history["cbdr_hist"] = cbdr_hist_summary
+            history["cbdr_hist"] = self.neighbor_analyzer.cbdr_history_summary()
 
         history["nd"] = self.neighborhood_density
         history["nnd"] = self.nearest_neighbor_dist
@@ -875,18 +604,6 @@ class AbstractSteeringOrder(core.Order):
         self._next_accelerate_compute_ts = self.gamestate.timestamp + continue_time
         return continue_time
 
-    def _clear_collision_info(self) -> None:
-        self.collision_threat = None
-        self.collision_minimum_separation = None
-        self.collision_dv = ZERO_VECTOR
-        self.collision_threat_time = 0.
-        self.collision_relative_velocity = ZERO_VECTOR
-        self.collision_relative_position = ZERO_VECTOR
-        self.collision_approach_time = np.inf
-        self.collision_rel_pos_hist.clear()
-        self.collision_cbdr = False
-        self.cannot_avoid_collision = False
-
     def _collision_neighbor(
             self,
             sector: core.Sector,
@@ -896,8 +613,6 @@ class AbstractSteeringOrder(core.Order):
         ) -> tuple[
             Optional[core.SectorEntity],
             float,
-            np.ndarray,
-            np.ndarray,
             float,
             float,
             np.ndarray,
@@ -913,8 +628,8 @@ class AbstractSteeringOrder(core.Order):
         (
                 threat,
                 approach_time,
-                relative_position,
-                relative_velocity,
+                _,
+                _,
                 minimum_separation,
                 threat_count,
                 coalesced_threats,
@@ -928,6 +643,7 @@ class AbstractSteeringOrder(core.Order):
                 num_neighbors,
                 prior_threat_count,
         ) = self.neighbor_analyzer.analyze_neighbors(
+            self.gamestate.timestamp,
             max_distance, self.ship.radius, margin, neighborhood_dist,
             self.ship.max_acceleration(),
         )
@@ -936,8 +652,6 @@ class AbstractSteeringOrder(core.Order):
         if neighborhood_density > 0:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_HAS_NEIGHBORS] += 1
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NUM_NEIGHBORS] += num_neighbors
-            relative_position = np.array(relative_position)
-            relative_velocity = np.array(relative_velocity)
             threat_loc = np.array(threat_loc)
             threat_velocity = np.array(threat_velocity)
 
@@ -991,8 +705,6 @@ class AbstractSteeringOrder(core.Order):
         else:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NO_NEIGHBORS] += 1
             approach_time = np.inf
-            relative_position = ZERO_VECTOR
-            relative_velocity  = ZERO_VECTOR
             minimum_separation = np.inf
             collision_loc = ZERO_VECTOR
             threat_count = 0
@@ -1011,20 +723,10 @@ class AbstractSteeringOrder(core.Order):
         else:
             neighbor = threat.data
 
-        if neighbor is not None and neighbor == last_collision_threat:
-            self.collision_rel_pos_hist.append((self.gamestate.timestamp, relative_position))
-            while self.gamestate.timestamp - self.collision_rel_pos_hist[-1][0] > CBDR_MAX_HIST_SEC:
-                self.collision_rel_pos_hist.pop()
-        else:
-            self.collision_rel_pos_hist.clear()
-            self.collision_cbdr = False
-
         # cache the collision threat
         if neighbor != self.collision_threat:
             self.collision_threat = neighbor
             self.collision_approach_time = approach_time
-            self.collision_relative_velocity = relative_velocity
-            self.collision_relative_position = relative_position
             self.collision_threat_time = self.gamestate.timestamp
 
         self.nearest_neighbor = nearest_neighbor
@@ -1035,7 +737,7 @@ class AbstractSteeringOrder(core.Order):
         self.collision_threat_loc = threat_loc
         self.collision_threat_radius = threat_radius
 
-        return neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats
+        return neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats
 
     def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
@@ -1072,7 +774,7 @@ class AbstractSteeringOrder(core.Order):
         neighbor_margin = margin + self.collision_margin_histeresis
 
         # find neighbor with soonest closest appraoch
-        neighbor, approach_time, relative_position, relative_velocity, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, max_distance)
+        neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, max_distance)
 
         if any_prior_threats:
             # if there's any overlap, keep the margin extra big
@@ -1115,6 +817,7 @@ class AbstractSteeringOrder(core.Order):
             self.cannot_avoid_collision = False
             self.ship.collision_threat = None
             self.collision_dv = ZERO_VECTOR
+            self.collision_cbdr = False
             return ZERO_VECTOR, np.inf, np.inf, 0
 
         base_bias = 2.
@@ -1124,7 +827,7 @@ class AbstractSteeringOrder(core.Order):
             cbdr_bias = base_bias
 
 
-        if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and detect_cbdr(self.collision_rel_pos_hist, self.gamestate.timestamp, CBDR_MIN_HIST_SEC):
+        if self.collision_coalesced_threats == 1 and not util.both_almost_zero(threat_velocity) and self.neighbor_analyzer.detect_cbdr(self.gamestate.timestamp):
             self.collision_cbdr = True
         else:
             self.collision_cbdr = False

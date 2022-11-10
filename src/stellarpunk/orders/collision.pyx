@@ -2,6 +2,7 @@ from typing import Tuple, List
 import cython
 from libcpp.vector cimport vector
 from libcpp.set cimport set
+from libcpp.list cimport list
 from libcpp cimport bool
 from libc.stdlib cimport malloc
 from libc.math cimport fabs, sqrt, pi
@@ -126,6 +127,12 @@ cdef double NOFF_LOW = 0
 cdef double NOFF_SPEED_LOW = 0
 cdef double NOFF_HIGH = 2.5e4
 cdef double NOFF_SPEED_HIGH = 2500
+
+# CBDR parameters
+cdef double CBDR_MIN_HIST_SEC = 0.5
+cdef double CBDR_MAX_HIST_SEC = 1.1
+cdef double CBDR_ANGLE_EPS = 1e-1 # about 6 degrees
+cdef double CBDR_DIST_EPS = 5
 
 # cymunk fails to export this type from chipmunk
 ctypedef struct cpCircleShape :
@@ -321,12 +328,21 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
 
     return
 
+cdef struct RelPosHistoryEntry:
+    double timestamp
+    ccymunk.cpVect rel_pos
+
 cdef class NeighborAnalyzer:
     cdef ccymunk.Space space
     cdef ccymunk.Body body
+
+    # some state we keep from one analysis call to the next
+    cdef ccymunk.cpHashValue last_threat_id
     # list of prior threat shape ids, be careful to check that these are still
     # in the space before
     cdef vector[ccymunk.cpHashValue] prior_threat_ids
+    # list of relative positions of the last threat
+    cdef list[RelPosHistoryEntry] rel_pos_history
 
     def __cinit__(self, space:cymunk.Space, body:cymunk.Body) -> None:
         self.space = <ccymunk.Space?> space
@@ -349,11 +365,22 @@ cdef class NeighborAnalyzer:
 
         return locs
 
-    def foo(self, x):
-        return x
+    def cbdr_history_summary(self) -> List[Tuple[float,float]]:
+        if self.rel_pos_history.size() > 1:
+            return [
+                (self.rel_pos_history.front().rel_pos.x, self.rel_pos_history.front().rel_pos.y),
+                (self.rel_pos_history.back().rel_pos.x, self.rel_pos_history.back().rel_pos.y),
+            ]
+        elif self.rel_pos_history.size() > 0:
+            return [
+                (self.rel_pos_history.front().rel_pos.x, self.rel_pos_history.front().rel_pos.y),
+            ]
+        else:
+            return[]
 
     def analyze_neighbors(
             self,
+            current_timestamp:float,
             max_distance:float,
             ship_radius:float,
             margin:float,
@@ -385,6 +412,7 @@ cdef class NeighborAnalyzer:
         cdef ccymunk.cpVect cneighborhood_loc
         cdef set[ccymunk.cpHashValue] prior_shapes
         cdef int prior_threat_count
+        cdef ccymunk.cpHashValue prior_threat_id
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -474,6 +502,9 @@ cdef class NeighborAnalyzer:
         neighborhood_density = analysis.neighborhood_size / (math.pi * analysis.neighborhood_radius ** 2)
 
         if analysis.threat_count == 0:
+            self.last_threat_id = 0
+            self.prior_threat_ids.clear()
+            self.rel_pos_history.clear()
             return tuple((
                     None,
                     ccymunk.INFINITY,
@@ -493,6 +524,18 @@ cdef class NeighborAnalyzer:
                     False
             ))
         else:
+            prior_threat_id = self.last_threat_id
+            self.last_threat_id = analysis.threat_shape.hashid_private
+            if self.last_threat_id == prior_threat_id:
+                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position))
+                # nuke history entries that are too old
+                while current_timestamp - self.rel_pos_history.front().timestamp > CBDR_MAX_HIST_SEC:
+                    self.rel_pos_history.pop_front()
+
+            else:
+                self.rel_pos_history.clear()
+                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position))
+
             threat = self.space.shapes[analysis.threat_shape.hashid_private].body
             self.prior_threat_ids.clear()
             prior_threat_count = 0
@@ -518,6 +561,21 @@ cdef class NeighborAnalyzer:
                     analysis.neighborhood_size,
                     prior_threat_count,
             ))
+
+    def detect_cbdr(self, current_timestamp:float):
+        if self.rel_pos_history.size() < 2:
+            return False
+        if current_timestamp - self.rel_pos_history.front().timestamp < CBDR_MIN_HIST_SEC:
+            return False
+
+        cdef double oldest_distance = ccymunk.cpvlength(self.rel_pos_history.front().rel_pos)
+        cdef double oldest_bearing = ccymunk.cpvtoangle(self.rel_pos_history.front().rel_pos)
+
+        cdef double latest_distance = ccymunk.cpvlength(self.rel_pos_history.back().rel_pos)
+        cdef double latest_bearing = ccymunk.cpvtoangle(self.rel_pos_history.back().rel_pos)
+
+        return fabs(normalize_angle(oldest_bearing - latest_bearing, shortest=1)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
+
 
 cdef double ANGLE_EPS = 5e-2 # about 3 degrees
 cdef double COARSE_VELOCITY_MATCH = 2e0
