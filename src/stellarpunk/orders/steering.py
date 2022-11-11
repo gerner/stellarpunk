@@ -32,13 +32,45 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
+def update_collision_margin_histeresis(collision_margin_histeresis:float, margin_histeresis:float, any_prior_threats:bool) -> float:
+    if any_prior_threats:
+        # if there's any overlap, keep the margin extra big
+        #self.collision_margin_histeresis = margin_histeresis
+
+        # expand margin up to margin histeresis
+        # this is the iterative form of the inverse of expoential decay
+        # which we use below to decay the margin histeresis when there's no
+        # overlap
+        if collision_margin_histeresis < margin_histeresis:
+            y = collision_margin_histeresis
+            b = margin_histeresis
+            m = COLLISION_MARGIN_HISTERESIS_FACTOR
+            y_next = (b - y)*(1-m)+y
+            # numerical precision means we might exceed the upper bound
+            if y_next > margin_histeresis:
+                y_next = margin_histeresis
+            assert y_next >= 0.
+            return y_next
+        elif collision_margin_histeresis > margin_histeresis:
+            collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
+            if collision_margin_histeresis < margin_histeresis:
+                return margin_histeresis
+        return collision_margin_histeresis
+    else:
+        # if there's no overlap, start collapsing collision margin
+        return collision_margin_histeresis * COLLISION_MARGIN_HISTERESIS_FACTOR
+
 class AbstractSteeringOrder(core.Order):
     def __init__(self, *args: Any, safety_factor:float=2., **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
 
         assert self.ship.sector is not None
-        self.neighbor_analyzer = collision.NeighborAnalyzer(self.ship.sector.space, self.ship.phys)
+        self.neighbor_analyzer = collision.NeighborAnalyzer(
+                self.ship.sector.space, self.ship.phys,
+                self.ship.radius, self.ship.max_thrust, self.ship.max_torque,
+                self.ship.max_speed()
+        )
 
         self.nearest_neighbor:Optional[core.SectorEntity] = None
         self.nearest_neighbor_dist = np.inf
@@ -138,8 +170,8 @@ class AbstractSteeringOrder(core.Order):
                 prior_threat_count,
         ) = self.neighbor_analyzer.analyze_neighbors(
             self.gamestate.timestamp,
-            max_distance, self.ship.radius, margin, neighborhood_dist,
-            self.ship.max_acceleration(),
+            max_distance, margin, neighborhood_dist,
+            not self.cannot_avoid_collision_hold,
         )
 
         if neighborhood_density > 0:
@@ -148,13 +180,6 @@ class AbstractSteeringOrder(core.Order):
 
             self.gamestate.counters[core.Counters.COLLISION_THREATS_C] += coalesced_threats
             self.gamestate.counters[core.Counters.COLLISION_THREATS_NC] += non_coalesced_threats
-
-            if not self.cannot_avoid_collision_hold and self.collision_threat_radius > 0:
-                threat_loc, threat_radius = collision.migrate_threat_location(
-                        self.ship.phys.position, self.ship.radius,
-                        self.collision_threat_loc, self.collision_threat_radius,
-                        threat_loc, threat_radius
-                )
 
             self.collision_threat_loc = threat_loc
             self.collision_threat_radius = threat_radius
@@ -234,38 +259,11 @@ class AbstractSteeringOrder(core.Order):
         # find neighbor with soonest closest appraoch
         neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats = self._collision_neighbor(sector, neighborhood_dist, neighbor_margin, max_distance)
 
-        if any_prior_threats:
-            # if there's any overlap, keep the margin extra big
-            #self.collision_margin_histeresis = margin_histeresis
+        self.collision_margin_histeresis = update_collision_margin_histeresis(self.collision_margin_histeresis, margin_histeresis, any_prior_threats)
 
-            # expand margin up to margin histeresis
-            # this is the iterative form of the inverse of expoential decay
-            # which we use below to decay the margin histeresis when there's no
-            # overlap
-            if self.collision_margin_histeresis < margin_histeresis:
-                y = self.collision_margin_histeresis
-                b = margin_histeresis
-                m = COLLISION_MARGIN_HISTERESIS_FACTOR
-                y_next = (b - y)*(1-m)+y
-                # numerical precision means we might exceed the upper bound
-                if y_next > margin_histeresis:
-                    y_next = margin_histeresis
-                self.collision_margin_histeresis = y_next
-            elif self.collision_margin_histeresis > margin_histeresis:
-                self.collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
-                if self.collision_margin_histeresis < margin_histeresis:
-                    self.collision_margin_histeresis = margin_histeresis
-
-            assert self.collision_margin_histeresis >= 0
-
-        else:
-            # if there's no overlap, start collapsing collision margin
-            self.collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
+        if not any_prior_threats:
             # if there's no overlap, clear the cannot avoid collision flag
             self.cannot_avoid_collision_hold = False
-
-            assert self.collision_margin_histeresis >= 0
-            #assert self.collision_margin_histeresis <= margin_histeresis
 
         self.neighborhood_density = neighborhood_density
 
@@ -276,74 +274,7 @@ class AbstractSteeringOrder(core.Order):
             self.collision_cbdr = False
             return ZERO_VECTOR, np.inf, np.inf, 0
 
-        base_bias = 2.
-        if self.ship.entity_id < neighbor.entity_id and not util.both_almost_zero(neighbor.velocity):
-            cbdr_bias = -base_bias
-        else:
-            cbdr_bias = base_bias
-
-
-        self.collision_cbdr = self.neighbor_analyzer.detect_cbdr(self.gamestate.timestamp)
-
-        desired_margin = neighbor_margin + threat_radius + self.ship.radius
-        current_threat_loc = threat_loc-threat_velocity*approach_time
-        current_threat_vec = current_threat_loc - self.ship.loc
-        distance_to_threat = util.magnitude(current_threat_vec[0], current_threat_vec[1])
-
-        if distance_to_threat <= desired_margin + VELOCITY_EPS:
-            delta_velocity = (current_threat_loc - self.ship.loc) / distance_to_threat * self.ship.max_speed() * -1
-            if minimum_separation < threat_radius:
-                if distance_to_threat < threat_radius:
-                    self.cannot_avoid_collision = True
-                elif approach_time > 0.:
-                    required_acceleration = 2*(threat_radius-minimum_separation)/(approach_time ** 2)
-                    required_thrust = self.ship.mass * required_acceleration
-                    self.cannot_avoid_collision = required_thrust > self.ship.max_thrust
-        else:
-            if minimum_separation < threat_radius:
-                if approach_time > 0.:
-                    # check if we can avoid collision
-                    # s = u*t + 1/2 a * t^2
-                    # s = threat_radius - minimum_separation
-                    # ignore current velocity, we want to get displacement on
-                    #   top of current situation
-                    # t = approach_time
-                    # a = 2 * s / t^2
-                    required_acceleration = 2*(threat_radius-minimum_separation)/(approach_time ** 2)
-                    required_thrust = self.ship.mass * required_acceleration
-                    self.cannot_avoid_collision = required_thrust > self.ship.max_thrust
-                else:
-                    self.cannot_avoid_collision = True
-            else:
-                if approach_time > 0:
-                    # check that the desired margin is feasible given our delta-v budget
-                    # if not, set the margin to whatever our delta-v budget permits
-                    required_acceleration = 2*(desired_margin-minimum_separation)/(approach_time ** 2)
-                    required_thrust = self.ship.mass * required_acceleration
-                    if required_thrust > self.ship.max_thrust:
-                        # best case is we spend all our time accelerating in one direction
-                        # worst case is we need to rotate 180 degrees
-                        #worst_case_rot_time = math.sqrt(2. * math.pi / self.ship.max_angular_acceleration())
-                        #desired_margin = (self.ship.max_acceleration() * (approach_time - worst_case_rot_time)** 2 + 2 * minimum_separation)/2
-                        desired_margin = (self.ship.max_acceleration() * approach_time ** 2 + 2 * minimum_separation)/2
-
-                self.cannot_avoid_collision = False
-
-            desired_delta_velocity = desired_direction - self.ship.velocity
-            ddv_mag = util.magnitude(desired_delta_velocity[0], desired_delta_velocity[1])
-            max_dv_available = self.ship.max_thrust / self.ship.mass * approach_time
-            if ddv_mag > max_dv_available:
-                desired_delta_velocity = desired_delta_velocity / ddv_mag * max_dv_available
-
-            delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - self.worst_case_rot_time)
-
-            delta_velocity = collision.collision_dv(
-                    current_threat_loc, threat_velocity,
-                    self.ship.phys.position, self.ship.phys.velocity,
-                    desired_margin, cymunk.Vec2d(*desired_delta_velocity),
-                    self.collision_cbdr, cbdr_bias,
-                    delta_v_budget,
-            )
+        (delta_velocity, self.collision_cbdr, self.cannot_avoid_collision) = self.neighbor_analyzer.collision_dv(self.gamestate.timestamp, neighbor_margin, cymunk.Vec2d(*desired_direction))
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

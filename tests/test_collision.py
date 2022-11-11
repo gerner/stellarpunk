@@ -11,7 +11,11 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
     ship_b = generator.spawn_ship(sector, 100, 100, v=(0,0), w=0, theta=0)
     ship_c = generator.spawn_ship(sector, 1000, 1000, v=(0,0), w=0, theta=0)
 
-    neighbor_analyzer = collision.NeighborAnalyzer(sector.space, ship_a.phys)
+    neighbor_analyzer = collision.NeighborAnalyzer(
+            sector.space, ship_a.phys,
+            ship_a.radius,
+            ship_a.max_thrust, ship_a.max_torque, ship_a.max_speed()
+    )
     (
             threat,
             approach_time,
@@ -31,8 +35,8 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
             prior_threat_count,
     ) = neighbor_analyzer.analyze_neighbors(
             0.,
-            1e4, ship_a.radius, 5e2, 1e4,
-            ship_a.max_acceleration(),
+            1e4, 5e2, 1e4,
+            True,
     )
 
     assert threat.data == ship_b
@@ -62,7 +66,11 @@ def test_coalesce(generator, sector):
         ):
         other_ships.append(generator.spawn_ship(sector, pos[0], pos[1], v=(0,0), w=0, theta=0))
 
-    neighbor_analyzer = collision.NeighborAnalyzer(sector.space, ship_a.phys)
+    neighbor_analyzer = collision.NeighborAnalyzer(
+            sector.space, ship_a.phys,
+            ship_a.radius,
+            ship_a.max_thrust, ship_a.max_torque, ship_a.max_speed()
+    )
     (
             threat,
             approach_time,
@@ -83,10 +91,9 @@ def test_coalesce(generator, sector):
     ) = neighbor_analyzer.analyze_neighbors(
             0.,
             max_distance=1e4,
-            ship_radius=30.,
             margin=5e2,
             neighborhood_radius=1e4,
-            maximum_acceleration=100.,
+            migrate_threat=True,
     )
 
     assert threat.data == other_ships[0]

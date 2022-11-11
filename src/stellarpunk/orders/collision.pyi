@@ -9,7 +9,11 @@ def make_enclosing_circle(
 def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Vec2d, vel:cymunk.Vec2d, margin:float, v_d:cymunk.Vec2d, cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> cymunk.Vec2d: ...
 
 class NeighborAnalyzer:
-    def __init__(self, space:cymunk.Space, body:cymunk.Body) -> None: ...
+    def __init__(
+            self, space:cymunk.Space, body:cymunk.Body,
+            radius:float,
+            max_thrust:float, max_torque:float, max_speed:float,
+            ) -> None: ...
 
     def add_neighbor_shape(self, shape:cymunk.Shape) -> None: ...
     def coalesced_neighbor_locations(self) -> List[Tuple[float, float]]: ...
@@ -19,10 +23,9 @@ class NeighborAnalyzer:
             self,
             current_timestamp:float,
             max_distance:float,
-            ship_radius:float,
             margin:float,
             neighborhood_radius:float,
-            maximum_acceleration:float,
+            migrate_threat:bool,
             ) -> Tuple[
                 cymunk.Body,
                 float,
@@ -43,6 +46,11 @@ class NeighborAnalyzer:
             ]: ...
 
     def detect_cbdr(self, current_timestamp:float) -> bool: ...
+
+    def collision_dv(self,
+            current_timestamp:float, neighbor_margin:float,
+            desired_direction:cymunk.Vec2d,
+            ) -> Tuple[cymunk.Vec2d, bool, bool]: ...
 
 def torque_for_angle(target_angle:float, angle:float, w:float, moment:float, max_torque:float, dt:float) -> float: ...
 def force_for_delta_velocity(dv:cymunk.Vec2d, mass:float, max_thrust:float, dt:float) -> cymunk.Vec2d: ...

@@ -1,11 +1,11 @@
-from typing import Tuple, List
+from typing import Tuple, List, Any
 import cython
 from libcpp.vector cimport vector
 from libcpp.set cimport set
 from libcpp.list cimport list
 from libcpp cimport bool
 from libc.stdlib cimport malloc
-from libc.math cimport fabs, sqrt, pi, isnan, isinf
+from libc.math cimport fabs, sqrt, pi, isnan, isinf, atan2
 
 import numpy.typing as npt
 import numpy as np
@@ -92,7 +92,7 @@ cdef Circle enclosing_circle(
     cdef double dx = c2.x - c1.x
     cdef double dy = c2.y - c1.y
     #center-center distance
-    cdef double dc = math.sqrt(dx**2 + dy**2)
+    cdef double dc = math.sqrt(dx**2. + dy**2.)
     cdef double rmin = min(r1, r2)
     cdef double rmax = max(r1, r2)
 
@@ -304,7 +304,7 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     # keep track of "worst margin offender", prioritizing a tradeoff
     # between minimum separation and approach time by assuming we
     # accelerate constantly to maximize the separation
-    cdef double ultimate_sep = neighbor.min_sep - entity_radius - analysis.ship_radius + 0.5 * analysis.maximum_acceleration * neighbor.approach_t ** 2
+    cdef double ultimate_sep = neighbor.min_sep - entity_radius - analysis.ship_radius + 0.5 * analysis.maximum_acceleration * neighbor.approach_t ** 2.
     if ultimate_sep < analysis.worst_ultimate_separation:
         analysis.worst_ultimate_separation = ultimate_sep
         analysis.approach_time = neighbor.approach_t
@@ -422,6 +422,7 @@ cdef ccymunk.cpVect _collision_dv(
     cdef double cost1, cost2, cost
     cdef double q_a, q_b, q_c
     cdef double cross1, cross2
+    cdef bool horizonal_rel_pos
 
     if isclose(v.x, 0.) and isclose(v.y, 0.):
         do_nothing_margin_sq = r.x**2.+r.y**2.
@@ -450,6 +451,9 @@ cdef ccymunk.cpVect _collision_dv(
     # we can translate the whole system to the origin:
     # let s_x,s_y = (x + 2*v.x, y + 2*v.y)
     # let p = r.x**2. + r.y**2. - m**2.
+    # giving
+    # s_x**2 + s_y**2 = p
+    # (s_x-r.x)**2 + (s_y-r.y)**2 = m**2
     # having done this we can subtract the one from the other, solve for y,
     # plug back into one of the equations
     # solve the resulting quadratic eq for x (two roots)
@@ -460,7 +464,8 @@ cdef ccymunk.cpVect _collision_dv(
 
     p = r.x**2. + r.y**2. - m**2.
 
-    if isclose(r.y**2., 0, rtol=1e-05, atol=1e-5):
+    horizonal_rel_pos = isclose(r.y**2., 0, rtol=1e-05, atol=1e-5)
+    if horizonal_rel_pos:
         # this case would cause a divide by zero when computing the
         # coefficients of the quadratic equation below
         s_1x = s_2x = p/r.x
@@ -503,6 +508,9 @@ cdef ccymunk.cpVect _collision_dv(
         s_2y = sqrt(p-s_2x**2.)
     if not isclose((s_2x - r.x)**2. + (s_2y - r.y)**2., m**2.):
         s_2y = -s_2y
+
+    if horizonal_rel_pos:
+        s_2y = -s_1y
 
     # subbing back in our x_hat,y_hat above,
     # these determine the slope of the boundry lines of our viable region
@@ -628,24 +636,43 @@ cdef class NeighborAnalyzer:
     cdef ccymunk.Space space
     cdef ccymunk.Body body
 
+    # some parameters about us
+    cdef double radius
+    cdef double max_thrust
+    cdef double max_torque
+    cdef double max_acceleration
+    cdef double max_speed
+    cdef double worst_case_rot_time
+
     # some state we keep from one analysis call to the next
 
     # shape hash id of the most recent threat (the shape might have been
     # removed from the space since we found it)
     cdef ccymunk.cpHashValue last_threat_id
-    # actual location of the most recent threat (not projected location)
-    cdef ccymunk.cpVect last_threat_loc
-    # actual velocity of the most recent threat
-    cdef ccymunk.cpVect last_threat_velocity
+    # the most recent analysis we've performed
+    cdef NeighborAnalysis analysis
+
     # list of prior threat shape ids, be careful to check that these are still
     # in the space before
     cdef vector[ccymunk.cpHashValue] prior_threat_ids
     # list of relative positions of the last threat
     cdef list[RelPosHistoryEntry] rel_pos_history
 
-    def __cinit__(self, space:cymunk.Space, body:cymunk.Body) -> None:
+    def __cinit__(
+            self, space:cymunk.Space, body:cymunk.Body,
+            radius:float,
+            max_thrust:float, max_torque:float,
+            max_speed:float,
+            ) -> None:
         self.space = <ccymunk.Space?> space
         self.body = <ccymunk.Body?> body
+
+        self.radius = radius
+        self.max_thrust = max_thrust
+        self.max_torque = max_torque
+        self.max_acceleration = self.max_thrust / self.body._body.m
+        self.max_speed = max_speed
+        self.worst_case_rot_time = sqrt(2. * pi / (self.max_torque/self.body._body.i))
 
     def add_neighbor_shape(self, shape:cymunk.Shape) -> None:
         """ Testing helper to set up NeighborAnalyzer """
@@ -681,10 +708,9 @@ cdef class NeighborAnalyzer:
             self,
             current_timestamp:float,
             max_distance:float,
-            ship_radius:float,
             margin:float,
             neighborhood_radius:float,
-            maximum_acceleration:float,
+            migrate_threat:bool
             ) -> Tuple[
                 int,
                 float,
@@ -704,6 +730,7 @@ cdef class NeighborAnalyzer:
                 int,
             ]:
 
+        cdef bool should_migrate_threat = migrate_threat
         cdef ccymunk.cpShape *ct
         cdef ccymunk.Body cythreat_body
         cdef double speed = ccymunk.cpvlength(self.body._body.v)
@@ -712,6 +739,7 @@ cdef class NeighborAnalyzer:
         cdef set[ccymunk.cpHashValue] prior_shapes
         cdef int prior_threat_count
         cdef ccymunk.cpHashValue prior_threat_id
+        cdef Circle migrated_threat
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -726,31 +754,38 @@ cdef class NeighborAnalyzer:
         else:
             cneighborhood_loc = self.body._body.p
 
+        # stash the prior threat circle to smooth threat location transitions
+        cdef ccymunk.cpVect prior_threat_location = self.analysis.threat_loc
+        cdef double prior_threat_radius = self.analysis.threat_radius
 
-        cdef NeighborAnalysis analysis
-        analysis.neighborhood_radius = neighborhood_radius
-        analysis.ship_radius = ship_radius
-        analysis.margin = margin
-        analysis.max_distance = max_distance
-        analysis.maximum_acceleration = maximum_acceleration
-        analysis.body = self.body._body
-        analysis.worst_ultimate_separation = ccymunk.INFINITY
-        analysis.approach_time = ccymunk.INFINITY
-        analysis.nearest_neighbor_dist = ccymunk.INFINITY
-        analysis.neighborhood_size = 0
-        analysis.threat_count = 0
+        self.analysis.neighborhood_radius = neighborhood_radius
+        self.analysis.ship_radius = self.radius
+        self.analysis.margin = margin
+        self.analysis.max_distance = max_distance
+        self.analysis.maximum_acceleration = self.max_acceleration
+        self.analysis.body = self.body._body
+        self.analysis.worst_ultimate_separation = ccymunk.INFINITY
+        self.analysis.approach_time = ccymunk.INFINITY
+        self.analysis.nearest_neighbor_dist = ccymunk.INFINITY
+        self.analysis.neighborhood_size = 0
+        self.analysis.threat_count = 0
+        self.analysis.threat_radius = 0.
+
+        self.analysis.collision_threats.clear()
+        self.analysis.coalesced_threats.clear()
+        self.analysis.considered_shapes.clear()
 
         # start by considering prior threats
         for shape_id in self.prior_threat_ids:
             shape = self.space._shapes.get(shape_id)
             if shape_id is not None:
-                _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &analysis)
+                _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &self.analysis)
 
         # grab a copy of the shape ids for prior shapes
-        prior_shape_ids = analysis.considered_shapes
+        prior_shape_ids = self.analysis.considered_shapes
 
         # look for threats in a circle
-        ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, neighborhood_radius, 1, 0, _sensor_point_callback, &analysis)
+        ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)
 
         # look for threats in a cone facing the direction of our velocity
         # cone is truncated, starts at the edge of our nearest point query circle
@@ -763,18 +798,27 @@ cdef class NeighborAnalyzer:
 
         cdef ccymunk.cpVect sensor_cone[4]
         # points are ordered to get a convex shape with the proper winding
-        sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (ship_radius+margin*2)))
-        sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin*2)))
-        sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (ship_radius+margin)*5))
-        sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(ship_radius+margin)*5))
+        sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (self.radius+margin*2)))
+        sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(self.radius+margin*2)))
+        sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (self.radius+margin)*5))
+        sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(self.radius+margin)*5))
 
         cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
         ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)
-        ccymunk.cpSpaceShapeQuery(self.space._space, sensor_cone_shape, _sensor_shape_callback, &analysis)
+        ccymunk.cpSpaceShapeQuery(self.space._space, sensor_cone_shape, _sensor_shape_callback, &self.analysis)
         ccymunk.cpShapeFree(sensor_cone_shape)
         #TODO: do we need to deallocate the cone shape?
 
-        coalesce_threats(&analysis)
+        coalesce_threats(&self.analysis)
+
+        if should_migrate_threat and self.analysis.threat_count > 0 and prior_threat_radius > 0:
+            migrated_threat = _migrate_threat_location(
+                    self.body._body.p, self.radius,
+                    prior_threat_location, prior_threat_radius,
+                    self.analysis.threat_loc, self.analysis.threat_radius
+            )
+            self.analysis.threat_loc = migrated_threat.center
+            self.analysis.threat_radius = migrated_threat.radius
 
         # to return:
         #        idx, #neighbor
@@ -794,16 +838,14 @@ cdef class NeighborAnalyzer:
         #        num_neighbors,
         #        coalesced_idx, #coalesced_neighbors
 
-        if analysis.nearest_neighbor_dist < ccymunk.INFINITY:
-            nearest_neighbor = self.space.shapes[analysis.nearest_neighbor_shape.hashid_private].body
+        if self.analysis.nearest_neighbor_dist < ccymunk.INFINITY:
+            nearest_neighbor = self.space.shapes[self.analysis.nearest_neighbor_shape.hashid_private].body
         else:
             nearest_neighbor = None
-        neighborhood_density = analysis.neighborhood_size / (math.pi * analysis.neighborhood_radius ** 2)
+        neighborhood_density = self.analysis.neighborhood_size / (math.pi * self.analysis.neighborhood_radius ** 2)
 
-        if analysis.threat_count == 0:
+        if self.analysis.threat_count == 0:
             self.last_threat_id = 0
-            self.last_threat_velocity = ZERO_VECTOR
-            self.last_threat_loc = ZERO_VECTOR
             self.prior_threat_ids.clear()
             self.rel_pos_history.clear()
             return tuple((
@@ -819,49 +861,47 @@ cdef class NeighborAnalyzer:
                     PY_ZERO_VECTOR,
                     PY_ZERO_VECTOR,
                     nearest_neighbor,
-                    analysis.nearest_neighbor_dist,
+                    self.analysis.nearest_neighbor_dist,
                     neighborhood_density,
-                    analysis.neighborhood_size,
+                    self.analysis.neighborhood_size,
                     False
             ))
         else:
             prior_threat_id = self.last_threat_id
-            self.last_threat_id = analysis.threat_shape.hashid_private
-            self.last_threat_loc = analysis.threat_loc
-            self.last_threat_velocity = analysis.threat_velocity
+            self.last_threat_id = self.analysis.threat_shape.hashid_private
             if self.last_threat_id == prior_threat_id:
-                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position, analysis.threat_velocity))
+                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, self.analysis.relative_position, self.analysis.threat_velocity))
                 # nuke history entries that are too old
                 while current_timestamp - self.rel_pos_history.front().timestamp > CBDR_MAX_HIST_SEC:
                     self.rel_pos_history.pop_front()
 
             else:
                 self.rel_pos_history.clear()
-                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, analysis.relative_position, analysis.threat_velocity))
+                self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, self.analysis.relative_position, self.analysis.threat_velocity))
 
-            threat = self.space.shapes[analysis.threat_shape.hashid_private].body
+            threat = self.space.shapes[self.analysis.threat_shape.hashid_private].body
             self.prior_threat_ids.clear()
             prior_threat_count = 0
-            for ct in analysis.coalesced_threats:
+            for ct in self.analysis.coalesced_threats:
                 self.prior_threat_ids.push_back(ct.hashid_private)
                 prior_threat_count += prior_shape_ids.count(ct.hashid_private)
 
             return tuple((
                     threat,
-                    analysis.approach_time,
-                    cpvtoVec2d(analysis.relative_position),
-                    cpvtoVec2d(analysis.relative_velocity),
-                    analysis.minimum_separation,
-                    analysis.threat_count,
-                    analysis.coalesced_threats.size(),
-                    analysis.threat_count - analysis.coalesced_threats.size(),
-                    analysis.threat_radius,
-                    cpvtoVec2d(analysis.threat_loc),
-                    cpvtoVec2d(analysis.threat_velocity),
+                    self.analysis.approach_time,
+                    cpvtoVec2d(self.analysis.relative_position),
+                    cpvtoVec2d(self.analysis.relative_velocity),
+                    self.analysis.minimum_separation,
+                    self.analysis.threat_count,
+                    self.analysis.coalesced_threats.size(),
+                    self.analysis.threat_count - self.analysis.coalesced_threats.size(),
+                    self.analysis.threat_radius,
+                    cpvtoVec2d(self.analysis.threat_loc),
+                    cpvtoVec2d(self.analysis.threat_velocity),
                     nearest_neighbor,
-                    analysis.nearest_neighbor_dist,
+                    self.analysis.nearest_neighbor_dist,
                     neighborhood_density,
-                    analysis.neighborhood_size,
+                    self.analysis.neighborhood_size,
                     prior_threat_count,
             ))
 
@@ -871,7 +911,7 @@ cdef class NeighborAnalyzer:
         if current_timestamp - self.rel_pos_history.front().timestamp < CBDR_MIN_HIST_SEC:
             return False
 
-        if ccymunk.cpvlength(self.last_threat_velocity) == 0:
+        if ccymunk.cpvlength(self.analysis.threat_velocity) == 0:
             return False
 
         cdef double oldest_distance = ccymunk.cpvlength(self.rel_pos_history.front().rel_pos)
@@ -882,6 +922,97 @@ cdef class NeighborAnalyzer:
 
         return fabs(normalize_angle(oldest_bearing - latest_bearing, shortest=1)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(True)
+    @cython.infer_types(False)
+    @cython.nonecheck(False)
+    def collision_dv(self, current_timestamp:float, neighbor_margin:float, indesired_direction:cymunk.Vec2d) -> Tuple[Any]:
+        """ Compute the delta velocity to avoid collision
+
+        returns the delta velocity and whether the collision can be avoided
+        """
+        cdef double desired_margin = neighbor_margin + self.analysis.threat_radius + self.radius
+        cdef ccymunk.cpVect desired_direction = indesired_direction.v
+
+        # we back into current threat location from where the collision is
+        # projected to happen and the threat velocity
+        # we can't use the known current location of the threat neighbor since
+        # the threat might be coalesced from may threats
+        # this phantom current threat location is a simplication we  make
+        cdef ccymunk.cpVect current_threat_loc = ccymunk.cpvsub(
+                self.analysis.threat_loc,
+                ccymunk.cpvmult(
+                    self.analysis.threat_velocity,
+                    self.analysis.approach_time
+                )
+        )
+        cdef double distance_to_threat = ccymunk.cpvdist(
+                current_threat_loc, self.body._body.p)
+
+        # return values
+        cdef ccymunk.cpVect delta_velocity
+        cdef bool collision_cbdr = self.detect_cbdr(current_timestamp)
+        cdef bool cannot_avoid_collision = 0
+
+        cdef double required_acceleration, required_thrust
+        cdef double cbdr_bias = 2. #TODO: get rid of cbdr_bias or actually use it!
+        cdef ccymunk.cpVect desired_delta_velocity
+        cdef double ddv_mag, max_dv_available, delta_v_budget
+
+        if distance_to_threat <= desired_margin + VELOCITY_EPS:
+            delta_velocity = ccymunk.cpvmult(
+                    ccymunk.cpvsub(current_threat_loc, self.body._body.p),
+                    distance_to_threat * self.max_speed * -1
+            )
+            if self.analysis.minimum_separation < self.analysis.threat_radius:
+                if distance_to_threat < self.analysis.threat_radius:
+                    cannot_avoid_collision = 1
+                elif self.analysis.approach_time > 0.:
+                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_thrust = self.body._body.m * required_acceleration
+                    cannot_avoid_collision = required_thrust > self.max_thrust
+        else:
+            if self.analysis.minimum_separation < self.analysis.threat_radius:
+                if self.analysis.approach_time > 0.:
+                    # check if we can avoid collision
+                    # s = u*t + 1/2 a * t^2
+                    # s = threat_radius - minimum_separation
+                    # ignore current velocity, we want to get displacement on
+                    #   top of current situation
+                    # t = approach_time
+                    # a = 2 * s / t^2
+                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_thrust = self.body._body.m * required_acceleration
+                    cannot_avoid_collision = required_thrust > self.max_thrust
+                else:
+                    cannot_avoid_collision = 1
+            else:
+                if self.analysis.approach_time > 0:
+                    # check that the desired margin is feasible given our delta-v budget
+                    # if not, set the margin to whatever our delta-v budget permits
+                    required_acceleration = 2.*(desired_margin-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_thrust = self.body._body.m * required_acceleration
+                    if required_thrust > self.max_thrust:
+                        desired_margin = (self.max_acceleration * self.analysis.approach_time ** 2. + 2. * self.analysis.minimum_separation)/2.
+
+            desired_delta_velocity = ccymunk.cpvsub(desired_direction, self.body._body.v)
+            ddv_mag = ccymunk.cpvlength(desired_delta_velocity)
+            max_dv_available = self.max_thrust / self.body._body.m * self.analysis.approach_time
+            if ddv_mag > max_dv_available:
+                desired_delta_velocity = ccymunk.cpvmult(desired_delta_velocity, max_dv_available / ddv_mag)
+
+            delta_v_budget = self.max_thrust / self.body._body.m * (self.analysis.approach_time - self.worst_case_rot_time)
+
+            delta_velocity = _collision_dv(
+                    current_threat_loc, self.analysis.threat_velocity,
+                    self.body._body.p, self.body._body.v,
+                    desired_margin, desired_delta_velocity,
+                    collision_cbdr, cbdr_bias,
+                    delta_v_budget,
+            )
+
+        return tuple((cpvtoVec2d(delta_velocity), collision_cbdr, cannot_avoid_collision))
 
 cdef double ANGLE_EPS = 5e-2 # about 3 degrees
 cdef double COARSE_VELOCITY_MATCH = 2e0
@@ -913,7 +1044,7 @@ cdef double _rotation_time(
     # assume omega_0 = 0 <--- assumes we're not currently rotating!
     # assume we constantly accelerate half way, constantly accelerate the
     # other half
-    return (fabs(angular_velocity)/max_angular_acceleration + 2*sqrt(fabs(delta_angle + 0.5*angular_velocity**2/max_angular_acceleration)/max_angular_acceleration))
+    return (fabs(angular_velocity)/max_angular_acceleration + 2*sqrt(fabs(delta_angle + 0.5*angular_velocity**2./max_angular_acceleration)/max_angular_acceleration))
 
 def rotation_time(
         delta_angle:float, angular_velocity:float,
@@ -1150,7 +1281,7 @@ cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_loc
 
     # if we were to cancel the velocity component in the direction of the
     # target, will we travel enough so that we cross min_distance?
-    cdef double d = (ccymunk.cpvdot(body.v, course) / distance)**2 / (2* max_acceleration)
+    cdef double d = (ccymunk.cpvdot(body.v, course) / distance)**2. / (2* max_acceleration)
 
     cdef bool cannot_stop
     if d > distance-min_distance:
@@ -1173,7 +1304,7 @@ cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_loc
         if s < 0:
             s = 0
 
-        desired_speed = (-2 * a * rot_time + sqrt((2 * a  * rot_time) ** 2 + 8 * a * s))/2
+        desired_speed = (-2. * a * rot_time + sqrt((2. * a  * rot_time) ** 2. + 8 * a * s))/2.
         desired_speed = clip(desired_speed/safety_factor, 0, max_speed)
 
         target_v = ccymunk.cpvmult(ccymunk.cpvmult(course, 1./distance), desired_speed)
@@ -1233,23 +1364,10 @@ def accelerate_to(
 
     return ft_result.continue_time
 
-def migrate_threat_location(
-        inref_loc:cymunk.Vec2d, inref_radius:float,
-        inold_loc:cymunk.Vec2d, inold_radius:float,
-        innew_loc:cymunk.Vec2d, innew_radius:float) -> Tuple[cymunk.Vec2d, float]:
-    """ Migrate from the old circle towards the new circle.
-
-    This happens such that the migrated circle always contains the new circle.
-    Migration is aborted if the migrated circle would include the reference
-    circle. """
-
-    cdef ccymunk.cpVect ref_loc = (<ccymunk.Vec2d?>inref_loc).v
-    cdef double ref_radius = <double?> inref_radius
-    cdef ccymunk.cpVect old_loc = (<ccymunk.Vec2d?>inold_loc).v
-    cdef double old_radius = <double?> inold_radius
-    cdef ccymunk.cpVect new_loc = (<ccymunk.Vec2d?> innew_loc).v
-    cdef double new_radius = <double?> innew_radius
-
+cdef Circle _migrate_threat_location(
+        ccymunk.cpVect ref_loc, double ref_radius,
+        ccymunk.cpVect old_loc, double old_radius,
+        ccymunk.cpVect new_loc, double new_radius):
     cdef double new_old_dist
     cdef Circle enclosing_c
     cdef ccymunk.cpVect new_old_vec
@@ -1299,6 +1417,25 @@ def migrate_threat_location(
             migrated_loc = new_loc
             migrated_radius = new_radius
 
-        return (cpvtoVec2d(migrated_loc), migrated_radius)
+        return Circle(migrated_loc, migrated_radius)
     else:
-        return (innew_loc, innew_radius)
+        return Circle(new_loc, new_radius)
+
+def migrate_threat_location(
+        ref_loc:cymunk.Vec2d, ref_radius:float,
+        old_loc:cymunk.Vec2d, old_radius:float,
+        new_loc:cymunk.Vec2d, new_radius:float) -> Tuple[cymunk.Vec2d, float]:
+    """ Migrate from the old circle towards the new circle.
+
+    This happens such that the migrated circle always contains the new circle.
+    Migration is aborted if the migrated circle would include the reference
+    circle. """
+
+    cdef Circle migrated_circle = _migrate_threat_location(
+            ref_loc, ref_radius,
+            old_loc, old_radius,
+            new_loc, new_radius
+    )
+
+    return (cpvtoVec2d(migrated_circle.center), migrated_circle.radius)
+
