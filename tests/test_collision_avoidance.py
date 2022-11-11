@@ -320,7 +320,7 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
     goto_order = order_from_history(log_entry, ship_driver, gamestate, load_ct=False)
 
     starttime = gamestate.timestamp
-    distance = np.linalg.norm(ship_driver.loc - goto_order.target_location)
+    distance = np.linalg.norm(ship_driver.loc - goto_order._target_location)
     eta = goto_order.estimate_eta()
 
     def tick(timeout, dt):
@@ -357,7 +357,7 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     station = station_from_history(c, generator, sector)
 
     goto_a = order_from_history(a, ship_a, gamestate, load_ct=False)
-    goto_a.target_location = ship_a.loc + (goto_a.target_location  - ship_a.loc)/25
+    goto_a._target_location = (ship_a.phys.position + (goto_a._target_location  - ship_a.phys.position)/25)
     goto_b = order_from_history(b, ship_b, gamestate, load_ct=False)
 
     eta = goto_a.estimate_eta()
@@ -512,7 +512,7 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
 
     goto_a = order_from_history(a, ship_a, gamestate)
     # make the target location close-ish to ship_a
-    goto_a.target_location = ship_a.loc + (goto_a.target_location - ship_a.loc)/5
+    goto_a._target_location = (ship_a.phys.position + (goto_a._target_location - ship_a.phys.position)/5)
 
     goto_b = order_from_history(b, ship_b, gamestate)
 
@@ -686,9 +686,9 @@ def test_fast_speed_asteroid_field(gamestate, generator, sector, testui, simulat
     #testui.margin_neighbors = [ship_a]
     testui.max_timestamp = 45
 
-    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
     simulator.run()
-    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
 
 @write_history
 def test_respond_to_new(gamestate, generator, sector, testui, simulator):
@@ -741,11 +741,11 @@ def test_failed_to_divert(gamestate, generator, sector, testui, simulator):
     # collision
     testui.max_timestamp = 45
 
-    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
     simulator.run()
     asteroid = entities["90acd111-7fb0-4e89-ac2a-98dabb8c7d10"]
     assert util.distance(ship_a.loc, asteroid.loc) > 1.5e3
-    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e3
+    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e3
     #assert goto_a.is_complete()
 
 @write_history
@@ -932,9 +932,9 @@ def test_navigate_field(gamestate, generator, sector, testui, simulator):
     #testui.margin_neighbors = [ship_a]
     testui.max_timestamp = 45
 
-    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    starting_distance =ship_a.phys.position.get_distance(goto_a._target_location)
     simulator.run()
-    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
 
     #assert goto_a.is_complete()
 
@@ -1029,9 +1029,9 @@ def test_busy_intersection(gamestate, generator, sector, testui, simulator):
 
     testui.max_timestamp = 30
 
-    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
     simulator.run()
-    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
     #assert goto_a.is_complete()
 
 @write_history
@@ -1076,9 +1076,9 @@ def test_through_asteroid_field(gamestate, generator, sector, testui, simulator)
     #testui.margin_neighbors = [ship_a]
     testui.max_timestamp = 30
 
-    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
     simulator.run()
-    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
 
     #assert goto_a.is_complete()
 
@@ -1145,9 +1145,9 @@ def test_more_asteroid_nav(gamestate, generator, sector, testui, simulator):
     #testui.margin_neighbors = [ship_a]
     testui.max_timestamp = 30
 
-    starting_distance = util.distance(ship_a.loc, goto_a.target_location)
+    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
     simulator.run()
-    assert starting_distance - util.distance(ship_a.loc, goto_a.target_location) > 1.5e4
+    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
     #assert goto_a.is_complete()
 
 @write_history

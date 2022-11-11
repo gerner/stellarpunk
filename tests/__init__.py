@@ -86,7 +86,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
 
         if "_ncts" in history_entry["o"]:
             gorder._next_compute_ts = history_entry["o"]["_ncts"] - history_entry["ts"]
-            gorder._desired_velocity = np.array(history_entry["o"]["_dv"])
+            gorder._desired_velocity = cymunk.Vec2d(*history_entry["o"]["_dv"])
             gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
             gorder.neighborhood_density = history_entry["o"]["nd"]
 

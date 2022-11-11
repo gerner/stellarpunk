@@ -11,7 +11,7 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core
 
-from .steering import VELOCITY_EPS, ZERO_VECTOR, AbstractSteeringOrder
+from .steering import VELOCITY_EPS, ZERO_VECTOR, CYZERO_VECTOR, AbstractSteeringOrder
 from stellarpunk.orders import collision
 
 class KillRotationOrder(core.Order):
@@ -113,7 +113,7 @@ class GoToLocation(AbstractSteeringOrder):
         target_arrival_distance = 0.
         while tries < max_tries:
             _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
-            target_angle = angle + gamestate.random.uniform(-np.pi/1.5, np.pi/1.5)
+            target_angle = angle + gamestate.random.uniform(-math.pi/1.5, math.pi/1.5)
             target_arrival_distance = (surface_distance - collision_margin)/2
             target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
 
@@ -197,8 +197,8 @@ class GoToLocation(AbstractSteeringOrder):
         self.scaled_collision_margin = self.collision_margin
 
         self.target_sector = target_sector
-        self.target_location = target_location
-        self.target_v = ZERO_VECTOR
+        self._target_location = cymunk.Vec2d(*target_location)
+        self.target_v = CYZERO_VECTOR
         self.arrival_distance = arrival_distance
         if min_distance is None:
             min_distance = self.arrival_distance * 0.9
@@ -221,13 +221,13 @@ class GoToLocation(AbstractSteeringOrder):
         self.distance_estimate = 0.
 
         # after taking into account collision avoidance
-        self._desired_velocity = ZERO_VECTOR
+        self._desired_velocity = CYZERO_VECTOR
         # the next time we should do a costly computation of desired velocity
         self._next_compute_ts = 0.
 
     def to_history(self) -> dict:
         data = super().to_history()
-        data["t_loc"] = (self.target_location[0], self.target_location[1])
+        data["t_loc"] = (self._target_location[0], self._target_location[1])
         data["ad"] = self.arrival_distance
         data["md"] = self.min_distance
         data["t_v"] = (self.target_v[0], self.target_v[1])
@@ -242,17 +242,17 @@ class GoToLocation(AbstractSteeringOrder):
         return data
 
     def __str__(self) -> str:
-        return f'GoToLocation: {self.target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
+        return f'GoToLocation: {self._target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
 
     def estimate_eta(self) -> float:
-        return GoToLocation.compute_eta(self.ship, self.target_location, self.safety_factor)
+        return GoToLocation.compute_eta(self.ship, np.array(self._target_location), self.safety_factor)
 
     def is_complete(self) -> bool:
         # computing this is expensive, so don't if we can avoid it
         if self.distance_estimate > self.arrival_distance*5:
             return False
         else:
-            if util.distance(self.target_location, self.ship.loc) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity):
+            if self._target_location.get_distance(self.ship.phys.position) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity):
                 #assert not self.ship._persistent_force
                 self.ship.apply_force(ZERO_VECTOR, False)
                 #assert not self.ship._persistent_torque
@@ -272,8 +272,7 @@ class GoToLocation(AbstractSteeringOrder):
         # check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
-            #continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
-            continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST_CT] += continue_time
 
@@ -337,10 +336,10 @@ class GoToLocation(AbstractSteeringOrder):
         #        dt, self.safety_factor)
         self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = collision.find_target_v(
                 self.ship.phys,
-                cymunk.Vec2d(*self.target_location), self.arrival_distance, self.min_distance,
+                self._target_location, self.arrival_distance, self.min_distance,
                 max_acceleration, max_angular_acceleration, max_speed,
                 dt, self.safety_factor)
-        self.target_v = np.array(self.target_v)
+        self.target_v = self.target_v
 
         if self.cannot_stop:
             max_distance = np.inf
@@ -382,7 +381,7 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
             self._desired_velocity = self.target_v
@@ -416,12 +415,12 @@ class GoToLocation(AbstractSteeringOrder):
             #v_mag = util.magnitude(v[0], v[1])
             #if v_mag > max_speed:
             #    v = v / v_mag * max_speed
-            self._desired_velocity = self.ship.velocity + collision_dv
+            self._desired_velocity = self.ship.phys.velocity + collision_dv
             #TODO: see todo above about slowing down
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            continue_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(*self._desired_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 

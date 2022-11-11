@@ -222,7 +222,7 @@ class AbstractSteeringOrder(core.Order):
 
         return neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, prior_threat_count > 0
 
-    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[np.ndarray]=None) -> tuple[np.ndarray, float, float, float]:
+    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, margin: float, max_distance: float=np.inf, margin_histeresis:Optional[float]=None, desired_direction:Optional[cymunk.Vec2d]=None) -> tuple[np.ndarray, float, float, float]:
         """ Given current velocity, try to avoid collisions with neighbors
 
         sector
@@ -250,8 +250,7 @@ class AbstractSteeringOrder(core.Order):
             self.collision_margin_histeresis = 0.
 
         if desired_direction is None:
-            v = self.ship.velocity
-            desired_direction = v
+            desired_direction = self.ship.phys.velocity
 
         # if we already have a threat increase margin to get extra far from it
         neighbor_margin = margin + self.collision_margin_histeresis
@@ -274,7 +273,7 @@ class AbstractSteeringOrder(core.Order):
             self.collision_cbdr = False
             return ZERO_VECTOR, np.inf, np.inf, 0
 
-        (delta_velocity, self.collision_cbdr, self.cannot_avoid_collision) = self.neighbor_analyzer.collision_dv(self.gamestate.timestamp, neighbor_margin, cymunk.Vec2d(*desired_direction))
+        (delta_velocity, self.collision_cbdr, self.cannot_avoid_collision) = self.neighbor_analyzer.collision_dv(self.gamestate.timestamp, neighbor_margin, desired_direction)
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

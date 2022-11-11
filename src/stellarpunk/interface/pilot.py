@@ -469,7 +469,7 @@ class PilotView(interface.View):
             if self.goto_order.is_complete():
                 self.goto_order = None
             else:
-                s_x, s_y = util.sector_to_screen(self.goto_order.target_location[0], self.goto_order.target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+                s_x, s_y = util.sector_to_screen(self.goto_order._target_location[0], self.goto_order._target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
 
                 self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
 
@@ -560,7 +560,7 @@ class PilotView(interface.View):
             # neighborhood_density
             # nearest_neighbor_dist
             label_distance = "distance:"
-            distance = util.distance(self.ship.loc, current_order.target_location)
+            distance = self.ship.phys.position.get_distance(current_order._target_location)
             label_ndensity = "ndensity:"
             label_nndist = "nndist:"
 

@@ -20,8 +20,8 @@ def test_goto_entity(gamestate, generator, sector):
     collision_margin = 1e3
     goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate, arrival_distance - station.radius, collision_margin)
 
-    assert np.linalg.norm(station.loc - goto_order.target_location)+goto_order.arrival_distance <= arrival_distance + steering.VELOCITY_EPS
-    assert np.linalg.norm(station.loc - goto_order.target_location)-station.radius-goto_order.arrival_distance >= collision_margin - steering.VELOCITY_EPS
+    assert np.linalg.norm(station.loc - goto_order._target_location)+goto_order.arrival_distance <= arrival_distance + steering.VELOCITY_EPS
+    assert np.linalg.norm(station.loc - goto_order._target_location)-station.radius-goto_order.arrival_distance >= collision_margin - steering.VELOCITY_EPS
     assert goto_order.arrival_distance >= (arrival_distance*0.1)/2 - steering.VELOCITY_EPS
     assert goto_order.min_distance == 0.
 
@@ -220,7 +220,7 @@ def test_basic_disembark(gamestate, generator, sector, testui, simulator):
     assert len(testui.complete_orders) == 3
     assert disembark_order.disembark_from == start_blocker
     assert disembark_order.embark_to == blocker
-    first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0].target_location) - start_blocker.radius
+    first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0]._target_location) - start_blocker.radius
     assert first_dist >= disembark_order.disembark_dist - steering.VELOCITY_EPS
     assert first_dist <= disembark_order.disembark_dist + disembark_order.disembark_margin + steering.VELOCITY_EPS
 
