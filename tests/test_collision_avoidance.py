@@ -6,24 +6,25 @@ import uuid
 
 import pytest
 import numpy as np
+import cymunk # type: ignore
 
 from stellarpunk import core, sim, generate, orders, util
-from stellarpunk.orders import steering
+from stellarpunk.orders import steering, collision
 from . import write_history, nearest_neighbor, ship_from_history, station_from_history, asteroid_from_history, order_from_history, history_from_file
 
 TESTDIR = os.path.dirname(__file__)
 
 def test_collision_dv_sanity():
-    current_threat_loc = np.array((0,0))
-    threat_velocity = np.array([0., 0.])
-    loc = np.array((-1e2, 1e2))
-    velocity = np.array((100., -100.))
+    current_threat_loc = cymunk.Vec2d(0,0)
+    threat_velocity = cymunk.Vec2d(0., 0.)
+    loc = cymunk.Vec2d(-1e2, 1e2)
+    velocity = cymunk.Vec2d(100., -100.)
     desired_margin = 10
-    desired_direction = np.array((-10.,10.))
+    desired_direction = cymunk.Vec2d(-10.,10.)
     collision_cbdr = False
     delta_v_budget = 1000
 
-    dv = steering._collision_dv(
+    dv = collision.collision_dv(
             current_threat_loc, threat_velocity,
             loc, velocity,
             desired_margin,
@@ -34,7 +35,7 @@ def test_collision_dv_sanity():
     assert not any(np.isclose(dv, desired_direction-velocity))
 
     # sending back in the return from the prior call should give same divert
-    dv2 = steering._collision_dv(
+    dv2 = collision.collision_dv(
             current_threat_loc, threat_velocity,
             loc, velocity,
             desired_margin,
@@ -45,32 +46,34 @@ def test_collision_dv_sanity():
     assert all(np.isclose(dv2, dv))
 
 def test_collision_dv_solution_assert():
-    current_threat_loc = np.array([-198584.96875  , -106311.2421875])
-    threat_velocity = np.array([ 11.43229866, -99.34436035])
-    ship_loc = np.array([-198324.96875, -106061.25   ])
-    ship_velocity = np.array([ 11.13045979, -99.37863159])
+    current_threat_loc = cymunk.Vec2d(-198584.96875  , -106311.2421875)
+    threat_velocity = cymunk.Vec2d( 11.43229866, -99.34436035)
+    ship_loc = cymunk.Vec2d(-198324.96875, -106061.25   )
+    ship_velocity = cymunk.Vec2d( 11.13045979, -99.37863159)
     desired_margin = 260.0
-    desired_delta_velocity = np.array([ 7.59949604e-07, -2.16841866e-06])
+    desired_delta_velocity = cymunk.Vec2d( 7.59949604e-07, -2.16841866e-06)
     collision_cbdr = False
     cbdr_bias = -2.0
     delta_v_budget = 94181.78058053002
 
-    delta_velocity = steering._collision_dv(
+    delta_velocity = collision.collision_dv(
             current_threat_loc, threat_velocity,
             ship_loc, ship_velocity,
             desired_margin, desired_delta_velocity,
             collision_cbdr, cbdr_bias,
             delta_v_budget,
     )
+    assert all(np.isclose(delta_velocity, cymunk.Vec2d(0.003617, 0.092102)))
 
-    desired_delta_velocity = np.array([15., 25.])
-    delta_velocity = steering._collision_dv(
+    desired_delta_velocity = cymunk.Vec2d(15., 25.)
+    delta_velocity = collision.collision_dv(
             current_threat_loc, threat_velocity,
             ship_loc, ship_velocity,
             desired_margin, desired_delta_velocity,
             collision_cbdr, cbdr_bias,
             delta_v_budget,
     )
+    assert all(np.isclose(delta_velocity, cymunk.Vec2d(0.603678, 25.000000)))
 
 @write_history
 def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulator, caplog):

@@ -143,3 +143,28 @@ def test_enclosing_circle():
     c, r = collision.make_enclosing_circle(c1, r1, c2, r2)
     assert contains(c, r, c1, r1)
     assert contains(c, r, c2, r2)
+
+def test_collision_dv():
+    expected_dv = cymunk.Vec2d(385.087433, 49.343849)
+
+    ct_loc = cymunk.Vec2d(4708.002441, -11.092171)
+    ct_v = cymunk.Vec2d(-243.264709, 1.169649)
+    loc = cymunk.Vec2d(-4708.002441, 0.038988)
+    vel = cymunk.Vec2d(243.264709, 1.169649)
+    margin = 352.9983135407874
+    desired_v = cymunk.Vec2d(386.92272949,  -1.17131988)
+    cbdr = False
+    cbdr_bias = 2
+    delta_v_budget = 1790.6210182137115
+
+    #from stellarpunk.orders import steering
+    #delta_velocity = steering._collision_dv(
+    delta_velocity = collision.collision_dv(
+            ct_loc, ct_v,
+            loc, vel,
+            margin, desired_v,
+            cbdr, cbdr_bias,
+            delta_v_budget,
+    )
+
+    assert all(np.isclose(delta_velocity, expected_dv))

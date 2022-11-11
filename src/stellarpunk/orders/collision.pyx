@@ -5,7 +5,7 @@ from libcpp.set cimport set
 from libcpp.list cimport list
 from libcpp cimport bool
 from libc.stdlib cimport malloc
-from libc.math cimport fabs, sqrt, pi
+from libc.math cimport fabs, sqrt, pi, isnan, isinf
 
 import numpy.typing as npt
 import numpy as np
@@ -379,6 +379,245 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
         analysis.threat_velocity = ZERO_VECTOR
 
     return
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+@cython.infer_types(False)
+@cython.nonecheck(False)
+cdef ccymunk.cpVect _collision_dv(
+        ccymunk.cpVect entity_pos, ccymunk.cpVect entity_vel,
+        ccymunk.cpVect pos, ccymunk.cpVect vel,
+        double margin, ccymunk.cpVect v_d,
+        bool cbdr, double cbdr_bias, double delta_v_budget) except *:
+    """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
+    collision by at least distance m. This divert will be of minimum size
+    relative to the desired velocity.
+
+    entity_pos: location of the threat
+    entity_pos: velocity of the threat
+    pos: our position
+    v: our velocity
+    v_d: the desired delta velocity
+    """
+
+    # rel pos
+    cdef ccymunk.cpVect r = ccymunk.cpvsub(entity_pos, pos)
+    # rel vel
+    cdef ccymunk.cpVect v = ccymunk.cpvsub(entity_vel, vel)
+    # margin, including radii
+    cdef double m = margin
+
+    # desired diversion from v
+    cdef ccymunk.cpVect a = ccymunk.cpvneg(v_d)
+
+    # check if the desired divert is already viable
+    cdef double x = a.x
+    cdef double y = a.y
+
+    cdef double do_nothing_margin_sq
+    cdef double p
+    cdef double x1, y1, x2, y2
+    cdef double s_1x, s_1y, s_2x, s_2y, s_x, s_y
+    cdef double cost1, cost2, cost
+    cdef double q_a, q_b, q_c
+    cdef double cross1, cross2
+
+    if isclose(v.x, 0.) and isclose(v.y, 0.):
+        do_nothing_margin_sq = r.x**2.+r.y**2.
+    else:
+        do_nothing_margin_sq = r.x**2.+r.y**2. - (r.x*x+r.y*y+(2*r.x*v.x+2*r.y*v.y))**2./((2*v.x+x)**2.+(2*v.y+y)**2.)
+    if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2.:
+        return v_d
+
+    if ccymunk.cpvlength(r) <= margin:
+        raise ValueError("already inside margin")
+
+    # given divert (x,y):
+    # (r.x**2.+r.y**2.)-(2*(r.x*v.x+r.y*v.y)+(r.x*x+r.y*y))**2./((2*v.x+x)**2. + (2*v.y+y)**2.) > m**2.
+    # this forms a pair of intersecting lines with viable diverts between them
+
+    # given divert (x,y):
+    # cost_from desired = (a.x-x)**2. +(a.y-y)**2.
+    # see https://www.desmos.com/calculator/qvk8fpbw3k
+
+    # to understand the margin, we end up with two circles whose intersection
+    # points are points on the tangent lines that form the boundary of our
+    # viable diverts
+    # (x+2*v.x)**2. + (y+2*v.y)**2. = r.x**2.+r.y**2.-m**2.
+    # (x+2*v.x-r.x)**2. + (y+2*v.y-r.y)**2. = m**2.
+    # a couple of simlifying substitutions:
+    # we can translate the whole system to the origin:
+    # let s_x,s_y = (x + 2*v.x, y + 2*v.y)
+    # let p = r.x**2. + r.y**2. - m**2.
+    # having done this we can subtract the one from the other, solve for y,
+    # plug back into one of the equations
+    # solve the resulting quadratic eq for x (two roots)
+    # plug back into one of the equations to get y (two sets of two roots)
+    # for the y roots, only one will satisfy the other equation, pick that one
+    # also, we'll divide by r.y below. So if that's zero we have an alternate
+    # form where there's a single value for x
+
+    p = r.x**2. + r.y**2. - m**2.
+
+    if isclose(r.y**2., 0, rtol=1e-05, atol=1e-5):
+        # this case would cause a divide by zero when computing the
+        # coefficients of the quadratic equation below
+        s_1x = s_2x = p/r.x
+    else:
+        # note that r.x and r.y cannot both be zero (assuming m>0)
+        q_a = r.x**2./r.y**2.+1
+        q_b = -2*p*r.x/r.y**2.
+        q_c = p**2./r.y**2. - p
+
+        # quadratic formula
+        # note that we get real roots as long as the problem is feasible (i.e.
+        # we're not already inside the margin
+
+        # numerical stability approach from
+        # https://people.csail.mit.edu/bkph/articles/Quadratics.pdf
+        if q_b >= 0:
+            s_1x = (-q_b-sqrt(q_b**2.-4*q_a*q_c)) / (2*q_a)
+            s_2x = 2*q_c / (-q_b-sqrt(q_b**2.-4*q_a*q_c))
+        else:
+            s_1x = 2*q_c / (-q_b+sqrt(q_b**2.-4*q_a*q_c))
+            s_2x = (-q_b+sqrt(q_b**2.-4*q_a*q_c)) / (2*q_a)
+
+        assert not isnan(s_1x)
+        assert not isnan(s_2x)
+
+    # y roots are y_i and -y_i, but only one each for i=0,1 will be on the curve
+
+    # if p and s_2x**2. are close, this can appear to go negative
+    if p - s_1x**2. < 0.:
+        s_1y = 0.
+    else:
+        s_1y = sqrt(p-s_1x**2.)
+    if not isclose((s_1x - r.x)**2. + (s_1y - r.y)**2., m**2.):
+        s_1y = -s_1y
+
+    # if p and s_2x**2. are close, this can appear to go negative
+    if p-s_2x**2. < 0.:
+        s_2y = 0.
+    else:
+        s_2y = sqrt(p-s_2x**2.)
+    if not isclose((s_2x - r.x)**2. + (s_2y - r.y)**2., m**2.):
+        s_2y = -s_2y
+
+    # subbing back in our x_hat,y_hat above,
+    # these determine the slope of the boundry lines of our viable region
+    # (1) y+2*v.y = s_iy/s_ix * (x+2*v.x) for i = 0,1 (careful if x_i = 0)
+    # with perpendiculars going through the desired_divert point
+    # (2) y-a.y = -s_ix/s_iy * (x-a.x) (careful if y_i == 0)
+    # so find the intersection of each of these pairs of equations
+
+    if isclose(s_1x, 0):
+        # tangent line is vertical
+        # implies perpendicular is horizontal
+        y1 = a.y
+        x1 = -2*v.x
+    elif isclose(s_1y, 0):
+        # tangent line is horizontal
+        # implies perpendicular is vertical
+        x1 = a.x
+        y1 = -2*v.y
+    else:
+        # solve (1) for y in terms of x and plug into (2), solve for x
+        x1 = (s_1x/s_1y*a.x+a.y - s_1y/s_1x*2*v.x + 2*v.y) / (s_1y/s_1x + s_1x/s_1y)
+        # plug back into (1)
+        y1 = s_1y/s_1x * (x1+2*v.x) - 2*v.y
+
+    if isclose(s_2x, 0):
+        y2 = a.y
+        x2 = -2*v.x
+    elif isclose(s_2y, 0):
+        x2 = a.x
+        y2 = -2*v.y
+    else:
+        x2 = (s_2x/s_2y*a.x+a.y - s_2y/s_2x*2*v.x + 2*v.y) / (s_2y/s_2x + s_2x/s_2y)
+        y2 = s_2y/s_2x * (x2+2*v.x) - 2*v.y
+
+    cost1 = (a.x-x1)**2. +(a.y-y1)**2.
+    cost2 = (a.x-x2)**2. +(a.y-y2)**2.
+
+    assert not (isnan(cost1) or isinf(cost1))
+    assert not (isnan(cost2) or isinf(cost2))
+
+    s_x = 0.
+    s_y = 0.
+    cost = 0.
+    if not cost2 < cost1:
+        x = x1
+        y = y1
+        s_x = s_1x
+        s_y = s_1y
+        cost = cost1
+    elif not cost1 < cost2:
+        x = x2
+        y = y2
+        s_x = s_2x
+        s_y = s_2y
+        cost = cost2
+    else:
+        # not exactly sure why either would be nan, but hopefully one is not
+        assert not isnan(cost1) or not isnan(cost2)
+
+    if cbdr:
+        # prefer diversion in the same direction in case of cbdr
+        # the sign of cross1 and cross2 indicate the direction of the divert
+        # (clockwise or counter-clockwise)
+        cross1 = v.x*y1-v.y*x1
+        cross2 = v.x*y2-v.y*x2
+        if cross1 > cross2:
+            x = x1
+            y = y1
+            s_x = s_1x
+            s_y = s_1y
+            cost = cost1
+        else:
+            x = x2
+            y = y2
+            s_x = s_2x
+            s_y = s_2y
+            cost = cost2
+
+    #TODO: this assumes the other guy will move which seems very risky
+    # we should come back to this in the future and do something more
+    # proactive, but still cooperative
+    #if cbdr and cbdr_bias < 0:
+    #    return np.array((0.,0.))
+
+    #if cbdr:
+    #    # swap our choices if our bias is negative
+    #    if cbdr_bias < 0:
+    #        if not cost2 < cost1:
+    #            x = x2
+    #            y = y2
+    #            s_x = s_2x
+    #            s_y = s_2y
+    #            cost = cost2
+    #        elif not cost1 < cost2:
+    #            x = x1
+    #            y = y1
+    #            s_x = s_1x
+    #            s_y = s_1y
+    #            cost = cost1
+
+    # useful assert when testing
+    # this asserts that the resulting x,y point matches the the contraint on
+    # the margin
+    assert isclose(
+            (r.x**2.+r.y**2.)-(2*(r.x*v.x+r.y*v.y)+(r.x*x+r.y*y))**2./((2*v.x+x)**2. + (2*v.y+y)**2.),
+            m**2.,
+            rtol=1e-3)
+    return ccymunk.cpv(-x, -y)
+
+def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Vec2d, vel:cymunk.Vec2d, margin:float, v_d:cymunk.Vec2d, cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> cymunk.Vec2d:
+    return cpvtoVec2d(_collision_dv(
+        entity_pos.v, entity_vel.v,
+        pos.v, vel.v,
+        margin, v_d.v, cbdr, cbdr_bias, delta_v_budget
+    ))
 
 cdef struct RelPosHistoryEntry:
     double timestamp

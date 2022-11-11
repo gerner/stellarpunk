@@ -32,212 +32,6 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
-@jit(cache=True, nopython=True, fastmath=True)
-def _collision_dv(entity_pos:npt.NDArray[np.float64], entity_vel:npt.NDArray[np.float64], pos:npt.NDArray[np.float64], vel:npt.NDArray[np.float64], margin:float, v_d:npt.NDArray[np.float64], cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> npt.NDArray[np.float64]:
-    """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
-    collision by at least distance m. This divert will be of minimum size
-    relative to the desired velocity.
-
-    entity_pos: location of the threat
-    entity_pos: velocity of the threat
-    pos: our position
-    v: our velocity
-    v_d: the desired delta velocity
-    """
-
-    # rel pos
-    r = entity_pos - pos
-    # rel vel
-    v = entity_vel - vel
-    # margin, including radii
-    m = margin
-
-    # desired diversion from v
-    a = -v_d
-
-    # check if the desired divert is already viable
-    x = a[0]
-    y = a[1]
-
-    if util.isclose(v[0], 0.) and util.isclose(v[1], 0.):
-        do_nothing_margin_sq = r[0]**2+r[1]**2
-    else:
-        do_nothing_margin_sq = r[0]**2+r[1]**2 - (r[0]*x+r[1]*y+(2*r[0]*v[0]+2*r[1]*v[1]))**2/((2*v[0]+x)**2+(2*v[1]+y)**2)
-    if do_nothing_margin_sq > 0 and do_nothing_margin_sq >= m**2:
-        #if util.magnitude(a[0], a[1]) <= delta_v_budget:
-        return v_d
-
-    if util.magnitude(r[0], r[1]) <= margin:
-        raise ValueError("already inside margin")
-
-    # given divert (x,y):
-    # (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2) > m**2
-    # this forms a pair of intersecting lines with viable diverts between them
-
-    # given divert (x,y):
-    # cost_from desired = (a[0]-x)**2 +(a[1]-y)**2
-    # see https://www.desmos.com/calculator/qvk8fpbw3k
-
-    # to understand the margin, we end up with two circles whose intersection
-    # points are points on the tangent lines that form the boundary of our
-    # viable diverts
-    # (x+2*v[0])**2 + (y+2*v[1])**2 = r[0]**2+r[1]**2-m**2
-    # (x+2*v[0]-r[0])**2 + (y+2*v[1]-r[1])**2 = m**2
-    # a couple of simlifying substitutions:
-    # we can translate the whole system to the origin:
-    # let s_x,s_y = (x + 2*v[0], y + 2*v[1])
-    # let p = r[0]**2 + r[1]**2 - m**2
-    # having done this we can subtract the one from the other, solve for y,
-    # plug back into one of the equations
-    # solve the resulting quadratic eq for x (two roots)
-    # plug back into one of the equations to get y (two sets of two roots)
-    # for the y roots, only one will satisfy the other equation, pick that one
-    # also, we'll divide by r[1] below. So if that's zero we have an alternate
-    # form where there's a single value for x
-
-    p = r[0]**2 + r[1]**2 - m**2
-
-    if util.isclose_flex(r[1]**2, 0, atol=1e-5):
-        # this case would cause a divide by zero when computing the
-        # coefficients of the quadratic equation below
-        s_1x = s_2x = p/r[0]
-    else:
-        # note that r[0] and r[1] cannot both be zero (assuming m>0)
-        q_a = r[0]**2/r[1]**2+1
-        q_b = -2*p*r[0]/r[1]**2
-        q_c = p**2/r[1]**2 - p
-        # quadratic formula
-        # note that we get real roots as long as the problem is feasible (i.e.
-        # we're not already inside the margin
-        s_1x = (-q_b-np.sqrt(q_b**2-4*q_a*q_c)) / (2*q_a)
-        s_2x = (-q_b+np.sqrt(q_b**2-4*q_a*q_c)) / (2*q_a)
-
-    # y roots are y_i and -y_i, but only one each for i=0,1 will be on the curve
-
-    # if p and s_2x**2 are close, this can appear to go negative
-    if p - s_1x**2 < 0.:
-        s_1y = 0.
-    else:
-        s_1y = np.sqrt(p-s_1x**2)
-    if not util.isclose((s_1x - r[0])**2 + (s_1y - r[1])**2, m**2):
-        s_1y = -s_1y
-
-    # if p and s_2x**2 are close, this can appear to go negative
-    if p-s_2x**2 < 0.:
-        s_2y = 0.
-    else:
-        s_2y = np.sqrt(p-s_2x**2)
-    if not util.isclose((s_2x - r[0])**2 + (s_2y - r[1])**2, m**2):
-        s_2y = -s_2y
-
-    # subbing back in our x_hat,y_hat above,
-    # these determine the slope of the boundry lines of our viable region
-    # (1) y+2*v[1] = s_iy/s_ix * (x+2*v[0]) for i = 0,1 (careful if x_i = 0)
-    # with perpendiculars going through the desired_divert point
-    # (2) y-a[1] = -s_ix/s_iy * (x-a[0]) (careful if y_i == 0)
-    # so find the intersection of each of these pairs of equations
-
-    if util.isclose(s_1x, 0):
-        # tangent line is vertical
-        # implies perpendicular is horizontal
-        y1 = a[1]
-        x1 = -2*v[0]
-    elif util.isclose(s_1y, 0):
-        # tangent line is horizontal
-        # implies perpendicular is vertical
-        x1 = a[0]
-        y1 = -2*v[1]
-    else:
-        # solve (1) for y in terms of x and plug into (2), solve for x
-        x1 = (s_1x/s_1y*a[0]+a[1] - s_1y/s_1x*2*v[0] + 2*v[1]) / (s_1y/s_1x + s_1x/s_1y)
-        # plug back into (1)
-        y1 = s_1y/s_1x * (x1+2*v[0]) - 2*v[1]
-
-    if util.isclose(s_2x, 0):
-        y2 = a[1]
-        x2 = -2*v[0]
-    elif util.isclose(s_2y, 0):
-        x2 = a[0]
-        y2 = -2*v[1]
-    else:
-        x2 = (s_2x/s_2y*a[0]+a[1] - s_2y/s_2x*2*v[0] + 2*v[1]) / (s_2y/s_2x + s_2x/s_2y)
-        y2 = s_2y/s_2x * (x2+2*v[0]) - 2*v[1]
-
-    cost1 = (a[0]-x1)**2 +(a[1]-y1)**2
-    cost2 = (a[0]-x2)**2 +(a[1]-y2)**2
-
-    assert not (math.isnan(cost1) or math.isinf(cost1))
-    assert not (math.isnan(cost2) or math.isinf(cost2))
-
-    s_x = 0.
-    s_y = 0.
-    cost = 0.
-    if not cost2 < cost1:
-        x = x1
-        y = y1
-        s_x = s_1x
-        s_y = s_1y
-        cost = cost1
-    elif not cost1 < cost2:
-        x = x2
-        y = y2
-        s_x = s_2x
-        s_y = s_2y
-        cost = cost2
-    else:
-        # not exactly sure why either would be nan, but hopefully one is not
-        assert not math.isnan(cost1) or not math.isnan(cost2)
-
-    if cbdr:
-        # prefer diversion in the same direction in case of cbdr
-        # the sign of cross1 and cross2 indicate the direction of the divert
-        # (clockwise or counter-clockwise)
-        cross1 = v[0]*y1-v[1]*x1
-        cross2 = v[0]*y2-v[1]*x2
-        if cross1 > cross2:
-            x = x1
-            y = y1
-            s_x = s_1x
-            s_y = s_1y
-            cost = cost1
-        else:
-            x = x2
-            y = y2
-            s_x = s_2x
-            s_y = s_2y
-            cost = cost2
-
-    #TODO: this assumes the other guy will move which seems very risky
-    # we should come back to this in the future and do something more
-    # proactive, but still cooperative
-    #if cbdr and cbdr_bias < 0:
-    #    return np.array((0.,0.))
-
-    #if cbdr:
-    #    # swap our choices if our bias is negative
-    #    if cbdr_bias < 0:
-    #        if not cost2 < cost1:
-    #            x = x2
-    #            y = y2
-    #            s_x = s_2x
-    #            s_y = s_2y
-    #            cost = cost2
-    #        elif not cost1 < cost2:
-    #            x = x1
-    #            y = y1
-    #            s_x = s_1x
-    #            s_y = s_1y
-    #            cost = cost1
-
-    # useful assert when testing
-    # this asserts that the resulting x,y point matches the the contraint on
-    # the margin
-    assert util.isclose_flex(
-            (r[0]**2+r[1]**2)-(2*(r[0]*v[0]+r[1]*v[1])+(r[0]*x+r[1]*y))**2/((2*v[0]+x)**2 + (2*v[1]+y)**2),
-            m**2,
-            rtol=1e-3)
-    return np.array((-x, -y))
-
 class AbstractSteeringOrder(core.Order):
     def __init__(self, *args: Any, safety_factor:float=2., **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -317,8 +111,8 @@ class AbstractSteeringOrder(core.Order):
             float,
             float,
             float,
-            np.ndarray,
-            np.ndarray,
+            cymunk.Vec2d,
+            cymunk.Vec2d,
             float,
             bool]:
 
@@ -365,8 +159,6 @@ class AbstractSteeringOrder(core.Order):
             self.collision_threat_loc = threat_loc
             self.collision_threat_radius = threat_radius
 
-            threat_velocity = np.array(threat_velocity)
-            threat_loc = np.array(threat_loc)
         else:
             self.gamestate.counters[core.Counters.COLLISION_NEIGHBOR_NO_NEIGHBORS] += 1
             approach_time = np.inf
@@ -377,8 +169,8 @@ class AbstractSteeringOrder(core.Order):
             non_coalesced_threats = 0
             nearest_neighbor = None
             nearest_neighbor_dist = np.inf
-            threat_loc = ZERO_VECTOR
-            threat_velocity = ZERO_VECTOR
+            threat_loc = CYZERO_VECTOR
+            threat_velocity = CYZERO_VECTOR
             threat_radius = 0.
             neighborhood_density = 0.
 
@@ -545,10 +337,10 @@ class AbstractSteeringOrder(core.Order):
 
             delta_v_budget = self.ship.max_thrust / self.ship.mass * (approach_time - self.worst_case_rot_time)
 
-            delta_velocity = _collision_dv(
+            delta_velocity = collision.collision_dv(
                     current_threat_loc, threat_velocity,
-                    self.ship.loc, self.ship.velocity,
-                    desired_margin, desired_delta_velocity,
+                    self.ship.phys.position, self.ship.phys.velocity,
+                    desired_margin, cymunk.Vec2d(*desired_delta_velocity),
                     self.collision_cbdr, cbdr_bias,
                     delta_v_budget,
             )
@@ -557,6 +349,7 @@ class AbstractSteeringOrder(core.Order):
         # clear it just because we currently are ok, that happens elsewhere.
         self.cannot_avoid_collision_hold = self.cannot_avoid_collision_hold or self.cannot_avoid_collision
 
+        delta_velocity = np.array((delta_velocity[0], delta_velocity[1]))
         assert not util.either_nan_or_inf(delta_velocity)
         self.collision_dv = delta_velocity
 
