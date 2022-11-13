@@ -1,4 +1,4 @@
-from typing import Tuple, List
+from typing import Tuple, List, TypeVar, Generic, Sequence
 
 import cymunk # type: ignore
 

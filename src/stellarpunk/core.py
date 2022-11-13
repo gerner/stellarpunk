@@ -10,7 +10,7 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection, Generator
 import abc
 import heapq
 import dataclasses
@@ -22,7 +22,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 from rtree import index # type: ignore
 
-from stellarpunk import util
+from stellarpunk import util, task_schedule
 
 class ProductionChain:
     """ A production chain of resources/products interconnected in a DAG.
@@ -831,12 +831,12 @@ class Gamestate:
         self.characters:Dict[uuid.UUID, Character] = {}
 
         # heap of order items in form (scheduled timestamp, agendum)
-        self.order_schedule:List[PrioritizedItem[Order]] = []
-        self.scheduled_orders:Set[Order] = set()
+        self._order_schedule:task_schedule.TaskSchedule[Order] = task_schedule.TaskSchedule()
+        self._scheduled_orders:Set[Order] = set()
 
         # heap of agenda items in form (scheduled timestamp, agendum)
-        self.agenda_schedule:List[PrioritizedItem[Agendum]] = []
-        self.scheduled_agenda:Set[Agendum] = set()
+        self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
+        #self.scheduled_agenda:Set[Agendum] = set()
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
@@ -874,49 +874,42 @@ class Gamestate:
         character.location = location
 
     def is_order_scheduled(self, order:Order) -> bool:
-        return order in self.scheduled_orders
+        return order in self._scheduled_orders
 
     def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
         self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
         self.schedule_order(self.timestamp + self.desired_dt, order, jitter)
 
     def schedule_order(self, timestamp:float, order:Order, jitter:float=0.) -> None:
-        assert order not in self.scheduled_orders
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
         if jitter > 0.:
             timestamp += self.random.uniform(high=jitter)
 
-        self.scheduled_orders.add(order)
-        heapq.heappush(self.order_schedule, PrioritizedItem(timestamp, order))
+        self._scheduled_orders.add(order)
+        self._order_schedule.push_task(timestamp, order)
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
-    def pop_next_order(self) -> PrioritizedItem[Order]:
-        order_item = heapq.heappop(self.order_schedule)
-        assert order_item.item in self.scheduled_orders
-        self.scheduled_orders.remove(order_item.item)
-        return order_item
+    def pop_current_orders(self) -> Iterator[Order]:
+        for order in self._order_schedule.pop_current_tasks(self.timestamp):
+            self._scheduled_orders.remove(order)
+            yield order
 
     def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)
 
     def schedule_agendum(self, timestamp:float, agendum:Agendum, jitter:float=0.) -> None:
-        assert agendum not in self.scheduled_agenda
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
         if jitter > 0.:
             timestamp += self.random.uniform(high=jitter)
 
-        self.scheduled_agenda.add(agendum)
-        heapq.heappush(self.agenda_schedule, PrioritizedItem(timestamp, agendum))
+        self._agenda_schedule.push_task(timestamp, agendum)
 
-    def pop_next_agendum(self) -> PrioritizedItem[Agendum]:
-        agendum_item = heapq.heappop(self.agenda_schedule)
-        assert agendum_item.item in self.scheduled_agenda
-        self.scheduled_agenda.remove(agendum_item.item)
-        return agendum_item
+    def pop_current_agenda(self) -> Sequence[Agendum]:
+        return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector

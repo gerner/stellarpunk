@@ -191,9 +191,7 @@ class Simulator:
         # actions take effect yet!)
 
         orders_processed = 0
-        while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
-            order_item = self.gamestate.pop_next_order()
-            order = order_item.item
+        for order in self.gamestate.pop_current_orders():
             if order == order.ship.current_order():
                 if order.is_complete():
                     ship = order.ship
@@ -223,9 +221,8 @@ class Simulator:
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
         # let characters act on their (scheduled) agenda items
-        while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
-            agendum_item = self.gamestate.pop_next_agendum()
-            agendum_item.item.act()
+        for agendum in self.gamestate.pop_current_agenda():
+            agendum.act()
 
         # at this point all AI decisions have happened everywhere
         # update sector state after all ships across universe take action

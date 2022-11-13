@@ -252,7 +252,7 @@ class GoToLocation(AbstractSteeringOrder):
         if self.distance_estimate > self.arrival_distance*5:
             return False
         else:
-            if self._target_location.get_distance(self.ship.phys.position) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity):
+            if self._target_location.get_distance(self.ship.phys.position) < self.arrival_distance + VELOCITY_EPS and self.ship.phys.speed < VELOCITY_EPS:
                 #assert not self.ship._persistent_force
                 self.ship.apply_force(ZERO_VECTOR, False)
                 #assert not self.ship._persistent_torque

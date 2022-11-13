@@ -1,7 +1,5 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True, infer_types=False, nonecheck=False
 
-from cpython.ref cimport PyObject
-
 from typing import Tuple, List, Any
 import cython
 from libcpp.vector cimport vector

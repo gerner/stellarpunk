@@ -1,9 +1,11 @@
 """ Tests for the collision helper lib """
 
+from typing import Tuple
+
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util
+from stellarpunk import util, task_schedule
 from stellarpunk.orders import collision
 
 def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
@@ -175,3 +177,21 @@ def test_collision_dv():
     )
 
     assert all(np.isclose(delta_velocity, expected_dv))
+
+def test_task_schedule():
+    schedule:task_schedule.TaskSchedule[Tuple[str, int]] = task_schedule.TaskSchedule()
+    schedule.push_task(5, ("a", 47))
+    schedule.push_task(3, ("b", 42))
+    schedule.push_task(7, ("c", 41))
+
+    tasks = schedule.pop_current_tasks(2)
+    assert tasks == []
+
+    tasks = schedule.pop_current_tasks(6)
+    assert tasks == [("b", 42), ("a", 47)]
+
+    tasks = schedule.pop_current_tasks(7)
+    assert tasks == [("c", 41)]
+
+    tasks = schedule.pop_current_tasks(8)
+    assert tasks == []
