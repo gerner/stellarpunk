@@ -1,35 +1,28 @@
+# cython: boundscheck=False, wraparound=False, cdivision=True, infer_types=False, nonecheck=False
+
+from cpython.ref cimport PyObject
+
 from typing import Tuple, List, Any
 import cython
 from libcpp.vector cimport vector
 from libcpp.set cimport set
 from libcpp.list cimport list
+from libcpp.queue cimport priority_queue
 from libcpp cimport bool
 from libc.stdlib cimport malloc
 from libc.math cimport fabs, sqrt, pi, isnan, isinf, atan2
 
-import numpy.typing as npt
-import numpy as np
 import cymunk
 cimport cymunk.cymunk as ccymunk
 cimport libc.math as math
 
 # some utils
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef bool isclose(double a, double b, double rtol=1e-05, double atol=1e-08):
     # numba gets confused with default parameters sometimes, so we have this
     # "overload"
     return fabs(a-b) <= (atol + rtol * fabs(b))
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef double normalize_angle(double angle, bool shortest=0):
     angle = angle % (2*pi)
     angle = (angle + 2*pi) if angle < 0 else angle
@@ -38,30 +31,15 @@ cdef double normalize_angle(double angle, bool shortest=0):
     else:
         return angle - 2*pi
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef int sgn(double val):
     return (0 < val) - (val < 0);
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef double interpolate(double x1, double y1, double x2, double y2, double x):
     """ interpolates the y given x and two points on a line. """
     cdef double m = (y2 - y1) / (x2 - x1)
     cdef double b = y1 - m * x1
     return m * x + b
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef double clip(double d, double m, double M):
     cdef double t
     if d < m:
@@ -77,11 +55,6 @@ cdef struct Circle:
     ccymunk.cpVect center
     double radius
 
-#@cython.boundscheck(False)
-#@cython.wraparound(False)
-#@cython.cdivision(True)
-#@cython.infer_types(False)
-#@cython.nonecheck(False)
 cdef Circle enclosing_circle(
         ccymunk.cpVect c1, double r1,
         ccymunk.cpVect c2, double r2):
@@ -196,11 +169,6 @@ ctypedef struct cpCircleShape :
 cdef ccymunk.Vec2d cpvtoVec2d(ccymunk.cpVect v):
     return ccymunk.Vec2d(v.x, v.y)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpShape *shape, double margin):
     # we make the assumption that all shapes are circles here
     cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
@@ -260,11 +228,6 @@ cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointS
 cdef void _body_shape_callback(ccymunk.cpBody *body, ccymunk.cpShape *shape, void *data):
     _analyze_neighbor_callback(shape, data)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     cdef NeighborAnalysis *analysis = <NeighborAnalysis *>data
 
@@ -314,11 +277,6 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
         analysis.minimum_separation = neighbor.min_sep
         analysis.collision_loc = neighbor.c_loc
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef void coalesce_threats(NeighborAnalysis *analysis):
     cdef cpCircleShape *circle_shape
     cdef int coalesced_threats
@@ -380,11 +338,6 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
 
     return
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef ccymunk.cpVect _collision_dv(
         ccymunk.cpVect entity_pos, ccymunk.cpVect entity_vel,
         ccymunk.cpVect pos, ccymunk.cpVect vel,
@@ -712,21 +665,21 @@ cdef class NeighborAnalyzer:
             neighborhood_radius:float,
             migrate_threat:bool
             ) -> Tuple[
+                cymunk.Body,
+                float,
+                cymunk.Vec2d,
+                cymunk.Vec2d,
+                float,
+                int,
+                int,
                 int,
                 float,
-                npt.NDArray[np.float64],
-                npt.NDArray[np.float64],
-                float,
-                int,
-                int,
-                int,
-                float,
-                npt.NDArray[np.float64],
-                npt.NDArray[np.float64],
-                int,
+                cymunk.Vec2d,
+                cymunk.Vec2d,
+                cymunk.Body,
                 float,
                 float,
-                npt.NDArray[np.int64],
+                int,
                 int,
             ]:
 
@@ -782,7 +735,7 @@ cdef class NeighborAnalyzer:
                 _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &self.analysis)
 
         # grab a copy of the shape ids for prior shapes
-        prior_shape_ids = self.analysis.considered_shapes
+        cdef set[ccymunk.cpHashValue] prior_shape_ids = self.analysis.considered_shapes
 
         # look for threats in a circle
         ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)
@@ -922,11 +875,6 @@ cdef class NeighborAnalyzer:
 
         return fabs(normalize_angle(oldest_bearing - latest_bearing, shortest=1)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    @cython.cdivision(True)
-    @cython.infer_types(False)
-    @cython.nonecheck(False)
     def collision_dv(self, current_timestamp:float, neighbor_margin:float, indesired_direction:cymunk.Vec2d) -> Tuple[Any]:
         """ Compute the delta velocity to avoid collision
 
@@ -1032,11 +980,6 @@ cdef struct ForceTorqueResult:
     double torque
     double continue_time
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef double _rotation_time(
         double delta_angle, double angular_velocity,
         double max_angular_acceleration):
@@ -1052,11 +995,6 @@ def rotation_time(
     """ Estimates the time to rotate by a given delta angle amount. """
     return _rotation_time(delta_angle, angular_velocity, max_acceleration)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef TorqueResult _torque_for_angle(
         double target_angle,
         double angle, double w, double moment,
@@ -1113,11 +1051,6 @@ def torque_for_angle(target_angle:float, angle:float, w:float, moment:float, max
     cdef TorqueResult ret = _torque_for_angle(target_angle, angle, w, moment, max_torque, dt)
     return (ret.torque, ret.continue_time)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef ForceResult _force_for_delta_velocity(
         ccymunk.cpVect dv, double mass, double max_thrust, double dt):
     """ What force to apply to get dv change in velocity. Ignores heading. """
@@ -1155,11 +1088,6 @@ def force_for_delta_velocity(dv:cymunk.Vec2d, mass:float, max_thrust:float, dt:f
     cdef ForceResult ret = _force_for_delta_velocity(dv.v, mass, max_thrust, dt)
     return (cpvtoVec2d(ret.force), ret.continue_time)
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef ForceTorqueResult _force_torque_for_delta_velocity(
         ccymunk.cpVect target_velocity, ccymunk.cpBody *body,
         double max_speed, double max_torque,
@@ -1250,11 +1178,6 @@ cdef struct DeltaVResult:
     bool cannot_stop
     double delta_speed
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-@cython.infer_types(False)
-@cython.nonecheck(False)
 cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_location, double arrival_distance, double min_distance, double max_acceleration, double max_angular_acceleration, double max_speed, double dt, double safety_factor):
     """ Given goto location params, determine the desired velocity.
 
@@ -1438,4 +1361,3 @@ def migrate_threat_location(
     )
 
     return (cpvtoVec2d(migrated_circle.center), migrated_circle.radius)
-
