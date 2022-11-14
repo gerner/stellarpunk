@@ -268,12 +268,12 @@ class AbstractSteeringOrder(core.Order):
 
         if neighbor is None:
             self.cannot_avoid_collision = False
-            self.ship.collision_threat = None
+            self.collision_threat = None
             self.collision_dv = ZERO_VECTOR
             self.collision_cbdr = False
             return ZERO_VECTOR, np.inf, np.inf, 0
 
-        (delta_velocity, self.collision_cbdr, self.cannot_avoid_collision) = self.neighbor_analyzer.collision_dv(self.gamestate.timestamp, neighbor_margin, desired_direction)
+        (delta_velocity, self.collision_cbdr, self.cannot_avoid_collision) = self.neighbor_analyzer.collision_dv(self.gamestate.timestamp, neighbor_margin, desired_direction, self.cannot_avoid_collision_hold)
 
         # if we cannot currently avoid a collision, flip the flag, but don't
         # clear it just because we currently are ok, that happens elsewhere.

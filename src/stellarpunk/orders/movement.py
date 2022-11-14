@@ -187,7 +187,7 @@ class GoToLocation(AbstractSteeringOrder):
         """
 
         super().__init__(*args, **kwargs)
-        self.neighborhood_radius = neighborhood_radius
+        self._neighborhood_radius = neighborhood_radius
         if target_sector is None:
             if self.ship.sector is None:
                 raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
@@ -290,13 +290,20 @@ class GoToLocation(AbstractSteeringOrder):
         max_angular_acceleration = self.ship.max_angular_acceleration()
         max_speed = self.ship.max_speed()
 
+        # choose a neighborhood_radius depending on our speed
+        s_low = 100
+        nr_low = 1e3
+        s_high= max_speed
+        nr_high = self._neighborhood_radius
+        neighborhood_radius = util.clip(util.interpolate(s_low, nr_low, s_high, nr_high, self.ship.phys.speed), nr_low, nr_high)
+
         # ramp down speed as nearby density increases
         # ramp down with inverse of the density: max_speed = m / (density + b)
         # d_low, s_high is one point we want to hit (speed at low density)
         # d_high, s_low is another (speed at high density
-        d_low = 1/(np.pi*self.neighborhood_radius**2)
+        d_low = 1/(np.pi*neighborhood_radius**2)
         s_high = max_speed
-        d_high = 30/(np.pi*self.neighborhood_radius**2)
+        d_high = 30/(np.pi*neighborhood_radius**2)
         s_low = self.min_max_speed
         density_max_speed = util.clip(util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density), s_low, max_speed)
 
@@ -371,7 +378,7 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, self.neighborhood_radius, self.scaled_collision_margin,
+                self.ship.sector, neighborhood_radius, self.scaled_collision_margin,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

@@ -338,9 +338,9 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
 
 cdef ccymunk.cpVect _collision_dv(
         ccymunk.cpVect entity_pos, ccymunk.cpVect entity_vel,
-        ccymunk.cpVect pos, ccymunk.cpVect vel,
+        ccymunk.cpVect pos, ccymunk.cpVect vel, double angle,
         double margin, ccymunk.cpVect v_d,
-        bool cbdr, double cbdr_bias, double delta_v_budget) except *:
+        bool cbdr, double cbdr_bias, double delta_v_budget, bool smaller_angle=False) except *:
     """ Computes a divert vector (as in accelerate_to(v + dv)) to avoid a
     collision by at least distance m. This divert will be of minimum size
     relative to the desired velocity.
@@ -374,6 +374,7 @@ cdef ccymunk.cpVect _collision_dv(
     cdef double q_a, q_b, q_c
     cdef double cross1, cross2
     cdef bool horizonal_rel_pos
+    cdef double da1, da2
 
     if isclose(v.x, 0.) and isclose(v.y, 0.):
         do_nothing_margin_sq = r.x**2.+r.y**2.
@@ -521,6 +522,23 @@ cdef ccymunk.cpVect _collision_dv(
         # not exactly sure why either would be nan, but hopefully one is not
         assert not isnan(cost1) or not isnan(cost2)
 
+    if smaller_angle and sqrt(cost) > delta_v_budget:
+        # pick the one with smaller delta angle
+        da1 = atan2(x1 - v.x, y1 - v.y)
+        da2 = atan2(x2 - v.x, y2 - v.y)
+        if fabs(normalize_angle(da1-angle, shortest=1)) < fabs(normalize_angle(da2-angle, shortest=1)):
+            x = x1
+            y = y1
+            s_x = s_1x
+            s_y = s_1y
+            cost = cost1
+        else:
+            x = x2
+            y = y2
+            s_x = s_2x
+            s_y = s_2y
+            cost = cost2
+
     if cbdr:
         # prefer diversion in the same direction in case of cbdr
         # the sign of cross1 and cross2 indicate the direction of the divert
@@ -574,7 +592,7 @@ cdef ccymunk.cpVect _collision_dv(
 def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Vec2d, vel:cymunk.Vec2d, margin:float, v_d:cymunk.Vec2d, cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> cymunk.Vec2d:
     return cpvtoVec2d(_collision_dv(
         entity_pos.v, entity_vel.v,
-        pos.v, vel.v,
+        pos.v, vel.v, 0.,
         margin, v_d.v, cbdr, cbdr_bias, delta_v_budget
     ))
 
@@ -745,6 +763,7 @@ cdef class NeighborAnalyzer:
         cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(self.body._body.v)
         cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
         cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
+        #cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
         cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
 
         cdef ccymunk.cpVect sensor_cone[4]
@@ -873,7 +892,7 @@ cdef class NeighborAnalyzer:
 
         return fabs(normalize_angle(oldest_bearing - latest_bearing, shortest=1)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
-    def collision_dv(self, current_timestamp:float, neighbor_margin:float, indesired_direction:cymunk.Vec2d) -> Tuple[Any]:
+    def collision_dv(self, current_timestamp:float, neighbor_margin:float, indesired_direction:cymunk.Vec2d, cannot_avoid_collision_hold:bool) -> Tuple[Any]:
         """ Compute the delta velocity to avoid collision
 
         returns the delta velocity and whether the collision can be avoided
@@ -952,10 +971,10 @@ cdef class NeighborAnalyzer:
 
             delta_velocity = _collision_dv(
                     current_threat_loc, self.analysis.threat_velocity,
-                    self.body._body.p, self.body._body.v,
+                    self.body._body.p, self.body._body.v, self.body._body.a,
                     desired_margin, desired_delta_velocity,
                     collision_cbdr, cbdr_bias,
-                    delta_v_budget,
+                    delta_v_budget, cannot_avoid_collision_hold
             )
 
         return tuple((cpvtoVec2d(delta_velocity), collision_cbdr, cannot_avoid_collision))

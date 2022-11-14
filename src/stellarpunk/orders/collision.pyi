@@ -50,6 +50,7 @@ class NeighborAnalyzer:
     def collision_dv(self,
             current_timestamp:float, neighbor_margin:float,
             desired_direction:cymunk.Vec2d,
+            cannot_avoid_collision_hold:bool,
             ) -> Tuple[cymunk.Vec2d, bool, bool]: ...
 
 def torque_for_angle(target_angle:float, angle:float, w:float, moment:float, max_torque:float, dt:float) -> float: ...
