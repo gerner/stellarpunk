@@ -8,24 +8,35 @@ def make_enclosing_circle(
 
 def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Vec2d, vel:cymunk.Vec2d, margin:float, v_d:cymunk.Vec2d, cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> cymunk.Vec2d: ...
 
-class NeighborAnalyzer:
+class Navigator:
     def __init__(
             self, space:cymunk.Space, body:cymunk.Body,
             radius:float,
             max_thrust:float, max_torque:float, max_speed:float,
+            base_margin:float,
             ) -> None: ...
 
+    def set_location_params(self,
+            target_location:cymunk.Vec2d,
+            arrival_radius:float, min_radius:float) -> None: ...
     def add_neighbor_shape(self, shape:cymunk.Shape) -> None: ...
     def coalesced_neighbor_locations(self) -> List[Tuple[float, float]]: ...
     def cbdr_history_summary(self) -> List[Tuple[float,float]]: ...
+    def get_cannot_avoid_collision_hold(self) -> bool: ...
+    def set_cannot_avoid_collision_hold(self, cach:bool) -> None: ...
+    def get_margin(self) -> float: ...
+    def get_collision_margin_histeresis(self) -> float: ...
+
+    def find_target_v(self,
+            max_speed: float,
+            dt: float, safety_factor:float,
+            ) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
 
     def analyze_neighbors(
             self,
             current_timestamp:float,
             max_distance:float,
-            margin:float,
             neighborhood_radius:float,
-            migrate_threat:bool,
             ) -> Tuple[
                 cymunk.Body,
                 float,
@@ -45,12 +56,9 @@ class NeighborAnalyzer:
                 int,
             ]: ...
 
-    def detect_cbdr(self, current_timestamp:float) -> bool: ...
-
     def collision_dv(self,
-            current_timestamp:float, neighbor_margin:float,
+            current_timestamp:float,
             desired_direction:cymunk.Vec2d,
-            cannot_avoid_collision_hold:bool,
             ) -> Tuple[cymunk.Vec2d, bool, bool]: ...
 
 def torque_for_angle(target_angle:float, angle:float, w:float, moment:float, max_torque:float, dt:float) -> float: ...
@@ -64,11 +72,6 @@ def rotate_to(
         body:cymunk.Body, target_angle:float, dt:float,
         max_torque:float) -> float: ...
 
-def find_target_v(
-        body:cymunk.Body,
-        target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float,
-        max_acceleration:float, max_angular_acceleration:float, max_speed: float,
-        dt: float, safety_factor:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,

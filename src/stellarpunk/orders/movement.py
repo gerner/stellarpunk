@@ -193,16 +193,18 @@ class GoToLocation(AbstractSteeringOrder):
                 raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
             target_sector = self.ship.sector
 
-        self.collision_margin = 2e2
-        self.scaled_collision_margin = self.collision_margin
-
         self.target_sector = target_sector
         self._target_location = cymunk.Vec2d(*target_location)
+
         self.target_v = CYZERO_VECTOR
         self.arrival_distance = arrival_distance
         if min_distance is None:
             min_distance = self.arrival_distance * 0.9
         self.min_distance = min_distance
+
+        self.neighbor_analyzer.set_location_params(
+                self._target_location, arrival_distance, min_distance
+        )
 
         # a cap on max speed to apply histeresis
         # we'll keep track of the lowest it gets and when we last *dropped* it
@@ -225,6 +227,14 @@ class GoToLocation(AbstractSteeringOrder):
         # the next time we should do a costly computation of desired velocity
         self._next_compute_ts = 0.
 
+    def set_target_location(self, target_location:cymunk.Vec2d) -> None:
+        """ For testing support """
+        self._target_location = target_location
+        self.neighbor_analyzer.set_location_params(
+                self._target_location, self.arrival_distance, self.min_distance
+        )
+
+
     def to_history(self) -> dict:
         data = super().to_history()
         data["t_loc"] = (self._target_location[0], self._target_location[1])
@@ -232,7 +242,7 @@ class GoToLocation(AbstractSteeringOrder):
         data["md"] = self.min_distance
         data["t_v"] = (self.target_v[0], self.target_v[1])
         data["cs"] = self.cannot_stop
-        data["scm"] = self.scaled_collision_margin
+        data["scm"] = self.neighbor_analyzer.get_margin()
         data["_ncts"] = self._next_compute_ts
         data["_dv"] = [self._desired_velocity[0], self._desired_velocity[1]]
         data["msc"] = self.max_speed_cap
@@ -336,17 +346,9 @@ class GoToLocation(AbstractSteeringOrder):
 
         prev_cannot_avoid_collision = self.cannot_avoid_collision
 
-        #self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = find_target_v(
-        #        self.target_location, self.arrival_distance, self.min_distance,
-        #        self.ship.loc, v, theta, omega,
-        #        max_acceleration, max_angular_acceleration, max_speed,
-        #        dt, self.safety_factor)
-        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = collision.find_target_v(
-                self.ship.phys,
-                self._target_location, self.arrival_distance, self.min_distance,
-                max_acceleration, max_angular_acceleration, max_speed,
-                dt, self.safety_factor)
-        self.target_v = self.target_v
+        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = self.neighbor_analyzer.find_target_v(
+                max_speed, dt, self.safety_factor
+        )
 
         if self.cannot_stop:
             max_distance = np.inf
@@ -354,31 +356,10 @@ class GoToLocation(AbstractSteeringOrder):
         else:
             max_distance = distance-self.min_distance
 
-        if distance < self.arrival_distance * 5:
-            self.scaled_collision_margin = self.collision_margin
-        else:
-            # scale collision margin with speed, more speed = more margin
-            cm_low = self.collision_margin
-            cm_high = self.collision_margin*5
-            cm_speed_low = 100
-            cm_speed_high = 1500
-            self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, self.ship.speed)
-            self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
-
-        if distance < self.arrival_distance and distance > self.min_distance:
-            self.scaled_collision_margin = self.ship.radius*self.safety_factor
-
-        self.scaled_collision_margin = min(self.nearest_neighbor_dist*0.8, self.scaled_collision_margin)
-        #elif self.nearest_neighbor_dist < 1.5e4:
-        #    #TODO: this could go somewhere else in case the nearest neighbor IS the
-        #    # threat, then we can decrease the margin
-        #    # if we're very near a neighbor, we want a smaller margin
-        #    self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/20), self.collision_margin)
-
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
-        collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, neighborhood_radius, self.scaled_collision_margin,
+        collision_dv, approach_time = self._avoid_collisions_dv(
+                self.ship.sector, neighborhood_radius,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

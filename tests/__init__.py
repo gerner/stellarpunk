@@ -99,7 +99,8 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder.collision_threat_loc = cymunk.vec2d.Vec2d(history_entry["o"]["ct_cloc"])
             gorder.collision_threat_radius = history_entry["o"]["ct_cradius"]
             gorder.cannot_avoid_collision = history_entry["o"]["cac"]
-            gorder.cannot_avoid_collision_hold = history_entry["o"]["cach"]
+            gorder.neighbor_analyzer.set_cannot_avoid_collision_hold(history_entry["o"]["cach"])
+            gorder.neighbor_analyzer.set_cannot_avoid_collision_hold(history_entry["o"]["cach"])
             gorder.collision_cbdr = history_entry["o"]["cbdr"]
 
         if "msc" in history_entry["o"]:

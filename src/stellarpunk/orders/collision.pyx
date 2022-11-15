@@ -8,11 +8,14 @@ from libcpp.list cimport list
 from libcpp.queue cimport priority_queue
 from libcpp cimport bool
 from libc.stdlib cimport malloc
+from libc.stdio cimport fprintf, fflush, stderr, stdout
 from libc.math cimport fabs, sqrt, pi, isnan, isinf, atan2
 
 import cymunk
 cimport cymunk.cymunk as ccymunk
 cimport libc.math as math
+
+DEF LOGGING_ENABLED=1
 
 # some utils
 
@@ -92,6 +95,10 @@ def make_enclosing_circle(
     cdef Circle ret = enclosing_circle(c1.v, r1, c2.v, r2)
     return (cpvtoVec2d(ret.center), ret.radius)
 
+cdef void log(ccymunk.Body body, message):
+    if LOGGING_ENABLED:
+        print(f'{body.data.entity_id}\t{message}')
+
 # collision detection types
 
 cdef struct CollisionThreat:
@@ -117,6 +124,10 @@ cdef struct NeighborAnalysis:
     int threat_count
     ccymunk.cpShape *threat_shape
 
+    # current (not projected) threat location and distance
+    ccymunk.cpVect current_threat_loc
+    double distance_to_threat
+
     ccymunk.cpShape *nearest_neighbor_shape
     vector[CollisionThreat] collision_threats
     vector[ccymunk.cpShape *] coalesced_threats
@@ -125,6 +136,8 @@ cdef struct NeighborAnalysis:
     double threat_radius
     ccymunk.cpVect threat_loc
     ccymunk.cpVect threat_velocity
+
+    bool cannot_avoid_collision
 
 cdef struct AnalyzedNeighbor:
     double rel_dist
@@ -156,6 +169,8 @@ cdef double CBDR_DIST_EPS = 5
 # the scale (per tick) we use to scale down threat radii if the new threat is
 # still covered by the previous threat radius
 cdef double THREAT_RADIUS_SCALE_FACTOR = 0.995
+
+cdef double COLLISION_MARGIN_HISTERESIS_FACTOR = 0.55
 
 # cymunk fails to export this type from chipmunk
 ctypedef struct cpCircleShape :
@@ -596,12 +611,45 @@ def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Ve
         margin, v_d.v, cbdr, cbdr_bias, delta_v_budget
     ))
 
+cdef double _update_collision_margin_histeresis(double collision_margin_histeresis, double margin_histeresis, bool any_prior_threats, bool cannot_avoid_collision_hold):
+
+    cdef double y,b,m,y_next
+
+    if cannot_avoid_collision_hold:
+        # if likely to collide, we want to collapse the margin as small as possible
+        return 0.
+    elif any_prior_threats:
+        # if there's any overlap, keep the margin extra big
+        #self.collision_margin_histeresis = margin_histeresis
+
+        # expand margin up to margin histeresis
+        # this is the iterative form of the inverse of expoential decay
+        # which we use below to decay the margin histeresis when there's no
+        # overlap
+        if collision_margin_histeresis < margin_histeresis:
+            y = collision_margin_histeresis
+            b = margin_histeresis
+            m = COLLISION_MARGIN_HISTERESIS_FACTOR
+            y_next = (b - y)*(1-m)+y
+            # numerical precision means we might exceed the upper bound
+            if y_next > margin_histeresis:
+                y_next = margin_histeresis
+            return y_next
+        elif collision_margin_histeresis > margin_histeresis:
+            collision_margin_histeresis *= COLLISION_MARGIN_HISTERESIS_FACTOR
+            if collision_margin_histeresis < margin_histeresis:
+                return margin_histeresis
+        return collision_margin_histeresis
+    else:
+        # if there's no overlap, start collapsing collision margin
+        return collision_margin_histeresis * COLLISION_MARGIN_HISTERESIS_FACTOR
+
 cdef struct RelPosHistoryEntry:
     double timestamp
     ccymunk.cpVect rel_pos
     ccymunk.cpVect velocity
 
-cdef class NeighborAnalyzer:
+cdef class Navigator:
     cdef ccymunk.Space space
     cdef ccymunk.Body body
 
@@ -610,14 +658,32 @@ cdef class NeighborAnalyzer:
     cdef double max_thrust
     cdef double max_torque
     cdef double max_acceleration
+    cdef double max_angular_acceleration
     cdef double max_speed
     cdef double worst_case_rot_time
+
+    # some parameters about the navigation we'll be doing
+
+    # the margin we'd like to stay away from other vessels
+    # also a margin we'll actually use that we might scale up or down with the
+    # situation to stay safe, e.g. scale up as we go faster
+    cdef double base_margin
+    cdef double margin
+
+    # a target location we are navigating to
+    # the goal is to land between min_radius and arrival_radius
+    cdef ccymunk.cpVect target_location
+    cdef double arrival_radius
+    cdef double min_radius
 
     # some state we keep from one analysis call to the next
 
     # shape hash id of the most recent threat (the shape might have been
     # removed from the space since we found it)
     cdef ccymunk.cpHashValue last_threat_id
+    cdef double collision_margin_histeresis
+    cdef bool cannot_avoid_collision_hold
+
     # the most recent analysis we've performed
     cdef NeighborAnalysis analysis
 
@@ -632,6 +698,7 @@ cdef class NeighborAnalyzer:
             radius:float,
             max_thrust:float, max_torque:float,
             max_speed:float,
+            base_margin:float,
             ) -> None:
         self.space = <ccymunk.Space?> space
         self.body = <ccymunk.Body?> body
@@ -640,8 +707,44 @@ cdef class NeighborAnalyzer:
         self.max_thrust = max_thrust
         self.max_torque = max_torque
         self.max_acceleration = self.max_thrust / self.body._body.m
+        self.max_angular_acceleration = self.max_torque / self.body._body.i
         self.max_speed = max_speed
         self.worst_case_rot_time = sqrt(2. * pi / (self.max_torque/self.body._body.i))
+
+        self.base_margin = base_margin
+        self.target_location = ZERO_VECTOR
+        self.arrival_radius = 0.
+        self.min_radius = 0.
+
+        # initialize some parameters as if we had done an analysis
+        self.collision_margin_histeresis = 0.
+        self.margin = self.base_margin
+        self.last_threat_id = 0
+        self.analysis.threat_count = 0
+        self.analysis.neighborhood_size = 0
+        self.analysis.nearest_neighbor_dist = ccymunk.INFINITY
+        self.cannot_avoid_collision_hold = False
+        self.analysis.cannot_avoid_collision = False
+
+    cdef void log(self, message):
+        log(self.body, message)
+
+    def set_location_params(self, target_location:cymunk.Vec2d, arrival_radius:float, min_radius:float) -> None:
+        self.target_location = target_location.v
+        self.arrival_radius = arrival_radius
+        self.min_radius = min_radius
+
+    def get_cannot_avoid_collision_hold(self):
+        return self.cannot_avoid_collision_hold
+
+    def set_cannot_avoid_collision_hold(self, cach):
+        self.cannot_avoid_collision_hold = cach
+
+    def get_margin(self):
+        return self.margin
+
+    def get_collision_margin_histeresis(self):
+        return self.collision_margin_histeresis
 
     def add_neighbor_shape(self, shape:cymunk.Shape) -> None:
         """ Testing helper to set up NeighborAnalyzer """
@@ -673,13 +776,92 @@ cdef class NeighborAnalyzer:
         else:
             return[]
 
+    cdef double _calculate_margin(self):
+        cdef double scaled_collision_margin
+
+        #TODO: can we take this as computed somewhere else?
+        cdef ccymunk.cpVect course = ccymunk.cpvsub(self.target_location, self.body._body.p)
+        cdef double distance = ccymunk.cpvlength(course)
+        cdef double cm_low, cm_high, cm_speed_low, cm_speed_high
+
+        if self.cannot_avoid_collision_hold:
+            scaled_collision_margin = self.radius * 2
+        elif distance < self.arrival_radius and distance > self.min_radius:
+            scaled_collision_margin = self.radius*1.5
+        elif distance < self.arrival_radius * 5:
+            scaled_collision_margin = self.base_margin
+        else:
+            # scale collision margin with speed, more speed = more margin
+            cm_low = self.base_margin
+            cm_high = self.base_margin*5
+            cm_speed_low = 100
+            cm_speed_high = 1500
+            scaled_collision_margin = clip(
+                interpolate(
+                    cm_speed_low, cm_low, cm_speed_high, cm_high,
+                    ccymunk.cpvlength(self.body._body.v)
+                ),
+                cm_low, cm_high
+            )
+
+        scaled_collision_margin = min(self.analysis.nearest_neighbor_dist*0.8, scaled_collision_margin)
+
+        return scaled_collision_margin
+
+    cdef bool _calculate_cannot_avoid_collision(self, double neighbor_margin):
+
+        cdef double desired_margin = neighbor_margin + self.analysis.threat_radius + self.radius
+        cdef double required_acceleration, required_thrust
+        cdef bool cannot_avoid_collision = 0
+        if self.analysis.distance_to_threat <= desired_margin + VELOCITY_EPS:
+            if self.analysis.minimum_separation < self.analysis.threat_radius:
+                if self.analysis.distance_to_threat < self.analysis.threat_radius:
+                    cannot_avoid_collision = 1
+                elif self.analysis.approach_time > 0.:
+                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_thrust = self.body._body.m * required_acceleration
+                    cannot_avoid_collision = required_thrust > self.max_thrust
+        else:
+            if self.analysis.minimum_separation < self.analysis.threat_radius:
+                if self.analysis.approach_time > 0.:
+                    # check if we can avoid collision
+                    # s = u*t + 1/2 a * t^2
+                    # s = threat_radius - minimum_separation
+                    # ignore current velocity, we want to get displacement on
+                    #   top of current situation
+                    # t = approach_time
+                    # a = 2 * s / t^2
+                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_thrust = self.body._body.m * required_acceleration
+                    cannot_avoid_collision = required_thrust > self.max_thrust
+                else:
+                    cannot_avoid_collision = 1
+
+        return cannot_avoid_collision
+
+    def prepare_analysis(self):
+            pass
+
+    def find_target_v(self, max_speed:float, dt: float, safety_factor:float):
+        """ Given goto location params, determine the desired velocity.
+
+        returns a tuple:
+            target velocity vector
+            distance to the target location
+            an estimate of the distance to the target location after dt
+            boolean indicator if we cannot stop before reaching location
+            delta speed between current and target
+        """
+
+        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, max_speed, dt, safety_factor)
+
+        return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
+
     def analyze_neighbors(
             self,
             current_timestamp:float,
             max_distance:float,
-            margin:float,
             neighborhood_radius:float,
-            migrate_threat:bool
             ) -> Tuple[
                 cymunk.Body,
                 float,
@@ -699,7 +881,6 @@ cdef class NeighborAnalyzer:
                 int,
             ]:
 
-        cdef bool should_migrate_threat = migrate_threat
         cdef ccymunk.cpShape *ct
         cdef ccymunk.Body cythreat_body
         cdef double speed = ccymunk.cpvlength(self.body._body.v)
@@ -709,6 +890,12 @@ cdef class NeighborAnalyzer:
         cdef int prior_threat_count
         cdef ccymunk.cpHashValue prior_threat_id
         cdef Circle migrated_threat
+
+        # calculate (and update) the margin we want
+        self.margin = self._calculate_margin()
+
+        # and expand based on if we're trying to avoid a target
+        margin = self.margin + self.collision_margin_histeresis
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -781,7 +968,10 @@ cdef class NeighborAnalyzer:
 
         coalesce_threats(&self.analysis)
 
-        if should_migrate_threat and self.analysis.threat_count > 0 and prior_threat_radius > 0:
+        # we want to smooth transitions between threats if possible
+        # but don't do this if we're in an emergency situation
+        # i.e. cannot_avoid_collision_hold
+        if not self.cannot_avoid_collision_hold and self.analysis.threat_count > 0 and prior_threat_radius > 0:
             migrated_threat = _migrate_threat_location(
                     self.body._body.p, self.radius,
                     prior_threat_location, prior_threat_radius,
@@ -815,9 +1005,18 @@ cdef class NeighborAnalyzer:
         neighborhood_density = self.analysis.neighborhood_size / (math.pi * self.analysis.neighborhood_radius ** 2)
 
         if self.analysis.threat_count == 0:
+            self.analysis.distance_to_threat = ccymunk.INFINITY
+            self.analysis.cannot_avoid_collision = False
             self.last_threat_id = 0
             self.prior_threat_ids.clear()
             self.rel_pos_history.clear()
+
+            self.collision_margin_histeresis = _update_collision_margin_histeresis(
+                    self.collision_margin_histeresis, self.margin,
+                    False, self.cannot_avoid_collision_hold
+            )
+            self.cannot_avoid_collision_hold = False
+
             return tuple((
                     None,
                     ccymunk.INFINITY,
@@ -834,9 +1033,27 @@ cdef class NeighborAnalyzer:
                     self.analysis.nearest_neighbor_dist,
                     neighborhood_density,
                     self.analysis.neighborhood_size,
-                    False
+                    0
             ))
         else:
+            # we back into current threat location from where the collision is
+            # projected to happen and the threat velocity
+            # we can't use the known current location of the threat neighbor since
+            # the threat might be coalesced from may threats
+            # this phantom current threat location is a simplication we  make
+            self.analysis.current_threat_loc = ccymunk.cpvsub(
+                    self.analysis.threat_loc,
+                    ccymunk.cpvmult(
+                        self.analysis.threat_velocity,
+                        self.analysis.approach_time
+                    )
+            )
+            self.analysis.distance_to_threat = ccymunk.cpvdist(
+                    self.analysis.current_threat_loc, self.body._body.p)
+
+            # figure out if we can get away from the threat
+            self.analysis.cannot_avoid_collision = self._calculate_cannot_avoid_collision(margin)
+
             prior_threat_id = self.last_threat_id
             self.last_threat_id = self.analysis.threat_shape.hashid_private
             if self.last_threat_id == prior_threat_id:
@@ -855,6 +1072,15 @@ cdef class NeighborAnalyzer:
             for ct in self.analysis.coalesced_threats:
                 self.prior_threat_ids.push_back(ct.hashid_private)
                 prior_threat_count += prior_shape_ids.count(ct.hashid_private)
+
+            self.collision_margin_histeresis = _update_collision_margin_histeresis(
+                    self.collision_margin_histeresis, self.margin,
+                    prior_threat_count > 0, self.cannot_avoid_collision_hold
+            )
+
+            # if we cannot currently avoid a collision, flip the flag, but don't
+            # clear it just because we currently are ok, that happens elsewhere.
+            self.cannot_avoid_collision_hold = (prior_threat_count > 0 and self.cannot_avoid_collision_hold) or self.analysis.cannot_avoid_collision
 
             return tuple((
                     threat,
@@ -875,7 +1101,7 @@ cdef class NeighborAnalyzer:
                     prior_threat_count,
             ))
 
-    def detect_cbdr(self, current_timestamp:float):
+    cdef bool _detect_cbdr(self, double current_timestamp):
         if self.rel_pos_history.size() < 2:
             return False
         if current_timestamp - self.rel_pos_history.front().timestamp < CBDR_MIN_HIST_SEC:
@@ -892,74 +1118,36 @@ cdef class NeighborAnalyzer:
 
         return fabs(normalize_angle(oldest_bearing - latest_bearing, shortest=1)) < CBDR_ANGLE_EPS and oldest_distance - latest_distance > CBDR_DIST_EPS
 
-    def collision_dv(self, current_timestamp:float, neighbor_margin:float, indesired_direction:cymunk.Vec2d, cannot_avoid_collision_hold:bool) -> Tuple[Any]:
+    def collision_dv(self, current_timestamp:float, indesired_direction:cymunk.Vec2d) -> Tuple[Any]:
         """ Compute the delta velocity to avoid collision
 
         returns the delta velocity and whether the collision can be avoided
         """
-        cdef double desired_margin = neighbor_margin + self.analysis.threat_radius + self.radius
+        cdef double desired_margin = self.margin + self.collision_margin_histeresis + self.analysis.threat_radius + self.radius
         cdef ccymunk.cpVect desired_direction = indesired_direction.v
-
-        # we back into current threat location from where the collision is
-        # projected to happen and the threat velocity
-        # we can't use the known current location of the threat neighbor since
-        # the threat might be coalesced from may threats
-        # this phantom current threat location is a simplication we  make
-        cdef ccymunk.cpVect current_threat_loc = ccymunk.cpvsub(
-                self.analysis.threat_loc,
-                ccymunk.cpvmult(
-                    self.analysis.threat_velocity,
-                    self.analysis.approach_time
-                )
-        )
-        cdef double distance_to_threat = ccymunk.cpvdist(
-                current_threat_loc, self.body._body.p)
 
         # return values
         cdef ccymunk.cpVect delta_velocity
-        cdef bool collision_cbdr = self.detect_cbdr(current_timestamp)
-        cdef bool cannot_avoid_collision = 0
+        cdef bool collision_cbdr = self._detect_cbdr(current_timestamp)
 
         cdef double required_acceleration, required_thrust
         cdef double cbdr_bias = 2. #TODO: get rid of cbdr_bias or actually use it!
         cdef ccymunk.cpVect desired_delta_velocity
         cdef double ddv_mag, max_dv_available, delta_v_budget
 
-        if distance_to_threat <= desired_margin + VELOCITY_EPS:
+        if self.analysis.distance_to_threat <= desired_margin + VELOCITY_EPS:
             delta_velocity = ccymunk.cpvmult(
-                    ccymunk.cpvsub(current_threat_loc, self.body._body.p),
-                    distance_to_threat * self.max_speed * -1
+                    ccymunk.cpvsub(self.analysis.current_threat_loc, self.body._body.p),
+                    self.analysis.distance_to_threat * self.max_speed * -1
             )
-            if self.analysis.minimum_separation < self.analysis.threat_radius:
-                if distance_to_threat < self.analysis.threat_radius:
-                    cannot_avoid_collision = 1
-                elif self.analysis.approach_time > 0.:
-                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
-                    required_thrust = self.body._body.m * required_acceleration
-                    cannot_avoid_collision = required_thrust > self.max_thrust
         else:
-            if self.analysis.minimum_separation < self.analysis.threat_radius:
-                if self.analysis.approach_time > 0.:
-                    # check if we can avoid collision
-                    # s = u*t + 1/2 a * t^2
-                    # s = threat_radius - minimum_separation
-                    # ignore current velocity, we want to get displacement on
-                    #   top of current situation
-                    # t = approach_time
-                    # a = 2 * s / t^2
-                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
-                    required_thrust = self.body._body.m * required_acceleration
-                    cannot_avoid_collision = required_thrust > self.max_thrust
-                else:
-                    cannot_avoid_collision = 1
-            else:
-                if self.analysis.approach_time > 0:
-                    # check that the desired margin is feasible given our delta-v budget
-                    # if not, set the margin to whatever our delta-v budget permits
-                    required_acceleration = 2.*(desired_margin-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
-                    required_thrust = self.body._body.m * required_acceleration
-                    if required_thrust > self.max_thrust:
-                        desired_margin = (self.max_acceleration * self.analysis.approach_time ** 2. + 2. * self.analysis.minimum_separation)/2.
+            if self.analysis.minimum_separation > self.analysis.threat_radius and self.analysis.approach_time > 0:
+                # check that the desired margin is feasible given our delta-v budget
+                # if not, set the margin to whatever our delta-v budget permits
+                required_acceleration = 2.*(desired_margin-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                required_thrust = self.body._body.m * required_acceleration
+                if required_thrust > self.max_thrust:
+                    desired_margin = (self.max_acceleration * self.analysis.approach_time ** 2. + 2. * self.analysis.minimum_separation)/2.
 
             desired_delta_velocity = ccymunk.cpvsub(desired_direction, self.body._body.v)
             ddv_mag = ccymunk.cpvlength(desired_delta_velocity)
@@ -970,14 +1158,14 @@ cdef class NeighborAnalyzer:
             delta_v_budget = self.max_thrust / self.body._body.m * (self.analysis.approach_time - self.worst_case_rot_time)
 
             delta_velocity = _collision_dv(
-                    current_threat_loc, self.analysis.threat_velocity,
+                    self.analysis.current_threat_loc, self.analysis.threat_velocity,
                     self.body._body.p, self.body._body.v, self.body._body.a,
                     desired_margin, desired_delta_velocity,
                     collision_cbdr, cbdr_bias,
-                    delta_v_budget, cannot_avoid_collision_hold
+                    delta_v_budget, self.cannot_avoid_collision_hold
             )
 
-        return tuple((cpvtoVec2d(delta_velocity), collision_cbdr, cannot_avoid_collision))
+        return tuple((cpvtoVec2d(delta_velocity), collision_cbdr, self.analysis.cannot_avoid_collision))
 
 cdef double ANGLE_EPS = 5e-2 # about 3 degrees
 cdef double COARSE_VELOCITY_MATCH = 2e0
@@ -1251,28 +1439,6 @@ cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_loc
 
     return DeltaVResult(target_v, distance, distance_estimate, cannot_stop, fabs(ccymunk.cpvlength(body.v) - desired_speed))
 
-
-def find_target_v(
-        body:cymunk.Body,
-        target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float,
-        max_acceleration:float, max_angular_acceleration:float, max_speed: float,
-        dt: float, safety_factor:float):
-    """ Given goto location params, determine the desired velocity.
-
-    returns a tuple:
-        target velocity vector
-        distance to the target location
-        an estimate of the distance to the target location after dt
-        boolean indicator if we cannot stop before reaching location
-        delta speed between current and target
-    """
-
-    cdef ccymunk.Body cybody = <ccymunk.Body?> body
-    cdef ccymunk.Vec2d cytarget_location = <ccymunk.Vec2d?> target_location
-
-    cdef DeltaVResult result = _find_target_v(cybody._body, cytarget_location.v, arrival_distance, min_distance, max_acceleration, max_angular_acceleration, max_speed, dt, safety_factor)
-
-    return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,

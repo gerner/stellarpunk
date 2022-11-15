@@ -250,7 +250,6 @@ class Simulator:
             total_goto_orders = 0
             total_orders_with_ct = 0
             total_orders_with_cac = 0
-            total_nact_now = 0
             for sector in self.gamestate.sectors.values():
                 for ship in sector.ships:
                     total_ships += 1
@@ -262,10 +261,8 @@ class Simulator:
                                 total_orders_with_ct += 1
                             if order.cannot_avoid_collision:
                                 total_orders_with_cac += 1
-                            if self.gamestate.timestamp >= order._next_accelerate_compute_ts:
-                                total_nact_now += 1
 
-            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} nact_now: {total_nact_now}')
+            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
     def run(self) -> None:

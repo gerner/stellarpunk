@@ -357,7 +357,7 @@ def test_double_threat(gamestate, generator, sector, testui, simulator):
     station = station_from_history(c, generator, sector)
 
     goto_a = order_from_history(a, ship_a, gamestate, load_ct=False)
-    goto_a._target_location = (ship_a.phys.position + (goto_a._target_location  - ship_a.phys.position)/25)
+    goto_a.set_target_location((ship_a.phys.position + (goto_a._target_location  - ship_a.phys.position)/25))
     goto_b = order_from_history(b, ship_b, gamestate, load_ct=False)
 
     eta = goto_a.estimate_eta()
@@ -512,7 +512,7 @@ def test_perpendicular_threat(gamestate, generator, sector, testui, simulator):
 
     goto_a = order_from_history(a, ship_a, gamestate)
     # make the target location close-ish to ship_a
-    goto_a._target_location = (ship_a.phys.position + (goto_a._target_location - ship_a.phys.position)/5)
+    goto_a.set_target_location((ship_a.phys.position + (goto_a._target_location - ship_a.phys.position)/5))
 
     goto_b = order_from_history(b, ship_b, gamestate)
 
