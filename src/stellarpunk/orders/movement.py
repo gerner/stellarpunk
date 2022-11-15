@@ -174,7 +174,6 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 8.5e3,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -187,7 +186,6 @@ class GoToLocation(AbstractSteeringOrder):
         """
 
         super().__init__(*args, **kwargs)
-        self._neighborhood_radius = neighborhood_radius
         if target_sector is None:
             if self.ship.sector is None:
                 raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
@@ -296,58 +294,12 @@ class GoToLocation(AbstractSteeringOrder):
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
 
-        max_acceleration = self.ship.max_acceleration()
-        max_angular_acceleration = self.ship.max_angular_acceleration()
-        max_speed = self.ship.max_speed()
-
-        # choose a neighborhood_radius depending on our speed
-        s_low = 100
-        nr_low = 1e3
-        s_high= max_speed
-        nr_high = self._neighborhood_radius
-        neighborhood_radius = util.clip(util.interpolate(s_low, nr_low, s_high, nr_high, self.ship.phys.speed), nr_low, nr_high)
-
-        # ramp down speed as nearby density increases
-        # ramp down with inverse of the density: max_speed = m / (density + b)
-        # d_low, s_high is one point we want to hit (speed at low density)
-        # d_high, s_low is another (speed at high density
-        d_low = 1/(np.pi*neighborhood_radius**2)
-        s_high = max_speed
-        d_high = 30/(np.pi*neighborhood_radius**2)
-        s_low = self.min_max_speed
-        density_max_speed = util.clip(util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density), s_low, max_speed)
-
-        # also ramp down speed with distance to nearest neighbor
-        # nn_d_high, nn_speed_high is one point
-        # nn_d_low, nn_speed_low is another
-        nn_d_high = 2e3
-        nn_s_high = 1000#max_speed
-        nn_d_low = 5e2
-        nn_s_low = self.min_max_speed
-        nn_max_speed = util.clip(util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist), nn_s_low, max_speed)
-
-        max_speed = min(max_speed, density_max_speed, nn_max_speed)
-
-        # keep track of how low max speed gets to so we can apply histeresis
-        if self.gamestate.timestamp - self.max_speed_cap_ts > self.max_speed_cap_max_expiration:
-            # this avoids overflow in the exponentiation when it's irrelevant
-            max_speed_cap = max_speed
-        else:
-            # max_speed_cap decays back up to the max speed
-            max_speed_cap = self.max_speed_cap * (1+self.max_speed_cap_alpha)**(self.gamestate.timestamp - self.max_speed_cap_ts)
-
-        if max_speed < max_speed_cap:
-            # keep track of the lowest our max speed is capped to
-            self.max_speed_cap = max_speed
-            self.max_speed_cap_ts = self.gamestate.timestamp
-        else:
-            # apply our historic (decaying) max speed cap
-            max_speed = min(max_speed_cap, max_speed)
+        self.neighbor_analyzer.prepare_analysis(self.gamestate.timestamp)
 
         prev_cannot_avoid_collision = self.cannot_avoid_collision
 
         self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = self.neighbor_analyzer.find_target_v(
-                max_speed, dt, self.safety_factor
+                dt, self.safety_factor
         )
 
         if self.cannot_stop:
@@ -359,7 +311,7 @@ class GoToLocation(AbstractSteeringOrder):
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
         collision_dv, approach_time = self._avoid_collisions_dv(
-                self.ship.sector, neighborhood_radius,
+                self.ship.sector,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 

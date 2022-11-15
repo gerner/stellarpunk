@@ -33,10 +33,15 @@ ZERO_VECTOR.flags.writeable = False
 CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
 class AbstractSteeringOrder(core.Order):
-    def __init__(self, *args: Any, safety_factor:float=2., collision_margin:float=2e2, **kwargs: Any) -> None:
+    def __init__(self, *args: Any,
+            safety_factor:float=2.,
+            collision_margin:float=2e2,
+            neighborhood_radius: float = 8.5e3,
+            **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
         self.collision_margin = collision_margin
+        self._neighborhood_radius = neighborhood_radius
 
         assert self.ship.sector is not None
         self.neighbor_analyzer = collision.Navigator(
@@ -44,6 +49,7 @@ class AbstractSteeringOrder(core.Order):
                 self.ship.radius, self.ship.max_thrust, self.ship.max_torque,
                 self.ship.max_speed(),
                 self.collision_margin,
+                neighborhood_radius,
         )
 
         self.nearest_neighbor:Optional[core.SectorEntity] = None
@@ -63,6 +69,7 @@ class AbstractSteeringOrder(core.Order):
 
         # how many neighbors per m^2
         self.neighborhood_density = 0.
+        self.num_neighbors = 0
 
     def to_history(self) -> dict:
         history = super().to_history()
@@ -95,7 +102,6 @@ class AbstractSteeringOrder(core.Order):
     def _collision_neighbor(
             self,
             sector: core.Sector,
-            neighborhood_dist: float,
             max_distance: float
         ) -> tuple[
             Optional[core.SectorEntity],
@@ -105,6 +111,7 @@ class AbstractSteeringOrder(core.Order):
             cymunk.Vec2d,
             cymunk.Vec2d,
             float,
+            int,
             bool]:
 
         self.cannot_avoid_collision = False
@@ -129,7 +136,7 @@ class AbstractSteeringOrder(core.Order):
                 prior_threat_count,
         ) = self.neighbor_analyzer.analyze_neighbors(
             self.gamestate.timestamp,
-            max_distance, neighborhood_dist,
+            max_distance,
         )
 
         if neighborhood_density > 0:
@@ -156,6 +163,7 @@ class AbstractSteeringOrder(core.Order):
             threat_velocity = CYZERO_VECTOR
             threat_radius = 0.
             neighborhood_density = 0.
+            num_neighbors = 0
 
             self.collision_threat_loc = CYZERO_VECTOR
             self.collision_threat_radius = 0
@@ -178,14 +186,13 @@ class AbstractSteeringOrder(core.Order):
         self.collision_minimum_separation = minimum_separation
         self.collision_coalesced_threats = coalesced_threats
 
-        return neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, prior_threat_count > 0
+        return neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, num_neighbors, prior_threat_count > 0
 
-    def _avoid_collisions_dv(self, sector: core.Sector, neighborhood_dist: float, max_distance: float=np.inf, desired_direction:Optional[cymunk.Vec2d]=None) -> tuple[np.ndarray, float]:
+    def _avoid_collisions_dv(self, sector: core.Sector, max_distance: float=np.inf, desired_direction:Optional[cymunk.Vec2d]=None) -> tuple[np.ndarray, float]:
         """ Given current velocity, try to avoid collisions with neighbors
 
         sector
         neighborhood_loc: centerpoint for looking for threats
-        neighborhood_dist: how far away to look for threats
         margin: how far apart (between envelopes) to target
         max_distance: max distance to care about collisions
         v: our velocity
@@ -199,9 +206,10 @@ class AbstractSteeringOrder(core.Order):
             desired_direction = self.ship.phys.velocity
 
         # find neighbor with soonest closest appraoch
-        neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, any_prior_threats = self._collision_neighbor(sector, neighborhood_dist, max_distance)
+        neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, num_neighbors, any_prior_threats = self._collision_neighbor(sector, max_distance)
 
         self.neighborhood_density = neighborhood_density
+        self.num_neighbors = num_neighbors
 
         if neighbor is None:
             self.cannot_avoid_collision = False

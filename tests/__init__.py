@@ -89,6 +89,11 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder._desired_velocity = cymunk.Vec2d(*history_entry["o"]["_dv"])
             gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
             gorder.neighborhood_density = history_entry["o"]["nd"]
+            gorder.num_neighbors = int(history_entry["o"]["nd"] * np.pi*8.5e4**2)
+            gorder.neighbor_analyzer.set_neighbor_params(
+                int(history_entry["o"]["nd"] * np.pi*8.5e4**2),
+                history_entry["o"]["nnd"],
+            )
 
         if load_ct and "ct" in history_entry["o"]:
             gorder.collision_threat = ship.sector.entities[uuid.UUID(history_entry["o"]["ct"])]
@@ -107,6 +112,11 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
             gorder.max_speed_cap = history_entry["o"]["msc"]
             gorder.max_speed_cap_ts = history_entry["o"]["msc_ts"] - history_entry["ts"]
             gorder.max_speed_cap_alpha = history_entry["o"]["msc_a"]
+            gorder.neighbor_analyzer.set_max_speed_cap_params(
+                history_entry["o"]["msc"],
+                history_entry["o"]["msc_ts"] - history_entry["ts"],
+                history_entry["o"]["msc_a"],
+            )
 
         order:core.Order=gorder
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):

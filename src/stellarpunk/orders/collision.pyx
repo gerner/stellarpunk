@@ -659,10 +659,27 @@ cdef class Navigator:
     cdef double max_torque
     cdef double max_acceleration
     cdef double max_angular_acceleration
-    cdef double max_speed
     cdef double worst_case_rot_time
 
     # some parameters about the navigation we'll be doing
+
+    cdef double base_neighborhood_radius
+    cdef double neighborhood_radius
+
+    # we'll calculate a desired max speed based on conditions (e.g. how crowded
+    # things are)
+    cdef double base_max_speed
+    cdef double max_speed
+
+    # a cap on max speed to apply histeresis
+    # we'll keep track of the lowest it gets and when we last *dropped* it
+    # the actual cap will be computed as
+    # cap = max_speed_cap * (1+alpha)^(time_since_drop)
+    cdef double max_speed_cap
+    cdef double max_speed_cap_ts
+    cdef double max_speed_cap_alpha
+    cdef double min_max_speed
+    cdef double max_speed_cap_max_expiration
 
     # the margin we'd like to stay away from other vessels
     # also a margin we'll actually use that we might scale up or down with the
@@ -695,10 +712,10 @@ cdef class Navigator:
 
     def __cinit__(
             self, space:cymunk.Space, body:cymunk.Body,
-            radius:float,
-            max_thrust:float, max_torque:float,
+            radius:float, max_thrust:float, max_torque:float,
             max_speed:float,
             base_margin:float,
+            base_neighborhood_radius:float,
             ) -> None:
         self.space = <ccymunk.Space?> space
         self.body = <ccymunk.Body?> body
@@ -708,8 +725,20 @@ cdef class Navigator:
         self.max_torque = max_torque
         self.max_acceleration = self.max_thrust / self.body._body.m
         self.max_angular_acceleration = self.max_torque / self.body._body.i
-        self.max_speed = max_speed
         self.worst_case_rot_time = sqrt(2. * pi / (self.max_torque/self.body._body.i))
+
+        self.base_neighborhood_radius = base_neighborhood_radius
+        self.neighborhood_radius = base_neighborhood_radius
+
+        self.base_max_speed = max_speed
+        self.max_speed = max_speed
+        self.max_speed_cap = max_speed
+        self.max_speed_cap_ts = 0.
+        self.max_speed_cap_alpha = 0.2
+        self.min_max_speed = 100
+        # max speed cap decays, the longest that could take to be irrelevant is
+        # this long
+        self.max_speed_cap_max_expiration = math.log(max_speed/self.min_max_speed)/math.log(1+self.max_speed_cap_alpha)
 
         self.base_margin = base_margin
         self.target_location = ZERO_VECTOR
@@ -734,17 +763,25 @@ cdef class Navigator:
         self.arrival_radius = arrival_radius
         self.min_radius = min_radius
 
-    def get_cannot_avoid_collision_hold(self):
-        return self.cannot_avoid_collision_hold
-
     def set_cannot_avoid_collision_hold(self, cach):
         self.cannot_avoid_collision_hold = cach
 
-    def get_margin(self):
-        return self.margin
+    def set_max_speed_cap_params(self, max_speed_cap:float, max_speed_cap_ts:float, max_speed_cap_alpha:float):
+        self.max_speed_cap = max_speed_cap
+        self.max_speed_cap_ts = max_speed_cap_ts
+        self.max_speed_cap_alpha = max_speed_cap_alpha
 
-    def get_collision_margin_histeresis(self):
-        return self.collision_margin_histeresis
+    def set_neighbor_params(self, neighborhood_size:int, nearest_neighbor_dist:float):
+        self.analysis.neighborhood_size = neighborhood_size
+        self.analysis.nearest_neighbor_dist = nearest_neighbor_dist
+
+    def get_cannot_avoid_collision_hold(self): return self.cannot_avoid_collision_hold
+    def get_margin(self): return self.margin
+    def get_collision_margin_histeresis(self): return self.collision_margin_histeresis
+    def get_neighborhood_radius(self): return self.neighborhood_radius
+    def get_max_speed(self): return self.max_speed
+    def get_max_speed_cap(self): return self.max_speed_cap
+
 
     def add_neighbor_shape(self, shape:cymunk.Shape) -> None:
         """ Testing helper to set up NeighborAnalyzer """
@@ -839,10 +876,77 @@ cdef class Navigator:
 
         return cannot_avoid_collision
 
-    def prepare_analysis(self):
-            pass
+    def prepare_analysis(self, timestamp:float):
+        cdef double s_low, nr_low, s_high, nr_high
+        cdef double d_low, d_high, density_max_speed
+        cdef double nn_d_high, nn_s_high, nn_d_low, nn_s_low, nn_max_speed
+        cdef double max_speed_cap
 
-    def find_target_v(self, max_speed:float, dt: float, safety_factor:float):
+        cdef double max_speed = self.base_max_speed
+
+        # choose a neighborhood_radius depending on our speed
+        s_low = 100
+        nr_low = 1e3
+        s_high= max_speed
+        nr_high = self.base_neighborhood_radius
+        self.neighborhood_radius = clip(
+            interpolate(s_low, nr_low, s_high, nr_high,
+                ccymunk.cpvlength(self.body._body.v)
+            ),
+            nr_low, nr_high
+        )
+
+        # ramp down speed as nearby density increases
+        # ramp down with inverse of the density: max_speed = m / (density + b)
+        # d_low, s_high is one point we want to hit (speed at low density)
+        # d_high, s_low is another (speed at high density
+        d_low = 1.
+        s_high = max_speed
+        d_high = 30.
+        s_low = self.min_max_speed
+        density_max_speed = clip(
+            interpolate(
+                d_low, s_high, d_high, s_low,
+                self.analysis.neighborhood_size,
+            ),
+            s_low, max_speed
+        )
+
+        # also ramp down speed with distance to nearest neighbor
+        # nn_d_high, nn_speed_high is one point
+        # nn_d_low, nn_speed_low is another
+        nn_d_high = 2e3
+        nn_s_high = 1000#max_speed
+        nn_d_low = 5e2
+        nn_s_low = self.min_max_speed
+        nn_max_speed = clip(
+            interpolate(
+                nn_d_high, nn_s_high, nn_d_low, nn_s_low,
+                self.analysis.nearest_neighbor_dist),
+            nn_s_low, max_speed
+        )
+
+        max_speed = min(max_speed, density_max_speed, nn_max_speed)
+
+        # keep track of how low max speed gets to so we can apply histeresis
+        if timestamp - self.max_speed_cap_ts > self.max_speed_cap_max_expiration:
+            # this avoids overflow in the exponentiation when it's irrelevant
+            max_speed_cap = max_speed
+        else:
+            # max_speed_cap decays back up to the max speed
+            max_speed_cap = self.max_speed_cap * (1.+self.max_speed_cap_alpha)**(timestamp - self.max_speed_cap_ts)
+
+        if max_speed < max_speed_cap:
+            # keep track of the lowest our max speed is capped to
+            self.max_speed_cap = max_speed
+            self.max_speed_cap_ts = timestamp
+        else:
+            # apply our historic (decaying) max speed cap
+            max_speed = min(max_speed_cap, max_speed)
+
+        self.max_speed = max_speed
+
+    def find_target_v(self, dt: float, safety_factor:float):
         """ Given goto location params, determine the desired velocity.
 
         returns a tuple:
@@ -853,7 +957,7 @@ cdef class Navigator:
             delta speed between current and target
         """
 
-        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, max_speed, dt, safety_factor)
+        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, self.max_speed, dt, safety_factor)
 
         return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
@@ -861,7 +965,6 @@ cdef class Navigator:
             self,
             current_timestamp:float,
             max_distance:float,
-            neighborhood_radius:float,
             ) -> Tuple[
                 cymunk.Body,
                 float,
@@ -905,7 +1008,7 @@ cdef class Navigator:
                         NOFF_SPEED_LOW, NOFF_LOW, NOFF_SPEED_HIGH, NOFF_HIGH,
                         speed
                     ),
-                    0, neighborhood_radius - margin)
+                    0, self.neighborhood_radius - margin)
             cneighborhood_loc = ccymunk.cpvadd(self.body._body.p, ccymunk.cpvmult(self.body._body.v, neighborhood_offset / speed))
         else:
             cneighborhood_loc = self.body._body.p
@@ -914,7 +1017,7 @@ cdef class Navigator:
         cdef ccymunk.cpVect prior_threat_location = self.analysis.threat_loc
         cdef double prior_threat_radius = self.analysis.threat_radius
 
-        self.analysis.neighborhood_radius = neighborhood_radius
+        self.analysis.neighborhood_radius = self.neighborhood_radius
         self.analysis.ship_radius = self.radius
         self.analysis.margin = margin
         self.analysis.max_distance = max_distance
@@ -941,7 +1044,7 @@ cdef class Navigator:
         cdef set[ccymunk.cpHashValue] prior_shape_ids = self.analysis.considered_shapes
 
         # look for threats in a circle
-        ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)
+        ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, self.neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)
 
         # look for threats in a cone facing the direction of our velocity
         # cone is truncated, starts at the edge of our nearest point query circle
@@ -949,9 +1052,8 @@ cdef class Navigator:
         # cone starts at margin
         cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(self.body._body.v)
         cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
-        cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
-        #cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
-        cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
+        cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, self.neighborhood_radius-margin))
+        cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, self.neighborhood_radius*3))
 
         cdef ccymunk.cpVect sensor_cone[4]
         # points are ordered to get a convex shape with the proper winding
@@ -1138,7 +1240,7 @@ cdef class Navigator:
         if self.analysis.distance_to_threat <= desired_margin + VELOCITY_EPS:
             delta_velocity = ccymunk.cpvmult(
                     ccymunk.cpvsub(self.analysis.current_threat_loc, self.body._body.p),
-                    self.analysis.distance_to_threat * self.max_speed * -1
+                    self.analysis.distance_to_threat * self.base_max_speed * -1
             )
         else:
             if self.analysis.minimum_separation > self.analysis.threat_radius and self.analysis.approach_time > 0:

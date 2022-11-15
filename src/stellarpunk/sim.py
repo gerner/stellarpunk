@@ -250,19 +250,23 @@ class Simulator:
             total_goto_orders = 0
             total_orders_with_ct = 0
             total_orders_with_cac = 0
+            total_speed = 0.
+            total_neighbors = 0.
             for sector in self.gamestate.sectors.values():
                 for ship in sector.ships:
                     total_ships += 1
+                    total_speed += ship.phys.speed
                     if len(ship._orders) > 0:
                         order = ship._orders[0]
                         if isinstance(order, orders.movement.GoToLocation):
                             total_goto_orders += 1
+                            total_neighbors += order.num_neighbors
                             if order.collision_threat:
                                 total_orders_with_ct += 1
                             if order.cannot_avoid_collision:
                                 total_orders_with_cac += 1
 
-            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac}')
+            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
     def run(self) -> None:
