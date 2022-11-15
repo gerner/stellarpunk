@@ -832,7 +832,6 @@ class Gamestate:
 
         # heap of order items in form (scheduled timestamp, agendum)
         self._order_schedule:task_schedule.TaskSchedule[Order] = task_schedule.TaskSchedule()
-        self._scheduled_orders:Set[Order] = set()
 
         # heap of agenda items in form (scheduled timestamp, agendum)
         self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
@@ -874,7 +873,7 @@ class Gamestate:
         character.location = location
 
     def is_order_scheduled(self, order:Order) -> bool:
-        return order in self._scheduled_orders
+        return self._order_schedule.is_task_scheduled(order)
 
     def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
         self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
@@ -887,14 +886,11 @@ class Gamestate:
         if jitter > 0.:
             timestamp += self.random.uniform(high=jitter)
 
-        self._scheduled_orders.add(order)
         self._order_schedule.push_task(timestamp, order)
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
-    def pop_current_orders(self) -> Iterator[Order]:
-        for order in self._order_schedule.pop_current_tasks(self.timestamp):
-            self._scheduled_orders.remove(order)
-            yield order
+    def pop_current_orders(self) -> Sequence[Order]:
+        return self._order_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)

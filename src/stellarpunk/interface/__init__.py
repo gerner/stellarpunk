@@ -590,7 +590,7 @@ class Interface(AbstractInterface):
     def show_date(self) -> None:
         date_string = self.gamestate.current_time().strftime("%c")
         date_string = " "+date_string+" "
-        if not np.isclose(self.gamestate.time_accel_rate, 1.0):
+        if not util.isclose(self.gamestate.time_accel_rate, 1.0):
             date_string += f'({self.gamestate.time_accel_rate:.2f}) '
         self.stdscr.addstr(
                 self.viewscreen_y-1,
@@ -620,14 +620,14 @@ class Interface(AbstractInterface):
 
     def c_time_accel(self, args:Sequence[str]) -> None:
         self.gamestate.time_accel_rate = self.gamestate.time_accel_rate * 1.25
-        if np.isclose(self.gamestate.time_accel_rate, 1.0, atol=0.1):
+        if util.isclose_flex(self.gamestate.time_accel_rate, 1.0, atol=0.1):
             self.gamestate.time_accel_rate = 1.0
         if self.gamestate.time_accel_rate >= Settings.MAX_TIME_ACCEL:
             self.gamestate.time_accel_rate = Settings.MAX_TIME_ACCEL
 
     def c_time_decel(self, args:Sequence[str]) -> None:
         self.gamestate.time_accel_rate = self.gamestate.time_accel_rate / 1.25
-        if np.isclose(self.gamestate.time_accel_rate, 1.0, atol=0.1):
+        if util.isclose_flex(self.gamestate.time_accel_rate, 1.0, atol=0.1):
             self.gamestate.time_accel_rate = 1.0
         if self.gamestate.time_accel_rate <= Settings.MIN_TIME_ACCEL:
             self.gamestate.time_accel_rate = Settings.MIN_TIME_ACCEL
