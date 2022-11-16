@@ -82,41 +82,14 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
         arrival_distance = history_entry["o"].get("ad", 1.5e3)
         min_distance = history_entry["o"].get("md", None)
         gorder = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
-        gorder.neighborhood_density = history_entry["o"].get("nd", 0.)
+        #if "nn" in history_entry["o"]:
+        #    gorder.neighbor_analyzer.set_nearest_neighbors(history_entry["o"]["nn"])
 
         if "_ncts" in history_entry["o"]:
             gorder._next_compute_ts = history_entry["o"]["_ncts"] - history_entry["ts"]
             gorder._desired_velocity = cymunk.Vec2d(*history_entry["o"]["_dv"])
-            gorder.nearest_neighbor_dist = history_entry["o"]["nnd"]
-            gorder.neighborhood_density = history_entry["o"]["nd"]
-            gorder.num_neighbors = int(history_entry["o"]["nd"] * np.pi*8.5e4**2)
-            gorder.neighbor_analyzer.set_neighbor_params(
-                int(history_entry["o"]["nd"] * np.pi*8.5e4**2),
-                history_entry["o"]["nnd"],
-            )
 
-        if load_ct and "ct" in history_entry["o"]:
-            gorder.collision_threat = ship.sector.entities[uuid.UUID(history_entry["o"]["ct"])]
-            gorder.collision_threat_time = history_entry["o"]["ct_ts"] - history_entry["ts"]
-            for x in history_entry["o"]["ct_cn"]:
-                gorder.neighbor_analyzer.add_neighbor_shape(next(ship.sector.spatial_point(np.array(x), 100)).phys_shape)
-
-            gorder.collision_threat_loc = cymunk.vec2d.Vec2d(history_entry["o"]["ct_cloc"])
-            gorder.collision_threat_radius = history_entry["o"]["ct_cradius"]
-            gorder.cannot_avoid_collision = history_entry["o"]["cac"]
-            gorder.neighbor_analyzer.set_cannot_avoid_collision_hold(history_entry["o"]["cach"])
-            gorder.neighbor_analyzer.set_cannot_avoid_collision_hold(history_entry["o"]["cach"])
-            gorder.collision_cbdr = history_entry["o"]["cbdr"]
-
-        if "msc" in history_entry["o"]:
-            gorder.max_speed_cap = history_entry["o"]["msc"]
-            gorder.max_speed_cap_ts = history_entry["o"]["msc_ts"] - history_entry["ts"]
-            gorder.max_speed_cap_alpha = history_entry["o"]["msc_a"]
-            gorder.neighbor_analyzer.set_max_speed_cap_params(
-                history_entry["o"]["msc"],
-                history_entry["o"]["msc_ts"] - history_entry["ts"],
-                history_entry["o"]["msc_a"],
-            )
+        gorder.neighbor_analyzer.set_telemetry(history_entry["o"], history_entry["ts"])
 
         order:core.Order=gorder
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):

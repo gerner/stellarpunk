@@ -261,9 +261,9 @@ class Simulator:
                         if isinstance(order, orders.movement.GoToLocation):
                             total_goto_orders += 1
                             total_neighbors += order.num_neighbors
-                            if order.collision_threat:
+                            if order.threat_count:
                                 total_orders_with_ct += 1
-                            if order.cannot_avoid_collision:
+                            if order.cannot_avoid_collision_hold:
                                 total_orders_with_cac += 1
 
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')

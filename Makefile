@@ -1,9 +1,13 @@
-all:
-	dmypy run
-	pip install -e .
+SOURCES=$(shell find src -name *.pyx)
 
-build:
-	python setup.py build_ext
+all: ext
+	dmypy run
+
+ext: build/build_flag
+
+build/build_flag: $(SOURCES)
+	pip install -e .
+	touch build/build_flag
 
 clean:
 	rm -rf build

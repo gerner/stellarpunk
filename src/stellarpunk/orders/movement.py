@@ -204,18 +204,6 @@ class GoToLocation(AbstractSteeringOrder):
                 self._target_location, arrival_distance, min_distance
         )
 
-        # a cap on max speed to apply histeresis
-        # we'll keep track of the lowest it gets and when we last *dropped* it
-        # the actual cap will be computed as
-        # cap = max_speed_cap * (1+alpha)^(time_since_drop)
-        self.max_speed_cap = self.ship.max_speed()
-        self.max_speed_cap_ts = 0.
-        self.max_speed_cap_alpha = 0.2
-        self.min_max_speed = 100
-        # max speed cap decays, the longest that could take to be irrelevant is
-        # this long
-        self.max_speed_cap_max_expiration = math.log(self.ship.max_speed()/self.min_max_speed)/math.log(1+self.max_speed_cap_alpha)
-
         self.cannot_stop = False
 
         self.distance_estimate = 0.
@@ -243,9 +231,6 @@ class GoToLocation(AbstractSteeringOrder):
         data["scm"] = self.neighbor_analyzer.get_margin()
         data["_ncts"] = self._next_compute_ts
         data["_dv"] = [self._desired_velocity[0], self._desired_velocity[1]]
-        data["msc"] = self.max_speed_cap
-        data["msc_ts"] = self.max_speed_cap_ts
-        data["msc_a"] = self.max_speed_cap_alpha
 
         return data
 
@@ -364,7 +349,7 @@ class GoToLocation(AbstractSteeringOrder):
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 
-            if self.cannot_avoid_collision:
+            if self.neighbor_analyzer.get_cannot_avoid_collision():
                 nts = 1/70
             else:
                 nts = nts_low

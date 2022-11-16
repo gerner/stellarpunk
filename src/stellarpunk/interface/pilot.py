@@ -565,7 +565,7 @@ class PilotView(interface.View):
             label_nndist = "nndist:"
 
             self.viewscreen.addstr(status_y, status_x, f'{label_distance:>12} {distance}')
-            self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.neighborhood_density}')
+            self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.num_neighbors}')
             self.viewscreen.addstr(status_y+2, status_x, f'{label_nndist:>12} {current_order.nearest_neighbor_dist}')
 
     def _draw_command_state(self) -> None:

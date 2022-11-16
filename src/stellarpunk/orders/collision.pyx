@@ -1,6 +1,6 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True, infer_types=False, nonecheck=False
 
-from typing import Tuple, List, Any
+from typing import Tuple, List, Any, Dict
 import cython
 from libcpp.vector cimport vector
 from libcpp.set cimport set
@@ -10,6 +10,7 @@ from libcpp cimport bool
 from libc.stdlib cimport malloc
 from libc.stdio cimport fprintf, fflush, stderr, stdout
 from libc.math cimport fabs, sqrt, pi, isnan, isinf, atan2
+import math as pymath
 
 import cymunk
 cimport cymunk.cymunk as ccymunk
@@ -95,9 +96,10 @@ def make_enclosing_circle(
     cdef Circle ret = enclosing_circle(c1.v, r1, c2.v, r2)
     return (cpvtoVec2d(ret.center), ret.radius)
 
-cdef void log(ccymunk.Body body, message):
+cdef void log(ccymunk.Body body, message, eid_prefix=""):
     if LOGGING_ENABLED:
-        print(f'{body.data.entity_id}\t{message}')
+        if str(body.data.entity_id).startswith(eid_prefix):
+            print(f'{body.data.entity_id}\t{message}')
 
 # collision detection types
 
@@ -106,13 +108,16 @@ cdef struct CollisionThreat:
     ccymunk.cpVect c_loc
 
 cdef struct NeighborAnalysis:
+    # params about doing the analysis
     double neighborhood_radius
     double ship_radius
     double margin
     double max_distance
     double maximum_acceleration
     ccymunk.cpBody *body
+    double timestamp
 
+    # results of the analysis
     double worst_ultimate_separation
     double nearest_neighbor_dist
     double approach_time
@@ -123,6 +128,7 @@ cdef struct NeighborAnalysis:
     int neighborhood_size
     int threat_count
     ccymunk.cpShape *threat_shape
+    double detection_timestamp
 
     # current (not projected) threat location and distance
     ccymunk.cpVect current_threat_loc
@@ -133,6 +139,7 @@ cdef struct NeighborAnalysis:
     vector[ccymunk.cpShape *] coalesced_threats
     set[ccymunk.cpHashValue] considered_shapes
 
+    # coalesced threat
     double threat_radius
     ccymunk.cpVect threat_loc
     ccymunk.cpVect threat_velocity
@@ -181,6 +188,12 @@ ctypedef struct cpCircleShape :
 
 cdef ccymunk.Vec2d cpvtoVec2d(ccymunk.cpVect v):
     return ccymunk.Vec2d(v.x, v.y)
+
+def cpvtoTuple(ccymunk.cpVect v):
+    return (v.x, v.y)
+
+cdef ccymunk.cpVect tupletocpv(v):
+    return ccymunk.cpv(v[0], v[1])
 
 cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpShape *shape, double margin):
     # we make the assumption that all shapes are circles here
@@ -700,6 +713,7 @@ cdef class Navigator:
     cdef ccymunk.cpHashValue last_threat_id
     cdef double collision_margin_histeresis
     cdef bool cannot_avoid_collision_hold
+    cdef bool collision_cbdr
 
     # the most recent analysis we've performed
     cdef NeighborAnalysis analysis
@@ -754,34 +768,103 @@ cdef class Navigator:
         self.analysis.nearest_neighbor_dist = ccymunk.INFINITY
         self.cannot_avoid_collision_hold = False
         self.analysis.cannot_avoid_collision = False
+        self.collision_cbdr = False
 
-    cdef void log(self, message):
-        log(self.body, message)
+    cdef void log(self, message, eid_prefix=""):
+        log(self.body, f'{self.analysis.timestamp}\t'+message, eid_prefix)
 
     def set_location_params(self, target_location:cymunk.Vec2d, arrival_radius:float, min_radius:float) -> None:
         self.target_location = target_location.v
         self.arrival_radius = arrival_radius
         self.min_radius = min_radius
 
+    def get_collision_margin(self): return self.base_margin
+
     def set_cannot_avoid_collision_hold(self, cach):
         self.cannot_avoid_collision_hold = cach
 
-    def set_max_speed_cap_params(self, max_speed_cap:float, max_speed_cap_ts:float, max_speed_cap_alpha:float):
-        self.max_speed_cap = max_speed_cap
-        self.max_speed_cap_ts = max_speed_cap_ts
-        self.max_speed_cap_alpha = max_speed_cap_alpha
+    #def set_max_speed_cap_params(self, max_speed_cap:float, max_speed_cap_ts:float, max_speed_cap_alpha:float):
+    #    self.max_speed_cap = max_speed_cap
+    #    self.max_speed_cap_ts = max_speed_cap_ts
+    #    self.max_speed_cap_alpha = max_speed_cap_alpha
 
-    def set_neighbor_params(self, neighborhood_size:int, nearest_neighbor_dist:float):
-        self.analysis.neighborhood_size = neighborhood_size
-        self.analysis.nearest_neighbor_dist = nearest_neighbor_dist
+    #def set_neighbor_params(self, neighborhood_size:int, nearest_neighbor_dist:float):
+    #    self.analysis.neighborhood_size = neighborhood_size
+    #    self.analysis.nearest_neighbor_dist = nearest_neighbor_dist
 
+    def get_threat_count(self): return self.analysis.threat_count
+    def get_cannot_avoid_collision(self): return self.analysis.cannot_avoid_collision
     def get_cannot_avoid_collision_hold(self): return self.cannot_avoid_collision_hold
+    def get_collision_cbdr(self): return self.collision_cbdr
+    def get_num_neighbors(self): return self.analysis.neighborhood_size
+    def get_nearest_neighbor_dist(self): return self.analysis.nearest_neighbor_dist
     def get_margin(self): return self.margin
     def get_collision_margin_histeresis(self): return self.collision_margin_histeresis
     def get_neighborhood_radius(self): return self.neighborhood_radius
     def get_max_speed(self): return self.max_speed
     def get_max_speed_cap(self): return self.max_speed_cap
 
+    def get_telemetry(self) -> Dict[str, Any]:
+        """ Gets a dict of telemetry data about navigation """
+        telemetry = {
+
+            "msc": self.max_speed_cap,
+            "msc_ts": self.max_speed_cap_ts,
+            "msc_a": self.max_speed_cap_alpha,
+
+            "nn": self.analysis.neighborhood_size,
+            "nnd": self.analysis.nearest_neighbor_dist
+        }
+        if self.analysis.threat_count > 0:
+            telemetry.update({
+                "ct": self.space.shapes[self.analysis.threat_shape.hashid_private].body,
+                "ct_ms": self.analysis.minimum_separation,
+                "ct_loc": cpvtoTuple(self.analysis.current_threat_loc),
+                "ct_v": cpvtoTuple(self.analysis.threat_velocity),
+                "ct_ts": self.analysis.detection_timestamp,
+                "ct_at": self.analysis.approach_time,
+                "ct_ct": self.analysis.coalesced_threats.size(),
+                "ct_cloc": cpvtoTuple(self.analysis.threat_loc),
+                "ct_cradius": self.analysis.threat_radius,
+                "ct_cn": self.coalesced_neighbor_locations(),
+                "ct_mh": self.collision_margin_histeresis,
+
+                "cac": self.analysis.cannot_avoid_collision,
+                "cach": self.cannot_avoid_collision_hold,
+                "cbdr": self.collision_cbdr,
+                "cbdr_hist": self.cbdr_history_summary()
+            })
+
+        return telemetry
+
+    def set_telemetry(self, telemetry:Dict[str, Any], telemetry_ts:float) -> None:
+        """ For testing purposes """
+        self.max_speed_cap = telemetry.get("msc", self.base_max_speed)
+        self.max_speed_cap_ts = telemetry.get("msc_ts", telemetry_ts) - telemetry_ts
+        self.max_speed_cap_alpha = telemetry.get("msc_a", self.max_speed_cap_alpha)
+
+        self.analysis.neighborhood_size = telemetry.get("nn", 0)
+        self.analysis.nearest_neighbor_dist = telemetry.get("nnd", pymath.inf)
+
+        if "ct" in telemetry:
+            self.analysis.minimum_separation = telemetry.get("ct_ms", pymath.inf)
+            self.analysis.current_threat_loc = tupletocpv(telemetry.get("ct_loc", (0.,0.)))
+            self.analysis.threat_velocity = tupletocpv(telemetry.get("ct_v", (0.,0.)))
+            self.analysis.timestamp = telemetry.get("ct_ts", telemetry_ts)-telemetry_ts
+            self.analysis.approach_time = telemetry.get("ct_at", pymath.inf)
+
+            #TODO: reconstitute the coalesced threats?
+
+            self.analysis.threat_loc = tupletocpv(telemetry.get("ct_cloc", (0.,0.)))
+            self.analysis.threat_radius = telemetry.get("ct_cradius", 0.)
+
+            self.collision_margin_histeresis = telemetry.get("ct_mh", 0.)
+
+            self.analysis.cannot_avoid_collision = telemetry.get("cac", False)
+            self.cannot_avoid_collision_hold = telemetry.get("cach", False)
+            self.collision_cbdr = telemetry.get("cbdr", False)
+
+            #TODO: reconstitute cbdr history?
 
     def add_neighbor_shape(self, shape:cymunk.Shape) -> None:
         """ Testing helper to set up NeighborAnalyzer """
@@ -846,20 +929,21 @@ cdef class Navigator:
         return scaled_collision_margin
 
     cdef bool _calculate_cannot_avoid_collision(self, double neighbor_margin):
-
         cdef double desired_margin = neighbor_margin + self.analysis.threat_radius + self.radius
         cdef double required_acceleration, required_thrust
+        cdef double min_clearance = self.analysis.threat_radius# + self.radius
+        cdef double t = max(self.analysis.approach_time - self.worst_case_rot_time, 0.1)
         cdef bool cannot_avoid_collision = 0
         if self.analysis.distance_to_threat <= desired_margin + VELOCITY_EPS:
-            if self.analysis.minimum_separation < self.analysis.threat_radius:
-                if self.analysis.distance_to_threat < self.analysis.threat_radius:
+            if self.analysis.minimum_separation < min_clearance:
+                if self.analysis.distance_to_threat < min_clearance:
                     cannot_avoid_collision = 1
                 elif self.analysis.approach_time > 0.:
-                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_acceleration = 2.*(min_clearance-self.analysis.minimum_separation)/(t ** 2.)
                     required_thrust = self.body._body.m * required_acceleration
                     cannot_avoid_collision = required_thrust > self.max_thrust
         else:
-            if self.analysis.minimum_separation < self.analysis.threat_radius:
+            if self.analysis.minimum_separation < min_clearance:
                 if self.analysis.approach_time > 0.:
                     # check if we can avoid collision
                     # s = u*t + 1/2 a * t^2
@@ -868,7 +952,7 @@ cdef class Navigator:
                     #   top of current situation
                     # t = approach_time
                     # a = 2 * s / t^2
-                    required_acceleration = 2.*(self.analysis.threat_radius-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
+                    required_acceleration = 2.*(min_clearance-self.analysis.minimum_separation)/(t ** 2.)
                     required_thrust = self.body._body.m * required_acceleration
                     cannot_avoid_collision = required_thrust > self.max_thrust
                 else:
@@ -880,6 +964,7 @@ cdef class Navigator:
         cdef double s_low, nr_low, s_high, nr_high
         cdef double d_low, d_high, density_max_speed
         cdef double nn_d_high, nn_s_high, nn_d_low, nn_s_low, nn_max_speed
+        cdef double ct_dt_low, ct_s_low, ct_dt_high, ct_s_high, ct_max_speed
         cdef double max_speed_cap
 
         cdef double max_speed = self.base_max_speed
@@ -926,7 +1011,23 @@ cdef class Navigator:
             nn_s_low, max_speed
         )
 
-        max_speed = min(max_speed, density_max_speed, nn_max_speed)
+        if self.analysis.threat_count <= self.analysis.coalesced_threats.size():
+            ct_max_speed = max_speed
+        else:
+            ct_max_speed = self.min_max_speed
+            #ct_dt_low = 0.07
+            #ct_s_high = max_speed
+            #ct_dt_high = 1.5
+            #ct_s_low = self.min_max_speed
+            #ct_max_speed = clip(
+            #    interpolate(
+            #        ct_dt_low, ct_s_high, ct_dt_high, ct_s_low,
+            #        self.analysis.timestamp - self.analysis.detection_timestamp
+            #    ),
+            #    ct_s_low, max_speed
+            #)
+
+        max_speed = min(max_speed, density_max_speed, nn_max_speed, ct_max_speed)
 
         # keep track of how low max speed gets to so we can apply histeresis
         if timestamp - self.max_speed_cap_ts > self.max_speed_cap_max_expiration:
@@ -998,7 +1099,7 @@ cdef class Navigator:
         self.margin = self._calculate_margin()
 
         # and expand based on if we're trying to avoid a target
-        margin = self.margin + self.collision_margin_histeresis
+        cdef double margin = self.margin + self.collision_margin_histeresis
 
         if speed > 0:
             # offset looking for threats in the direction we're travelling,
@@ -1029,6 +1130,7 @@ cdef class Navigator:
         self.analysis.neighborhood_size = 0
         self.analysis.threat_count = 0
         self.analysis.threat_radius = 0.
+        self.analysis.timestamp = current_timestamp
 
         self.analysis.collision_threats.clear()
         self.analysis.coalesced_threats.clear()
@@ -1112,6 +1214,7 @@ cdef class Navigator:
             self.last_threat_id = 0
             self.prior_threat_ids.clear()
             self.rel_pos_history.clear()
+            self.collision_cbdr = False
 
             self.collision_margin_histeresis = _update_collision_margin_histeresis(
                     self.collision_margin_histeresis, self.margin,
@@ -1138,6 +1241,7 @@ cdef class Navigator:
                     0
             ))
         else:
+            self.collision_cbdr = self._detect_cbdr(current_timestamp)
             # we back into current threat location from where the collision is
             # projected to happen and the threat velocity
             # we can't use the known current location of the threat neighbor since
@@ -1165,6 +1269,7 @@ cdef class Navigator:
                     self.rel_pos_history.pop_front()
 
             else:
+                self.analysis.detection_timestamp = current_timestamp
                 self.rel_pos_history.clear()
                 self.rel_pos_history.push_back(RelPosHistoryEntry(current_timestamp, self.analysis.relative_position, self.analysis.threat_velocity))
 
@@ -1230,7 +1335,6 @@ cdef class Navigator:
 
         # return values
         cdef ccymunk.cpVect delta_velocity
-        cdef bool collision_cbdr = self._detect_cbdr(current_timestamp)
 
         cdef double required_acceleration, required_thrust
         cdef double cbdr_bias = 2. #TODO: get rid of cbdr_bias or actually use it!
@@ -1263,13 +1367,13 @@ cdef class Navigator:
                     self.analysis.current_threat_loc, self.analysis.threat_velocity,
                     self.body._body.p, self.body._body.v, self.body._body.a,
                     desired_margin, desired_delta_velocity,
-                    collision_cbdr, cbdr_bias,
+                    self.collision_cbdr, cbdr_bias,
                     delta_v_budget, self.cannot_avoid_collision_hold
             )
 
-        return tuple((cpvtoVec2d(delta_velocity), collision_cbdr, self.analysis.cannot_avoid_collision))
+        return tuple((cpvtoVec2d(delta_velocity), self.collision_cbdr, self.analysis.cannot_avoid_collision))
 
-cdef double ANGLE_EPS = 5e-2 # about 3 degrees
+cdef double ANGLE_EPS = 8e-2 # about 4 degrees
 cdef double COARSE_VELOCITY_MATCH = 2e0
 cdef double COARSE_ANGLE_MATCH = pi/16 # about 11 degrees
 cdef double ARRIVAL_ANGLE = 5e-1 # about 29 degrees
@@ -1329,15 +1433,17 @@ cdef TorqueResult _torque_for_angle(
             desired_w = 0.
         else:
             # w_f**2 = w_i**2 + 2 * a (d_theta)
-            desired_w =  sgn(difference_angle) * sqrt(fabs(difference_angle) * max_torque/moment * 2) * 0.8
+            desired_w =  sgn(difference_angle) * sqrt(fabs(difference_angle) * max_torque/moment * 2)
 
         if fabs(difference_angle) < ARRIVAL_ANGLE:
             w_dampener = interpolate(
-                ARRIVAL_ANGLE, 1.0,
+                ARRIVAL_ANGLE, 0.8,
                 0, 0.6,
                 fabs(difference_angle)
             )
-            desired_w = desired_w * w_dampener
+        else:
+            w_dampener = 0.8
+        desired_w = desired_w * w_dampener
 
         difference_w = fabs(desired_w - w)
 
