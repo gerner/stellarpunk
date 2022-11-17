@@ -50,25 +50,6 @@ class AbstractSteeringOrder(core.Order):
                 neighborhood_radius,
         )
 
-        #self.nearest_neighbor:Optional[core.SectorEntity] = None
-        #self.nearest_neighbor_dist = np.inf
-
-        #self.collision_threat:Optional[core.SectorEntity] = None
-        #self.collision_minimum_separation:Optional[float] = None
-        #self.collision_dv = ZERO_VECTOR
-        #self.collision_threat_time = 0.
-        #self.collision_approach_time = np.inf
-        #self.collision_cbdr = False
-        #self.collision_coalesced_threats = 0.
-        #self.collision_threat_loc = CYZERO_VECTOR
-        #self.collision_threat_radius = 0.
-
-        #self.cannot_avoid_collision = False
-
-        # how many neighbors per m^2
-        #self.neighborhood_density = 0.
-        #self.num_neighbors = 0
-
     @property
     def collision_cbdr(self) -> bool: return self.neighbor_analyzer.get_collision_cbdr()
     @property
