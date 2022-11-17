@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from typing import Optional, Any, Union, Tuple
+import math
 
 import numpy as np
 import numpy.typing as npt
+import cymunk # type: ignore
 
 from stellarpunk import util, core
 
-from .steering import VELOCITY_EPS, ZERO_VECTOR, rotation_time, find_target_v, AbstractSteeringOrder
+from .steering import VELOCITY_EPS, ZERO_VECTOR, CYZERO_VECTOR, AbstractSteeringOrder
+from stellarpunk.orders import collision
 
 class KillRotationOrder(core.Order):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -43,7 +46,8 @@ class RotateOrder(AbstractSteeringOrder):
         return self.ship.angular_velocity == 0 and util.isclose(util.normalize_angle(self.ship.angle), self.target_angle)
 
     def act(self, dt: float) -> None:
-        period = self._rotate_to(self.target_angle, dt)
+        #period = self._rotate_to(self.target_angle, dt)
+        period = collision.rotate_to(self.ship.phys, self.target_angle, dt, self.ship.max_torque)
         if period < np.inf:
             # don't need to wake up again until the rotation is complete
             self.gamestate.schedule_order(self.gamestate.timestamp + period/self.safety_factor, self)
@@ -64,7 +68,10 @@ class KillVelocityOrder(AbstractSteeringOrder):
         return self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, ZERO_VECTOR)
 
     def act(self, dt: float) -> None:
-        period = self._accelerate_to(ZERO_VECTOR, dt)
+        period = collision.accelerate_to(
+                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.max_speed(), self.ship.max_torque,
+                self.ship.max_thrust, self.ship.max_fine_thrust)
         #TODO: need a way to keep applying force
         # don't need to wake up again until the acceleration is complete
         self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
@@ -106,7 +113,7 @@ class GoToLocation(AbstractSteeringOrder):
         target_arrival_distance = 0.
         while tries < max_tries:
             _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
-            target_angle = angle + gamestate.random.uniform(-np.pi/1.5, np.pi/1.5)
+            target_angle = angle + gamestate.random.uniform(-math.pi/1.5, math.pi/1.5)
             target_arrival_distance = (surface_distance - collision_margin)/2
             target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
 
@@ -133,7 +140,7 @@ class GoToLocation(AbstractSteeringOrder):
             starting_loc = ship.loc
         course = target_location - starting_loc
         distance, target_angle = util.cartesian_to_polar(course[0], course[1])
-        rotate_towards = rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration(), safety_factor)
+        rotate_towards = collision.rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration())
 
         # we cap at max_speed, so need to account for that by considering a
         # "cruise" period where we travel at max_speed, but only if we have
@@ -150,7 +157,7 @@ class GoToLocation(AbstractSteeringOrder):
             d_cruise = distance - 2*d_accelerate
             cruise = d_cruise / ship.max_speed()# * safety_factor
 
-        rotate_away = rotation_time(np.pi, 0, ship.max_angular_acceleration(), safety_factor)
+        rotate_away = collision.rotation_time(np.pi, 0, ship.max_angular_acceleration())
         accelerate_down = accelerate_up
 
         assert rotate_towards >= 0.
@@ -167,7 +174,6 @@ class GoToLocation(AbstractSteeringOrder):
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
             target_sector: Optional[core.Sector]=None,
-            neighborhood_radius: float = 1.5e4,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -180,68 +186,66 @@ class GoToLocation(AbstractSteeringOrder):
         """
 
         super().__init__(*args, **kwargs)
-        self.neighborhood_radius = neighborhood_radius
         if target_sector is None:
             if self.ship.sector is None:
                 raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
             target_sector = self.ship.sector
 
-        self.collision_margin = 2e2
-        self.scaled_collision_margin = self.collision_margin
-
         self.target_sector = target_sector
-        self.target_location = target_location
-        self.target_v = ZERO_VECTOR
+        self._target_location = cymunk.Vec2d(*target_location)
+
+        self.target_v = CYZERO_VECTOR
         self.arrival_distance = arrival_distance
         if min_distance is None:
             min_distance = self.arrival_distance * 0.9
         self.min_distance = min_distance
 
-        # a cap on max speed to apply histeresis
-        # we'll keep track of the lowest it gets and when we last *dropped* it
-        # the actual cap will be computed as
-        # cap = max_speed_cap * (1+alpha)^(time_since_drop)
-        self.max_speed_cap = self.ship.max_speed()
-        self.max_speed_cap_ts = 0.
-        self.max_speed_cap_alpha = 0.2
+        self.neighbor_analyzer.set_location_params(
+                self._target_location, arrival_distance, min_distance
+        )
 
         self.cannot_stop = False
 
         self.distance_estimate = 0.
 
         # after taking into account collision avoidance
-        self._desired_velocity = ZERO_VECTOR
+        self._desired_velocity = CYZERO_VECTOR
         # the next time we should do a costly computation of desired velocity
         self._next_compute_ts = 0.
 
+    def set_target_location(self, target_location:cymunk.Vec2d) -> None:
+        """ For testing support """
+        self._target_location = target_location
+        self.neighbor_analyzer.set_location_params(
+                self._target_location, self.arrival_distance, self.min_distance
+        )
+
+
     def to_history(self) -> dict:
         data = super().to_history()
-        data["t_loc"] = (self.target_location[0], self.target_location[1])
+        data["t_loc"] = (self._target_location[0], self._target_location[1])
         data["ad"] = self.arrival_distance
         data["md"] = self.min_distance
         data["t_v"] = (self.target_v[0], self.target_v[1])
         data["cs"] = self.cannot_stop
-        data["scm"] = self.scaled_collision_margin
+        data["scm"] = self.neighbor_analyzer.get_margin()
         data["_ncts"] = self._next_compute_ts
         data["_dv"] = [self._desired_velocity[0], self._desired_velocity[1]]
-        data["msc"] = self.max_speed_cap
-        data["msc_ts"] = self.max_speed_cap_ts
-        data["msc_a"] = self.max_speed_cap_alpha
 
         return data
 
     def __str__(self) -> str:
-        return f'GoToLocation: {self.target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
+        return f'GoToLocation: {self._target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
 
     def estimate_eta(self) -> float:
-        return GoToLocation.compute_eta(self.ship, self.target_location, self.safety_factor)
+        return GoToLocation.compute_eta(self.ship, np.array(self._target_location), self.safety_factor)
 
     def is_complete(self) -> bool:
         # computing this is expensive, so don't if we can avoid it
         if self.distance_estimate > self.arrival_distance*5:
             return False
         else:
-            if util.distance(self.target_location, self.ship.loc) < self.arrival_distance + VELOCITY_EPS and util.both_almost_zero(self.ship.velocity):
+            if self._target_location.get_distance(self.ship.phys.position) < self.arrival_distance + VELOCITY_EPS and util.isclose(self.ship.phys.speed, 0.):
                 #assert not self.ship._persistent_force
                 self.ship.apply_force(ZERO_VECTOR, False)
                 #assert not self.ship._persistent_torque
@@ -261,7 +265,7 @@ class GoToLocation(AbstractSteeringOrder):
         # check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
-            continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=force_recompute)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST_CT] += continue_time
 
@@ -275,100 +279,24 @@ class GoToLocation(AbstractSteeringOrder):
         # essentially the arrival steering behavior but with some added
         # obstacle avoidance
 
-        v = self.ship.velocity
-        speed = util.magnitude(v[0], v[1])
-        theta = self.ship.angle
-        omega = self.ship.angular_velocity
-
-        max_acceleration = self.ship.max_acceleration()
-        max_angular_acceleration = self.ship.max_angular_acceleration()
-        max_speed = self.ship.max_speed()
-
-        # ramp down speed as nearby density increases
-        # ramp down with inverse of the density: max_speed = m / (density + b)
-        # d_low, s_high is one point we want to hit (speed at low density)
-        # d_high, s_low is another (speed at high density
-        d_low = 1/(np.pi*self.neighborhood_radius**2)
-        s_high = max_speed
-        d_high = 30/(np.pi*self.neighborhood_radius**2)
-        s_low = 100
-        density_max_speed = util.clip(util.interpolate(d_low, s_high, d_high, s_low, self.neighborhood_density), s_low, max_speed)
-
-        # also ramp down speed with distance to nearest neighbor
-        # nn_d_high, nn_speed_high is one point
-        # nn_d_low, nn_speed_low is another
-        nn_d_high = 2e3
-        nn_s_high = 1000#max_speed
-        nn_d_low = 5e2
-        nn_s_low = 100
-        nn_max_speed = util.clip(util.interpolate(nn_d_high, nn_s_high, nn_d_low, nn_s_low, self.nearest_neighbor_dist), nn_s_low, max_speed)
-
-        max_speed = min(max_speed, density_max_speed, nn_max_speed)
-
-        # keep track of how low max speed gets to so we can apply histeresis
-        max_speed_cap = self.max_speed_cap * (1+self.max_speed_cap_alpha)**(self.gamestate.timestamp - self.max_speed_cap_ts)
-        if max_speed < max_speed_cap:
-            self.max_speed_cap = max_speed
-            self.max_speed_cap_ts = self.gamestate.timestamp
-        else:
-            # apply the max speed histeresis
-            # max_speed decays exponentially
-            # max_speed * (1+alpha)^t
-            max_speed = min(max_speed_cap, max_speed)
+        self.neighbor_analyzer.prepare_analysis(self.gamestate.timestamp)
 
         prev_cannot_avoid_collision = self.cannot_avoid_collision
 
-        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = find_target_v(
-                self.target_location, self.arrival_distance, self.min_distance,
-                self.ship.loc, v, theta, omega,
-                max_acceleration, max_angular_acceleration, max_speed,
-                dt, self.safety_factor)
+        self.target_v, distance, self.distance_estimate, self.cannot_stop, delta_v = self.neighbor_analyzer.find_target_v(
+                dt, self.safety_factor
+        )
 
         if self.cannot_stop:
             max_distance = np.inf
-            self.logger.debug(f'cannot stop in time distance: {distance} v: {v}')
+            self.logger.debug(f'cannot stop in time distance: {distance} v: {self.ship.velocity}')
         else:
             max_distance = distance-self.min_distance
 
-        if distance < self.arrival_distance * 5:
-            self.scaled_collision_margin = self.collision_margin
-        else:
-            # scale collision margin with speed, more speed = more margin
-            cm_low = self.collision_margin
-            cm_high = self.collision_margin*5
-            cm_speed_low = 100
-            cm_speed_high = 1500
-            self.scaled_collision_margin = util.interpolate(cm_speed_low, cm_low, cm_speed_high, cm_high, speed)
-            self.scaled_collision_margin = util.clip(self.scaled_collision_margin, cm_low, cm_high)
-
-        if distance < self.arrival_distance and distance > self.min_distance:
-            self.scaled_collision_margin = self.ship.radius*self.safety_factor
-
-        self.scaled_collision_margin = min(self.nearest_neighbor_dist*0.8, self.scaled_collision_margin)
-        #elif self.nearest_neighbor_dist < 1.5e4:
-        #    #TODO: this could go somewhere else in case the nearest neighbor IS the
-        #    # threat, then we can decrease the margin
-        #    # if we're very near a neighbor, we want a smaller margin
-        #    self.scaled_collision_margin = max(min(self.scaled_collision_margin, self.nearest_neighbor_dist/20), self.collision_margin)
-
-        if speed > 0:
-            # offset looking for threats in the direction we're travelling,
-            # depending on our speed
-            noff_low = 0
-            noff_speed_low = 0
-            noff_high = 2.5e4
-            noff_speed_high = 2500
-            neighborhood_offset = util.clip(
-                    util.interpolate(noff_speed_low, noff_low, noff_speed_high, noff_high, speed),
-                    0, self.neighborhood_radius - self.collision_margin)
-            neighborhood_loc = self.ship.loc + neighborhood_offset / speed * v
-        else:
-            neighborhood_loc = self.ship.loc
-
         #collision avoidance for nearby objects
         #   this includes fixed bodies as well as dynamic ones
-        collision_dv, approach_time, minimum_separation, distance_to_avoid_collision = self._avoid_collisions_dv(
-                self.ship.sector, neighborhood_loc, self.neighborhood_radius, self.scaled_collision_margin,
+        collision_dv, approach_time = self._avoid_collisions_dv(
+                self.ship.sector,
                 max_distance=max_distance,
                 desired_direction=self.target_v)
 
@@ -378,7 +306,7 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            continue_time = self._accelerate_to(self.target_v, dt, force_recompute=True)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
             self._desired_velocity = self.target_v
@@ -412,16 +340,16 @@ class GoToLocation(AbstractSteeringOrder):
             #v_mag = util.magnitude(v[0], v[1])
             #if v_mag > max_speed:
             #    v = v / v_mag * max_speed
-            self._desired_velocity = v + collision_dv
+            self._desired_velocity = self.ship.phys.velocity + collision_dv
             #TODO: see todo above about slowing down
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            continue_time = self._accelerate_to(self._desired_velocity, dt, force_recompute=True)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 
-            if self.cannot_avoid_collision:
+            if self.neighbor_analyzer.get_cannot_avoid_collision():
                 nts = 1/70
             else:
                 nts = nts_low
@@ -435,7 +363,7 @@ class GoToLocation(AbstractSteeringOrder):
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
-        self.wait_wakup_period = 10.
+        self.wait_wakeup_period = 10.
 
     def is_complete(self) -> bool:
         # wait forever
@@ -443,15 +371,18 @@ class WaitOrder(AbstractSteeringOrder):
 
     def act(self, dt:float) -> None:
         if self.ship.sector is None:
-            raise Exception(f'{self.ship} not in any sector')
-        period = self._accelerate_to(ZERO_VECTOR, dt)
+            raise ValueError(f'{self.ship} not in any sector')
+        period = collision.accelerate_to(
+                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.max_speed(), self.ship.max_torque,
+                self.ship.max_thrust, self.ship.max_fine_thrust)
 
         if period < np.inf:
             # don't need to wake up again until the acceleration is complete
             self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
             return
         else:
-            self.gamestate.schedule_order(self.gamestate.timestamp + self.wait_wakup_period, self)
+            self.gamestate.schedule_order(self.gamestate.timestamp + self.wait_wakeup_period, self, jitter=self.wait_wakeup_period/2)
             return
 
         # avoid collisions while we're waiting
@@ -459,7 +390,7 @@ class WaitOrder(AbstractSteeringOrder):
         # we want to have enough time to get away
         collision_dv, approach_time, min_separation, distance=self._avoid_collisions_dv(self.ship.sector, self.ship.loc, 5e3, 3e2)
         if distance > 0:
-            t = approach_time - rotation_time(2*np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration(), self.safety_factor)
+            t = approach_time - collision.rotation_time(2*np.pi, self.ship.angular_velocity, self.ship.max_angular_acceleration())
             if t < 0 or distance > 1/2 * self.ship.max_acceleration()*t**2 / self.safety_factor:
                 self._accelerate_to(collision_dv, dt)
                 return

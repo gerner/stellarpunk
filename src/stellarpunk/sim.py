@@ -16,7 +16,7 @@ import cymunk # type: ignore
 from stellarpunk import util, core, interface, generate, orders
 from stellarpunk.interface import universe as universe_interface
 
-TICKS_PER_HIST_SAMPLE = 10
+TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 2.0
 ZERO_ONE = (0,1)
 
@@ -191,9 +191,7 @@ class Simulator:
         # actions take effect yet!)
 
         orders_processed = 0
-        while len(self.gamestate.order_schedule) > 0 and self.gamestate.order_schedule[0].priority <= self.gamestate.timestamp:
-            order_item = self.gamestate.pop_next_order()
-            order = order_item.item
+        for order in self.gamestate.pop_current_orders():
             if order == order.ship.current_order():
                 if order.is_complete():
                     ship = order.ship
@@ -223,9 +221,8 @@ class Simulator:
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
         # let characters act on their (scheduled) agenda items
-        while len(self.gamestate.agenda_schedule) > 0 and self.gamestate.agenda_schedule[0].priority <= self.gamestate.timestamp:
-            agendum_item = self.gamestate.pop_next_agendum()
-            agendum_item.item.act()
+        for agendum in self.gamestate.pop_current_agenda():
+            agendum.act()
 
         # at this point all AI decisions have happened everywhere
         # update sector state after all ships across universe take action
@@ -236,10 +233,11 @@ class Simulator:
         self.gamestate.timestamp += dt
 
         # record some state about the final state of this tick
-        for sector in self.gamestate.sectors.values():
-            if self.gamestate.ticks % self.ticks_per_hist_sample == sector.entity_id.int % self.ticks_per_hist_sample:
-                for ship in sector.ships:
-                    ship.history.append(ship.to_history(self.gamestate.timestamp))
+        if self.ticks_per_hist_sample > 0:
+            for sector in self.gamestate.sectors.values():
+                if self.gamestate.ticks % self.ticks_per_hist_sample == sector.entity_id.int % self.ticks_per_hist_sample:
+                    for ship in sector.ships:
+                        ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
             #TODO: revisit economic logging
@@ -252,22 +250,23 @@ class Simulator:
             total_goto_orders = 0
             total_orders_with_ct = 0
             total_orders_with_cac = 0
-            total_nact_now = 0
+            total_speed = 0.
+            total_neighbors = 0.
             for sector in self.gamestate.sectors.values():
                 for ship in sector.ships:
                     total_ships += 1
+                    total_speed += ship.phys.speed
                     if len(ship._orders) > 0:
                         order = ship._orders[0]
                         if isinstance(order, orders.movement.GoToLocation):
                             total_goto_orders += 1
-                            if order.collision_threat:
+                            total_neighbors += order.num_neighbors
+                            if order.threat_count:
                                 total_orders_with_ct += 1
-                            if order.cannot_avoid_collision:
+                            if order.cannot_avoid_collision_hold:
                                 total_orders_with_cac += 1
-                            if self.gamestate.timestamp >= order._next_accelerate_compute_ts:
-                                total_nact_now += 1
 
-            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} nact_now: {total_nact_now}')
+            self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
     def run(self) -> None:

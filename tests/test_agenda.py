@@ -2,6 +2,9 @@ import numpy as np
 
 from stellarpunk import econ, agenda
 
+from . import write_history
+
+@write_history
 def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     # a ship and a station to sell at
     resource = 0

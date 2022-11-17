@@ -9,10 +9,11 @@ import enum
 from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping, Sequence
 
 import numpy as np
+import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders
 from stellarpunk.interface import presenter, command_input
-from stellarpunk.orders import steering, movement
+from stellarpunk.orders import steering, movement, collision
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
 TRANSLATE_KEYS = tuple(map(lambda x: ord(x), "ijkl"))
@@ -86,6 +87,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             return
 
         # otherwise try to kill rotation
+        #TODO: this won't work under a model where act isn't called every tick
         if self.ship.phys.angular_velocity == 0.:
             return
 
@@ -111,7 +113,11 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         self.has_command = True
         if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
             return
-        self._accelerate_to(steering.ZERO_VECTOR, dt)
+        #TODO: handle continuous force/torque
+        period = collision.accelerate_to(
+                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.max_speed(), self.ship.max_torque,
+                self.ship.max_thrust, self.ship.max_fine_thrust)
 
     def rotate(self, scale:float, dt:float) -> None:
         """ Rotates the ship in desired direction
@@ -463,7 +469,7 @@ class PilotView(interface.View):
             if self.goto_order.is_complete():
                 self.goto_order = None
             else:
-                s_x, s_y = util.sector_to_screen(self.goto_order.target_location[0], self.goto_order.target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+                s_x, s_y = util.sector_to_screen(self.goto_order._target_location[0], self.goto_order._target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
 
                 self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
 
@@ -524,7 +530,7 @@ class PilotView(interface.View):
         # convert bearing so 0, North is negative y, instead of positive x
         bearing += np.pi/2
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed:.0f}m/s')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
@@ -542,7 +548,7 @@ class PilotView(interface.View):
         label_order = "order:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed():.0f}m/s')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed:.0f}m/s')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}°')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
@@ -554,12 +560,12 @@ class PilotView(interface.View):
             # neighborhood_density
             # nearest_neighbor_dist
             label_distance = "distance:"
-            distance = util.distance(self.ship.loc, current_order.target_location)
+            distance = self.ship.phys.position.get_distance(current_order._target_location)
             label_ndensity = "ndensity:"
             label_nndist = "nndist:"
 
             self.viewscreen.addstr(status_y, status_x, f'{label_distance:>12} {distance}')
-            self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.neighborhood_density}')
+            self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.num_neighbors}')
             self.viewscreen.addstr(status_y+2, status_x, f'{label_nndist:>12} {current_order.nearest_neighbor_dist}')
 
     def _draw_command_state(self) -> None:

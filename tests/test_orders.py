@@ -7,63 +7,10 @@ import pytest
 import numpy as np
 
 from stellarpunk import core, sim, generate, orders, util
-from stellarpunk.orders import steering
+from stellarpunk.orders import steering, collision
 from . import write_history, nearest_neighbor
 
 TESTDIR = os.path.dirname(__file__)
-
-def test_coalesce():
-    """ Test that coalescing threats actually covers them. """
-
-    # set up: ship heading toward several static points all within twice the
-    # collision margin
-
-    pos = np.array((0.,0.))
-    v = np.array((10.,0.))
-
-    hits_l = np.array((
-        ((2000., 0.)),
-        ((2500., 500.)),
-        ((2500., -500.)),
-        ((5000., 0.)), # not part of the group, but a threat
-        ((2500., -5000.)), # not part of the group
-    ))
-    hits_v = np.array([(0.,0.)]*len(hits_l))
-    hits_r = np.array([30.]*len(hits_l))
-
-    (
-            idx,
-            approach_time,
-            rel_pos,
-            rel_vel,
-            min_sep,
-            threat_count,
-            coalesced_threats,
-            non_coalesced_threats,
-            threat_radius,
-            threat_loc,
-            threat_velocity,
-            nearest_neighbor_idx,
-            nearest_neighbor_dist,
-            neighborhood_density,
-            coalesed_idx,
-    ) = steering._analyze_neighbors(
-            hits_l, hits_v, hits_r, pos, v,
-            max_distance=1e4,
-            ship_radius=30.,
-            margin=5e2,
-            neighborhood_radius=1e4,
-            maximum_acceleration=100.)
-
-    assert idx == 0
-    assert np.allclose(rel_pos, (2000., 0.))
-    assert np.allclose(rel_vel, v*-1)
-    assert min_sep == 0.
-    assert threat_count == 4
-    assert coalesced_threats == 3
-
-    for i in range(coalesced_threats):
-        assert np.linalg.norm(hits_l[i] - threat_loc)+hits_r[i] <= threat_radius
 
 def test_goto_entity(gamestate, generator, sector):
     ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
@@ -73,8 +20,8 @@ def test_goto_entity(gamestate, generator, sector):
     collision_margin = 1e3
     goto_order = orders.GoToLocation.goto_entity(station, ship_driver, gamestate, arrival_distance - station.radius, collision_margin)
 
-    assert np.linalg.norm(station.loc - goto_order.target_location)+goto_order.arrival_distance <= arrival_distance + steering.VELOCITY_EPS
-    assert np.linalg.norm(station.loc - goto_order.target_location)-station.radius-goto_order.arrival_distance >= collision_margin - steering.VELOCITY_EPS
+    assert np.linalg.norm(station.loc - goto_order._target_location)+goto_order.arrival_distance <= arrival_distance + steering.VELOCITY_EPS
+    assert np.linalg.norm(station.loc - goto_order._target_location)-station.radius-goto_order.arrival_distance >= collision_margin - steering.VELOCITY_EPS
     assert goto_order.arrival_distance >= (arrival_distance*0.1)/2 - steering.VELOCITY_EPS
     assert goto_order.min_distance == 0.
 
@@ -86,12 +33,13 @@ def test_compute_eta(generator, sector):
 
 @write_history
 def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
-    ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
+    """ Tests rotation starting with zero angular velocity """
+    ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=-np.pi/4)
 
     rotate_order = orders.RotateOrder(np.pi, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
 
-    eta = steering.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration(), rotate_order.safety_factor)
+    eta = collision.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration())
 
     testui.eta = eta
     testui.orders = [rotate_order]
@@ -103,14 +51,15 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
 
 @write_history
 def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator):
+    """ Tests rotation starting with non zero angular velocity """
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=-2, theta=0)
 
     rotate_order = orders.RotateOrder(np.pi/2, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
 
-    eta = steering.rotation_time(rotate_order.target_angle, ship_driver.angular_velocity, ship_driver.max_angular_acceleration(), rotate_order.safety_factor)
+    eta = collision.rotation_time(rotate_order.target_angle, ship_driver.angular_velocity, ship_driver.max_angular_acceleration())
 
-    testui.eta = eta
+    testui.eta = eta*1.15
     testui.orders = [rotate_order]
 
     simulator.run()
@@ -118,9 +67,9 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     assert ship_driver.angular_velocity == 0
     assert util.isclose(ship_driver.angle, rotate_order.target_angle)
 
-    # make sure our eta estimate is within 18% of the estimate after backing
+    # make sure our eta estimate is within 15% of the estimate after backing
     # out the safety margin
-    assert np.isclose(gamestate.timestamp, eta/rotate_order.safety_factor, rtol=0.18)
+    assert np.isclose(gamestate.timestamp, eta, rtol=0.15)
 
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
@@ -271,7 +220,7 @@ def test_basic_disembark(gamestate, generator, sector, testui, simulator):
     assert len(testui.complete_orders) == 3
     assert disembark_order.disembark_from == start_blocker
     assert disembark_order.embark_to == blocker
-    first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0].target_location) - start_blocker.radius
+    first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0]._target_location) - start_blocker.radius
     assert first_dist >= disembark_order.disembark_dist - steering.VELOCITY_EPS
     assert first_dist <= disembark_order.disembark_dist + disembark_order.disembark_margin + steering.VELOCITY_EPS
 
