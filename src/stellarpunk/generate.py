@@ -21,7 +21,6 @@ RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
 
-
 def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np.float64]:
     # prim's algorithm to construct a minimum spanning tree
     # https://en.wikipedia.org/wiki/Prim%27s_algorithm
@@ -443,7 +442,7 @@ class UniverseGenerator:
 
         return asteroid
 
-    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=1e5, variance_per_asteroid: float=1e4) -> List[core.Asteroid]:
+    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
         resource : the type of resource
@@ -560,7 +559,7 @@ class UniverseGenerator:
         assets.append(planet)
 
         # some factor mining ships for every refinery
-        mining_ship_factor = 2.
+        mining_ship_factor = 2./3.
         num_mining_ships = int(agent_goods[:,self.gamestate.production_chain.ranks.cumsum()[0]:self.gamestate.production_chain.ranks.cumsum()[1]].sum() * mining_ship_factor)
 
         self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
@@ -572,7 +571,7 @@ class UniverseGenerator:
             mining_ships.add(ship)
 
         # some factor trading ships as there are station -> station trade routes
-        trade_ship_factor = 1./3.
+        trade_ship_factor = 1./6.
         trade_routes_by_good = ((self.gamestate.production_chain.adj_matrix > 0).sum(axis=1))
         num_trading_ships = int((trade_routes_by_good[np.newaxis,:] * agent_goods).sum() * trade_ship_factor)
         self.logger.debug(f'adding {num_trading_ships} trading ships to sector {sector.short_id()}')
@@ -642,7 +641,7 @@ class UniverseGenerator:
                     character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
                 elif isinstance(asset, core.Planet):
                     #TODO: what to do with planet assets?
-                    pass
+                    character.add_agendum(agenda.PlanetManager(planet=asset, character=character, gamestate=self.gamestate))
                 else:
                     raise ValueError(f'got an asset of unknown type {asset}')
 
@@ -865,7 +864,7 @@ class UniverseGenerator:
             sector_radius:float=5e5,
             sector_radius_std:float=1e5,
             sector_edge_length:float=1e5*15,
-            n_habitable_sectors:int=15,
+            n_habitable_sectors:int=1,#15,
             mean_habitable_resources:float=1e9,
             mean_uninhabitable_resources:float=1e7) -> None:
         # set up pre-expansion sectors, resources
@@ -881,7 +880,8 @@ class UniverseGenerator:
 
         # generate locations for all sectors
         #TODO: sectors should not collide (related to radius of each)
-        sector_coords = self.r.uniform(-sector_radius*width*1e1, sector_radius*height*1e1, (width*height, 2))
+        num_sectors = width*height
+        sector_coords = self.r.uniform(-sector_radius*width*1e1, sector_radius*height*1e1, (num_sectors, 2))
         sector_ids = np.array([uuid.uuid4() for _ in range(len(sector_coords))])
         habitable_mask = np.zeros(len(sector_coords), bool)
         habitable_mask[self.r.choice(len(sector_coords), n_habitable_sectors, replace=False)] = 1

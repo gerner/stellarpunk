@@ -24,6 +24,10 @@ from rtree import index # type: ignore
 
 from stellarpunk import util, task_schedule
 
+RESOURCE_REL_SHIP = 0
+RESOURCE_REL_STATION = 1
+RESOURCE_REL_CONSUMER = 2
+
 class ProductionChain:
     """ A production chain of resources/products interconnected in a DAG.
 
@@ -61,7 +65,7 @@ class ProductionChain:
         return np.arange(self.ranks[0], self.ranks[1]+self.ranks[0])
 
     def final_product_ids(self) -> npt.NDArray[np.int64]:
-        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.num_products)
+        return np.arange(self.num_products-self.ranks[-1], self.num_products)
 
     def viz(self) -> graphviz.Graph:
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})

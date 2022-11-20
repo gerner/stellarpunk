@@ -115,27 +115,58 @@ class StationAgent(core.EconAgent):
     Exposes buy/sell prices and budget for trades.
     """
 
-    def __init__(self, station:core.Station, production_chain:core.ProductionChain) -> None:
+    @classmethod
+    def create_station_agent(cls, station:core.Station, production_chain:core.ProductionChain) -> "StationAgent":
         if station.resource is None:
-            raise ValueError("cannot make a StationAgent if station has no resource set")
+            raise ValueError(f'cannot create station agent for station that has no resource')
+
+        if station.owner is None:
+            raise ValueError(f'cannot create station agent for station that has no owner')
+
+        station_agent = StationAgent(station, station.owner, production_chain)
 
         resource = station.resource
         inputs = production_chain.inputs_of(resource)
 
-        self._buy_resources = tuple(np.where(production_chain.adj_matrix[:,station.resource] > 0)[0])
-        self._sell_resources:Tuple[int] = (resource,)
+        station_agent._buy_resources = tuple(inputs) # type: ignore
+        station_agent._sell_resources = (resource,)
 
-        self._buy_price = np.zeros((production_chain.num_products,))
+        # start with buy price half the markup on our resource, reserving the
+        # other half for the trader to transport it
         inputs_markup = 1 + (0.5 * (production_chain.markup[resource]-1))
         assert inputs_markup > 1
-        self._buy_price[inputs] = production_chain.prices[inputs] * inputs_markup
+        station_agent._buy_price[inputs] = production_chain.prices[inputs] * inputs_markup
 
+        station_agent._sell_price[resource] = production_chain.prices[resource]
+
+        station_agent._budget[inputs] = np.inf
+
+        return station_agent
+
+    @classmethod
+    def create_planet_agent(cls, planet:core.Planet,  production_chain:core.ProductionChain) -> "StationAgent":
+        if planet.owner is None:
+            raise ValueError(f'cannot create station agent for planet that has no owner')
+
+        station_agent = StationAgent(planet, planet.owner, production_chain)
+        consumer_product_id = production_chain.final_product_ids()[core.RESOURCE_REL_CONSUMER]
+        station_agent._buy_resources = (consumer_product_id,)
+
+        # start with buy price the markup for the consumer good again
+        station_agent._buy_price[consumer_product_id] = production_chain.prices[consumer_product_id] * production_chain.markup[consumer_product_id]
+        station_agent._budget[consumer_product_id] = np.inf
+
+        return station_agent
+
+    def __init__(self, station:core.SectorEntity, owner:core.Character, production_chain:core.ProductionChain) -> None:
+        self._buy_resources:Tuple[int] = tuple() # type: ignore
+        self._sell_resources:Tuple[int] = tuple() # type: ignore
+
+        self._buy_price = np.zeros((production_chain.num_products,))
         self._sell_price = np.full((production_chain.num_products,), np.inf)
-        self._sell_price[resource] = production_chain.prices[resource]
-
         self._budget = np.zeros((production_chain.num_products,))
-        self._budget[inputs] = np.inf
         self.station = station
+        self.owner = owner
 
     def buy_resources(self) -> Collection:
         return self._buy_resources
@@ -153,8 +184,8 @@ class StationAgent(core.EconAgent):
         return self._sell_price[resource]
 
     def balance(self) -> float:
-        assert self.station.owner is not None
-        return self.station.owner.balance
+        assert self.owner is not None
+        return self.owner.balance
 
     def budget(self, resource:int) -> float:
         return self._budget[resource]
@@ -163,7 +194,7 @@ class StationAgent(core.EconAgent):
         return self.station.cargo[resource]
 
     def buy(self, resource:int, price:float, amount:float) -> None:
-        assert self.station.owner is not None
+        assert self.owner is not None
         value = price * amount
 
         assert self._budget[resource] >= value
@@ -172,18 +203,18 @@ class StationAgent(core.EconAgent):
 
         self._budget[resource] -= value
         self.station.cargo[resource] += amount
-        self.station.owner.balance -= value
-        if util.isclose(self.station.owner.balance, 0.):
-            self.station.owner.balance = 0.
+        self.owner.balance -= value
+        if util.isclose(self.owner.balance, 0.):
+            self.owner.balance = 0.
 
     def sell(self, resource:int, price:float, amount:float) -> None:
-        assert self.station.owner is not None
+        assert self.owner is not None
         assert self.inventory(resource) >= amount
 
         self.station.cargo[resource] -= amount
         if util.isclose(self.station.cargo[resource], 0.):
             self.station.cargo[resource] = 0.
-        self.station.owner.balance += price * amount
+        self.owner.balance += price * amount
 
 EMPTY_TUPLE:Tuple = tuple()
 

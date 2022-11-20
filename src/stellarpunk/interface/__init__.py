@@ -45,7 +45,7 @@ class Settings:
     VIEWSCREEN_BUFFER_WIDTH = 300
     VIEWSCREEN_BUFFER_HEIGHT = 100
 
-    MAX_TIME_ACCEL = 5.0
+    MAX_TIME_ACCEL = 10.0
     MIN_TIME_ACCEL = 0.25
 
 class Color(enum.Enum):
