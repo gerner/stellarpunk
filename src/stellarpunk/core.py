@@ -427,6 +427,13 @@ class Ship(SectorEntity, Asset):
         return self.default_order_fn(self, gamestate)
 
     def prepend_order(self, order:Order, begin:bool=True) -> None:
+
+        co = self.current_order()
+        if co is not None:
+            #TODO: should we do anything else to suspend the current order?
+            if co.gamestate.is_order_scheduled(co):
+                co.gamestate.unschedule_order(co)
+
         self._orders.appendleft(order)
         if begin:
             order.begin_order()
@@ -498,8 +505,18 @@ class Agendum:
 
         logging.getLogger(util.fullname(self))
 
-    def start(self) -> None:
+    def _start(self) -> None:
         pass
+
+    def _stop(self) -> None:
+        pass
+
+    def start(self) -> None:
+        self._start()
+
+    def stop(self) -> None:
+        self._stop()
+        self.gamestate.unschedule_agendum(self)
 
     def is_complete(self) -> bool:
         return False
@@ -710,6 +727,7 @@ class Order:
         """ Called when an order is removed from the order queue, but not
         because it's complete. Note the order _might_ be complete in this case.
         """
+        self.gamestate.unschedule_order(self)
         for order in self.child_orders:
             order.cancel_order()
             try:
@@ -867,6 +885,9 @@ class Gamestate:
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
 
+    def withdraw_agent(self, entity_id:uuid.UUID) -> EconAgent:
+        return self.econ_agents.pop(entity_id)
+
     def add_character(self, character:Character) -> None:
         self.characters[character.entity_id] = character
         self.characters_by_location[character.location.entity_id].append(character)
@@ -893,6 +914,9 @@ class Gamestate:
         self._order_schedule.push_task(timestamp, order)
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
+    def unschedule_order(self, order:Order) -> None:
+        self._order_schedule.cancel_task(order)
+
     def pop_current_orders(self) -> Sequence[Order]:
         return self._order_schedule.pop_current_tasks(self.timestamp)
 
@@ -907,6 +931,9 @@ class Gamestate:
             timestamp += self.random.uniform(high=jitter)
 
         self._agenda_schedule.push_task(timestamp, agendum)
+
+    def unschedule_agendum(self, agendum:Agendum) -> None:
+        self._agenda_schedule.cancel_task(agendum)
 
     def pop_current_agenda(self) -> Sequence[Agendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)

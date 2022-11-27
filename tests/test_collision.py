@@ -179,14 +179,42 @@ def test_collision_dv():
 def test_task_schedule():
     schedule:task_schedule.TaskSchedule[Tuple[str, int]] = task_schedule.TaskSchedule()
     schedule.push_task(5, ("a", 47))
+    assert schedule.top() == ("a", 47)
     schedule.push_task(3, ("b", 42))
+    assert schedule.top() == ("b", 42)
     schedule.push_task(7, ("c", 41))
+    assert schedule.top() == ("b", 42)
+
+    assert schedule.empty(2)
+    assert not schedule.empty(4)
+    assert not schedule.empty(9)
 
     tasks = schedule.pop_current_tasks(2)
     assert tasks == []
 
     tasks = schedule.pop_current_tasks(6)
     assert tasks == [("b", 42), ("a", 47)]
+
+    tasks = schedule.pop_current_tasks(7)
+    assert tasks == [("c", 41)]
+
+    tasks = schedule.pop_current_tasks(8)
+    assert tasks == []
+
+def test_cancel_task():
+    schedule:task_schedule.TaskSchedule[Tuple[str, int]] = task_schedule.TaskSchedule()
+    schedule.push_task(5, ("a", 47))
+    assert schedule.top() == ("a", 47)
+    schedule.push_task(3, ("b", 42))
+    assert schedule.top() == ("b", 42)
+    schedule.push_task(7, ("c", 41))
+    assert schedule.top() == ("b", 42)
+
+    schedule.cancel_task(("b", 42))
+    assert schedule.top() == ("a", 47)
+
+    tasks = schedule.pop_current_tasks(6)
+    assert tasks == [("a", 47)]
 
     tasks = schedule.pop_current_tasks(7)
     assert tasks == [("c", 41)]

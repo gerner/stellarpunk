@@ -278,9 +278,18 @@ class MiningAgendum(core.Agendum, core.OrderObserver):
         #TODO: worry about other people harvesting asteroids
         return target
 
-    def start(self) -> None:
+    def _start(self) -> None:
         assert self.state == MiningAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
+
+    def _stop(self) -> None:
+        if self.state == MiningAgendum.State.MINING:
+            assert self.mining_order is not None
+            self.mining_order.cancel_order()
+        elif self.state == MiningAgendum.State.TRADING:
+            assert self.transfer_order is not None
+            self.transfer_order.cancel_order()
+        self.gamestate.unschedule_agendum(self)
 
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.round_trips >= self.max_trips
@@ -402,9 +411,17 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         self.state = TradingAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self)
 
-    def start(self) -> None:
+    def _start(self) -> None:
         assert self.state == TradingAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
+
+    def _stop(self) -> None:
+        if self.state == TradingAgendum.State.BUYING:
+            assert self.buy_order is not None
+            self.buy_order.cancel_order()
+        elif self.state == TradingAgendum.State.SELLING:
+            assert self.sell_order is not None
+            self.sell_order.cancel_order()
 
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.trade_trips >= self.max_trips
@@ -488,6 +505,10 @@ class StationManager(core.Agendum):
     def start(self) -> None:
         pass
 
+    def stop(self) -> None:
+        agent = self.gamestate.withdraw_agent(self.station.entity_id)
+        assert agent == self.agent
+
     def act(self) -> None:
         # price and budget setting stuff goes here and should run periodically
         pass
@@ -504,6 +525,10 @@ class PlanetManager(core.Agendum):
 
     def start(self) -> None:
         pass
+
+    def stop(self) -> None:
+        agent = self.gamestate.withdraw_agent(self.planet.entity_id)
+        assert agent == self.agent
 
     def act(self) -> None:
         # price and budget setting stuff goes here and should run periodically

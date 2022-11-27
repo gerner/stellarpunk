@@ -1,4 +1,4 @@
-SOURCES=$(shell find src -name *.pyx)
+SOURCES=$(shell find src -name *.pyx -o -name *.hpp)
 
 all: ext
 	dmypy run

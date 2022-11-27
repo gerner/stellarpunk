@@ -635,13 +635,15 @@ class UniverseGenerator:
                         character.add_agendum(agenda.MiningAgendum(ship=asset, character=character, gamestate=self.gamestate))
                     elif asset in trading_ships:
                         character.add_agendum(agenda.TradingAgendum(ship=asset, character=character, gamestate=self.gamestate))
+                        character.balance += 5e3
                     else:
                         raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
                 elif isinstance(asset, core.Station):
                     character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
+                    character.balance += 10e3
                 elif isinstance(asset, core.Planet):
-                    #TODO: what to do with planet assets?
                     character.add_agendum(agenda.PlanetManager(planet=asset, character=character, gamestate=self.gamestate))
+                    character.balance += 10e4
                 else:
                     raise ValueError(f'got an asset of unknown type {asset}')
 
@@ -931,6 +933,23 @@ class UniverseGenerator:
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
 
+    def choose_player_character(self) -> None:
+        # should be one with just a ship
+        player_character:Optional[core.Character] = None
+        for c in self.gamestate.characters.values():
+            if len(c.assets) == 1 and isinstance(c.assets[0], core.Ship):
+                player_character = c
+                break
+
+        if player_character is None:
+            raise ValueError(f'no characters satisfy player criteria')
+
+        for agendum in player_character.agenda:
+            agendum.stop()
+
+        self.gamestate.player.character = player_character
+        self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
+
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r
 
@@ -940,5 +959,8 @@ class UniverseGenerator:
 
         # generate sectors
         self.generate_sectors()
+
+        # select a character for the player
+        self.choose_player_character()
 
         return self.gamestate
