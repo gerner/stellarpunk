@@ -131,8 +131,7 @@ class TradeTransferEffect(TransferCargoEffect):
     def _deliver(self, amount:float) -> None:
         #TODO: make sure the buyer still wants to buy more at the given price
         price = self.current_price(self.buyer, self.seller, self.resource)
-        self.seller.sell(self.resource, price, amount)
-        self.buyer.buy(self.resource, price, amount)
+        self.gamestate.transact(self.resource, self.buyer, self.seller, price, amount)
 
     def _continue_trade(self, amount:float) -> bool:
         #TODO: what if the agents are invalid now (e.g. change agent for the station)

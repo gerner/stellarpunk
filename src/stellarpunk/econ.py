@@ -82,6 +82,9 @@ class YesAgent(core.EconAgent):
     def __init__(self, production_chain:core.ProductionChain) -> None:
         self._resources = tuple(range(production_chain.num_products))
 
+    def get_owner(self) -> core.Character:
+        raise NotImplementedError("YesAgent doesn't have an owner")
+
     def buy_resources(self) -> Collection:
         return self._resources
 
@@ -168,6 +171,9 @@ class StationAgent(core.EconAgent):
         self.station = station
         self.owner = owner
 
+    def get_owner(self) -> core.Character:
+        return self.owner
+
     def buy_resources(self) -> Collection:
         return self._buy_resources
 
@@ -226,6 +232,10 @@ class ShipTraderAgent(core.EconAgent):
 
     def __init__(self, ship:core.Ship) -> None:
         self.ship = ship
+
+    def get_owner(self) -> core.Character:
+        assert self.ship.owner is not None
+        return self.ship.owner
 
     def buy_resources(self) -> Collection:
         return EMPTY_TUPLE

@@ -769,6 +769,9 @@ class PrioritizedItem(Generic[T]):
 
 class EconAgent(abc.ABC):
     @abc.abstractmethod
+    def get_owner(self) -> Character: ...
+
+    @abc.abstractmethod
     def buy_resources(self) -> Collection: ...
 
     @abc.abstractmethod
@@ -794,6 +797,10 @@ class EconAgent(abc.ABC):
 
     @abc.abstractmethod
     def sell(self, resource:int, price:float, amount:float) -> None: ...
+
+class AbstractEconDataLogger:
+    def transact(self, diff:float, product_id:int, buyer:Any, seller:Any, price:float, sale_amount:float, ticks:Optional[int]) -> None:
+        pass
 
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
@@ -849,6 +856,8 @@ class Gamestate:
         #TODO: how do we keep this up to date?
         # collection of EconAgents, by uuid of the entity they represent
         self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
+
+        self.econ_logger:AbstractEconDataLogger = AbstractEconDataLogger()
 
         self.characters:Dict[uuid.UUID, Character] = {}
 
@@ -937,6 +946,11 @@ class Gamestate:
 
     def pop_current_agenda(self) -> Sequence[Agendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
+
+    def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
+        seller.sell(product_id, price, amount)
+        buyer.buy(product_id, price, amount)
+        self.econ_logger.transact(0., product_id, buyer.get_owner(), seller.get_owner(), price, amount, ticks=self.ticks)
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector

@@ -46,13 +46,13 @@ EMA_TICKS = 365 #365, as if every tick is a day and we're getting 1 year
 # how does surplus change over time? (total and spread, say IQR or stdev)
 # how many goods are produced? (total and which are outliers)
 
-class EconomyDataLogger(contextlib.AbstractContextManager):
+class EconomyDataLogger(contextlib.AbstractContextManager, core.AbstractEconDataLogger):
     """ Logs data on the economy over time.
 
     Has a listener model for interesting events. Logs a lot of state when
     approriate event happens in the economy and the tick for that state.. """
 
-    def __init__(self, enabled:bool=True, logdir:str="/tmp/", buffersize:int=4*1024, flush_interval:int=1000) -> None:
+    def __init__(self, enabled:bool=True, logdir:str="/tmp/", buffersize:int=4*1024, flush_interval:int=1000, line_buffering:bool=False) -> None:
         """ Creates an object that facilitates logging the lifecycle of the
         economic simulation.
 
@@ -72,6 +72,7 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         self.enabled = enabled
         self.logdir = logdir
         self.buffersize = buffersize
+        self.line_buffering = line_buffering
         self.flush_interval = flush_interval
 
         self.transaction_log:TextIO = None #type:ignore[assignment]
@@ -91,7 +92,8 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         self.sim:EconomySimulation = None #type: ignore[assignment]
 
     def _open_txt_log(self, name:str) -> TextIO:
-        f = self.exit_stack.enter_context(open(os.path.join(self.logdir, f'{name}.log'), "wt", self.buffersize))
+        buffering = 1 if self.line_buffering else self.buffersize
+        f = self.exit_stack.enter_context(open(os.path.join(self.logdir, f'{name}.log'), "wt", buffering))
         self.files.append(f)
         return f
 
@@ -155,9 +157,11 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
                 )
             )
 
-    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float) -> None:
+    def transact(self, diff:float, product_id:int, buyer:Any, seller:Any, price:float, sale_amount:float, ticks:Optional[int]=None) -> None:
         if self.enabled:
-            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
+            if ticks is None:
+                ticks = self.sim.ticks
+            self.transaction_log.write(f'{ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
 
     def source_resources(self, price:npt.NDArray[np.float64], amount:npt.NDArray[np.float64]) -> None:
         if self.enabled:

@@ -502,10 +502,10 @@ class StationManager(core.Agendum):
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(station.entity_id, self.agent)
 
-    def start(self) -> None:
+    def _start(self) -> None:
         pass
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         agent = self.gamestate.withdraw_agent(self.station.entity_id)
         assert agent == self.agent
 
@@ -523,10 +523,10 @@ class PlanetManager(core.Agendum):
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(planet.entity_id, self.agent)
 
-    def start(self) -> None:
+    def _start(self) -> None:
         pass
 
-    def stop(self) -> None:
+    def _stop(self) -> None:
         agent = self.gamestate.withdraw_agent(self.planet.entity_id)
         assert agent == self.agent
 

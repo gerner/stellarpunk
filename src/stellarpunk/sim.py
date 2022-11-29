@@ -13,7 +13,7 @@ import heapq
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders
+from stellarpunk import util, core, interface, generate, orders, econ_sim
 from stellarpunk.interface import universe as universe_interface
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -343,6 +343,9 @@ def main() -> None:
 
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
+
+        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True))
+        gamestate.econ_logger = data_logger
 
         logging.info("generating universe...")
         generator = generate.UniverseGenerator(gamestate)
