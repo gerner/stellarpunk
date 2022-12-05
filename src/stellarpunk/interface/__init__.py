@@ -45,7 +45,7 @@ class Settings:
     VIEWSCREEN_BUFFER_WIDTH = 300
     VIEWSCREEN_BUFFER_HEIGHT = 100
 
-    MAX_TIME_ACCEL = 10.0
+    MAX_TIME_ACCEL = 20.0
     MIN_TIME_ACCEL = 0.25
 
 class Color(enum.Enum):
@@ -275,9 +275,6 @@ class AbstractInterface(abc.ABC):
         pass
 
     def order_complete(self, order:core.Order) -> None:
-        pass
-
-    def effect_complete(self, effect:core.Effect) -> None:
         pass
 
     @abc.abstractmethod
@@ -616,6 +613,7 @@ class Interface(AbstractInterface):
         self.views[-1].focus()
 
     def c_pause(self, args:Sequence[str]) -> None:
+        self.gamestate.time_accel_rate = 1.0
         self.gamestate.paused = not self.gamestate.paused
 
     def c_time_accel(self, args:Sequence[str]) -> None:
@@ -706,6 +704,8 @@ class Interface(AbstractInterface):
         elif key == curses.KEY_RESIZE:
             for view in self.views:
                 view.initialize()
+        elif key == ord(" "):
+            self.c_pause(())
         elif key == ord("."):
             self.c_pause(())
             self.one_time_step = True

@@ -63,7 +63,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
             assert self.ship.sector is not None
             self.mining_effect = effects.MiningEffect(
                     self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
-            self.ship.sector.effects.append(self.mining_effect)
+            self.ship.sector.add_effect(self.mining_effect)
         # else wait for the mining effect
 
 class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
@@ -123,7 +123,7 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
         if not self.transfer_effect:
             self.transfer_effect = self._initialize_transfer()
             self.transfer_effect.observe(self)
-            self.ship.sector.effects.append(self.transfer_effect)
+            self.ship.sector.add_effect(self.transfer_effect)
         # else wait for the transfer effect
 
     def _initialize_transfer(self) -> core.Effect:
@@ -345,7 +345,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
                     expected_loc, self.ship.sector, self.gamestate,
                     ttl=self.travel_time,
                     observer=self)
-            self.ship.sector.effects.append(self.warp_out)
+            self.ship.sector.add_effect(self.warp_out)
 
             self.phase = self.PHASE_TRAVEL_OUT_OF_SECTOR
             self.travel_start_time = self.gamestate.timestamp
@@ -412,7 +412,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             self.warp_in = effects.WarpInEffect(
                     np.copy(self.ship.loc), self.ship.sector, self.gamestate,
                     observer=self)
-            self.ship.sector.effects.append(self.warp_in)
+            self.ship.sector.add_effect(self.warp_in)
             self.phase = self.PHASE_TRAVEL_IN_TO_SECTOR
 
             # continue action once the effect completes

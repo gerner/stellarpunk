@@ -13,7 +13,7 @@ import heapq
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ_sim
+from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda
 from stellarpunk.interface import universe as universe_interface
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -126,26 +126,6 @@ class Simulator:
                 station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
 
     def tick_sector(self, sector:core.Sector, dt:float) -> None:
-
-        # do effects
-        effects_complete:Deque[core.Effect] = collections.deque()
-        for effect in sector.effects:
-            if effect.started_at < 0:
-                effect.begin_effect()
-
-            if effect.is_complete():
-                # defer completion/removal until other effects have a chance to act
-                effects_complete.append(effect)
-            else:
-                effect.act(dt)
-
-        # notify effect completion
-        for effect in effects_complete:
-            self.logger.debug(f'effect {effect} in {sector.short_id()} complete in {self.gamestate.timestamp - effect.started_at:.2f}')
-            effect.complete_effect()
-            sector.effects.remove(effect)
-            self.ui.effect_complete(effect)
-
         # produce goods
         # every batch_time seconds we produce one batch of resource from inputs
         # reset production timer
@@ -220,6 +200,10 @@ class Simulator:
 
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
+        # process effects
+        for effect in self.gamestate.pop_current_effects():
+            effect.act(dt)
+
         # let characters act on their (scheduled) agenda items
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
@@ -266,7 +250,25 @@ class Simulator:
                             if order.cannot_avoid_collision_hold:
                                 total_orders_with_cac += 1
 
+            total_agenda = 0
+            total_mining_agenda = 0
+            total_idle_mining_agenda = 0
+            total_trading_agenda = 0
+            total_idle_trading_agenda = 0
+            for character in self.gamestate.characters.values():
+                for agendum in character.agenda:
+                    total_agenda += 1
+                    if isinstance(agendum, agenda.MiningAgendum):
+                        total_mining_agenda += 1
+                        if agendum.state == agenda.MiningAgendum.State.IDLE:
+                            total_idle_mining_agenda += 1
+                    elif isinstance(agendum, agenda.TradingAgendum):
+                        total_trading_agenda += 1
+                        if agendum.state == agenda.TradingAgendum.State.IDLE:
+                            total_idle_trading_agenda += 1
+
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
+            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda}')
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
     def run(self) -> None:

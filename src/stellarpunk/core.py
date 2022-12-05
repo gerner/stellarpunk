@@ -139,7 +139,7 @@ class Sector(Entity):
         # we do rely on this to provide a spatial index of the sector
         self.space:cymunk.Space = space
 
-        self.effects: Deque[Effect] = collections.deque()
+        self._effects: Deque[Effect] = collections.deque()
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
@@ -154,6 +154,13 @@ class Sector(Entity):
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
+
+    def add_effect(self, effect:Effect) -> None:
+        self._effects.append(effect)
+        effect.begin_effect()
+
+    def remove_effect(self, effect:Effect) -> None:
+        self._effects.remove(effect)
 
     def add_entity(self, entity:SectorEntity) -> None:
         #TODO: worry about collisions at location?
@@ -617,12 +624,17 @@ class Effect(abc.ABC):
         self.completed_at = self.gamestate.timestamp
         self._complete()
 
+        self.logger.debug(f'effect {self} in {self.sector.short_id()} complete in {self.gamestate.timestamp - self.started_at:.2f}')
+
         for observer in self.observers:
             observer.effect_complete(self)
 
+        self.sector.remove_effect(self)
+
     def cancel_effect(self) -> None:
+        self.gamestate.unschedule_effect(self)
         try:
-            self.sector.effects.remove(self)
+            self.sector.remove_effect(self)
         except ValueError:
             # effect might already have been removed from the queue
             pass
@@ -633,7 +645,9 @@ class Effect(abc.ABC):
             observer.effect_cancel(self)
 
     def act(self, dt:float) -> None:
-        pass
+        # by default we'll just complete the effect if it's done
+        if self.is_complete():
+            self.complete_effect()
 
 class OrderLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, ship:Ship, *args:Any, **kwargs:Any):
@@ -861,10 +875,13 @@ class Gamestate:
 
         self.characters:Dict[uuid.UUID, Character] = {}
 
-        # heap of order items in form (scheduled timestamp, agendum)
+        # priority queue of order items in form (scheduled timestamp, agendum)
         self._order_schedule:task_schedule.TaskSchedule[Order] = task_schedule.TaskSchedule()
 
-        # heap of agenda items in form (scheduled timestamp, agendum)
+        # priority queue of effects
+        self._effect_schedule:task_schedule.TaskSchedule[Effect] = task_schedule.TaskSchedule()
+
+        # priority queue of agenda items in form (scheduled timestamp, agendum)
         self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
         #self.scheduled_agenda:Set[Agendum] = set()
 
@@ -928,6 +945,24 @@ class Gamestate:
 
     def pop_current_orders(self) -> Sequence[Order]:
         return self._order_schedule.pop_current_tasks(self.timestamp)
+
+    def schedule_effect_immediate(self, effect:Effect, jitter:float=0.) -> None:
+        self.schedule_effect(self.timestamp + self.desired_dt, effect, jitter)
+
+    def schedule_effect(self, timestamp: float, effect:Effect, jitter:float=0.) -> None:
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
+        self._effect_schedule.push_task(timestamp, effect)
+
+    def unschedule_effect(self, effect:Effect) -> None:
+        self._effect_schedule.cancel_task(effect)
+
+    def pop_current_effects(self) -> Sequence[Effect]:
+        return self._effect_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)

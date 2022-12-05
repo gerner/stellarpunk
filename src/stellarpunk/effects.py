@@ -32,8 +32,9 @@ class TransferCargoEffect(core.Effect):
         self.source = source
         self.destination = destination
 
-        # next timestamp we should act on
-        self.next_effect_time = 0.
+    def _begin(self) -> None:
+        amount = self._amount()
+        self.gamestate.schedule_effect(self.gamestate.timestamp + (amount / self.transfer_rate), self, jitter=1.0)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         locs = np.asarray((self.source.loc, self.destination.loc))
@@ -45,15 +46,11 @@ class TransferCargoEffect(core.Effect):
         return self._completed_transfer
 
     def act(self, dt:float) -> None:
-        if self.gamestate.timestamp < self.next_effect_time:
+        if self._completed_transfer:
             return
 
         if self.destination.distance_to(self.source) > self.max_distance:
             #TODO: the transfer isn't really complete, how to communicate that?
-            self._completed_transfer = True
-            return
-
-        if self.sofar == self.amount:
             self._completed_transfer = True
             return
 
@@ -62,18 +59,20 @@ class TransferCargoEffect(core.Effect):
             self.logger.debug(f'aborting transfer')
             #TODO: the transfer isn't really complete, how to communicate that?
             self._completed_transfer = True
+            self.complete_effect()#cancel_effect()
             return
 
         self.sofar += amount
         self._deliver(amount)
-        self.next_effect_time = self.gamestate.timestamp + TRANSFER_PERIOD
+
+        self._completed_transfer = True
+        self.complete_effect()
 
     def _amount(self) -> float:
         amount = min(
                 self.destination.cargo_capacity - np.sum(self.destination.cargo),
                 util.clip(self.amount-self.sofar, 0, self.source.cargo[self.resource])
         )
-        amount = min((self.transfer_rate * TRANSFER_PERIOD), amount)
         return amount
 
     def _continue_transfer(self, amount:float) -> bool:
@@ -156,6 +155,7 @@ class WarpOutEffect(core.Effect):
 
     def _begin(self) -> None:
         self.expiration_time = self.gamestate.timestamp + self.ttl
+        self.gamestate.schedule_effect(self.expiration_time + self.gamestate.desired_dt, self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         ll = self.loc - self.radius
@@ -175,6 +175,7 @@ class WarpInEffect(core.Effect):
 
     def _begin(self) -> None:
         self.expiration_time = self.gamestate.timestamp + self.ttl
+        self.gamestate.schedule_effect(self.expiration_time + self.gamestate.desired_dt, self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         ll = self.loc - self.radius
