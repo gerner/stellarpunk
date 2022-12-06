@@ -35,7 +35,7 @@ def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
 @pytest.fixture
 def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
     simulation = sim.Simulator(gamestate, testui, ticks_per_hist_sample=1)
-    simulation.min_tick_sleep = np.inf
+    gamestate.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
 
     simulation.initialize()

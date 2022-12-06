@@ -48,6 +48,10 @@ class Settings:
     MAX_TIME_ACCEL = 20.0
     MIN_TIME_ACCEL = 0.25
 
+    MAX_FRAME_HISTORY_SEC = 0.5
+    MIN_FPS = 2
+    MAX_FPS = 30
+
 class Color(enum.Enum):
     ERROR = enum.auto()
 
@@ -286,7 +290,8 @@ class Interface(AbstractInterface):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.fps_cap = (1/gamestate.desired_dt)+1
+        self.max_fps = Settings.MAX_FPS
+        self.min_fps = Settings.MIN_FPS
         self.min_ui_timeout = gamestate.desired_dt/4
 
         # the size of the global screen, containing other viewports
@@ -325,7 +330,7 @@ class Interface(AbstractInterface):
         # list of frame render times
         # keep a fixed number of them so we can calculate how many frames per
         # (real-time) second we're rendering
-        self.frame_history:Deque[float] = collections.deque(maxlen=20)
+        self.frame_history:Deque[float] = collections.deque()
 
         self.show_fps = True
 
@@ -642,6 +647,13 @@ class Interface(AbstractInterface):
             else:
                 self.profiler = cProfile.Profile()
                 self.profiler.enable()
+
+        def fast(args:Sequence[str]) -> None:
+            if self.gamestate.min_tick_sleep < math.inf:
+                self.gamestate.min_tick_sleep = math.inf
+            else:
+                self.gamestate.min_tick_sleep = self.gamestate.desired_dt / 5
+
         return {
                 "pause": self.c_pause,
                 "t_accel" : self.c_time_accel,
@@ -651,14 +663,18 @@ class Interface(AbstractInterface):
                 "raise": raise_exception,
                 "colordemo": colordemo,
                 "profile": profile,
+                "fast": fast,
         }
 
     def tick(self, timeout:float, dt:float) -> None:
         # only render a frame if there's enough time and it won't exceed the fps cap
-        if timeout > self.min_ui_timeout and self.fps() <= self.fps_cap:
+        current_fps = self.fps()
+        if (timeout > self.min_ui_timeout and current_fps <= self.max_fps) or (current_fps < self.min_fps):
             # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
             start_time = time.perf_counter()
             self.frame_history.append(start_time)
+            while start_time - self.frame_history[0] > Settings.MAX_FRAME_HISTORY_SEC:
+                self.frame_history.popleft()
 
             if self.one_time_step:
                 self.gamestate.paused = True

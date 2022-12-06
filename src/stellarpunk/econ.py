@@ -1,7 +1,7 @@
 """ Stuff facilitating economic modelling. """
 
 import abc
-from typing import Callable, Collection, Tuple
+from typing import Callable, Collection, Tuple, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -80,6 +80,7 @@ def seller_price(buyer:core.EconAgent, seller:core.EconAgent, resource:int) -> f
 class YesAgent(core.EconAgent):
     """ EconAgent that always buys, sells, has budget, etc. """
     def __init__(self, production_chain:core.ProductionChain) -> None:
+        # NOTE: we do not call the parent constructor so we don't pollute the id space
         self._resources = tuple(range(production_chain.num_products))
 
     def get_owner(self) -> core.Character:
@@ -152,16 +153,22 @@ class StationAgent(core.EconAgent):
             raise ValueError(f'cannot create station agent for planet that has no owner')
 
         station_agent = StationAgent(planet, planet.owner, production_chain)
-        consumer_product_id = production_chain.final_product_ids()[core.RESOURCE_REL_CONSUMER]
-        station_agent._buy_resources = (consumer_product_id,)
+
+        end_product_ids = production_chain.final_product_ids()[[
+            core.RESOURCE_REL_CONSUMER,
+            core.RESOURCE_REL_SHIP,
+            core.RESOURCE_REL_STATION,
+        ]]
+        station_agent._buy_resources = tuple(end_product_ids) # type: ignore
 
         # start with buy price the markup for the consumer good again
-        station_agent._buy_price[consumer_product_id] = production_chain.prices[consumer_product_id] * production_chain.markup[consumer_product_id]
-        station_agent._budget[consumer_product_id] = np.inf
+        station_agent._buy_price[end_product_ids] = production_chain.prices[end_product_ids] * production_chain.markup[end_product_ids]
+        station_agent._budget[end_product_ids] = np.inf
 
         return station_agent
 
-    def __init__(self, station:core.SectorEntity, owner:core.Character, production_chain:core.ProductionChain) -> None:
+    def __init__(self, station:core.SectorEntity, owner:core.Character, production_chain:core.ProductionChain, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self._buy_resources:Tuple[int] = tuple() # type: ignore
         self._sell_resources:Tuple[int] = tuple() # type: ignore
 
@@ -230,7 +237,8 @@ class ShipTraderAgent(core.EconAgent):
     Buy/sell prices and budget are irrelevant for this agent. We assume this
     agent is "active" and decisions are handled elsewhere. """
 
-    def __init__(self, ship:core.Ship) -> None:
+    def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.ship = ship
 
     def get_owner(self) -> core.Character:

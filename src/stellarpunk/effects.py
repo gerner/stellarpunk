@@ -34,7 +34,10 @@ class TransferCargoEffect(core.Effect):
 
     def _begin(self) -> None:
         amount = self._amount()
-        self.gamestate.schedule_effect(self.gamestate.timestamp + (amount / self.transfer_rate), self, jitter=1.0)
+        if amount == 0.:
+            self.gamestate.schedule_effect_immediate(self, jitter=1.0)
+        else:
+            self.gamestate.schedule_effect(self.gamestate.timestamp + (amount / self.transfer_rate), self, jitter=1.0)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         locs = np.asarray((self.source.loc, self.destination.loc))

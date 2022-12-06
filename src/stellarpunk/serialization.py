@@ -4,7 +4,7 @@ import sys
 import io
 import typing
 import enum
-from typing import BinaryIO, Optional, Tuple, Sequence, Any, Callable
+from typing import BinaryIO, Optional, Tuple, Sequence, Any, Callable, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -77,7 +77,8 @@ class TickMatrixWriter:
         self.packer = msgpack.Packer(default=encode_matrix)
         self.f = f
 
-    def write(self, tick:int, matrix:npt.NDArray[np.float64]) -> int:
+    #TODO: clean up the type hint here, should not be union, should be generic?
+    def write(self, tick:Union[int,float], matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]]) -> int:
         ret = self.packer.pack({
             "t": tick,
             "m": matrix

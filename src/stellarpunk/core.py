@@ -782,6 +782,17 @@ class PrioritizedItem(Generic[T]):
         return self.priority < other.priority
 
 class EconAgent(abc.ABC):
+    _next_id = 0
+
+    @classmethod
+    def num_agents(cls) -> int:
+        return EconAgent._next_id
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.agent_id = EconAgent._next_id
+        EconAgent._next_id += 1
+
     @abc.abstractmethod
     def get_owner(self) -> Character: ...
 
@@ -813,7 +824,21 @@ class EconAgent(abc.ABC):
     def sell(self, resource:int, price:float, amount:float) -> None: ...
 
 class AbstractEconDataLogger:
-    def transact(self, diff:float, product_id:int, buyer:Any, seller:Any, price:float, sale_amount:float, ticks:Optional[int]) -> None:
+    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float, ticks:Optional[Union[int,float]]) -> None:
+        pass
+
+    def log_econ(self,
+            ticks:float,
+            inventory:npt.NDArray[np.float64],
+            balance:npt.NDArray[np.float64],
+            buy_prices:npt.NDArray[np.float64],
+            buy_budget:npt.NDArray[np.float64],
+            sell_prices:npt.NDArray[np.float64],
+            max_buy_prices:npt.NDArray[np.float64],
+            min_sell_prices:npt.NDArray[np.float64],
+            cannot_buy_ticks:npt.NDArray[np.int64],
+            cannot_sell_ticks:npt.NDArray[np.int64],
+    ) -> None:
         pass
 
 class Counters(enum.IntEnum):
@@ -893,6 +918,7 @@ class Gamestate:
         self.timestamp = 0.
 
         self.desired_dt = 1/30
+        self.min_tick_sleep = self.desired_dt/5
         # how many seconds of simulation (as in dt) should elapse per second
         self.time_accel_rate = 1.0
         self.ticks = 0
@@ -985,7 +1011,55 @@ class Gamestate:
     def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
         seller.sell(product_id, price, amount)
         buyer.buy(product_id, price, amount)
-        self.econ_logger.transact(0., product_id, buyer.get_owner(), seller.get_owner(), price, amount, ticks=self.ticks)
+        self.econ_logger.transact(0., product_id, buyer.agent_id, seller.agent_id, price, amount, ticks=self.timestamp)
+
+    def _construct_econ_state(self) -> Tuple[
+            npt.NDArray[np.float64], # inventory
+            npt.NDArray[np.float64], # balance
+            npt.NDArray[np.float64], # buy_prices
+            npt.NDArray[np.float64], # buy_budget
+            npt.NDArray[np.float64], # sell_prices
+            npt.NDArray[np.float64], # max_buy_prices
+            npt.NDArray[np.float64], # min_sell_prices
+            npt.NDArray[np.int64], # cannot_buy_ticks
+            npt.NDArray[np.int64], # cannot_sell_ticks
+    ]:
+
+        #TODO: given how logging works, this assumes we never lose or gain
+        # agents so they always have a consistent id and ordering
+        num_agents = EconAgent.num_agents()
+        num_products = self.production_chain.num_products
+
+        inventory = np.zeros((num_agents, num_products))
+        balance = np.zeros((num_agents, ))
+        buy_prices = np.zeros((num_agents, num_products))
+        buy_budget = np.zeros((num_agents, num_products))
+        sell_prices = np.zeros((num_agents, num_products))
+
+        for agent in self.econ_agents.values():
+            i = agent.agent_id
+            balance[i] = agent.balance()
+            for j in range(num_products):
+                inventory[i,j] = agent.inventory(j)
+                buy_prices[i,j] = agent.buy_price(j)
+                buy_budget[i,j] = agent.budget(j)
+                sell_prices[i,j] = agent.sell_price(j)
+
+        return (
+            inventory,
+            balance,
+            buy_prices,
+            buy_budget,
+            sell_prices,
+            buy_prices,
+            sell_prices,
+            np.zeros((num_agents, num_products), dtype=np.int64),
+            np.zeros((num_agents, num_products), dtype=np.int64),
+        )
+
+
+    def log_econ(self) -> None:
+        self.econ_logger.log_econ(self.timestamp, *self._construct_econ_state())
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector

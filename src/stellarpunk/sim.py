@@ -51,7 +51,6 @@ class Simulator:
         self.behind_message_throttle = 0.
 
         self.ticktime_alpha = 0.1
-        self.min_tick_sleep = self.desired_dt/5
 
         self.sleep_count = 0
 
@@ -100,39 +99,6 @@ class Simulator:
         """ One-time initialize of the simulation. """
         for sector in self.gamestate.sectors.values():
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
-
-    def produce_at_station(self, station:core.Station) -> None:
-        # waiting for production to finish case
-        if station.next_batch_time > 0:
-            # check if the batch is ready
-            if station.next_batch_time <= self.gamestate.timestamp:
-                # add the batch to cargo
-                amount = self.gamestate.production_chain.batch_sizes[station.resource]
-                station.cargo[station.resource] += amount
-                #TODO: record the production somehow
-                #self.gamestate.production_chain.goods_produced[station.resource] += amount
-                station.next_batch_time = 0.
-                station.next_production_time = 0.
-        # waiting for enough cargo to produce case
-        elif station.next_production_time <= self.gamestate.timestamp:
-            # check if we have enough resource to start a batch
-            resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]
-            if np.all(station.cargo >= resources_needed):
-                station.cargo -= resources_needed
-                # TODO: float vs floating type issues with numpy (arg!)
-                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource] # type: ignore
-            else:
-                # wait a cooling off period to avoid needlesss expensive checks
-                station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
-
-    def tick_sector(self, sector:core.Sector, dt:float) -> None:
-        # produce goods
-        # every batch_time seconds we produce one batch of resource from inputs
-        # reset production timer
-        # if production timer is off, start producting a batch if we have it,
-        # setting production timer
-        for station in sector.stations:
-            self.produce_at_station(station)
 
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
@@ -208,11 +174,6 @@ class Simulator:
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
 
-        # at this point all AI decisions have happened everywhere
-        # update sector state after all ships across universe take action
-        for sector in self.gamestate.sectors.values():
-            self.tick_sector(sector, dt)
-
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
 
@@ -255,6 +216,8 @@ class Simulator:
             total_idle_mining_agenda = 0
             total_trading_agenda = 0
             total_idle_trading_agenda = 0
+            total_snob_trading_agenda = 0
+            total_snos_trading_agenda = 0
             for character in self.gamestate.characters.values():
                 for agendum in character.agenda:
                     total_agenda += 1
@@ -266,9 +229,15 @@ class Simulator:
                         total_trading_agenda += 1
                         if agendum.state == agenda.TradingAgendum.State.IDLE:
                             total_idle_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_BUYS:
+                            total_snob_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_SALES:
+                            total_snos_trading_agenda += 1
 
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
-            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda}')
+            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda} snob: {total_snob_trading_agenda} snos: {total_snos_trading_agenda}')
+            self.gamestate.log_econ()
+
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
     def run(self) -> None:
@@ -280,7 +249,7 @@ class Simulator:
                 raise Exception()
             now = time.perf_counter()
 
-            if next_tick - now > self.min_tick_sleep:
+            if next_tick - now > self.gamestate.min_tick_sleep:
                 if self.dt > self.desired_dt:
                     self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
                     self.logger.debug(f'dt: {self.dt}')
@@ -346,7 +315,7 @@ def main() -> None:
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
 
-        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True))
+        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=gamestate))
         gamestate.econ_logger = data_logger
 
         logging.info("generating universe...")
@@ -374,7 +343,9 @@ def main() -> None:
         # tick and it's better if they stay in the youngest generation
         #TODO: should we just disable a gc while we're doing a tick?
         gc.set_threshold(700*4, 10*4, 10*4)
+        data_logger.begin_simulation()
         sim.run()
+
 
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')

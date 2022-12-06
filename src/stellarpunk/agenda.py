@@ -309,7 +309,7 @@ class MiningAgendum(core.Agendum, core.OrderObserver):
                     self.allowed_resources, self.allowed_stations,
             )
             if sell_station_ret is None:
-                self.logger.debug(f'cannot find a station buying my mined resources. Sleeping...')
+                self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.ship.cargo[self.allowed_resources] > 0.)}). Sleeping...')
                 sleep_jitter = self.gamestate.random.uniform(high=MINING_SLEEP_TIME)
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME/2 + sleep_jitter, self)
                 return
@@ -352,6 +352,8 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         BUYING = enum.auto()
         SELLING = enum.auto()
         COMPLETE = enum.auto()
+        SLEEP_NO_BUYS = enum.auto()
+        SLEEP_NO_SALES = enum.auto()
 
     def __init__(self,
             ship:core.Ship, *args:Any,
@@ -426,71 +428,79 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.trade_trips >= self.max_trips
 
+    def _buy_goods(self) -> None:
+        buy_station_ret = choose_station_to_buy_from(
+                self.gamestate, self.ship, self.agent,
+                self.allowed_goods,
+                self.buy_from_stations, self.sell_to_stations)
+        if buy_station_ret is None:
+            self.state = TradingAgendum.State.SLEEP_NO_SALES
+            self.logger.debug(f'cannot find a valid trade for my trade goods. Sleeping...')
+            sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
+            self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
+            return
+        resource, station, station_agent, est_profit, est_time = buy_station_ret
+        assert station_agent.sell_price(resource) < np.inf
+        assert station_agent.inventory(resource) > 0.
+
+        self.logger.debug(f'buying {resource=} from {station=} {est_profit=} {est_time=}')
+
+        #TODO: sensibly have a ceiling for buying the good
+        # basically we pick a station and hope for the best
+        ceiling_price = np.inf
+        amount = min(station.cargo[resource], self.ship.cargo_capacity - self.ship.cargo.sum())
+
+        self.state = TradingAgendum.State.BUYING
+        self.buy_order = ocore.TradeCargoFromStation(
+                self.agent, station_agent, ceiling_price,
+                station, resource, amount,
+                self.ship, self.gamestate)
+        self.buy_order.observe(self)
+        self.ship.prepend_order(self.buy_order)
+
+    def _sell_goods(self) -> None:
+        # if we've got resources to sell, find a station to sell to
+
+        sell_station_ret = choose_station_to_sell_to(
+                self.gamestate, self.ship, self.agent,
+                self.allowed_goods, self.sell_to_stations,
+        )
+        if sell_station_ret is None:
+            self.logger.debug(f'cannot find a station buying my trade goods ({np.where(self.ship.cargo[self.allowed_goods] > 0.)}). Sleeping...')
+            self.state = TradingAgendum.State.SLEEP_NO_BUYS
+            sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
+            self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
+            return
+
+        resource, station, station_agent = sell_station_ret
+        assert station_agent.buy_price(resource) > 0
+        assert station_agent.budget(resource) > 0
+
+        self.logger.debug(f'selling {resource=} to {station=}')
+
+        #TODO: sensibly have a floor for selling the good
+        # basically we pick a station and hope for the best
+        floor_price = 0.
+
+        self.state = TradingAgendum.State.SELLING
+        self.sell_order = ocore.TradeCargoToStation(
+                station_agent, self.agent, floor_price,
+                station, resource, self.ship.cargo[resource],
+                self.ship, self.gamestate)
+        self.sell_order.observe(self)
+        self.ship.prepend_order(self.sell_order)
+
     def act(self) -> None:
-        assert self.state == TradingAgendum.State.IDLE
+        assert self.state in [TradingAgendum.State.IDLE, TradingAgendum.State.SLEEP_NO_BUYS, TradingAgendum.State.SLEEP_NO_SALES]
 
         if self.is_complete():
             self.state = TradingAgendum.State.COMPLETE
             return
 
         if np.any(self.ship.cargo[self.allowed_goods] > 0.):
-            # if we've got resources to sell, find a station to sell to
-
-            sell_station_ret = choose_station_to_sell_to(
-                    self.gamestate, self.ship, self.agent,
-                    self.allowed_goods, self.sell_to_stations,
-            )
-            if sell_station_ret is None:
-                self.logger.debug(f'cannot find a station buying my trade goods. Sleeping...')
-                sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
-                self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
-                return
-
-            resource, station, station_agent = sell_station_ret
-            assert station_agent.buy_price(resource) > 0
-            assert station_agent.budget(resource) > 0
-
-            self.logger.debug(f'selling {resource=} to {station=}')
-
-            #TODO: sensibly have a floor for selling the good
-            # basically we pick a station and hope for the best
-            floor_price = 0.
-
-            self.state = TradingAgendum.State.SELLING
-            self.sell_order = ocore.TradeCargoToStation(
-                    station_agent, self.agent, floor_price,
-                    station, resource, self.ship.cargo[resource],
-                    self.ship, self.gamestate)
-            self.sell_order.observe(self)
-            self.ship.prepend_order(self.sell_order)
+            self._sell_goods()
         else:
-            buy_station_ret = choose_station_to_buy_from(
-                    self.gamestate, self.ship, self.agent,
-                    self.allowed_goods,
-                    self.buy_from_stations, self.sell_to_stations)
-            if buy_station_ret is None:
-                self.logger.debug(f'cannot find a valid trade for my trade goods. Sleeping...')
-                sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
-                self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
-                return
-            resource, station, station_agent, est_profit, est_time = buy_station_ret
-            assert station_agent.sell_price(resource) < np.inf
-            assert station_agent.inventory(resource) > 0.
-
-            self.logger.debug(f'buying {resource=} from {station=} {est_profit=} {est_time=}')
-
-            #TODO: sensibly have a ceiling for buying the good
-            # basically we pick a station and hope for the best
-            ceiling_price = np.inf
-            amount = min(station.cargo[resource], self.ship.cargo_capacity - self.ship.cargo.sum())
-
-            self.state = TradingAgendum.State.BUYING
-            self.buy_order = ocore.TradeCargoFromStation(
-                    self.agent, station_agent, ceiling_price,
-                    station, resource, amount,
-                    self.ship, self.gamestate)
-            self.buy_order.observe(self)
-            self.ship.prepend_order(self.buy_order)
+            self._buy_goods()
 
 class StationManager(core.Agendum):
     def __init__(self, station:core.Station, *args:Any, **kwargs:Any) -> None:
@@ -498,20 +508,69 @@ class StationManager(core.Agendum):
 
         self.station = station
         self.agent = econ.StationAgent.create_station_agent(station, self.gamestate.production_chain)
+        self.produced_batches = 0
 
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(station.entity_id, self.agent)
 
     def _start(self) -> None:
-        pass
+        self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
         agent = self.gamestate.withdraw_agent(self.station.entity_id)
         assert agent == self.agent
 
+    def _produce_at_station(self) -> float:
+        """ Run production at this agendum's station.
+
+        returns when we should next check for production.
+        """
+
+        # waiting for production to finish case
+        if self.station.next_batch_time > 0:
+            # batch is ready case
+            if self.station.next_batch_time <= self.gamestate.timestamp:
+                # add the batch to cargo
+                amount = self.gamestate.production_chain.batch_sizes[self.station.resource]
+                self.station.cargo[self.station.resource] += amount
+                #TODO: record the production somehow
+                #self.gamestate.production_chain.goods_produced[station.resource] += amount
+                self.station.next_batch_time = 0.
+                self.station.next_production_time = 0.
+                self.produced_batches += 1
+                return self.gamestate.timestamp + 1.0
+            # batch is not ready case
+            else:
+                return self.station.next_batch_time
+        # waiting for enough cargo to produce case
+        elif self.station.next_production_time <= self.gamestate.timestamp:
+            # check if we have enough resource to start a batch
+            resources_needed = self.gamestate.production_chain.adj_matrix[:,self.station.resource] * self.gamestate.production_chain.batch_sizes[self.station.resource]
+
+            # we have enough cargo to produce case
+            if np.all(self.station.cargo >= resources_needed):
+                self.station.cargo -= resources_needed
+                # TODO: float vs floating type issues with numpy (arg!)
+                self.station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[self.station.resource] # type: ignore
+                return self.station.next_batch_time
+            # we do not have enough cargo to produce
+            else:
+                # wait a cooling off period to avoid needlesss expensive checks
+                self.station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
+                return self.station.next_production_time
+        else:
+            return self.station.next_production_time
+
     def act(self) -> None:
-        # price and budget setting stuff goes here and should run periodically
-        pass
+        # we must always be the representing agent
+        assert self.gamestate.econ_agents[self.station.entity_id] == self.agent
+
+        # do production
+        next_production_ts = self._produce_at_station()
+
+        #TODO: price and budget setting stuff goes here and should run periodically
+
+        self.gamestate.schedule_agendum(next_production_ts, self, jitter=1.0)
 
 class PlanetManager(core.Agendum):
     def __init__(self, planet:core.Planet, *args:Any, **kwargs:Any) -> None:
@@ -524,13 +583,14 @@ class PlanetManager(core.Agendum):
         self.gamestate.representing_agent(planet.entity_id, self.agent)
 
     def _start(self) -> None:
-        pass
+        self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
         agent = self.gamestate.withdraw_agent(self.planet.entity_id)
         assert agent == self.agent
 
     def act(self) -> None:
+        assert self.gamestate.econ_agents[self.planet.entity_id] == self.agent
         # price and budget setting stuff goes here and should run periodically
         pass
 
