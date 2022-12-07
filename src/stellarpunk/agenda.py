@@ -458,7 +458,7 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         self.buy_order.observe(self)
         self.ship.prepend_order(self.buy_order)
 
-    def _sell_goods(self) -> None:
+    def _sell_goods(self) -> bool:
         # if we've got resources to sell, find a station to sell to
 
         sell_station_ret = choose_station_to_sell_to(
@@ -466,11 +466,13 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
                 self.allowed_goods, self.sell_to_stations,
         )
         if sell_station_ret is None:
-            self.logger.debug(f'cannot find a station buying my trade goods ({np.where(self.ship.cargo[self.allowed_goods] > 0.)}). Sleeping...')
-            self.state = TradingAgendum.State.SLEEP_NO_BUYS
-            sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
-            self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
-            return
+            #TODO: revisit sleeping and tracking that as a state
+            #self.logger.debug(f'cannot find a station buying my trade goods ({np.where(self.ship.cargo[self.allowed_goods] > 0.)}). Sleeping...')
+            #self.state = TradingAgendum.State.SLEEP_NO_BUYS
+            #sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
+            #self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
+            #return
+            return False
 
         resource, station, station_agent = sell_station_ret
         assert station_agent.buy_price(resource) > 0
@@ -490,6 +492,8 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         self.sell_order.observe(self)
         self.ship.prepend_order(self.sell_order)
 
+        return True
+
     def act(self) -> None:
         assert self.state in [TradingAgendum.State.IDLE, TradingAgendum.State.SLEEP_NO_BUYS, TradingAgendum.State.SLEEP_NO_SALES]
 
@@ -498,7 +502,8 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
             return
 
         if np.any(self.ship.cargo[self.allowed_goods] > 0.):
-            self._sell_goods()
+            if not self._sell_goods():
+                self._buy_goods()
         else:
             self._buy_goods()
 
