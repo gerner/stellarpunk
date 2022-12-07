@@ -17,7 +17,7 @@ from stellarpunk import util, core, interface, generate, orders, econ_sim, agend
 from stellarpunk.interface import universe as universe_interface
 
 TICKS_PER_HIST_SAMPLE = 0#10
-ECONOMY_LOG_PERIOD_SEC = 2.0
+ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator:
@@ -371,6 +371,7 @@ def main() -> None:
         logging.info(f'counters:\n{counter_str}')
 
         logging.info(f'ticks:\t{gamestate.ticks}')
+        logging.info(f'timestamp:\t{gamestate.timestamp}')
 
         logging.info("done.")
 

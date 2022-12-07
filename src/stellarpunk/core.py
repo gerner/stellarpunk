@@ -841,6 +841,9 @@ class AbstractEconDataLogger:
     ) -> None:
         pass
 
+    def flush(self) -> None:
+        pass
+
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
         """generate consecutive automatic numbers starting from zero"""
@@ -1071,6 +1074,7 @@ class Gamestate:
 
     def log_econ(self) -> None:
         self.econ_logger.log_econ(self.timestamp, *self._construct_econ_state())
+        self.econ_logger.flush()
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector

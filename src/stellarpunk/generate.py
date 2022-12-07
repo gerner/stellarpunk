@@ -640,10 +640,14 @@ class UniverseGenerator:
                         raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
                 elif isinstance(asset, core.Station):
                     character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
-                    character.balance += 10e3
+                    # give enough money to buy several batches worth of goods
+                    resource_price:float = self.gamestate.production_chain.prices[asset.resource] # type: ignore
+                    batch_size:float = self.gamestate.production_chain.batch_sizes[asset.resource] # type: ignore
+                    character.balance += resource_price * batch_size * 5
                 elif isinstance(asset, core.Planet):
                     character.add_agendum(agenda.PlanetManager(planet=asset, character=character, gamestate=self.gamestate))
-                    character.balance += 10e4
+                    # give enough money to buy some of all the final goods
+                    character.balance += self.gamestate.production_chain.prices[-self.gamestate.production_chain.ranks[-1]:].max() * 5
                 else:
                     raise ValueError(f'got an asset of unknown type {asset}')
 
