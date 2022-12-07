@@ -2,9 +2,11 @@ import functools
 import os
 import json
 import uuid
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
+from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import core, sim, orders, interface, util
@@ -126,6 +128,38 @@ def history_from_file(fname, generator, sector, gamestate, load_ct:bool=True):
         for entry, ship in order_entries:
             order_from_history(entry, ship, gamestate, load_ct)
     return entities
+
+@dataclass
+class LoggedTransaction:
+    diff:float
+    product_id:int
+    buyer:int
+    seller:int
+    price:float
+    sale_amount:float
+    ticks:float
+
+class MonitoringEconDataLogger(core.AbstractEconDataLogger):
+    def __init__(self) -> None:
+        self.transactions:List[LoggedTransaction] = []
+
+    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float, ticks:Optional[Union[int,float]]) -> None:
+        assert isinstance(ticks, float)
+        self.transactions.append(LoggedTransaction(diff, product_id, buyer, seller, price, sale_amount, ticks))
+
+    def log_econ(self,
+            ticks:float,
+            inventory:npt.NDArray[np.float64],
+            balance:npt.NDArray[np.float64],
+            buy_prices:npt.NDArray[np.float64],
+            buy_budget:npt.NDArray[np.float64],
+            sell_prices:npt.NDArray[np.float64],
+            max_buy_prices:npt.NDArray[np.float64],
+            min_sell_prices:npt.NDArray[np.float64],
+            cannot_buy_ticks:npt.NDArray[np.int64],
+            cannot_sell_ticks:npt.NDArray[np.int64],
+    ) -> None:
+        pass
 
 class MonitoringUI(interface.AbstractInterface):
     def __init__(self, gamestate:core.Gamestate, sector:core.Sector) -> None:
