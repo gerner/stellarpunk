@@ -244,7 +244,7 @@ def test_basic_mining_order(gamestate, generator, sector, testui, simulator):
     assert mining_order.is_complete()
 
     # make sure ship ends up near enough to the asteroid
-    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + steering.VELOCITY_EPS
+    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + asteroid.radius + steering.VELOCITY_EPS
     # make sure we got the resources
     assert np.isclose(ship.cargo[0], 3.5e2)
     # make sure asteroid lost the resources
@@ -270,7 +270,7 @@ def test_over_mine(gamestate, generator, sector, testui, simulator):
     assert mining_order.is_complete()
 
     # make sure ship ends up near enough to the asteroid
-    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + steering.VELOCITY_EPS
+    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + asteroid.radius + steering.VELOCITY_EPS
     # make sure we got the resources
     assert np.isclose(ship.cargo[0], 2.5e2)
     # make sure asteroid lost the resources

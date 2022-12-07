@@ -692,14 +692,15 @@ class UniverseGenerator:
     def generate_chain(
             self,
             n_ranks:int=3,
-            min_per_rank:Sequence[int]=(3,6,5), max_per_rank:Sequence[int]=(6,10,7),
-            max_outputs:int=4, max_inputs:int=4,
+            min_per_rank:Sequence[int]=(3,5,4), max_per_rank:Sequence[int]=(4,7,6),
+            max_outputs:int=3, max_inputs:int=3,
             min_input_per_output:int=2, max_input_per_output:int=10,
-            min_raw_price:float=1., max_raw_price:float=20.,
+            min_raw_price:float=1., max_raw_price:float=15.,
             min_markup:float=1.05, max_markup:float=2.5,
             min_final_inputs:int=3, max_final_inputs:int=5,
             min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
             max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
+            min_raw_per_processed:int=3, max_raw_per_processed:int=10,
             sink_names:Sequence[str]=["ships", "stations", "consumers"]) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -728,6 +729,8 @@ class UniverseGenerator:
         max_final_inputs: int max number of inputs to produce final outputs
         min_final_prices: array of floats min target prices for final outputs
         max_final_prices: array of floats max target prices for final outputs
+        min_raw_per_processed: int min number of raw inputs per processed
+        max_raw_per_processed: int max number of raw inputs per processed
         """
 
         if isinstance(min_per_rank, int):
@@ -758,7 +761,9 @@ class UniverseGenerator:
         adj_matrix = np.zeros((total_nodes+len(min_final_prices),total_nodes+len(min_final_prices)))
 
         # set up 1:1 production from raw resources to first products
-        adj_matrix[0:ranks[0], ranks[0]:ranks[0]+ranks[1]] = np.eye(ranks[0])
+        # then scale up inputs as a raw -> processed refinement factor
+        refinement_factors = self.r.integers(min_raw_per_processed, max_raw_per_processed, ranks[0])
+        adj_matrix[0:ranks[0], ranks[0]:ranks[0]+ranks[1]] = np.eye(ranks[0]) * refinement_factors
 
         # set up production for rest of products
         so_far = ranks[0]
