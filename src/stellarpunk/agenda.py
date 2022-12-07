@@ -508,6 +508,12 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
             self._buy_goods()
 
 class StationManager(core.Agendum):
+    """ Manage production and trading for a station.
+
+    Responsible for actually driving the production at the station as well as
+    trading, price setting, although it might delegate those reponsiblities.
+    """
+
     def __init__(self, station:core.Station, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -578,6 +584,8 @@ class StationManager(core.Agendum):
         self.gamestate.schedule_agendum(next_production_ts, self, jitter=1.0)
 
 class PlanetManager(core.Agendum):
+    """ Manage consumption and trading for planet/hab. """
+
     def __init__(self, planet:core.Planet, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 

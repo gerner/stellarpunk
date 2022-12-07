@@ -871,7 +871,7 @@ class UniverseGenerator:
             sector_radius:float=5e5,
             sector_radius_std:float=1e5,
             sector_edge_length:float=1e5*15,
-            n_habitable_sectors:int=1,#15,
+            n_habitable_sectors:int=15,
             mean_habitable_resources:float=1e9,
             mean_uninhabitable_resources:float=1e7) -> None:
         # set up pre-expansion sectors, resources

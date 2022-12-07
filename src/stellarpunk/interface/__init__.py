@@ -275,6 +275,12 @@ class GenerationUI(generate.GenerationListener):
         pass
 
 class AbstractInterface(abc.ABC):
+    def decrease_fps(self) -> bool:
+        return False
+
+    def increase_fps(self) -> bool:
+        return False
+
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         pass
 
@@ -290,9 +296,10 @@ class Interface(AbstractInterface):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.max_fps = Settings.MAX_FPS
+        self.desired_fps = Settings.MAX_FPS
+        self.max_fps = self.desired_fps
         self.min_fps = Settings.MIN_FPS
-        self.min_ui_timeout = gamestate.desired_dt/4
+        self.min_ui_timeout = -1.#gamestate.desired_dt/4
 
         # the size of the global screen, containing other viewports
         self.screen_width = 0
@@ -388,6 +395,22 @@ class Interface(AbstractInterface):
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
+
+    def decrease_fps(self) -> bool:
+        """ Drops the fps if possible.
+
+        returns bool if it could reduce the fps
+        """
+
+        if self.max_fps > self.min_fps:
+            self.max_fps -= 1
+            return True
+        else:
+            return False
+
+    def increase_fps(self) -> bool:
+        self.max_fps = self.desired_fps
+        return True
 
     def fps(self) -> float:
         num_frames = len(self.frame_history)
@@ -649,10 +672,7 @@ class Interface(AbstractInterface):
                 self.profiler.enable()
 
         def fast(args:Sequence[str]) -> None:
-            if self.gamestate.min_tick_sleep < math.inf:
-                self.gamestate.min_tick_sleep = math.inf
-            else:
-                self.gamestate.min_tick_sleep = self.gamestate.desired_dt / 5
+            self.gamestate.fast_mode = not self.gamestate.fast_mode
 
         return {
                 "pause": self.c_pause,

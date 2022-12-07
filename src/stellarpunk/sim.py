@@ -240,6 +240,30 @@ class Simulator:
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
+    def _handle_behind_ticks(self, last_time_delta:float) -> None:
+        # what to do if we miss a tick (or a lot)
+        # seems like we should run a tick with a longer dt to make up for
+        # it, and stop rendering until we catch up
+        # but why would we miss ticks?
+        if last_time_delta > self.dt:
+            self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
+            #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
+            self.gamestate.missed_ticks += 1
+            behind = (last_time_delta)/self.dt
+            if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
+                if not self.ui.decrease_fps():
+                    self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
+            self.behind_ticks = behind
+            self.behind_length += 1
+            self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {last_time_delta:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
+        else:
+            if self.behind_ticks > 0:
+                self.ui.increase_fps()
+                self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+
+            self.behind_ticks = 0
+            self.behind_length = 0
+
     def run(self) -> None:
 
         next_tick = time.perf_counter()+self.dt
@@ -255,35 +279,20 @@ class Simulator:
                     self.logger.debug(f'dt: {self.dt}')
                 time.sleep(next_tick - now)
                 self.sleep_count += 1
-            #TODO: what to do if we miss a tick (or a lot)
-            # seems like we should run a tick with a longer dt to make up for
-            # it, and stop rendering until we catch up
-            # but why would we miss ticks?
-            if now - next_tick > self.dt:
-                self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
-                #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
-                self.gamestate.missed_ticks += 1
-                behind = (now - next_tick)/self.dt
-                if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
-                    self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
-                self.behind_ticks = behind
-                self.behind_length += 1
-                self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
-            else:
-                if self.behind_ticks > 0:
-                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
 
-                self.behind_ticks = 0
-                self.behind_length = 0
+            self._handle_behind_ticks(now - next_tick)
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
                 self.tick(self.dt)
 
-            last_tick = next_tick
-            next_tick = next_tick + self.dt / self.gamestate.time_accel_rate
-
             now = time.perf_counter()
+
+            last_tick = next_tick
+            if self.gamestate.fast_mode:
+                next_tick = now
+            else:
+                next_tick = next_tick + self.dt / self.gamestate.time_accel_rate
 
             timeout = next_tick - now
             if not self.gamestate.paused:

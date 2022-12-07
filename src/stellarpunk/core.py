@@ -921,6 +921,7 @@ class Gamestate:
         self.min_tick_sleep = self.desired_dt/5
         # how many seconds of simulation (as in dt) should elapse per second
         self.time_accel_rate = 1.0
+        self.fast_mode = False
         self.ticks = 0
         self.ticktime = 0.
         self.timeout = 0.
