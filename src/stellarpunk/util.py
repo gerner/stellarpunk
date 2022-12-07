@@ -528,7 +528,6 @@ class NiceScale:
             self.niceMin = math.floor(self.minPoint / self.tickSpacing) * self.tickSpacing
             self.niceMax = math.ceil(self.maxPoint / self.tickSpacing) * self.tickSpacing
 
-
     def niceNum(self, lst:float, rround:bool) -> float:
         self.lst = lst
         exponent = 0. # exponent of range */

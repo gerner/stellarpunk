@@ -240,31 +240,49 @@ class Simulator:
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
-    def _handle_behind_ticks(self, last_time_delta:float) -> None:
-        # what to do if we miss a tick (or a lot)
-        # seems like we should run a tick with a longer dt to make up for
-        # it, and stop rendering until we catch up
-        # but why would we miss ticks?
-        if last_time_delta > self.dt:
-            self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
-            #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
-            self.gamestate.missed_ticks += 1
-            behind = (last_time_delta)/self.dt
-            if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
-                if not self.ui.decrease_fps():
-                    self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
-            self.behind_ticks = behind
-            self.behind_length += 1
-            self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {last_time_delta:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
-        else:
-            if self.behind_ticks > 0:
-                self.ui.increase_fps()
-                self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+    def _handle_synchronization(self, now:float, next_tick:float) -> None:
 
-            self.behind_ticks = 0
-            self.behind_length = 0
+        # if we change time acceleration, we should re-synchronize our reference times
+        if self.gamestate.time_accel_changed:
+            self.logger.debug(f'timedrift: {now - self.gamestate.reference_realtime} vs {self.gamestate.timestamp - self.gamestate.reference_gametime}')
+            self.gamestate.reference_realtime = now
+            self.gamestate.reference_gametime = self.gamestate.timestamp
+            self.gamestate.time_accel_changed = False
+
+        if next_tick - now > self.gamestate.min_tick_sleep:
+            if self.dt > self.desired_dt:
+                self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
+                self.logger.debug(f'dt: {self.dt}')
+            time.sleep(next_tick - now)
+            self.sleep_count += 1
+        else:
+            # what to do if we miss a tick (or a lot)
+            # seems like we should run a tick with a longer dt to make up for
+            # it, and stop rendering until we catch up
+            # but why would we miss ticks?
+            if now - next_tick > self.dt:
+                self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
+                #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
+                self.gamestate.missed_ticks += 1
+                behind = (now - next_tick)/self.dt
+                if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
+                    if not self.ui.decrease_fps():
+                        self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
+                self.behind_ticks = behind
+                self.behind_length += 1
+                self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
+            else:
+                if self.behind_length > self.behind_dt_scale_thresthold:
+                    self.ui.increase_fps()
+                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+
+                self.behind_ticks = 0
+                self.behind_length = 0
 
     def run(self) -> None:
+
+        self.gamestate.reference_realtime = time.perf_counter()
+        self.gamestate.reference_gametime = self.gamestate.timestamp
 
         next_tick = time.perf_counter()+self.dt
 
@@ -273,14 +291,7 @@ class Simulator:
                 raise Exception()
             now = time.perf_counter()
 
-            if next_tick - now > self.gamestate.min_tick_sleep:
-                if self.dt > self.desired_dt:
-                    self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
-                    self.logger.debug(f'dt: {self.dt}')
-                time.sleep(next_tick - now)
-                self.sleep_count += 1
-
-            self._handle_behind_ticks(now - next_tick)
+            self._handle_synchronization(now, next_tick)
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
@@ -302,7 +313,7 @@ class Simulator:
 
             now = time.perf_counter()
             ticktime = now - starttime
-            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
+            self.gamestate.ticktime = util.update_ema(self.gamestate.ticktime, self.ticktime_alpha, ticktime)
 
 def main() -> None:
     with contextlib.ExitStack() as context_stack:

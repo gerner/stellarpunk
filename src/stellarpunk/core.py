@@ -919,13 +919,18 @@ class Gamestate:
 
         self.desired_dt = 1/30
         self.min_tick_sleep = self.desired_dt/5
-        # how many seconds of simulation (as in dt) should elapse per second
-        self.time_accel_rate = 1.0
-        self.fast_mode = False
         self.ticks = 0
         self.ticktime = 0.
         self.timeout = 0.
         self.missed_ticks = 0
+
+        # some settings related to time acceleration
+        # how many seconds of simulation (as in dt) should elapse per second
+        self.time_accel_rate = 1.0
+        self.fast_mode = False
+        self.time_accel_changed = False
+        self.reference_realtime = 0.
+        self.reference_gametime = 0.
 
         self.keep_running = True
         self.paused = False
@@ -934,6 +939,11 @@ class Gamestate:
         self.player = Player()
 
         self.counters = [0.] * len(Counters)
+
+    def time_acceleration(self, accel_rate:float, fast_mode:bool=False) -> None:
+        self.time_accel_rate = accel_rate
+        self.fast_mode = fast_mode
+        self.time_accel_changed = True
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
