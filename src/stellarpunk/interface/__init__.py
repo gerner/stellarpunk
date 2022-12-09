@@ -291,6 +291,29 @@ class AbstractInterface(abc.ABC):
     def tick(self, timeout:float, dt:float) -> None:
         pass
 
+class FPSCounter:
+    """ Measures FPS by keeping track of frame render times. """
+
+    def __init__(self, max_history_sec:float) -> None:
+        self.frame_history:Deque[float] = collections.deque()
+        self.current_fps = 0.
+        self.max_history_sec = max_history_sec
+
+    def add_frame(self, now:float) -> float:
+        self.frame_history.append(now)
+        return self.update_fps(now)
+
+    def update_fps(self, now:float) -> float:
+        while len(self.frame_history) > 0 and now - self.frame_history[0] > self.max_history_sec:
+            self.frame_history.popleft()
+
+        self.current_fps = len(self.frame_history) / self.max_history_sec
+        return self.current_fps
+
+    @property
+    def fps(self) -> float:
+        return self.current_fps
+
 class Interface(AbstractInterface):
     def __init__(self, gamestate: core.Gamestate, generator: generate.UniverseGenerator):
         self.stdscr:curses.window = None # type: ignore[assignment]
@@ -300,7 +323,9 @@ class Interface(AbstractInterface):
         self.max_fps = self.desired_fps
         self.min_fps = Settings.MIN_FPS
         self.min_ui_timeout = -1.#gamestate.desired_dt/4
-        self.current_fps = float(self.desired_fps)
+
+        self.fps_counter = FPSCounter(Settings.MAX_FRAME_HISTORY_SEC)
+        self.fast_fps_counter = FPSCounter(Settings.MAX_FRAME_HISTORY_SEC)
 
         # the size of the global screen, containing other viewports
         self.screen_width = 0
@@ -334,11 +359,6 @@ class Interface(AbstractInterface):
 
         # last view has focus for input handling
         self.views:List[View] = []
-
-        # list of frame render times
-        # keep a fixed number of them so we can calculate how many frames per
-        # (real-time) second we're rendering
-        self.frame_history:Deque[float] = collections.deque()
 
         self.show_fps = True
 
@@ -412,15 +432,6 @@ class Interface(AbstractInterface):
     def increase_fps(self) -> bool:
         self.max_fps = self.desired_fps
         return True
-
-    def update_fps(self) -> float:
-        start_time = time.perf_counter()
-        while len(self.frame_history) > 0 and start_time - self.frame_history[0] > Settings.MAX_FRAME_HISTORY_SEC:
-            self.frame_history.popleft()
-
-        new_fps = len(self.frame_history) / Settings.MAX_FRAME_HISTORY_SEC
-        self.current_fps = new_fps
-        return self.current_fps
 
     def choose_viewport_sizes(self) -> None:
         """ Chooses viewport sizes and locations for viewscreen and the log."""
@@ -607,7 +618,7 @@ class Interface(AbstractInterface):
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms) {self.current_fps:>2.0f}fps')
+            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
         if self.gamestate.paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")
@@ -615,10 +626,20 @@ class Interface(AbstractInterface):
         self.diagnostics_message(" ".join(diagnostics), attr)
 
     def show_date(self) -> None:
-        date_string = self.gamestate.current_time().strftime("%c")
-        date_string = " "+date_string+" "
-        if not util.isclose(self.gamestate.time_accel_rate, 1.0):
-            date_string += f'({self.gamestate.time_accel_rate:.2f}) '
+        date_string = ' '
+        date_string += self.gamestate.current_time().strftime("%c")
+        time_accel_rate, fast_mode = self.gamestate.get_time_acceleration()
+        if not util.isclose(time_accel_rate, 1.0) or fast_mode:
+            if fast_mode:
+                date_string += f' ( fast)'
+            else:
+                date_string += f' ({time_accel_rate:>5.2f})'
+        else:
+            date_string += f' ( 1.00)'
+        date_string += ' '
+        # if the date_string changes length it might mess up the frame which is
+        # only drawn when the window is reinitialized
+        assert len(date_string) == 1+4+4+3+9+5+7+1
         self.stdscr.addstr(
                 self.viewscreen_y-1,
                 self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
@@ -643,24 +664,26 @@ class Interface(AbstractInterface):
         self.views[-1].focus()
 
     def c_pause(self, args:Sequence[str]) -> None:
-        self.gamestate.time_accel_rate = 1.0
+        self.gamestate.time_acceleration(1.0, False)
         self.gamestate.paused = not self.gamestate.paused
 
     def c_time_accel(self, args:Sequence[str]) -> None:
-        new_accel_rate = self.gamestate.time_accel_rate * 1.25
+        old_accel_rate, _ = self.gamestate.get_time_acceleration()
+        new_accel_rate = old_accel_rate * 1.25
         if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
             new_accel_rate = 1.0
         if new_accel_rate >= Settings.MAX_TIME_ACCEL:
             new_accel_rate = Settings.MAX_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate)
+        self.gamestate.time_acceleration(new_accel_rate, False)
 
     def c_time_decel(self, args:Sequence[str]) -> None:
-        new_accel_rate = self.gamestate.time_accel_rate / 1.25
+        old_accel_rate, _ = self.gamestate.get_time_acceleration()
+        new_accel_rate = old_accel_rate / 1.25
         if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
             new_accel_rate = 1.0
         if new_accel_rate <= Settings.MIN_TIME_ACCEL:
             new_accel_rate = Settings.MIN_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate)
+        self.gamestate.time_acceleration(new_accel_rate, False)
 
     def command_list(self) -> Mapping[str, Callable[[Sequence[str]], None]]:
         def fps(args:Sequence[str]) -> None: self.show_fps = not self.show_fps
@@ -676,7 +699,8 @@ class Interface(AbstractInterface):
                 self.profiler.enable()
 
         def fast(args:Sequence[str]) -> None:
-            self.gamestate.time_acceleration(1.0, fast_mode=not self.gamestate.fast_mode)
+            _, fast_mode = self.gamestate.get_time_acceleration()
+            self.gamestate.time_acceleration(1.0, fast_mode=not fast_mode)
 
         def decrease_fps(args:Sequence[str]) -> None: self.decrease_fps()
         def increase_fps(args:Sequence[str]) -> None: self.increase_fps()
@@ -696,12 +720,13 @@ class Interface(AbstractInterface):
         }
 
     def tick(self, timeout:float, dt:float) -> None:
-        self.update_fps()
+        start_time = time.perf_counter()
+        self.fps_counter.update_fps(start_time)
         # only render a frame if there's enough time and it won't exceed the fps cap
-        if (timeout > self.min_ui_timeout and self.current_fps <= self.max_fps) or (self.current_fps < self.min_fps):
+        if (timeout > self.min_ui_timeout and self.fps_counter.fps < self.max_fps) or (self.fps_counter.fps < self.min_fps):
             # update the display (i.e. draw_universe_map, draw_sector_map, draw_pilot_map)
-            start_time = time.perf_counter()
-            self.frame_history.append(start_time)
+            self.fps_counter.add_frame(start_time)
+            self.fast_fps_counter.add_frame(start_time)
 
             if self.one_time_step:
                 self.gamestate.paused = True
@@ -718,7 +743,7 @@ class Interface(AbstractInterface):
             self.stdscr.noutrefresh()
 
             curses.doupdate()
-        else:
+        elif self.fast_fps_counter.fps < self.desired_fps:
             # only update a couple of fast things
             for view in self.views:
                 if view.active and view.fast_render:

@@ -20,7 +20,7 @@ TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
-class Simulator:
+class Simulator(core.AbstractGameRuntime):
     def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
@@ -69,6 +69,13 @@ class Simulator:
         self._colliders:Set[str] = set()
         self._last_colliders:Set[str] = set()
 
+        # some settings related to time acceleration
+        # how many seconds of simulation (as in dt) should elapse per second
+        self.time_accel_rate = 1.0
+        self.fast_mode = False
+        self.reference_realtime = 0.
+        self.reference_gametime = 0.
+
     def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
         # which ship(s) are colliding?
 
@@ -97,6 +104,7 @@ class Simulator:
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
+        self.gamestate.game_runtime = self
         for sector in self.gamestate.sectors.values():
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
 
@@ -240,15 +248,30 @@ class Simulator:
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
+    def get_time_acceleration(self) -> Tuple[float, bool]:
+        return self.time_accel_rate, self.fast_mode
+
+    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
+        real_span, game_span, rel_drift, expected_rel_drift = self.compute_timedrift()
+        self.logger.debug(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
+        self.reference_realtime = time.perf_counter()
+        self.reference_gametime = self.gamestate.timestamp
+        self.time_accel_rate = accel_rate
+        self.fast_mode = fast_mode
+
+    def compute_timedrift(self) -> Tuple[float, float, float, float]:
+        now = time.perf_counter()
+        real_span = now - self.reference_realtime
+        game_span = self.gamestate.timestamp - self.reference_gametime
+        if real_span > 0.:
+            rel_drift = game_span/real_span
+        else:
+            rel_drift = 0.
+
+        return real_span, game_span, rel_drift, self.time_accel_rate if not self.fast_mode else rel_drift
+
+
     def _handle_synchronization(self, now:float, next_tick:float) -> None:
-
-        # if we change time acceleration, we should re-synchronize our reference times
-        if self.gamestate.time_accel_changed:
-            self.logger.debug(f'timedrift: {now - self.gamestate.reference_realtime} vs {self.gamestate.timestamp - self.gamestate.reference_gametime}')
-            self.gamestate.reference_realtime = now
-            self.gamestate.reference_gametime = self.gamestate.timestamp
-            self.gamestate.time_accel_changed = False
-
         if next_tick - now > self.gamestate.min_tick_sleep:
             if self.dt > self.desired_dt:
                 self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
@@ -281,8 +304,8 @@ class Simulator:
 
     def run(self) -> None:
 
-        self.gamestate.reference_realtime = time.perf_counter()
-        self.gamestate.reference_gametime = self.gamestate.timestamp
+        self.reference_realtime = time.perf_counter()
+        self.reference_gametime = self.gamestate.timestamp
 
         next_tick = time.perf_counter()+self.dt
 
@@ -300,10 +323,10 @@ class Simulator:
             now = time.perf_counter()
 
             last_tick = next_tick
-            if self.gamestate.fast_mode:
+            if self.fast_mode:
                 next_tick = now
             else:
-                next_tick = next_tick + self.dt / self.gamestate.time_accel_rate
+                next_tick = next_tick + self.dt / self.time_accel_rate
 
             timeout = next_tick - now
             if not self.gamestate.paused:
@@ -366,12 +389,13 @@ def main() -> None:
         data_logger.begin_simulation()
         sim.run()
 
-
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')
 
         logging.info(f'ticks:\t{gamestate.ticks}')
         logging.info(f'timestamp:\t{gamestate.timestamp}')
+        real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()
+        logging.info(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
 
         logging.info("done.")
 
