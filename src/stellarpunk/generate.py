@@ -10,12 +10,35 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
 import cymunk # type: ignore
+from rtree import index # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ
 
 #TODO: names: sectors, planets, stations, ships, characters, raw materials,
 #   intermediate products, final products, consumer products, station products,
 #   ship products
+
+class Settings:
+    # radius of the universe in meters
+    # Earth's moon equatorial radius is 1.7e6
+    # Earth's moon has ap of 4.05e8
+    # Callisto, Jupiter's farthest moon has ap of 1.9e9
+    # Inner asteroid rings have radius of 3.08e11 to 7.33e11 (to Jupiter)
+    UNIVERSE_RADIUS = 3.5e8
+    # mean and std of sector radius in meters
+    SECTOR_RADIUS_MEAN = 5e5
+    SECTOR_RADIUS_STD = 1e5
+    # max distance between sectors to guarantee a gate connection
+    MAX_SECTOR_EDGE_LENGTH = 1e5*15
+
+    # how many total sectors
+    NUM_SECTORS = 49
+    # how many inhabited sectors
+    NUM_HABITABLE_SECTORS = 15
+    # how many resources available (initially) in habitable sectors
+    MEAN_HABITABLE_RESOURCES = 1e9
+    # how many resources available in uninhabited sectors
+    MEAN_UNINHABITABLE_RESOURCES = 1e7
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -871,13 +894,14 @@ class UniverseGenerator:
         return chain
 
     def generate_sectors(self,
-            width:int=7, height:int=7,
-            sector_radius:float=5e5,
-            sector_radius_std:float=1e5,
-            sector_edge_length:float=1e5*15,
-            n_habitable_sectors:int=15,
-            mean_habitable_resources:float=1e9,
-            mean_uninhabitable_resources:float=1e7) -> None:
+            universe_radius:float,
+            num_sectors:int,
+            sector_radius:float,
+            sector_radius_std:float,
+            max_sector_edge_length:float,
+            n_habitable_sectors:int,
+            mean_habitable_resources:float,
+            mean_uninhabitable_resources:float) -> None:
         # set up pre-expansion sectors, resources
 
         # compute the raw resource needs for each product sink
@@ -890,28 +914,54 @@ class UniverseGenerator:
         self.logger.info(f'raw needs {raw_needs}')
 
         # generate locations for all sectors
-        #TODO: sectors should not collide (related to radius of each)
-        num_sectors = width*height
-        sector_coords = self.r.uniform(-sector_radius*width*1e1, sector_radius*height*1e1, (num_sectors, 2))
+        sector_coords = self.r.uniform(-universe_radius, universe_radius, (num_sectors, 2))
+        sector_k = sector_radius**2/sector_radius_std**2
+        sector_theta = sector_radius_std**2/sector_radius
+        sector_radii = self.r.gamma(sector_k, sector_theta, num_sectors)
+
+        sector_loc_index = index.Index()
+        # clean up any overlapping sectors
+        for idx, (coords, radius) in enumerate(zip(sector_coords, sector_radii)):
+            reject = True
+            while reject:
+                reject = False
+                for hit in sector_loc_index.intersection((coords[0]-radius, coords[1]-radius, coords[0]+radius, coords[1]+radius), True):
+                    other_coords, other_radius = hit.object
+                    if util.distance(coords, other_coords) < radius + other_radius:
+                        reject = True
+                        break
+                if reject:
+                    coords = self.r.uniform(-universe_radius, universe_radius, 2)
+                    radius = self.r.gamma(sector_k, sector_theta)
+            sector_coords[idx] = coords
+            sector_radii[idx] = radius
+            sector_loc_index.insert(
+                    idx,
+                    (
+                        coords[0]-radius, coords[1]-radius,
+                        coords[0]+radius, coords[1]+radius
+                    ),
+                    (coords, radius)
+            )
+
         sector_ids = np.array([uuid.uuid4() for _ in range(len(sector_coords))])
         habitable_mask = np.zeros(len(sector_coords), bool)
         habitable_mask[self.r.choice(len(sector_coords), n_habitable_sectors, replace=False)] = 1
-
-        sector_k = sector_radius**2/sector_radius_std**2
-        sector_theta = sector_radius_std**2/sector_radius
 
         # choose habitable sectors
         # each of these will have more resources
         # implies a more robust and complete production chain
         # implies a bigger population
-        for idx, entity_id, (x,y) in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask]):
-            self.spawn_habitable_sector(x, y, entity_id, self.r.gamma(sector_k, sector_theta), idx[0])
+        for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
+            # mypy thinks idx is an int
+            self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
 
         # set up non-habitable sectors
-        for idx, entity_id, (x,y) in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask]):
-            sector = core.Sector(np.array([x, y]), self.r.gamma(sector_k, sector_theta), cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+        for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
+            sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
 
-            self.gamestate.add_sector(sector, idx[0])
+            # mypy thinks idx is an int
+            self.gamestate.add_sector(sector, idx[0]) # type: ignore
 
         # set up connectivity between sectors
         distances = distance.squareform(distance.pdist(sector_coords))
@@ -922,7 +972,7 @@ class UniverseGenerator:
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if source_id == dest_id:
                 continue
-            if util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc) < sector_edge_length:
+            if util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc) < max_sector_edge_length:
                 sector_edges[i,j] = 1
 
         self.gamestate.update_edges(sector_edges, sector_ids)
@@ -967,7 +1017,16 @@ class UniverseGenerator:
         self.gamestate.production_chain = production_chain
 
         # generate sectors
-        self.generate_sectors()
+        self.generate_sectors(
+            universe_radius=Settings.UNIVERSE_RADIUS,
+            num_sectors=Settings.NUM_SECTORS,
+            sector_radius=Settings.SECTOR_RADIUS_MEAN,
+            sector_radius_std=Settings.SECTOR_RADIUS_STD,
+            max_sector_edge_length=Settings.MAX_SECTOR_EDGE_LENGTH,
+            n_habitable_sectors=Settings.NUM_HABITABLE_SECTORS,
+            mean_habitable_resources=Settings.MEAN_HABITABLE_RESOURCES,
+            mean_uninhabitable_resources=Settings.MEAN_UNINHABITABLE_RESOURCES,
+        )
 
         # select a character for the player
         self.choose_player_character()
