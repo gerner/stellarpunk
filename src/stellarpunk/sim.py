@@ -13,14 +13,14 @@ import heapq
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders
+from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda
 from stellarpunk.interface import universe as universe_interface
 
 TICKS_PER_HIST_SAMPLE = 0#10
-ECONOMY_LOG_PERIOD_SEC = 2.0
+ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
-class Simulator:
+class Simulator(core.AbstractGameRuntime):
     def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
@@ -51,7 +51,6 @@ class Simulator:
         self.behind_message_throttle = 0.
 
         self.ticktime_alpha = 0.1
-        self.min_tick_sleep = self.desired_dt/5
 
         self.sleep_count = 0
 
@@ -69,6 +68,13 @@ class Simulator:
         self._collisions:List[Tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
         self._colliders:Set[str] = set()
         self._last_colliders:Set[str] = set()
+
+        # some settings related to time acceleration
+        # how many seconds of simulation (as in dt) should elapse per second
+        self.time_accel_rate = 1.0
+        self.fast_mode = False
+        self.reference_realtime = 0.
+        self.reference_gametime = 0.
 
     def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
         # which ship(s) are colliding?
@@ -98,61 +104,9 @@ class Simulator:
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
+        self.gamestate.game_runtime = self
         for sector in self.gamestate.sectors.values():
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
-
-    def produce_at_station(self, station:core.Station) -> None:
-        # waiting for production to finish case
-        if station.next_batch_time > 0:
-            # check if the batch is ready
-            if station.next_batch_time <= self.gamestate.timestamp:
-                # add the batch to cargo
-                amount = self.gamestate.production_chain.batch_sizes[station.resource]
-                station.cargo[station.resource] += amount
-                #TODO: record the production somehow
-                #self.gamestate.production_chain.goods_produced[station.resource] += amount
-                station.next_batch_time = 0.
-                station.next_production_time = 0.
-        # waiting for enough cargo to produce case
-        elif station.next_production_time <= self.gamestate.timestamp:
-            # check if we have enough resource to start a batch
-            resources_needed = self.gamestate.production_chain.adj_matrix[:,station.resource] * self.gamestate.production_chain.batch_sizes[station.resource]
-            if np.all(station.cargo >= resources_needed):
-                station.cargo -= resources_needed
-                # TODO: float vs floating type issues with numpy (arg!)
-                station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[station.resource] # type: ignore
-            else:
-                # wait a cooling off period to avoid needlesss expensive checks
-                station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
-
-    def tick_sector(self, sector:core.Sector, dt:float) -> None:
-
-        # do effects
-        effects_complete:Deque[core.Effect] = collections.deque()
-        for effect in sector.effects:
-            if effect.started_at < 0:
-                effect.begin_effect()
-
-            if effect.is_complete():
-                # defer completion/removal until other effects have a chance to act
-                effects_complete.append(effect)
-            else:
-                effect.act(dt)
-
-        # notify effect completion
-        for effect in effects_complete:
-            self.logger.debug(f'effect {effect} in {sector.short_id()} complete in {self.gamestate.timestamp - effect.started_at:.2f}')
-            effect.complete_effect()
-            sector.effects.remove(effect)
-            self.ui.effect_complete(effect)
-
-        # produce goods
-        # every batch_time seconds we produce one batch of resource from inputs
-        # reset production timer
-        # if production timer is off, start producting a batch if we have it,
-        # setting production timer
-        for station in sector.stations:
-            self.produce_at_station(station)
 
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
@@ -220,14 +174,13 @@ class Simulator:
 
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
+        # process effects
+        for effect in self.gamestate.pop_current_effects():
+            effect.act(dt)
+
         # let characters act on their (scheduled) agenda items
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
-
-        # at this point all AI decisions have happened everywhere
-        # update sector state after all ships across universe take action
-        for sector in self.gamestate.sectors.values():
-            self.tick_sector(sector, dt)
 
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
@@ -266,25 +219,67 @@ class Simulator:
                             if order.cannot_avoid_collision_hold:
                                 total_orders_with_cac += 1
 
+            total_agenda = 0
+            total_mining_agenda = 0
+            total_idle_mining_agenda = 0
+            total_trading_agenda = 0
+            total_idle_trading_agenda = 0
+            total_snob_trading_agenda = 0
+            total_snos_trading_agenda = 0
+            for character in self.gamestate.characters.values():
+                for agendum in character.agenda:
+                    total_agenda += 1
+                    if isinstance(agendum, agenda.MiningAgendum):
+                        total_mining_agenda += 1
+                        if agendum.state == agenda.MiningAgendum.State.IDLE:
+                            total_idle_mining_agenda += 1
+                    elif isinstance(agendum, agenda.TradingAgendum):
+                        total_trading_agenda += 1
+                        if agendum.state == agenda.TradingAgendum.State.IDLE:
+                            total_idle_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_BUYS:
+                            total_snob_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_SALES:
+                            total_snos_trading_agenda += 1
+
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
+            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda} snob: {total_snob_trading_agenda} snos: {total_snos_trading_agenda}')
+            self.gamestate.log_econ()
+
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
-    def run(self) -> None:
+    def get_time_acceleration(self) -> Tuple[float, bool]:
+        return self.time_accel_rate, self.fast_mode
 
-        next_tick = time.perf_counter()+self.dt
+    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
+        real_span, game_span, rel_drift, expected_rel_drift = self.compute_timedrift()
+        self.logger.debug(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
+        self.reference_realtime = time.perf_counter()
+        self.reference_gametime = self.gamestate.timestamp
+        self.time_accel_rate = accel_rate
+        self.fast_mode = fast_mode
 
-        while self.gamestate.keep_running:
-            if self.gamestate.should_raise:
-                raise Exception()
-            now = time.perf_counter()
+    def compute_timedrift(self) -> Tuple[float, float, float, float]:
+        now = time.perf_counter()
+        real_span = now - self.reference_realtime
+        game_span = self.gamestate.timestamp - self.reference_gametime
+        if real_span > 0.:
+            rel_drift = game_span/real_span
+        else:
+            rel_drift = 0.
 
-            if next_tick - now > self.min_tick_sleep:
-                if self.dt > self.desired_dt:
-                    self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
-                    self.logger.debug(f'dt: {self.dt}')
-                time.sleep(next_tick - now)
-                self.sleep_count += 1
-            #TODO: what to do if we miss a tick (or a lot)
+        return real_span, game_span, rel_drift, self.time_accel_rate if not self.fast_mode else rel_drift
+
+
+    def _handle_synchronization(self, now:float, next_tick:float) -> None:
+        if next_tick - now > self.gamestate.min_tick_sleep:
+            if self.dt > self.desired_dt:
+                self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
+                self.logger.debug(f'dt: {self.dt}')
+            time.sleep(next_tick - now)
+            self.sleep_count += 1
+        else:
+            # what to do if we miss a tick (or a lot)
             # seems like we should run a tick with a longer dt to make up for
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
@@ -294,25 +289,44 @@ class Simulator:
                 self.gamestate.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
-                    self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
+                    if not self.ui.decrease_fps():
+                        self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
                 self.behind_ticks = behind
                 self.behind_length += 1
                 self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
-                if self.behind_ticks > 0:
+                if self.behind_length > self.behind_dt_scale_thresthold:
+                    self.ui.increase_fps()
                     self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
 
                 self.behind_ticks = 0
                 self.behind_length = 0
 
+    def run(self) -> None:
+
+        self.reference_realtime = time.perf_counter()
+        self.reference_gametime = self.gamestate.timestamp
+
+        next_tick = time.perf_counter()+self.dt
+
+        while self.gamestate.keep_running:
+            if self.gamestate.should_raise:
+                raise Exception()
+            now = time.perf_counter()
+
+            self._handle_synchronization(now, next_tick)
+
             starttime = time.perf_counter()
             if not self.gamestate.paused:
                 self.tick(self.dt)
 
-            last_tick = next_tick
-            next_tick = next_tick + self.dt / self.gamestate.time_accel_rate
-
             now = time.perf_counter()
+
+            last_tick = next_tick
+            if self.fast_mode:
+                next_tick = now
+            else:
+                next_tick = next_tick + self.dt / self.time_accel_rate
 
             timeout = next_tick - now
             if not self.gamestate.paused:
@@ -322,7 +336,7 @@ class Simulator:
 
             now = time.perf_counter()
             ticktime = now - starttime
-            self.gamestate.ticktime = self.ticktime_alpha * ticktime + (1-self.ticktime_alpha) * self.gamestate.ticktime
+            self.gamestate.ticktime = util.update_ema(self.gamestate.ticktime, self.ticktime_alpha, ticktime)
 
 def main() -> None:
     with contextlib.ExitStack() as context_stack:
@@ -343,6 +357,9 @@ def main() -> None:
 
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
+
+        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=gamestate))
+        gamestate.econ_logger = data_logger
 
         logging.info("generating universe...")
         generator = generate.UniverseGenerator(gamestate)
@@ -369,12 +386,16 @@ def main() -> None:
         # tick and it's better if they stay in the youngest generation
         #TODO: should we just disable a gc while we're doing a tick?
         gc.set_threshold(700*4, 10*4, 10*4)
+        data_logger.begin_simulation()
         sim.run()
 
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')
 
         logging.info(f'ticks:\t{gamestate.ticks}')
+        logging.info(f'timestamp:\t{gamestate.timestamp}')
+        real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()
+        logging.info(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
 
         logging.info("done.")
 

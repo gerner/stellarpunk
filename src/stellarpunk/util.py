@@ -148,14 +148,69 @@ def interpolate(x1:float, y1:float, x2:float, y2:float, x:float) -> float:
     b = y1 - m * x1
     return m * x + b
 
+def point_inside_rect(p:Tuple[float, float], rect:Tuple[float, float, float, float]) -> bool:
+    return rect[0] < p[0] and p[0] < rect[2] and rect[1] < p[1] and p[1] < rect[3]
+
 def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> bool:
-    """ returns true iff a and b overlap. """
+    """ returns true iff rect a and rect b overlap. """
 
     # separating axis theorem: if the rectangles do not intersect then a right
     # side will be left of a left side or a top side will be below a bottom
     # side.
 
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
+
+def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tuple[float, float, float, float]) -> Optional[Tuple[float, float, float, float]]:
+    """ returns the subsegment that overlaps rect or None if no overlap. """
+    # left and right sides
+    l = segments_intersect(segment, (rect[0], rect[1], rect[0], rect[3]))
+    r = segments_intersect(segment, (rect[2], rect[1], rect[2], rect[3]))
+    # top and bottom sides
+    t = segments_intersect(segment, (rect[0], rect[1], rect[2], rect[1]))
+    b = segments_intersect(segment, (rect[0], rect[3], rect[2], rect[3]))
+
+    subsegment = tuple(x for x in [l,r,t,b] if x is not None)
+    assert len(subsegment) <= 2
+    if len(subsegment) == 2:
+        return tuple(x for p in subsegment for x in p)
+    elif len(subsegment) == 1:
+        if rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
+            return (subsegment[0][0], subsegment[0][1], segment[0], segment[1])
+        else:
+            # the other point better be in the rect
+            assert rect[0] < segment[2] and segment[2] < rect[2] and rect[1] < segment[3] and segment[3] < rect[3]
+            return (subsegment[0][0], subsegment[0][1], segment[2], segment[3])
+    elif rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
+        return segment
+    else:
+        return None
+
+def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple(float, float)]:
+    """ returns true iff segments a and b intersect. """
+    # inspired by https://stackoverflow.com/a/565282/553580
+    # if the segments are represented as p+r and q+s
+    # compute the intersection point between the two segments: p+t*r == q+u*s
+
+    p = a[0:2]
+    r = (a[2] - a[0], a[3]-a[1])
+    q = b[0:2]
+    s = (b[2] - b[0], b[3]-b[1])
+
+    # r X s
+    r_cross_s = r[0]*s[1] - s[0]*r[1]
+
+    # check for non parallel
+    if r_cross_s != 0.:
+        #t = (q − p) × s / r_cross_s
+        #u = (q − p) × r / r_cross_s
+        qmp = (q[0]-p[0], q[1] - p[1])
+        t = (qmp[0] * s[1] - qmp[1] * s[0]) / r_cross_s
+        u = (qmp[0] * r[1] - qmp[1] * r[0]) / r_cross_s
+        if t >= 0 and t <= 1 and u >= 0 and u <= 1:
+            return (p[0]+t*r[0], p[1]+t*r[1])
+        else: return None
+    # we count colinear as non intersecting
+    return None
 
 @jit(cache=True, nopython=True, fastmath=True)
 def enclosing_circle(c1:npt.NDArray[np.float64], r1:float, c2:npt.NDArray[np.float64], r2:float) -> Tuple[npt.NDArray[np.float64], float]:
@@ -527,7 +582,6 @@ class NiceScale:
         else:
             self.niceMin = math.floor(self.minPoint / self.tickSpacing) * self.tickSpacing
             self.niceMax = math.ceil(self.maxPoint / self.tickSpacing) * self.tickSpacing
-
 
     def niceNum(self, lst:float, rround:bool) -> float:
         self.lst = lst

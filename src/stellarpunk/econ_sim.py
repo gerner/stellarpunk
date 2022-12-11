@@ -9,7 +9,7 @@ import logging
 import contextlib
 import warnings
 import typing
-from typing import TextIO, BinaryIO, IO, Optional, Tuple, MutableSequence, Sequence, Type, Any, Iterator
+from typing import TextIO, BinaryIO, IO, Optional, Tuple, MutableSequence, Sequence, Type, Any, Iterator, Union
 from types import TracebackType
 
 import numpy as np
@@ -46,13 +46,13 @@ EMA_TICKS = 365 #365, as if every tick is a day and we're getting 1 year
 # how does surplus change over time? (total and spread, say IQR or stdev)
 # how many goods are produced? (total and which are outliers)
 
-class EconomyDataLogger(contextlib.AbstractContextManager):
+class EconomyDataLogger(contextlib.AbstractContextManager, core.AbstractEconDataLogger):
     """ Logs data on the economy over time.
 
     Has a listener model for interesting events. Logs a lot of state when
     approriate event happens in the economy and the tick for that state.. """
 
-    def __init__(self, enabled:bool=True, logdir:str="/tmp/", buffersize:int=4*1024, flush_interval:int=1000) -> None:
+    def __init__(self, enabled:bool=True, logdir:str="/tmp/", buffersize:int=4*1024, flush_interval:int=1000, line_buffering:bool=False, gamestate:Optional[core.Gamestate]=None) -> None:
         """ Creates an object that facilitates logging the lifecycle of the
         economic simulation.
 
@@ -72,6 +72,7 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         self.enabled = enabled
         self.logdir = logdir
         self.buffersize = buffersize
+        self.line_buffering = line_buffering
         self.flush_interval = flush_interval
 
         self.transaction_log:TextIO = None #type:ignore[assignment]
@@ -89,9 +90,11 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         self.files:MutableSequence[IO] = []
         self.exit_stack:contextlib.ExitStack = contextlib.ExitStack()
         self.sim:EconomySimulation = None #type: ignore[assignment]
+        self.gamestate:core.Gamestate = gamestate #type: ignore[assignment]
 
     def _open_txt_log(self, name:str) -> TextIO:
-        f = self.exit_stack.enter_context(open(os.path.join(self.logdir, f'{name}.log'), "wt", self.buffersize))
+        buffering = 1 if self.line_buffering else self.buffersize
+        f = self.exit_stack.enter_context(open(os.path.join(self.logdir, f'{name}.log'), "wt", buffering))
         self.files.append(f)
         return f
 
@@ -123,6 +126,29 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
         self.exit_stack.close()
         return None
 
+    def log_econ(self,
+            ticks:float,
+            inventory:npt.NDArray[np.float64],
+            balance:npt.NDArray[np.float64],
+            buy_prices:npt.NDArray[np.float64],
+            buy_budget:npt.NDArray[np.float64],
+            sell_prices:npt.NDArray[np.float64],
+            max_buy_prices:npt.NDArray[np.float64],
+            min_sell_prices:npt.NDArray[np.float64],
+            cannot_buy_ticks:npt.NDArray[np.int64],
+            cannot_sell_ticks:npt.NDArray[np.int64],
+    ) -> None:
+        if self.enabled:
+            self.inventory_log.write(ticks, inventory)
+            self.balance_log.write(ticks, balance)
+            self.buy_prices_log.write(ticks, buy_prices)
+            self.buy_budget_log.write(ticks, buy_budget)
+            self.sell_prices_log.write(ticks, sell_prices)
+            self.max_buy_prices_log.write(ticks, max_buy_prices)
+            self.min_sell_prices_log.write(ticks, min_sell_prices)
+            self.cannot_buy_log.write(ticks, cannot_buy_ticks)
+            self.cannot_sell_log.write(ticks, cannot_sell_ticks)
+
     def flush(self) -> None:
         """ Flushes output buffers. """
         for f in self.files:
@@ -130,15 +156,16 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
 
     def initialize(self, sim:EconomySimulation) -> None:
         self.sim = sim
+        self.gamestate = sim.gamestate
         if self.enabled:
             with open(os.path.join(self.logdir, "agent_goods.log"), "wb") as agent_goods_log:
                 agent_goods_log.write(msgpack.packb(self.sim.agent_goods, default=serialization.encode_matrix))
             self.sim.gamestate.production_chain.viz().render(os.path.join(self.logdir, "production_chain"), format="pdf")
 
-    def end_simulation(self) -> None:
+    def begin_simulation(self) -> None:
         if self.enabled:
             with open(os.path.join(self.logdir, "production_chain.log"), "wb") as production_chain_log:
-                production_chain_log.write(serialization.save_production_chain(self.sim.gamestate.production_chain))
+                production_chain_log.write(serialization.save_production_chain(self.gamestate.production_chain))
 
     def produce_goods(self, goods_produced:npt.NDArray[np.float64]) -> None:
         #TODO: we've disabled production efficiency logging since it takes too
@@ -155,9 +182,11 @@ class EconomyDataLogger(contextlib.AbstractContextManager):
                 )
             )
 
-    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float) -> None:
+    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float, ticks:Optional[Union[int,float]]=None) -> None:
         if self.enabled:
-            self.transaction_log.write(f'{self.sim.ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
+            if ticks is None:
+                ticks = self.sim.ticks
+            self.transaction_log.write(f'{ticks}\t{product_id}\t{buyer}\t{seller}\t{price}\t{sale_amount}\n')
 
     def source_resources(self, price:npt.NDArray[np.float64], amount:npt.NDArray[np.float64]) -> None:
         if self.enabled:
@@ -1328,6 +1357,7 @@ def main() -> None:
 
         econ = EconomySimulation(data_logger)
         econ.initialize(num_agents=300)
+        data_logger.begin_simulation()
 
         # warm up anything (helps if we're profiling)
         econ.run(max_ticks=1)
@@ -1337,7 +1367,6 @@ def main() -> None:
 
         econ.log_report()
 
-        data_logger.end_simulation()
 
 if __name__ == "__main__":
     main()

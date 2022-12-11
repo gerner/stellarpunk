@@ -154,3 +154,4 @@ cython_debug/
 # other project specific stuff
 production_chain
 production_chain.pdf
+.vimrc

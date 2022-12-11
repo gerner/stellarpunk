@@ -28,7 +28,7 @@ class Presenter:
 
     def draw_effect(self, effect:core.Effect) -> None:
         """ Draws an effect (if visible) on the map. """
-        for effect in self.sector.effects:
+        for effect in self.sector._effects:
             if isinstance(effect, effects.MiningEffect):
                 if not isinstance(effect.source, core.Asteroid):
                     raise Exception("expected mining effect source to be an asteroid")
@@ -220,7 +220,7 @@ class Presenter:
         last_loc = None
         occupied:Dict[Tuple[int,int], List[core.SectorEntity]] = {}
 
-        for effect in self.sector.effects:
+        for effect in self.sector._effects:
             if util.intersects(effect.bbox(), self.bbox):
                 self.draw_effect(effect)
 

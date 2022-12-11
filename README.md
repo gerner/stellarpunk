@@ -80,13 +80,13 @@ accumulate power.
 
 - [x] price setting strategy that facilitates full production chain
 - [ ] agents deciding to exit a market and enter a new one
-- [ ] optimize price setting to maximize profit
-- [ ] figuring out roughly correct scales for number of each producer
+- [x] optimize price setting to maximize profit
+- [x] figuring out roughly correct scales for number of each producer
 - [ ] adding/removing agents
 
 ## Character Dynamics
 
-- [ ] character framework hooked into each ships, stations, etc.
+- [x] character framework hooked into each ships, stations, etc.
 - [ ] basic character relationship framework
 - [ ] basic/short-term missions and employment
 - [ ] long-term subordinate/employment system, including independent balance and depdendent budget

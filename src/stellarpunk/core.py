@@ -24,6 +24,10 @@ from rtree import index # type: ignore
 
 from stellarpunk import util, task_schedule
 
+RESOURCE_REL_SHIP = 0
+RESOURCE_REL_STATION = 1
+RESOURCE_REL_CONSUMER = 2
+
 class ProductionChain:
     """ A production chain of resources/products interconnected in a DAG.
 
@@ -61,7 +65,7 @@ class ProductionChain:
         return np.arange(self.ranks[0], self.ranks[1]+self.ranks[0])
 
     def final_product_ids(self) -> npt.NDArray[np.int64]:
-        return np.arange(self.adj_matrix.shape[0]-self.ranks[-1], self.num_products)
+        return np.arange(self.num_products-self.ranks[-1], self.num_products)
 
     def viz(self) -> graphviz.Graph:
         g = graphviz.Digraph("production_chain", graph_attr={"rankdir": "TB"})
@@ -135,7 +139,7 @@ class Sector(Entity):
         # we do rely on this to provide a spatial index of the sector
         self.space:cymunk.Space = space
 
-        self.effects: Deque[Effect] = collections.deque()
+        self._effects: Deque[Effect] = collections.deque()
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
@@ -150,6 +154,13 @@ class Sector(Entity):
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
+
+    def add_effect(self, effect:Effect) -> None:
+        self._effects.append(effect)
+        effect.begin_effect()
+
+    def remove_effect(self, effect:Effect) -> None:
+        self._effects.remove(effect)
 
     def add_entity(self, entity:SectorEntity) -> None:
         #TODO: worry about collisions at location?
@@ -423,6 +434,13 @@ class Ship(SectorEntity, Asset):
         return self.default_order_fn(self, gamestate)
 
     def prepend_order(self, order:Order, begin:bool=True) -> None:
+
+        co = self.current_order()
+        if co is not None:
+            #TODO: should we do anything else to suspend the current order?
+            if co.gamestate.is_order_scheduled(co):
+                co.gamestate.unschedule_order(co)
+
         self._orders.appendleft(order)
         if begin:
             order.begin_order()
@@ -494,8 +512,18 @@ class Agendum:
 
         logging.getLogger(util.fullname(self))
 
-    def start(self) -> None:
+    def _start(self) -> None:
         pass
+
+    def _stop(self) -> None:
+        pass
+
+    def start(self) -> None:
+        self._start()
+
+    def stop(self) -> None:
+        self._stop()
+        self.gamestate.unschedule_agendum(self)
 
     def is_complete(self) -> bool:
         return False
@@ -596,12 +624,17 @@ class Effect(abc.ABC):
         self.completed_at = self.gamestate.timestamp
         self._complete()
 
+        self.logger.debug(f'effect {self} in {self.sector.short_id()} complete in {self.gamestate.timestamp - self.started_at:.2f}')
+
         for observer in self.observers:
             observer.effect_complete(self)
 
+        self.sector.remove_effect(self)
+
     def cancel_effect(self) -> None:
+        self.gamestate.unschedule_effect(self)
         try:
-            self.sector.effects.remove(self)
+            self.sector.remove_effect(self)
         except ValueError:
             # effect might already have been removed from the queue
             pass
@@ -612,7 +645,9 @@ class Effect(abc.ABC):
             observer.effect_cancel(self)
 
     def act(self, dt:float) -> None:
-        pass
+        # by default we'll just complete the effect if it's done
+        if self.is_complete():
+            self.complete_effect()
 
 class OrderLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, ship:Ship, *args:Any, **kwargs:Any):
@@ -706,6 +741,7 @@ class Order:
         """ Called when an order is removed from the order queue, but not
         because it's complete. Note the order _might_ be complete in this case.
         """
+        self.gamestate.unschedule_order(self)
         for order in self.child_orders:
             order.cancel_order()
             try:
@@ -746,6 +782,20 @@ class PrioritizedItem(Generic[T]):
         return self.priority < other.priority
 
 class EconAgent(abc.ABC):
+    _next_id = 0
+
+    @classmethod
+    def num_agents(cls) -> int:
+        return EconAgent._next_id
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.agent_id = EconAgent._next_id
+        EconAgent._next_id += 1
+
+    @abc.abstractmethod
+    def get_owner(self) -> Character: ...
+
     @abc.abstractmethod
     def buy_resources(self) -> Collection: ...
 
@@ -772,6 +822,38 @@ class EconAgent(abc.ABC):
 
     @abc.abstractmethod
     def sell(self, resource:int, price:float, amount:float) -> None: ...
+
+class AbstractEconDataLogger:
+    def transact(self, diff:float, product_id:int, buyer:int, seller:int, price:float, sale_amount:float, ticks:Optional[Union[int,float]]) -> None:
+        pass
+
+    def log_econ(self,
+            ticks:float,
+            inventory:npt.NDArray[np.float64],
+            balance:npt.NDArray[np.float64],
+            buy_prices:npt.NDArray[np.float64],
+            buy_budget:npt.NDArray[np.float64],
+            sell_prices:npt.NDArray[np.float64],
+            max_buy_prices:npt.NDArray[np.float64],
+            min_sell_prices:npt.NDArray[np.float64],
+            cannot_buy_ticks:npt.NDArray[np.int64],
+            cannot_sell_ticks:npt.NDArray[np.int64],
+    ) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+class AbstractGameRuntime:
+    """ The game runtime that actually runs the simulation. """
+
+    def get_time_acceleration(self) -> Tuple[float, bool]:
+        """ Get time acceleration parameters. """
+        return (1.0, False)
+
+    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
+        """ Request time acceleration. """
+        pass
 
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
@@ -808,6 +890,8 @@ class Counters(enum.IntEnum):
 class Gamestate:
     def __init__(self) -> None:
 
+        self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
+
         self.random = np.random.default_rng()
 
         # the production chain of resources (ingredients
@@ -828,12 +912,17 @@ class Gamestate:
         # collection of EconAgents, by uuid of the entity they represent
         self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
 
+        self.econ_logger:AbstractEconDataLogger = AbstractEconDataLogger()
+
         self.characters:Dict[uuid.UUID, Character] = {}
 
-        # heap of order items in form (scheduled timestamp, agendum)
+        # priority queue of order items in form (scheduled timestamp, agendum)
         self._order_schedule:task_schedule.TaskSchedule[Order] = task_schedule.TaskSchedule()
 
-        # heap of agenda items in form (scheduled timestamp, agendum)
+        # priority queue of effects
+        self._effect_schedule:task_schedule.TaskSchedule[Effect] = task_schedule.TaskSchedule()
+
+        # priority queue of agenda items in form (scheduled timestamp, agendum)
         self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
         #self.scheduled_agenda:Set[Agendum] = set()
 
@@ -845,8 +934,7 @@ class Gamestate:
         self.timestamp = 0.
 
         self.desired_dt = 1/30
-        # how many seconds of simulation (as in dt) should elapse per second
-        self.time_accel_rate = 1.0
+        self.min_tick_sleep = self.desired_dt/5
         self.ticks = 0
         self.ticktime = 0.
         self.timeout = 0.
@@ -860,8 +948,17 @@ class Gamestate:
 
         self.counters = [0.] * len(Counters)
 
+    def get_time_acceleration(self) -> Tuple[float, bool]:
+        return self.game_runtime.get_time_acceleration()
+
+    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
+        self.game_runtime.time_acceleration(accel_rate, fast_mode)
+
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
+
+    def withdraw_agent(self, entity_id:uuid.UUID) -> EconAgent:
+        return self.econ_agents.pop(entity_id)
 
     def add_character(self, character:Character) -> None:
         self.characters[character.entity_id] = character
@@ -889,8 +986,29 @@ class Gamestate:
         self._order_schedule.push_task(timestamp, order)
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
+    def unschedule_order(self, order:Order) -> None:
+        self._order_schedule.cancel_task(order)
+
     def pop_current_orders(self) -> Sequence[Order]:
         return self._order_schedule.pop_current_tasks(self.timestamp)
+
+    def schedule_effect_immediate(self, effect:Effect, jitter:float=0.) -> None:
+        self.schedule_effect(self.timestamp + self.desired_dt, effect, jitter)
+
+    def schedule_effect(self, timestamp: float, effect:Effect, jitter:float=0.) -> None:
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
+        self._effect_schedule.push_task(timestamp, effect)
+
+    def unschedule_effect(self, effect:Effect) -> None:
+        self._effect_schedule.cancel_task(effect)
+
+    def pop_current_effects(self) -> Sequence[Effect]:
+        return self._effect_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)
@@ -904,8 +1022,65 @@ class Gamestate:
 
         self._agenda_schedule.push_task(timestamp, agendum)
 
+    def unschedule_agendum(self, agendum:Agendum) -> None:
+        self._agenda_schedule.cancel_task(agendum)
+
     def pop_current_agenda(self) -> Sequence[Agendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
+
+    def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
+        seller.sell(product_id, price, amount)
+        buyer.buy(product_id, price, amount)
+        self.econ_logger.transact(0., product_id, buyer.agent_id, seller.agent_id, price, amount, ticks=self.timestamp)
+
+    def _construct_econ_state(self) -> Tuple[
+            npt.NDArray[np.float64], # inventory
+            npt.NDArray[np.float64], # balance
+            npt.NDArray[np.float64], # buy_prices
+            npt.NDArray[np.float64], # buy_budget
+            npt.NDArray[np.float64], # sell_prices
+            npt.NDArray[np.float64], # max_buy_prices
+            npt.NDArray[np.float64], # min_sell_prices
+            npt.NDArray[np.int64], # cannot_buy_ticks
+            npt.NDArray[np.int64], # cannot_sell_ticks
+    ]:
+
+        #TODO: given how logging works, this assumes we never lose or gain
+        # agents so they always have a consistent id and ordering
+        num_agents = EconAgent.num_agents()
+        num_products = self.production_chain.num_products
+
+        inventory = np.zeros((num_agents, num_products))
+        balance = np.zeros((num_agents, ))
+        buy_prices = np.zeros((num_agents, num_products))
+        buy_budget = np.zeros((num_agents, num_products))
+        sell_prices = np.zeros((num_agents, num_products))
+
+        for agent in self.econ_agents.values():
+            i = agent.agent_id
+            balance[i] = agent.balance()
+            for j in range(num_products):
+                inventory[i,j] = agent.inventory(j)
+                buy_prices[i,j] = agent.buy_price(j)
+                buy_budget[i,j] = agent.budget(j)
+                sell_prices[i,j] = agent.sell_price(j)
+
+        return (
+            inventory,
+            balance,
+            buy_prices,
+            buy_budget,
+            sell_prices,
+            buy_prices,
+            sell_prices,
+            np.zeros((num_agents, num_products), dtype=np.int64),
+            np.zeros((num_agents, num_products), dtype=np.int64),
+        )
+
+
+    def log_econ(self) -> None:
+        self.econ_logger.log_econ(self.timestamp, *self._construct_econ_state())
+        self.econ_logger.flush()
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector

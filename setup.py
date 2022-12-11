@@ -32,7 +32,7 @@ extensions = cythonize(
 
 setuptools.setup(
     name="stellarpunk",
-    version="0.0.1-pre.1",
+    version="0.0.1rc1",
     author="Nick Gerner",
     author_email="nick.gerner@gmail.com",
     description="Stellar Punk: A space sim of exploration, trading, stealth naval combat and interplanetary economic development.",

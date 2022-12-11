@@ -4,11 +4,13 @@ import cymunk # type: ignore
 import numpy as np
 
 from stellarpunk import core, sim, generate
-from . import MonitoringUI
+from . import MonitoringUI, MonitoringEconDataLogger
 
 @pytest.fixture
-def gamestate() -> core.Gamestate:
-    return core.Gamestate()
+def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
+    gamestate = core.Gamestate()
+    gamestate.econ_logger = econ_logger
+    return gamestate
 
 @pytest.fixture
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
@@ -33,9 +35,13 @@ def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
     return MonitoringUI(gamestate, sector)
 
 @pytest.fixture
+def econ_logger() -> MonitoringEconDataLogger:
+    return MonitoringEconDataLogger()
+
+@pytest.fixture
 def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
     simulation = sim.Simulator(gamestate, testui, ticks_per_hist_sample=1)
-    simulation.min_tick_sleep = np.inf
+    gamestate.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
 
     simulation.initialize()

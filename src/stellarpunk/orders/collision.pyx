@@ -125,8 +125,8 @@ cdef struct NeighborAnalysis:
     ccymunk.cpVect relative_velocity
     double minimum_separation
     ccymunk.cpVect collision_loc
-    int neighborhood_size
-    int threat_count
+    size_t neighborhood_size
+    size_t threat_count
     ccymunk.cpShape *threat_shape
     double detection_timestamp
 
@@ -249,9 +249,6 @@ cdef void _sensor_point_callback(ccymunk.cpShape *shape, ccymunk.cpFloat distanc
     _analyze_neighbor_callback(shape, data)
 
 cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointSet *points, void *data):
-    _analyze_neighbor_callback(shape, data)
-
-cdef void _body_shape_callback(ccymunk.cpBody *body, ccymunk.cpShape *shape, void *data):
     _analyze_neighbor_callback(shape, data)
 
 cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):

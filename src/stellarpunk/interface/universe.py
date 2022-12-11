@@ -152,19 +152,45 @@ class UniverseView(interface.View):
             # skip symmetric edges
             if i <= sector_idx:
                 continue
-            if edge > 0:
+            # skip non-edges
+            elif edge == 0:
+                continue
+            # skip edges that are off screen
+            subsegment = util.segment_intersects_rect(
+                (sector.loc[0], sector.loc[1], dest_sector.loc[0], dest_sector.loc[1]),
+                self.bbox
+            )
+            if subsegment is None:
+                continue
+            else:
                 used_canvas = True
                 # there's an edge between sector and sector at index i
                 # draw a line from the edge of the sector to the edge of the other sector
-                r = sector.radius
-                distance, theta = util.cartesian_to_polar(*(dest_sector.loc - sector.loc))
+                #TODO: start/end at the bounds of the rect instead of along the
+                # entire edge. see util.segments_intersect where we compute the
+                # intersection of two line segments
+
+                r = 0
+                distance, theta = util.cartesian_to_polar(subsegment[0]-subsegment[2], subsegment[1]-subsegment[3])
                 step = 2*self.meters_per_char_x
                 r += step
-                while r < distance - dest_sector.radius:
+                while r < distance:
                     c_x, c_y = util.polar_to_cartesian(r, theta)
-                    d_x, d_y = util.sector_to_drawille(c_x+sector.loc[0], c_y+sector.loc[1], self.meters_per_char_x, self.meters_per_char_y)
-                    c.set(d_x, d_y)
                     r += step
+                    s_x, s_y = (c_x+subsegment[2], c_y+subsegment[3])
+                    assert util.point_inside_rect((s_x, s_y), self.bbox)
+                    #TODO: we could optimize this so we start/end at the
+                    # boundaries of the sector circles
+                    if util.magnitude(s_x-sector.loc[0], s_y-sector.loc[1]) < sector.radius:
+                        continue
+
+                    if util.magnitude(s_x-dest_sector.loc[0], s_y-dest_sector.loc[1]) < dest_sector.radius:
+                        continue
+                    d_x, d_y = util.sector_to_drawille(
+                            s_x, s_y,
+                            self.meters_per_char_x, self.meters_per_char_y
+                    )
+                    c.set(d_x, d_y)
 
         return used_canvas
 
@@ -193,19 +219,20 @@ class UniverseView(interface.View):
 
             used_canvas_edges = self.add_sector_edges_to_canvas(c_edges, sector) or used_canvas_edges
 
+        (d_min_x, d_min_y) = util.sector_to_drawille(
+            self.bbox[0], self.bbox[1],
+            self.meters_per_char_x, self.meters_per_char_y)
+        (d_max_x, d_max_y) = util.sector_to_drawille(
+            self.bbox[2], self.bbox[3],
+            self.meters_per_char_x, self.meters_per_char_y)
+
         text_sectors = []
         if used_canvas_sectors:
-            (d_x, d_y) = util.sector_to_drawille(
-                self.bbox[0], self.bbox[1],
-                self.meters_per_char_x, self.meters_per_char_y)
-            text_sectors = c_sectors.rows(d_x, d_y)
+            text_sectors = c_sectors.rows(d_min_x, d_min_y, d_max_x, d_max_y)
 
         text_edges = []
         if used_canvas_edges:
-            (d_x, d_y) = util.sector_to_drawille(
-                self.bbox[0], self.bbox[1],
-                self.meters_per_char_x, self.meters_per_char_y)
-            text_edges = c_edges.rows(d_x, d_y)
+            text_edges = c_edges.rows(d_min_x, d_min_y, d_max_x, d_max_y)
 
         return util.lines_to_dict(text_sectors, bounds=self.viewscreen_bounds), util.lines_to_dict(text_edges, bounds=self.viewscreen_bounds)
 
@@ -223,13 +250,13 @@ class UniverseView(interface.View):
         # draw info for each sector
         for sector in self.gamestate.sectors.values():
             # compute a bounding box of interest for this sector
-            # that's this sector (including radius) plus all sectors it connects to
+            # only if the sector is actually on screen
             self.gamestate.sector_edges[self.gamestate.sector_idx[sector.entity_id]]
             sector_bbox = (
-                    sector.loc[0]-sector.radius-self.gamestate.max_edge_length,
-                    sector.loc[1]-sector.radius-self.gamestate.max_edge_length,
-                    sector.loc[0]+sector.radius+self.gamestate.max_edge_length,
-                    sector.loc[1]+sector.radius+self.gamestate.max_edge_length
+                    sector.loc[0]-sector.radius,
+                    sector.loc[1]-sector.radius,
+                    sector.loc[0]+sector.radius,
+                    sector.loc[1]+sector.radius,
             )
 
             if not util.intersects(self.bbox, sector_bbox):
@@ -244,7 +271,7 @@ class UniverseView(interface.View):
             if sector == self.selected_sector:
                 name_attr = name_attr | curses.A_STANDOUT
             self.viewscreen.addstr(s_y, s_x, sector.short_id(), name_attr)
-            self.viewscreen.addstr(s_y+1, s_x, f'[ {sector.loc[0]} {sector.loc[1]} ]')
+            self.viewscreen.addstr(s_y+1, s_x, f'[ {sector.loc[0]:.2e} {sector.loc[1]:.2e} ]')
             self.viewscreen.addstr(s_y+2, s_x, f'{len(sector.entities)} objects')
 
         self.interface.refresh_viewscreen()
