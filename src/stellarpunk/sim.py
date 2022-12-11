@@ -370,6 +370,10 @@ def main() -> None:
         ui.initialize()
         uv = universe_interface.UniverseView(gamestate, ui)
         ui.open_view(uv)
+        assert gamestate.player.character.location.sector is not None
+        sv = uv.open_sector_view(gamestate.player.character.location.sector)
+        assert isinstance(gamestate.player.character.location, core.Ship)
+        sv.open_pilot_view(gamestate.player.character.location)
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
 

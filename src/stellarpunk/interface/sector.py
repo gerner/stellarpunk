@@ -274,6 +274,14 @@ class SectorView(interface.View):
         self._draw_target_info()
         self._draw_character_info()
 
+    def open_pilot_view(self, ship:core.Ship) -> pilot_interface.PilotView:
+        self.pilot_view = pilot_interface.PilotView(ship, self.interface)
+        self.interface.open_view(self.pilot_view)
+        # suspend input until we get focus again
+        self.active = False
+
+        return self.pilot_view
+
     def update_display(self) -> None:
         self.draw_sector_map()
         self._draw_hud()
@@ -348,10 +356,7 @@ class SectorView(interface.View):
         def pilot(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'can only pilot a selected ship target')
-            self.pilot_view = pilot_interface.PilotView(self.selected_entity, self.interface)
-            self.interface.open_view(self.pilot_view)
-            # suspend input until we get focus again
-            self.active = False
+            self.open_pilot_view(self.selected_entity)
 
         def chr_info(args:Sequence[str])->None:
             if not args:

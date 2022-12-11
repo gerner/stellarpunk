@@ -170,7 +170,7 @@ class UniverseView(interface.View):
                 # entire edge. see util.segments_intersect where we compute the
                 # intersection of two line segments
 
-                r = 0
+                r = 0.
                 distance, theta = util.cartesian_to_polar(subsegment[0]-subsegment[2], subsegment[1]-subsegment[3])
                 step = 2*self.meters_per_char_x
                 r += step
@@ -235,6 +235,15 @@ class UniverseView(interface.View):
             text_edges = c_edges.rows(d_min_x, d_min_y, d_max_x, d_max_y)
 
         return util.lines_to_dict(text_sectors, bounds=self.viewscreen_bounds), util.lines_to_dict(text_edges, bounds=self.viewscreen_bounds)
+
+    def open_sector_view(self, sector:core.Sector) -> sector_interface.SectorView:
+        self.sector_view = sector_interface.SectorView(
+                self.selected_sector, self.interface)
+        self.interface.open_view(self.sector_view)
+        # suspend input until we get focus again
+        self.active = False
+
+        return self.sector_view
 
     def update_display(self) -> None:
         """ Draws a map of all sectors. """
@@ -301,13 +310,7 @@ class UniverseView(interface.View):
                 raise Exception("expected one of colliding objects to be a ship")
 
             assert ship.sector
-            sector = ship.sector
-            self.sector_view = sector_interface.SectorView(
-                    sector, self.interface)
-            self.sector_view.select_target(ship.entity_id, ship)
-            self.interface.open_view(self.sector_view)
-            # suspend input until we get focus again
-            self.active = False
+            self.open_sector_view(ship.sector).select_target(ship.entity_id, ship)
         return {
             "target": (target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
             "debug_collision": debug_collision,
@@ -323,11 +326,7 @@ class UniverseView(interface.View):
                 return True
             if self.set_ucursor(*self.selected_sector.loc):
                 return True
-            self.sector_view = sector_interface.SectorView(
-                    self.selected_sector, self.interface)
-            self.interface.open_view(self.sector_view)
-            # suspend input until we get focus again
-            self.active = False
+            self.open_sector_view(self.selected_sector)
         elif key == ord(":"):
             self.interface.open_view(self._ci)
         elif key == curses.KEY_MOUSE:

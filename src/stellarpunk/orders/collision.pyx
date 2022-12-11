@@ -1511,8 +1511,10 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     cdef double difference_mag = ccymunk.cpvlength(dv)
     cdef double difference_angle = ccymunk.cpvtoangle(dv)
 
-    if difference_mag < VELOCITY_EPS and fabs(body.w) < ANGLE_EPS:
-        return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY)
+    if difference_mag < VELOCITY_EPS:
+        difference_angle = 0.
+        if fabs(body.w) < ANGLE_EPS:
+            return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY)
 
     cdef double delta_heading = normalize_angle(body.a-difference_angle, shortest=1)
     cdef double rot_time = _rotation_time(delta_heading, body.w, max_torque/body.i)
@@ -1665,6 +1667,8 @@ def accelerate_to(
     if ccymunk.cpvlength(ft_result.force) < VELOCITY_EPS:
         cybody._body.v = cyvelocity.v
         cybody._body.f = ZERO_VECTOR
+        if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:
+            cybody._body.w = 0.
     else:
         cybody._body.f = ft_result.force
 

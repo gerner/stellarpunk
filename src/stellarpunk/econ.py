@@ -120,14 +120,14 @@ class StationAgent(core.EconAgent):
     """
 
     @classmethod
-    def create_station_agent(cls, station:core.Station, production_chain:core.ProductionChain) -> "StationAgent":
+    def create_station_agent(cls, character:core.Character, station:core.Station, production_chain:core.ProductionChain) -> "StationAgent":
         if station.resource is None:
             raise ValueError(f'cannot create station agent for station that has no resource')
 
         if station.owner is None:
             raise ValueError(f'cannot create station agent for station that has no owner')
 
-        station_agent = StationAgent(station, station.owner, production_chain)
+        station_agent = StationAgent(station, station.owner, character, production_chain)
 
         resource = station.resource
         inputs = production_chain.inputs_of(resource)
@@ -148,11 +148,11 @@ class StationAgent(core.EconAgent):
         return station_agent
 
     @classmethod
-    def create_planet_agent(cls, planet:core.Planet,  production_chain:core.ProductionChain) -> "StationAgent":
+    def create_planet_agent(cls, character:core.Character, planet:core.Planet,  production_chain:core.ProductionChain) -> "StationAgent":
         if planet.owner is None:
             raise ValueError(f'cannot create station agent for planet that has no owner')
 
-        station_agent = StationAgent(planet, planet.owner, production_chain)
+        station_agent = StationAgent(planet, planet.owner, character, production_chain)
 
         end_product_ids = production_chain.final_product_ids()[[
             core.RESOURCE_REL_CONSUMER,
@@ -167,7 +167,7 @@ class StationAgent(core.EconAgent):
 
         return station_agent
 
-    def __init__(self, station:core.SectorEntity, owner:core.Character, production_chain:core.ProductionChain, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, station:core.SectorEntity, owner:core.Character, character:core.Character, production_chain:core.ProductionChain, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self._buy_resources:Tuple[int] = tuple() # type: ignore
         self._sell_resources:Tuple[int] = tuple() # type: ignore
@@ -177,9 +177,13 @@ class StationAgent(core.EconAgent):
         self._budget = np.zeros((production_chain.num_products,))
         self.station = station
         self.owner = owner
+        self.character = character
 
     def get_owner(self) -> core.Character:
         return self.owner
+
+    def get_character(self) -> core.Character:
+        return self.character
 
     def buy_resources(self) -> Collection:
         return self._buy_resources
@@ -237,13 +241,17 @@ class ShipTraderAgent(core.EconAgent):
     Buy/sell prices and budget are irrelevant for this agent. We assume this
     agent is "active" and decisions are handled elsewhere. """
 
-    def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, ship:core.Ship, character:core.Character, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.ship = ship
+        self.character = character
 
     def get_owner(self) -> core.Character:
         assert self.ship.owner is not None
         return self.ship.owner
+
+    def get_character(self) -> core.Character:
+        return self.character
 
     def buy_resources(self) -> Collection:
         return EMPTY_TUPLE

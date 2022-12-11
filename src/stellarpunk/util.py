@@ -172,7 +172,7 @@ def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tupl
     subsegment = tuple(x for x in [l,r,t,b] if x is not None)
     assert len(subsegment) <= 2
     if len(subsegment) == 2:
-        return tuple(x for p in subsegment for x in p)
+        return tuple(x for p in subsegment for x in p) # type: ignore
     elif len(subsegment) == 1:
         if rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
             return (subsegment[0][0], subsegment[0][1], segment[0], segment[1])
@@ -185,7 +185,7 @@ def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tupl
     else:
         return None
 
-def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple(float, float)]:
+def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple[float, float]]:
     """ returns true iff segments a and b intersect. """
     # inspired by https://stackoverflow.com/a/565282/553580
     # if the segments are represented as p+r and q+s

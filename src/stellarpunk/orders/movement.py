@@ -385,6 +385,7 @@ class WaitOrder(AbstractSteeringOrder):
             self.gamestate.schedule_order(self.gamestate.timestamp + self.wait_wakeup_period, self, jitter=self.wait_wakeup_period/2)
             return
 
+        """
         # avoid collisions while we're waiting
         # but only if those collisions are really imminent
         # we want to have enough time to get away
@@ -404,3 +405,4 @@ class WaitOrder(AbstractSteeringOrder):
                     self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque))
         else:
             self._accelerate_to(ZERO_VECTOR, dt)
+        """

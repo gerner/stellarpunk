@@ -24,6 +24,9 @@ TRANSLATE_DIRECTIONS = {
     ord("j"): np.pi/-2.,
 }
 
+class Settings:
+    MAX_ANGULAR_VELOCITY = 2. # about 115 degrees per second
+
 class PlayerControlOrder(steering.AbstractSteeringOrder):
     """ Order indicating the player is in direct control.
 
@@ -79,23 +82,41 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         else:
             return force
 
+    def _clip_torque_to_max_angular_velocity(self, torque:float, dt:float, max_torque:float, max_angular_velocity:float) -> float:
+        # clip torque s.t. resulting angular velocity (after dt) is at most
+        # max_angular_velocity
+        # w = w_0 + torque * dt
+
+        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * dt
+        if abs(expected_w) > max_angular_velocity:
+            if expected_w < 0:
+                return (-max_angular_velocity - self.ship.phys.angular_velocity)/dt*self.ship.moment
+            else:
+                return (max_angular_velocity - self.ship.phys.angular_velocity)/dt*self.ship.moment
+        return torque
 
     def act(self, dt:float) -> None:
         # if the player is controlling, do nothing and wait until next tick
         if self.has_command:
             self.has_command = False
+            self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
             return
 
         # otherwise try to kill rotation
-        #TODO: this won't work under a model where act isn't called every tick
-        if self.ship.phys.angular_velocity == 0.:
-            return
-
-        t = self.ship.moment * -1 * self.ship.angular_velocity / dt
+        # apply torque up to max torque to kill angular velocity
+        # torque = moment * angular_acceleration
+        # the perfect acceleration would be -1 * angular_velocity / timestep
+        # implies torque = moment * -1 * angular_velocity / timestep
+        t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.max_torque, self.ship.max_torque)
         if t == 0:
-            self.ship.phys.angular_velocity = 0.
+            self.ship.phys.angular_velocity = 0
+            # schedule again to get cleaned up on next tick
+            self.ship.apply_torque(0., False)
+            self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
         else:
-            self.ship.apply_torque(np.clip(t, -1*self.ship.max_torque, self.ship.max_torque), False)
+            self.ship.apply_torque(t, True)
+
+            self.gamestate.schedule_order_immediate(self)
 
     # action functions, imply player direct input
 
@@ -106,8 +127,11 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         force = self._clip_force_to_max_speed(force, dt, self.ship.max_thrust)
 
+        self.ship.apply_torque(0., False)
         if not np.allclose(force, steering.ZERO_VECTOR):
             self.ship.apply_force(force, False)
+        else:
+            self.ship.apply_force(steering.ZERO_VECTOR, False)
 
     def kill_velocity(self, dt:float) -> None:
         self.has_command = True
@@ -127,7 +151,16 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_command = True
         #TODO: up to max angular acceleration?
-        self.ship.apply_torque(self.ship.max_torque * scale, False)
+        self.ship.apply_force(steering.ZERO_VECTOR, False)
+        self.ship.apply_torque(
+            self._clip_torque_to_max_angular_velocity(
+                self.ship.max_torque * scale,
+                dt,
+                self.ship.max_torque,
+                Settings.MAX_ANGULAR_VELOCITY
+            ),
+            False
+        )
 
     def translate(self, direction:float, dt:float) -> None:
         """ Translates the ship in the desired direction
@@ -550,7 +583,7 @@ class PilotView(interface.View):
         heading = self.ship.angle + np.pi/2
         self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed:.0f}m/s')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}°')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s)')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
 
         status_y += 5

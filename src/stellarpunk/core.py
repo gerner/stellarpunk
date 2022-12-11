@@ -796,6 +796,9 @@ class EconAgent(abc.ABC):
     @abc.abstractmethod
     def get_owner(self) -> Character: ...
 
+    def get_character(self) -> Character:
+        return self.get_owner()
+
     @abc.abstractmethod
     def buy_resources(self) -> Collection: ...
 

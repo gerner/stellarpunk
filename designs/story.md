@@ -43,6 +43,25 @@ giver type.
 Following up on the investigation might be rewarding from a story perspective.
 Likely the conclusion will be more status quo than reveletory for the sector.
 
+## New Hab Miner Start
+
+Player starts as a new miner. They don't own anything, work for a refinery
+station manager who works for a hab. They're on a mining ship and get direct
+instructions from the station manager. This is like a tutorial.
+
+They get instructions to set up their agenda for mining and to mine some
+resources. There's more tutorial stuff to follow. This leads to a path that
+gets them free of direct, explicit supervision, but maybe the player can short
+circuit that.
+
+* Set up Mining Agendum (only allowed to mine given resource, sell to refinery)
+* Mine a full load of resources
+* Deliver to station
+* Set up Trading Agendum (only allowed to buy refined good from refinery, sell to any station)
+* Pick up refined goods from same station
+* Sell to different station (not owned by the hab)
+* Repeat this process until something happens (level up agenda?)
+
 # Tidbits
 
 ## Comms

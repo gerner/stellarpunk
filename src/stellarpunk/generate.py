@@ -40,6 +40,56 @@ class Settings:
     # how many resources available in uninhabited sectors
     MEAN_UNINHABITABLE_RESOURCES = 1e7
 
+    class Ship:
+        # soyuz 5000 - 10000kg
+        # dragon capsule 4000kg
+        # shuttle orbiter 78000kg
+
+        # ship mass in kilograms
+        MASS = 2e3
+
+        # soyuz: 7-10m long
+        # shuttle orbiter: 37m long
+        # spacex dragon: 6.1m
+        # spacex starship: 120m long
+
+        # ship radius in meters
+        RADIUS = 30.
+
+        # one raptor: 1.81 MN
+        # one SSME: 2.279 MN
+        # OMS main engine: 26.7 kN
+        # KTDU-80 main engine: 2.95 kN
+        #max_thrust = 5e5
+        # 5e5 translates to 250m/s^2 which is over 25 gs
+
+        # max forward thrust in newtons
+        MAX_THRUST = 2e5
+
+        # one draco: 400 N (x16 on Dragon)
+        # OMS aft RCS: 3.87 kN
+        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
+        # some speculation that starship thrusters can do 100-200 kN
+        #max_fine_thrust = 5e3
+
+        # max unidirectional thrust in newtons
+        MAX_FINE_THRUST = 1.5e4
+
+        # note about g-forces:
+        # assuming circle of radius 30m, mass 2e3 kg
+        # mass moment 18,000,000 kg m^2
+        # centriptal acceleration = r * w^2
+        # 1g at 30m with angular velocity of 0.57 rad/sec
+        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
+        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
+        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
+        # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
+        # starting from zero
+        # space shuttle doesn't exeed 3g during ascent
+
+        # max torque in newton-meters
+        MAX_TORQUE = MAX_FINE_THRUST * 6 * RADIUS
+
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
@@ -257,10 +307,12 @@ class UniverseGenerator:
 
         return adj_matrix
 
-    def _gen_sector_location(self, sector:core.Sector, unoccupied:bool=True)->npt.NDArray[np.float64]:
-        loc = self.r.normal(0, 1, 2) * sector.radius
-        while unoccupied and sector.is_occupied(loc[0], loc[1], eps=2e3):
-            loc = self.r.normal(0, 1, 2) * sector.radius
+    def _gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None)->npt.NDArray[np.float64]:
+        if radius is None:
+            radius = sector.radius
+        loc = self.r.normal(0, 1, 2) * radius + center
+        while occupied_radius >= 0. and sector.is_occupied(loc[0], loc[1], eps=occupied_radius):
+            loc = self.r.normal(0, 1, 2) * radius + center
 
         return loc
 
@@ -346,47 +398,11 @@ class UniverseGenerator:
 
     def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
 
-        #TODO: clean this up
-        # set up physics stuff
-
-        # soyuz 5000 - 10000kg
-        # dragon capsule 4000kg
-        # shuttle orbiter 78000kg
-        ship_mass = 2e3
-
-        # soyuz: 7-10m long
-        # shuttle orbiter: 37m long
-        # spacex dragon: 6.1m
-        # spacex starship: 120m long
-        ship_radius = 30.
-
-        # one raptor: 1.81 MN
-        # one SSME: 2.279 MN
-        # OMS main engine: 26.7 kN
-        # KTDU-80 main engine: 2.95 kN
-        #max_thrust = 5e5
-        # 5e5 translates to 250m/s^2 which is over 25 gs
-        max_thrust = 2e5
-
-        # one draco: 400 N (x16 on Dragon)
-        # OMS aft RCS: 3.87 kN
-        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
-        # some speculation that starship thrusters can do 100-200 kN
-        #max_fine_thrust = 5e3
-        max_fine_thrust = 1.5e4
-
-        # note about g-forces:
-        # assuming circle of radius 30m, mass 2e3 kg
-        # mass moment 18,000,000 kg m^2
-        # centriptal acceleration = r * w^2
-        # 1g at 30m with angular velocity of 0.57 rad/sec
-        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
-        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
-        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
-        # starting from zero
-        # space shuttle doesn't exeed 3g during ascent
-        max_torque = max_fine_thrust * 6 * ship_radius
-
+        ship_mass = Settings.Ship.MASS
+        ship_radius = Settings.Ship.RADIUS
+        max_thrust = Settings.Ship.MAX_THRUST
+        max_fine_thrust = Settings.Ship.MAX_FINE_THRUST
+        max_torque = Settings.Ship.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
@@ -992,19 +1008,25 @@ class UniverseGenerator:
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
 
-    def choose_player_character(self) -> None:
-        # should be one with just a ship
-        player_character:Optional[core.Character] = None
-        for c in self.gamestate.characters.values():
-            if len(c.assets) == 1 and isinstance(c.assets[0], core.Ship):
-                player_character = c
-                break
+    def spawn_player(self) -> None:
+        # mining start: working for someone else, doing mining for a refinery
+        # player starts in a ship near a refinery, ship owned by refinery owner
+        refinery:Optional[core.Station] = None
+        for character in self.gamestate.characters.values():
+            for a in character.assets:
+                if isinstance(a, core.Station) and a.resource in self.gamestate.production_chain.first_product_ids():
+                    refinery = a
+                    break
 
-        if player_character is None:
-            raise ValueError(f'no characters satisfy player criteria')
+        if refinery is None:
+            raise ValueError("no suitable refinery could be found")
+        assert refinery.sector
 
-        for agendum in player_character.agenda:
-            agendum.stop()
+        ship_loc = refinery.loc
+        while not 2e3 < util.distance(ship_loc, refinery.loc) < 3e3:
+            ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3)
+        ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
+        player_character = self.spawn_character(ship)
 
         self.gamestate.player.character = player_character
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
@@ -1028,7 +1050,7 @@ class UniverseGenerator:
             mean_uninhabitable_resources=Settings.MEAN_UNINHABITABLE_RESOURCES,
         )
 
-        # select a character for the player
-        self.choose_player_character()
+        # spawn the player
+        self.spawn_player()
 
         return self.gamestate
