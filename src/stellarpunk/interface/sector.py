@@ -309,14 +309,14 @@ class SectorView(interface.View):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise command_input.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.clear_orders()
+            self.selected_entity.clear_orders(self.interface.gamestate)
             order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
             self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'order only valid on a ship target')
-            self.selected_entity.clear_orders()
+            self.selected_entity.clear_orders(self.interface.gamestate)
             order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
             self.selected_entity.prepend_order(order)
 

@@ -786,3 +786,9 @@ class Interface(AbstractInterface):
             v = self.views[-1]
             if not v.handle_input(key, dt):
                 self.close_view(v)
+
+    def product_name(self, product_id:Optional[int], max_length:int=1024) -> str:
+        if product_id is None:
+            return util.elipsis("None", max_length)
+        else:
+            return util.elipsis(self.gamestate.production_chain.product_names[product_id], max_length)

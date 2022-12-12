@@ -40,6 +40,37 @@ class Settings:
     # how many resources available in uninhabited sectors
     MEAN_UNINHABITABLE_RESOURCES = 1e7
 
+    class ProductionChain:
+        # tier 0
+        ORE_NAMES = [
+                "Volatiles", "Ferroids", "Silicoids", "Carbonates",
+                "Rare Metals", "Base Metals", "Precious Elements",
+                "Radioisotopes", "Piezoelectrics"]
+
+        # tier 1 is "Refined" + the ore it corresponds to
+
+        # tier 2 to N-2
+        INTERMEDIATE_NAMES = [
+            "Processing Units", "Storage Units", "Data Interconnects",
+            "Gas Scrubbers", "Liquid Filters", "Storage Containers",
+            "Refinery Crucibles", "Reactor Housings", "Manufactories",
+            "Assembly Apparatus", "Thruster Chambers", "Fuel Lines",
+            "Fertilizer", "Food Precursors", "Leavening Agents", "Biochar",
+            "Algea Bales", "Bioplastics", "Organic Scaffolds"
+        ]
+
+        # tier N-1
+        HIGHTECH_NAMES = [
+            "Hull Parts", "Nav Consoles", "Lifesupport Systems",
+            "Computing Nodes", "Engine Components", "Fuel Generators",
+            "Air Handlers", "Hydrofarming Bays",
+            "Packaged Meals", "Unisex Clothing",
+        ]
+
+        #tier N
+        SINK_NAMES=["Ships", "Stations", "Consumer Goods"]
+
+
     class Ship:
         # soyuz 5000 - 10000kg
         # dragon capsule 4000kg
@@ -287,6 +318,7 @@ class UniverseGenerator:
             self.r.shuffle(nstubs)
             self.r.shuffle(mstubs)
 
+            # are there any duplicate edges?
             has_duplicate = len(set(zip(nstubs, mstubs))) < len(mstubs)
             tries += 1
 
@@ -336,6 +368,42 @@ class UniverseGenerator:
 
     def _gen_gate_name(self, destination:core.Sector) -> str:
         return f"Gate to {destination.short_id()}"
+
+    def _generate_product_names(self, ranks:npt.NDArray[np.int64]) -> List[str]:
+
+        assert len(ranks) >= 3
+
+        assert ranks[0] <= len(Settings.ProductionChain.ORE_NAMES)
+        assert ranks[1] == ranks[0]
+        if len(ranks) >= 5:
+            assert sum(ranks[2:-2]) <= len(Settings.ProductionChain.INTERMEDIATE_NAMES)
+
+        if len(ranks) >= 4:
+            assert ranks[-2] <= len(Settings.ProductionChain.HIGHTECH_NAMES)
+        assert ranks[-1] == len(Settings.ProductionChain.SINK_NAMES)
+
+        # set up ores and refined versions of those ores
+        ore_name_ids = self.r.choice(np.arange(len(Settings.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
+
+        product_names = [Settings.ProductionChain.ORE_NAMES[i] for i in ore_name_ids]
+        product_names.extend(
+            [f'Refined {Settings.ProductionChain.ORE_NAMES[i]}' for i in ore_name_ids]
+        )
+
+        # set up intermediate goods
+        if len(ranks) >= 5:
+            product_names.extend(self.r.choice(Settings.ProductionChain.INTERMEDIATE_NAMES, size=sum(ranks[2:-2]), replace=False))
+
+        # set up high-tech goods
+        if len(ranks) >= 4:
+            product_names.extend(self.r.choice(Settings.ProductionChain.HIGHTECH_NAMES, size=ranks[-2], replace=False))
+
+        # set up final goods
+        product_names.extend(Settings.ProductionChain.SINK_NAMES)
+
+        assert len(product_names) == sum(ranks)
+
+        return product_names
 
     def _choose_portrait(self) -> core.Sprite:
         return self.portraits[self.r.integers(0, len(self.portraits))]
@@ -744,7 +812,7 @@ class UniverseGenerator:
             min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
             max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
             min_raw_per_processed:int=3, max_raw_per_processed:int=10,
-            sink_names:Sequence[str]=["ships", "stations", "consumers"]) -> core.ProductionChain:
+            ) -> core.ProductionChain:
         """ Generates a random production chain.
 
         Products are divided into ranks with links only between consecutive
@@ -791,8 +859,6 @@ class UniverseGenerator:
 
         if len(min_final_prices) != len(max_final_prices):
             raise ValueError("min and max final prices must be same length")
-        if len(sink_names) != len(min_final_prices):
-            raise ValueError("sink_names and min_final_prices must be same length")
 
         # set up a rank of raw resources that mirrors the first product rank
         # these will feed 1:1 from raw resources to the first products
@@ -820,12 +886,12 @@ class UniverseGenerator:
                 ))+1
             )
             target_weight = np.mean((min_input_per_output, max_input_per_output)) * target_edges
-            rank_production = self._random_bipartite_graph(
+            rank_production = np.ceil(self._random_bipartite_graph(
                     nodes_from, nodes_to, target_edges,
                     np.min((nodes_to, max_outputs)),
                     np.min((nodes_from, max_inputs)),
                     target_weight,
-                    min_input_per_output, max_input_per_output).round()
+                    min_input_per_output, max_input_per_output))
             adj_matrix[so_far:so_far+nodes_from, so_far+nodes_from:so_far+nodes_from+nodes_to] = rank_production
             so_far += nodes_from
 
@@ -848,18 +914,23 @@ class UniverseGenerator:
         )
 
         target_weight = np.mean((min_input_per_output, max_input_per_output)) * target_edges
-        final_production = self._random_bipartite_graph(
+        final_production = np.ceil(self._random_bipartite_graph(
                 ranks[-2], ranks[-1], target_edges,
                 np.min((ranks[-1], max_outputs)),
                 np.min((ranks[-2], max_final_inputs)),
                 target_weight, min_input_per_output, max_input_per_output,
-                min_in=min_final_inputs).round()
+                min_in=min_final_inputs))
 
         # adjust weights to hit target prices
         final_prices = self.r.uniform(min_final_prices, max_final_prices)
         final_production = final_production / final_production.sum(axis=0) * final_prices
-        adj_matrix[s_last_goods, s_final_products] = final_production.round()
+        adj_matrix[s_last_goods, s_final_products] = final_production
         total_nodes = np.sum(ranks)
+
+        # make sure all non-lastrank products have an output
+        assert np.all(adj_matrix[:-ranks[-1],:].sum(axis=1) > 0)
+        # make sure all non-firstrank products have an input
+        assert np.all(adj_matrix[:,ranks[0]:].sum(axis=0) > 0)
 
         # set up prices
 
@@ -879,6 +950,12 @@ class UniverseGenerator:
         #TODO: the below throws type error in mypy since vstack takes a tuple to vstack, what's going on here? (two cases below)
         adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods]) # type: ignore
         adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
+
+        # make sure all non-lastrank products have an output
+        assert np.all(adj_matrix[:-ranks[-1],:].sum(axis=1) > 0)
+        # make sure all non-firstrank products have an input
+        assert np.all(adj_matrix[:,ranks[0]:].sum(axis=0) > 0)
+
         prices[s_final_products] = (np.vstack(prices[so_far-nodes_from:so_far]) * adj_matrix[s_last_goods, s_final_products]).sum(axis=0) * markup[s_final_products] # type: ignore
 
         assert not np.any(np.isnan(prices))
@@ -891,19 +968,21 @@ class UniverseGenerator:
         batch_sizes = np.clip(3. * np.ceil(np.min(adj_matrix, axis=1, where=adj_matrix>0, initial=np.inf)), 1., 50)
         batch_sizes[-ranks[-1]:] = 1
 
+        product_names = self._generate_product_names(ranks)
+
         chain = core.ProductionChain()
         chain.ranks = ranks
         chain.adj_matrix = adj_matrix
         chain.markup = markup
         chain.prices = prices
-        chain.sink_names = sink_names
+        chain.product_names = product_names
         chain.production_times = production_times
         chain.batch_sizes = batch_sizes
 
         chain.initialize()
 
 
-        for i, (price, name) in enumerate(zip(prices[s_final_products], sink_names), len(prices)-len(min_final_prices)):
+        for i, (price, name) in enumerate(zip(prices[s_final_products], product_names[-ranks[-1]:]), len(prices)-len(min_final_prices)):
             self.logger.info(f'price {name}:\t${price}')
         self.logger.info(f'total price:\t${prices[s_final_products].sum()}')
 

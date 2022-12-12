@@ -313,6 +313,13 @@ def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, a
         else:
             draw_line(y_row, x_row, row, screen, attr=attr, bounds=bounds)
 
+def elipsis(string:str, max_length:int) -> str:
+    if len(string) <= max_length:
+        return string
+    else:
+        #TODO: is using unicode elipsis the right thing to do here?
+        return string[:max_length-1] + "…"
+
 def tab_complete(partial:str, current:str, options:Iterable[str]) -> str:
     """ Tab completion of partial given sorted options. """
 

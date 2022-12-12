@@ -49,7 +49,7 @@ class ProductionChain:
         self.production_coolingoff_time = 5.
         self.batch_sizes = np.zeros((self.num_products,))
 
-        self.sink_names:Sequence[str] = []
+        self.product_names:Sequence[str] = []
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -57,6 +57,14 @@ class ProductionChain:
 
     def initialize(self) -> None:
         self.num_products = self.shape[0]
+
+        assert sum(self.ranks) == self.num_products
+        assert self.adj_matrix.shape == (self.num_products, self.num_products)
+        assert self.markup.shape == (self.num_products, )
+        assert self.prices.shape == (self.num_products, )
+        assert self.production_times.shape == (self.num_products, )
+        assert self.batch_sizes.shape == (self.num_products, )
+        assert len(self.product_names) == self.num_products
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.int64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]
@@ -72,14 +80,7 @@ class ProductionChain:
         g.attr(compound="true", ranksep="1.5")
 
         for s in range(self.num_products):
-
-            sink_start = self.num_products - len(self.sink_names)
-            if s < sink_start:
-                node_name = f'{s}'
-            else:
-                node_name = f'{self.sink_names[s-sink_start]} ({s})'
-
-            g.node(f'{s}', label=f'{node_name}:\n${self.prices[s]:,.0f}')
+            g.node(f'{s}', label=f'{self.product_names[s]} ({s}):\n${self.prices[s]:,.0f}')
             for t in range(self.num_products):
                 if self.adj_matrix[s, t] > 0:
                     g.edge(f'{s}', f'{t}', label=f'{self.adj_matrix[s, t]:.0f}')
@@ -450,9 +451,10 @@ class Ship(SectorEntity, Asset):
         if begin:
             order.begin_order()
 
-    def clear_orders(self) -> None:
+    def clear_orders(self, gamestate:Gamestate) -> None:
         while self._orders:
             self._orders[0].cancel_order()
+        self.prepend_order(self.default_order(gamestate))
 
     def pop_current_order(self) -> None:
         self._orders.popleft()

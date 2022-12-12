@@ -102,6 +102,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
             return
 
+        self.ship.apply_force(steering.ZERO_VECTOR, False)
         # otherwise try to kill rotation
         # apply torque up to max torque to kill angular velocity
         # torque = moment * angular_acceleration
@@ -223,8 +224,6 @@ class PilotView(interface.View):
         self.autopilot_on = False
         self.control_order:Optional[PlayerControlOrder] = None
 
-        self.goto_order:Optional[movement.GoToLocation] = None
-
         self.selected_entity:Optional[core.SectorEntity] = None
 
         self.mouse_state = MouseState.EMPTY
@@ -237,25 +236,20 @@ class PilotView(interface.View):
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
                 raise command_input.CommandInput.UserError("can only jump through travel gates as selected target")
             order = orders.TravelThroughGate(self.selected_entity, self.ship, self.interface.gamestate)
+            self.ship.clear_orders(self.interface.gamestate)
             self.ship.prepend_order(order)
 
-        def goto(args:Sequence[str])->None:
-            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
-            if len(args) < 2:
-                x,y = self.scursor_x, self.scursor_y
-            else:
-                try:
-                    x,y = int(args[0]), int(args[1])
-                except Exception:
-                    raise command_input.CommandInput.UserError("need two int args for x,y pos")
-            self.selected_entity.clear_orders()
-            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
-            self.selected_entity.prepend_order(order)
+        def order_mine(args:Sequence[str]) -> None:
+            if self.selected_entity is None or not isinstance(self.selected_entity, core.Asteroid):
+                raise command_input.CommandInput.UserError("can only mine asteroids")
+            order = orders.MineOrder(self.selected_entity, math.inf, self.ship, self.interface.gamestate)
+            self.ship.clear_orders(self.interface.gamestate)
+            self.ship.prepend_order(order)
 
         return {
-            "clear_orders": lambda x: self.ship.clear_orders(),
+            "clear_orders": lambda x: self.ship.clear_orders(self.interface.gamestate),
             "jump": order_jump,
+            "mine": order_mine,
         }
 
     def _open_command_prompt(self) -> bool:
@@ -288,6 +282,7 @@ class PilotView(interface.View):
             self.autopilot_on = False
         else:
             self.logger.info("exiting autopilot")
+            self.ship.clear_orders(self.interface.gamestate)
 
             if self.control_order is not None:
                 raise ValueError("autopilot off, but has control order while toggling autopilot")
@@ -368,12 +363,10 @@ class PilotView(interface.View):
             if self.autopilot_on:
                 self._toggle_autopilot()
 
-            if self.goto_order is not None:
-                self.goto_order.cancel_order()
+            self.ship.clear_orders(self.interface.gamestate)
 
             goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.interface.gamestate, arrival_distance=5e2)
             self.ship.prepend_order(goto_order)
-            self.goto_order = goto_order
 
             self.mouse_state = MouseState.EMPTY
 
@@ -498,13 +491,11 @@ class PilotView(interface.View):
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
     def _draw_target_indicators(self) -> None:
-        if self.goto_order is not None:
-            if self.goto_order.is_complete():
-                self.goto_order = None
-            else:
-                s_x, s_y = util.sector_to_screen(self.goto_order._target_location[0], self.goto_order._target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+        current_order = self.ship.current_order()
+        if isinstance(current_order, movement.GoToLocation):
+            s_x, s_y = util.sector_to_screen(current_order._target_location[0], current_order._target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
 
-                self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.
@@ -547,13 +538,13 @@ class PilotView(interface.View):
         if self.selected_entity is None:
             return
 
-        info_width = 12 + 1 + 16
+        info_width = 12 + 1 + 24
         status_x = self.interface.viewscreen_width - info_width
         status_y = 1
 
         self.viewscreen.addstr(status_y, status_x, "Target Info:")
 
-        label_id ="id:"
+        label_id = "id:"
         label_speed = "speed:"
         label_location = "location:"
         label_bearing = "bearing:"
@@ -567,6 +558,17 @@ class PilotView(interface.View):
         self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
+
+        status_y += 6
+
+        if isinstance(self.selected_entity, core.Station):
+            assert self.selected_entity.resource is not None
+            label_product = "product:"
+            self.viewscreen.addstr(status_y, status_x, f'{label_product:>12} {self.interface.product_name(self.selected_entity.resource, 20)}')
+        elif isinstance(self.selected_entity, core.Asteroid):
+            assert self.selected_entity.resource is not None
+            label_ore = "ore:"
+            self.viewscreen.addstr(status_y, status_x, f'{label_ore:>12} {self.interface.product_name(self.selected_entity.resource, 20)}')
 
     def _draw_status(self) -> None:
         current_order = self.ship.current_order()
@@ -600,6 +602,24 @@ class PilotView(interface.View):
             self.viewscreen.addstr(status_y, status_x, f'{label_distance:>12} {distance}')
             self.viewscreen.addstr(status_y+1, status_x, f'{label_ndensity:>12} {current_order.num_neighbors}')
             self.viewscreen.addstr(status_y+2, status_x, f'{label_nndist:>12} {current_order.nearest_neighbor_dist}')
+
+            status_y += 3
+
+        if np.any(self.ship.cargo > 0.):
+            label_cargo = "Cargo:"
+            self.viewscreen.addstr(status_y, status_x, f'{label_cargo>12}')
+            status_y += 1
+            for i in range(len(self.ship.cargo)):
+                if self.ship.cargo[i] == 0.:
+                    continue
+                label = self.interface.product_name(i, 16)
+                self.viewscreen.addstr(status_y, status_x, f'{label:>16}: {math.floor(self.ship.cargo[i])}')
+                status_y += 1
+        else:
+            label_cargo = "No Cargo"
+            self.viewscreen.addstr(status_y, status_x, f'{label_cargo:>12}')
+            status_y += 1
+
 
     def _draw_command_state(self) -> None:
         status_x = 1

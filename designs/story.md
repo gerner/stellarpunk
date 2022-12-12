@@ -62,6 +62,36 @@ circuit that.
 * Sell to different station (not owned by the hab)
 * Repeat this process until something happens (level up agenda?)
 
+Intro comms from the refinery agent (simiarly working for the hab):
+
+So you're the new miner fresh from the hab. Whatever your story, a criminal or
+one of those "idealistic" types, I don't want to know. Let's try not to get you
+killed before you've recouped the cost of pilot placement.
+
+Your job is to mine ore and ferry refined materials for this station. If it
+wasn't obvious this is what's keeping the hab habitable, so try not to frack it
+up. I'm your boss, just like the admin at the hab is my boss. We've both got
+quotas to meet, so follow orders, and let's get going.
+
+Can you handle some mining in this vessel they've got you in, or do you need
+some hand holding? (Y/N to enter basic manuevering and mining tutorial)
+
+...Tutorial goes here (manual piloting controls, docking with the station, zoom
+controls, navigating to the asteroid, mining the asteroid)...
+
+Alright, go grab a full load of RESOURCE and dock back here at STATION to drop
+it off.
+
+...MANAGER sends comms after some period of time if they don't return fast enough...
+
+...Player returns with the goods...
+
+Get that ore unloaded and we can get started on the second half of your job: transporting refined materials between stations.
+
+You got this one covered or should I walk you through it? (Y/N to enter trading tutorial)
+
+...Tutorial goes here (finding 
+
 # Tidbits
 
 ## Comms

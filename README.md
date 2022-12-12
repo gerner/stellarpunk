@@ -57,10 +57,21 @@ accumulate power.
 - [x] mining
 - [x] cargo transport and cargo transportation
 - [x] basic player flight controls
-- [ ] basic combat (think submarines or "bazookas and flashlights")
-- [ ] consistent sensor model between combat and non-combat situations
+- [ ] player can mine and trade
 - [ ] docking experience
+- [ ] basic combat (think submarines or "bazookas and flashlights")
+- [ ] sensor/intel system
 - [ ] different kinds of ships?
+
+### Player Mining/Trading
+
+- [x] player directed mining
+- [x] UI improvements for ship status view
+- [x] production chain product names
+- [ ] comms and player interaction
+- [ ] handle cargo transfer for owned/directed ship (no cash transfer)
+- [ ] player directed trading
+- [ ] discovering asteroids/stations
 
 ### Combat
 
