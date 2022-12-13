@@ -2,15 +2,18 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any
 import importlib.resources
 import itertools
+import enum
+import collections
 
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
 import cymunk # type: ignore
 from rtree import index # type: ignore
+import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ
 
@@ -41,35 +44,78 @@ class Settings:
     MEAN_UNINHABITABLE_RESOURCES = 1e7
 
     class ProductionChain:
-        # tier 0
+        # rank 0 (9 items)
         ORE_NAMES = [
-                "Volatiles", "Ferroids", "Silicoids", "Carbonates",
-                "Rare Metals", "Base Metals", "Precious Elements",
-                "Radioisotopes", "Piezoelectrics"]
-
-        # tier 1 is "Refined" + the ore it corresponds to
-
-        # tier 2 to N-2
-        INTERMEDIATE_NAMES = [
-            "Processing Units", "Storage Units", "Data Interconnects",
-            "Gas Scrubbers", "Liquid Filters", "Storage Containers",
-            "Refinery Crucibles", "Reactor Housings", "Manufactories",
-            "Assembly Apparatus", "Thruster Chambers", "Fuel Lines",
-            "Fertilizer", "Food Precursors", "Leavening Agents", "Biochar",
-            "Algea Bales", "Bioplastics", "Organic Scaffolds"
+            "Volatiles", "Ferroids", "Silicoids",
+            "Carbonates", "Rare Metals", "Base Metals",
+            "Precious Elements", "Radioisotopes", "Piezoelectrics",
         ]
 
-        # tier N-1
+        # rank 1 is "Refined" + the corresponding ore (9 items)
+
+        # rank 2
+        INTERMEDIATE_NAMES = [
+            # 0
+            "Processing Units", "Storage Units", "Data Interconnects",
+            "Gas Scrubbers", "Liquid Filters", "Construction Frames",
+            # 6
+            "Refinery Crucibles", "Reactor Housings", "Lift Servos",
+            "Assembly Apparatus", "Thruster Chambers", "Fuel Lines",
+            # 12
+            "Captured Nitrogen", "Nutrient Paste", "Leavening Agents",
+            "Biochar", "Algea Bales", "Bioplastics",
+            # 18
+            "Organic Scaffolds",
+        ]
+        INTERMEDIATE_INPUTS = [
+            [1, 2, 3, 4, 5, 6, 8],
+            [1, 2, 3, 4, 5, 6, 8],
+            [1, 2, 3, 4, 5, 6],
+            [0, 2, 3, 5],
+            [0, 2, 3, 5],
+            [1, 2, 3, 5],
+            [0, 1, 2, 3, 5, 7],
+            [1, 2, 4, 5, 6, 7, 8],
+            [1, 2, 4, 5, 6, 8],
+            [1, 2, 3, 4, 5, 6, 7],
+            [0, 1, 2, 4, 5, 6, 7, 8],
+            [1, 2, 5, 6, 8],
+            [0, 1, 2, 3, 4, 6],
+            [0, 3, 4, 6],
+            [0, 1, 3, 4, 6],
+            [0, 3, 4, 6, 7],
+            [0, 3, 4, 6, 7],
+            [0, 2, 3, 6],
+            [0, 2, 3, 4, 6, 7, 8],
+        ]
+
+        # rank N-1
         HIGHTECH_NAMES = [
             "Hull Parts", "Nav Consoles", "Lifesupport Systems",
             "Computing Nodes", "Engine Components", "Fuel Generators",
-            "Air Handlers", "Hydrofarming Bays",
-            "Packaged Meals", "Unisex Clothing",
+            "Air Handlers", "Hydrofarming Bays", "Packaged Meals",
+            "Unisex Clothing",
+        ]
+        HIGHTECH_INPUTS = [
+            [2, 5, 8, 11, 17],
+            [0, 2, 9, 17],
+            [0, 1, 3, 4, 9, 12, 13, 15, 16, 18],
+            [0, 1, 2, 9, 17],
+            [3, 4, 5, 6, 7, 8, 10, 11],
+            [3, 4, 5, 6, 7, 9, 11, 12, 15, 16],
+            [0, 2, 3, 5, 6, 8, 15],
+            [4, 5, 8, 9, 12, 13, 15, 16, 18],
+            [9, 13, 14, 16, 18],
+            [8, 9, 16, 17, 18],
         ]
 
-        #tier N
+        #rank N
         SINK_NAMES=["Ships", "Stations", "Consumer Goods"]
-
+        SINK_INPUTS = [
+            [0, 1, 2, 3, 4, 5],
+            [0, 1, 2, 3, 5, 6],
+            [2, 6, 7, 8, 9],
+        ]
 
     class Ship:
         # soyuz 5000 - 10000kg
@@ -151,14 +197,6 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np
         V[edge[1]] = True
     return E
 
-"""
-@overload
-def peaked_bounded_random(r:np.random.Generator, mu:float, sigma:float, lb:float=0., ub:float=1.0) -> float: ...
-
-@overload
-def peaked_bounded_random(r:np.random.Generator, mu:float, sigma:float, size:Union[int, Sequence[int]], lb:float=0., ub:float=1.0) -> npt.NDArray[np.float64]: ...
-"""
-
 def peaked_bounded_random(
         r:np.random.Generator, mu:float, sigma:float,
         size:Optional[Union[int, Sequence[int]]]=None,
@@ -181,6 +219,18 @@ def peaked_bounded_random(
     assert beta > 1.
 
     return lb+scale*r.beta(alpha, beta, size=size)
+
+class GenerationErrorCase(enum.IntEnum):
+    DISTINCT_INPUTS = enum.auto()
+    INPUT_CONSTRAINTS = enum.auto()
+    DISTINCT_INUTS = enum.auto()
+    SINGLE_INPUT = enum.auto()
+    NO_OUTPUTS = enum.auto()
+
+class GenerationError(Exception):
+    def __init__(self, case:GenerationErrorCase, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.case = case
 
 class GenerationListener:
     def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
@@ -224,6 +274,20 @@ def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -
 """
 
 class UniverseGenerator:
+    @staticmethod
+    def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
+        g = graphviz.Digraph("product_name_graph", graph_attr={"rankdir": "TB"})
+        g.attr(compound="true", ranksep="1.5")
+
+
+        for rank in range(len(names)-1, 0, -1):
+            for node in range(len(edges[rank])):
+                g.node(f'{rank}_{node}', label=f'{names[rank][node]} ({rank}_{node})')
+                for e in edges[rank][node]:
+                    g.edge(f'{rank-1}_{e}', f'{rank}_{node}')
+
+        return g
+
     def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -369,40 +433,103 @@ class UniverseGenerator:
     def _gen_gate_name(self, destination:core.Sector) -> str:
         return f"Gate to {destination.short_id()}"
 
-    def _generate_product_names(self, ranks:npt.NDArray[np.int64]) -> List[str]:
+    def _assign_names(self, adj_matrix:npt.NDArray[np.float64], allowed_options:List[List[int]]) -> List[int]:
+        """ Assigns names from in_options following constraints.
 
-        assert len(ranks) >= 3
+        in_options list of strings to draw from
+        adj_matrix pairing of inputs to outputs
+        allowed_options allowed options for inputs for each output
+        returns indexes into in_options of chosen options
+        """
+
+        assert adj_matrix.shape[1] == len(allowed_options)
+
+        # initialize each input with all options
+        input_options = np.ones((adj_matrix.shape[0], max(max(x) for x in allowed_options)+1), dtype=int)
+
+        # for each output
+        for j in range(adj_matrix.shape[1]):
+            # zero out illegal options for each input
+            for i in range(adj_matrix.shape[0]):
+                if adj_matrix[i,j] > 0:
+                    mask = np.ones(input_options.shape[1], dtype=bool)
+                    mask[allowed_options[j]] = 0
+                    input_options[i][mask] = 0
+
+        # now we have for each input the intersection of the allowed inputs
+
+        # if the intersection of any is empty, this is unsatisfiable
+        if np.any(np.sum(input_options, axis=1) == 0):
+            raise GenerationError(GenerationErrorCase.INPUT_CONSTRAINTS, "unsatisfiable constraints")
+
+        # now we can choose inputs
+        satisified = False
+        tries = 0
+        max_tries = 32
+        while not satisified and tries < 32:
+            # choose from most constrained to least
+            choice_order = input_options.sum(axis=1).argsort()
+            running_input_options = input_options.copy()
+            chosen_inputs = np.full((len(input_options), ), -1, dtype=int)
+            for i in choice_order:
+                if running_input_options[i].sum() == 0:
+                    break
+
+                valid_choices = np.where(running_input_options[i] > 0)[0]
+                p = 1. / running_input_options[:,valid_choices].sum(axis=0)
+
+                choice = self.r.choice(valid_choices, p=p/np.sum(p))
+                chosen_inputs[i] = choice
+                # don't pick the same option twice!
+                running_input_options[:,choice] = 0
+            satisified = not np.any(chosen_inputs == -1)
+            tries += 1
+
+        if not satisified:
+            raise GenerationError(GenerationErrorCase.DISTINCT_INPUTS, "cannot assign distinct inputs")
+
+        assert len(np.unique(chosen_inputs)) == len(chosen_inputs)
+        return list(chosen_inputs)
+
+    def _generate_product_names(self, ranks:npt.NDArray[np.int64], adj_matrix:npt.NDArray[np.float64]) -> List[str]:
+
+        assert 3 <= len(ranks) <= 5
 
         assert ranks[0] <= len(Settings.ProductionChain.ORE_NAMES)
-        assert ranks[1] == ranks[0]
-        if len(ranks) >= 5:
-            assert sum(ranks[2:-2]) <= len(Settings.ProductionChain.INTERMEDIATE_NAMES)
+        assert ranks[1] == ranks[0], "rank 0 (ores) must have same size as rank 1 (refined ores)"
+        if len(ranks) == 5:
+            assert ranks[2] <= len(Settings.ProductionChain.INTERMEDIATE_NAMES)
 
         if len(ranks) >= 4:
             assert ranks[-2] <= len(Settings.ProductionChain.HIGHTECH_NAMES)
         assert ranks[-1] == len(Settings.ProductionChain.SINK_NAMES)
 
-        # set up ores and refined versions of those ores
-        ore_name_ids = self.r.choice(np.arange(len(Settings.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
+        # set up product names in reverse order, respecting allowed inputs
+        product_names = list(Settings.ProductionChain.SINK_NAMES)
 
-        product_names = [Settings.ProductionChain.ORE_NAMES[i] for i in ore_name_ids]
-        product_names.extend(
-            [f'Refined {Settings.ProductionChain.ORE_NAMES[i]}' for i in ore_name_ids]
-        )
+        if len(ranks) == 3:
+            # ore names don't matter, just assign names
+            ore_ids = self.r.choice(np.arange(len(Settings.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
+            product_names = [Settings.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {Settings.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+        else:
+            # high tech names matter
+            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], Settings.ProductionChain.SINK_INPUTS)
+            product_names = [Settings.ProductionChain.HIGHTECH_NAMES[x] for x in hightech_ids] + product_names
 
-        # set up intermediate goods
-        if len(ranks) >= 5:
-            product_names.extend(self.r.choice(Settings.ProductionChain.INTERMEDIATE_NAMES, size=sum(ranks[2:-2]), replace=False))
+            if len(ranks) == 4:
+                # ore names don't matter, just assign names
+                ore_ids = self.r.choice(np.arange(len(Settings.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
+                product_names = [Settings.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {Settings.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+            else:
+                assert len(ranks) == 5
+                # intermediate and ore names matter
+                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [Settings.ProductionChain.HIGHTECH_INPUTS[x] for x in hightech_ids])
+                product_names = [Settings.ProductionChain.INTERMEDIATE_NAMES[x] for x in intermediate_ids] + product_names
 
-        # set up high-tech goods
-        if len(ranks) >= 4:
-            product_names.extend(self.r.choice(Settings.ProductionChain.HIGHTECH_NAMES, size=ranks[-2], replace=False))
-
-        # set up final goods
-        product_names.extend(Settings.ProductionChain.SINK_NAMES)
+                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [Settings.ProductionChain.INTERMEDIATE_INPUTS[x] for x in intermediate_ids])
+                product_names = [Settings.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {Settings.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
 
         assert len(product_names) == sum(ranks)
-
         return product_names
 
     def _choose_portrait(self) -> core.Sprite:
@@ -803,15 +930,16 @@ class UniverseGenerator:
     def generate_chain(
             self,
             n_ranks:int=3,
-            min_per_rank:Sequence[int]=(3,5,4), max_per_rank:Sequence[int]=(4,7,6),
+            min_per_rank:Sequence[int]=(3,5,5), max_per_rank:Sequence[int]=(4,7,6),
             max_outputs:int=3, max_inputs:int=3,
             min_input_per_output:int=2, max_input_per_output:int=10,
             min_raw_price:float=1., max_raw_price:float=15.,
             min_markup:float=1.05, max_markup:float=2.5,
-            min_final_inputs:int=3, max_final_inputs:int=5,
+            min_final_inputs:int=2, max_final_inputs:int=5,
             min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
             max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
             min_raw_per_processed:int=3, max_raw_per_processed:int=10,
+            max_fraction_single_output:float=0.7,
             ) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -876,7 +1004,7 @@ class UniverseGenerator:
 
         # set up production for rest of products
         so_far = ranks[0]
-        for (nodes_from, nodes_to) in zip(ranks[1:], ranks[2:]):
+        for rank, (nodes_from, nodes_to) in enumerate(zip(ranks[1:], ranks[2:]), 1):
             target_edges = self.r.integers(
                 np.max((nodes_from, nodes_to)),
                 np.min((
@@ -892,6 +1020,11 @@ class UniverseGenerator:
                     np.min((nodes_from, max_inputs)),
                     target_weight,
                     min_input_per_output, max_input_per_output))
+
+            # check for fraction that have single input
+            if ((rank_production > 0).astype(int).sum(axis=1) == 1).sum() / nodes_from > max_fraction_single_output:
+                raise GenerationError(GenerationErrorCase.SINGLE_INPUT, f'too many nodes have a single input {((rank_production > 0).astype(int).sum(axis=1) == 1).sum() / nodes_from}')
+
             adj_matrix[so_far:so_far+nodes_from, so_far+nodes_from:so_far+nodes_from+nodes_to] = rank_production
             so_far += nodes_from
 
@@ -928,7 +1061,8 @@ class UniverseGenerator:
         total_nodes = np.sum(ranks)
 
         # make sure all non-lastrank products have an output
-        assert np.all(adj_matrix[:-ranks[-1],:].sum(axis=1) > 0)
+        if np.any(adj_matrix[:-ranks[-1],:].sum(axis=1) == 0):
+            raise GenerationError(GenerationErrorCase.NO_OUTPUTS, f'some intermediate products have no output')
         # make sure all non-firstrank products have an input
         assert np.all(adj_matrix[:,ranks[0]:].sum(axis=0) > 0)
 
@@ -949,7 +1083,7 @@ class UniverseGenerator:
         # adjust final production weights to account for the prices of inputs and markup
         #TODO: the below throws type error in mypy since vstack takes a tuple to vstack, what's going on here? (two cases below)
         adj_matrix[s_last_goods, s_final_products] /= np.vstack(prices[s_last_goods]) # type: ignore
-        adj_matrix[s_last_goods, s_final_products] = adj_matrix[s_last_goods, s_final_products].round()
+        adj_matrix[s_last_goods, s_final_products] = np.ceil(adj_matrix[s_last_goods, s_final_products])
 
         # make sure all non-lastrank products have an output
         assert np.all(adj_matrix[:-ranks[-1],:].sum(axis=1) > 0)
@@ -968,7 +1102,7 @@ class UniverseGenerator:
         batch_sizes = np.clip(3. * np.ceil(np.min(adj_matrix, axis=1, where=adj_matrix>0, initial=np.inf)), 1., 50)
         batch_sizes[-ranks[-1]:] = 1
 
-        product_names = self._generate_product_names(ranks)
+        product_names = self._generate_product_names(ranks, adj_matrix)
 
         chain = core.ProductionChain()
         chain.ranks = ranks
@@ -1114,7 +1248,19 @@ class UniverseGenerator:
         self.gamestate.random = self.r
 
         # generate a production chain
-        production_chain = self.generate_chain()
+        production_chain:Optional[core.ProductionChain] = None
+        tries = 0
+        max_tries = 64
+        generation_error_cases:Dict[GenerationErrorCase, int] = collections.defaultdict(int)
+        while production_chain is None and tries < max_tries:
+            try:
+                production_chain = self.generate_chain()
+            except GenerationError as e:
+                generation_error_cases[e.case] += 1
+                pass
+            tries += 1
+        assert production_chain
+        self.logger.debug(f'took {tries} tries to generate a production chain {generation_error_cases}')
         self.gamestate.production_chain = production_chain
 
         # generate sectors
@@ -1133,3 +1279,24 @@ class UniverseGenerator:
         self.spawn_player()
 
         return self.gamestate
+
+def main() -> None:
+
+    names = [
+        Settings.ProductionChain.ORE_NAMES,
+        [f'Refined_{x}' for x in Settings.ProductionChain.ORE_NAMES],
+        Settings.ProductionChain.INTERMEDIATE_NAMES,
+        Settings.ProductionChain.HIGHTECH_NAMES,
+        Settings.ProductionChain.SINK_NAMES,
+    ]
+    constraints:List[List[List[int]]] = [
+        [[]] * len(Settings.ProductionChain.ORE_NAMES),
+        [[i] for i in range(len(Settings.ProductionChain.ORE_NAMES))],
+        Settings.ProductionChain.INTERMEDIATE_INPUTS,
+        Settings.ProductionChain.HIGHTECH_INPUTS,
+        Settings.ProductionChain.SINK_INPUTS,
+    ]
+    UniverseGenerator.viz_product_name_graph(names, constraints).render("/tmp/product_name_graph", format="pdf")
+
+if __name__ == "__main__":
+    main()

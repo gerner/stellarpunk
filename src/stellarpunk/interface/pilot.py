@@ -607,7 +607,7 @@ class PilotView(interface.View):
 
         if np.any(self.ship.cargo > 0.):
             label_cargo = "Cargo:"
-            self.viewscreen.addstr(status_y, status_x, f'{label_cargo>12}')
+            self.viewscreen.addstr(status_y, status_x, f'{label_cargo:>12}')
             status_y += 1
             for i in range(len(self.ship.cargo)):
                 if self.ship.cargo[i] == 0.:
