@@ -92,6 +92,12 @@ You got this one covered or should I walk you through it? (Y/N to enter trading 
 
 ...Tutorial goes here (finding 
 
+# Worldgen
+
+## Production Chain
+
+Depending on how many tries it takes, we could tell a story about trying to scrape together a way to survive using equipment and technology left over from the expansion. Very few tries => it was easy to become self sufficient. Many tries => lots of failed attempts to design and build production systems.
+
 # Tidbits
 
 ## Comms

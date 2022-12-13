@@ -106,7 +106,7 @@ class Settings:
             [0, 2, 3, 5, 6, 8, 15],
             [4, 5, 8, 9, 12, 13, 15, 16, 18],
             [9, 13, 14, 16, 18],
-            [8, 9, 16, 17, 18],
+            [8, 9, 17, 18],
         ]
 
         #rank N
@@ -220,11 +220,13 @@ def peaked_bounded_random(
 
     return lb+scale*r.beta(alpha, beta, size=size)
 
-class GenerationErrorCase(enum.IntEnum):
+class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
     INPUT_CONSTRAINTS = enum.auto()
     DISTINCT_INUTS = enum.auto()
+    ONE_TO_ONE = enum.auto()
     SINGLE_INPUT = enum.auto()
+    SINGLE_OUTPUT = enum.auto()
     NO_OUTPUTS = enum.auto()
 
 class GenerationError(Exception):
@@ -939,7 +941,9 @@ class UniverseGenerator:
             min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
             max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
             min_raw_per_processed:int=3, max_raw_per_processed:int=10,
-            max_fraction_single_output:float=0.7,
+            max_fraction_one_to_one:float=0.5,
+            max_fraction_single_input:float=0.9,
+            max_fraction_single_output:float=0.9,
             ) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -1021,9 +1025,24 @@ class UniverseGenerator:
                     target_weight,
                     min_input_per_output, max_input_per_output))
 
-            # check for fraction that have single input
-            if ((rank_production > 0).astype(int).sum(axis=1) == 1).sum() / nodes_from > max_fraction_single_output:
-                raise GenerationError(GenerationErrorCase.SINGLE_INPUT, f'too many nodes have a single input {((rank_production > 0).astype(int).sum(axis=1) == 1).sum() / nodes_from}')
+            # check for 1:1 connections (node has exactly 1 output and it's to
+            # a node with exactly one input)
+            num_one_to_one = 0
+            for i in np.where((rank_production > 0).astype(int).sum(axis=1))[0]:
+                single_output = rank_production[i].argmax()
+                if (rank_production[:, single_output] > 0).astype(int).sum() == 1:
+                    num_one_to_one += 1
+            if num_one_to_one/nodes_from > max_fraction_one_to_one:
+                raise GenerationError(GenerationErrorCase.ONE_TO_ONE, f'too many one-to-one connections {num_one_to_one=} {nodes_from=}')
+
+            # check for fraction that have single input/output
+            num_single_input = ((rank_production > 0).astype(int).sum(axis=0) == 1).sum()
+            if num_single_input / nodes_to > max_fraction_single_input:
+                raise GenerationError(GenerationErrorCase.SINGLE_INPUT, f'too many nodes have a single input {num_single_input / nodes_to}')
+
+            num_single_output = ((rank_production > 0).astype(int).sum(axis=1) == 1).sum()
+            if  num_single_output / nodes_from > max_fraction_single_output:
+                raise GenerationError(GenerationErrorCase.SINGLE_OUTPUT, f'too many nodes have a single output {num_single_output / nodes_from}')
 
             adj_matrix[so_far:so_far+nodes_from, so_far+nodes_from:so_far+nodes_from+nodes_to] = rank_production
             so_far += nodes_from
@@ -1250,7 +1269,7 @@ class UniverseGenerator:
         # generate a production chain
         production_chain:Optional[core.ProductionChain] = None
         tries = 0
-        max_tries = 64
+        max_tries = 256
         generation_error_cases:Dict[GenerationErrorCase, int] = collections.defaultdict(int)
         while production_chain is None and tries < max_tries:
             try:
