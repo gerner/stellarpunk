@@ -98,6 +98,8 @@ You got this one covered or should I walk you through it? (Y/N to enter trading 
 
 Depending on how many tries it takes, we could tell a story about trying to scrape together a way to survive using equipment and technology left over from the expansion. Very few tries => it was easy to become self sufficient. Many tries => lots of failed attempts to design and build production systems.
 
+Potentially use information about the resulting production chain to describe the products. E.g. if a high-tech resource only uses only a single base resource. E.g. a product that is used in all or nearly all products in the next rank is a critical lynch-pin.
+
 # Tidbits
 
 ## Comms

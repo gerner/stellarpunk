@@ -228,6 +228,7 @@ class GenerationErrorCase(enum.Enum):
     SINGLE_INPUT = enum.auto()
     SINGLE_OUTPUT = enum.auto()
     NO_OUTPUTS = enum.auto()
+    NO_CHAIN = enum.auto()
 
 class GenerationError(Exception):
     def __init__(self, case:GenerationErrorCase, *args:Any, **kwargs:Any) -> None:
@@ -944,6 +945,74 @@ class UniverseGenerator:
             max_fraction_one_to_one:float=0.5,
             max_fraction_single_input:float=0.9,
             max_fraction_single_output:float=0.9,
+            max_tries:int=256,
+            ) -> core.ProductionChain:
+        """ Generates a random production chain.
+
+        Products are divided into ranks with links only between consecutive
+        ranks. The first rank represents raw (or simply refined) resources. The
+        last rank represents final products.
+
+        An additional rank of sink products is added to the production chain
+        representing sinks for the economy. These final sinks have per unit
+        target prices. The rest of the chain flows into these targets. The
+        entire production chain (units, prices) is balanced to support these
+        final per-unit prices.
+
+        n_ranks: int number of products produced and traded in the economy
+        min_per_rank: array of ints min number of products in each rank
+        max_per_rank: array of ints max number of products in each rank
+        min_input_per_output: float min number of units needed from one rank to
+            produce a unit of output in the next rank
+        max_input_per_output: float max number of units needed from one rank to
+            produce a unit of output in the next rank
+        min_raw_price: float min price for items in the first rank
+        max_raw_price: float max proice for items in the first rank
+        min_markup: float min markup factor on input cost when pricing outputs (1.0 = no markup)
+        max_markup: float max markup factor
+        min_final_inputs: int min number of inputs to produce final outputs
+        max_final_inputs: int max number of inputs to produce final outputs
+        min_final_prices: array of floats min target prices for final outputs
+        max_final_prices: array of floats max target prices for final outputs
+        min_raw_per_processed: int min number of raw inputs per processed
+        max_raw_per_processed: int max number of raw inputs per processed
+        max_fraction_one_to_one: float for internal ranks what fraction of nodes can lead to a  one-to-one edge
+        max_fraction_single_input: float for internal ranks what fraction of nodes can have a single input
+        max_fraction_single_output: float for internal ranks what fraction of nodes can have a single output
+        max_tries: int how many tries should we make to generate a production chain meeting all criteria
+        """
+
+        production_chain:Optional[core.ProductionChain] = None
+        tries = 0
+        generation_error_cases:Dict[GenerationErrorCase, int] = collections.defaultdict(int)
+        while production_chain is None and tries < max_tries:
+            try:
+                production_chain = self._generate_chain()
+            except GenerationError as e:
+                generation_error_cases[e.case] += 1
+                pass
+            tries += 1
+        self.logger.debug(f'took {tries} tries to generate a production chain {generation_error_cases}')
+        if not production_chain:
+            raise GenerationError(GenerationErrorCase.NO_CHAIN)
+
+        return production_chain
+
+    def _generate_chain(
+            self,
+            n_ranks:int=3,
+            min_per_rank:Sequence[int]=(3,5,5), max_per_rank:Sequence[int]=(4,7,6),
+            max_outputs:int=3, max_inputs:int=3,
+            min_input_per_output:int=2, max_input_per_output:int=10,
+            min_raw_price:float=1., max_raw_price:float=15.,
+            min_markup:float=1.05, max_markup:float=2.5,
+            min_final_inputs:int=2, max_final_inputs:int=5,
+            min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
+            max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
+            min_raw_per_processed:int=3, max_raw_per_processed:int=10,
+            max_fraction_one_to_one:float=0.5,
+            max_fraction_single_input:float=0.9,
+            max_fraction_single_output:float=0.9,
             ) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -1267,20 +1336,7 @@ class UniverseGenerator:
         self.gamestate.random = self.r
 
         # generate a production chain
-        production_chain:Optional[core.ProductionChain] = None
-        tries = 0
-        max_tries = 256
-        generation_error_cases:Dict[GenerationErrorCase, int] = collections.defaultdict(int)
-        while production_chain is None and tries < max_tries:
-            try:
-                production_chain = self.generate_chain()
-            except GenerationError as e:
-                generation_error_cases[e.case] += 1
-                pass
-            tries += 1
-        assert production_chain
-        self.logger.debug(f'took {tries} tries to generate a production chain {generation_error_cases}')
-        self.gamestate.production_chain = production_chain
+        self.gamestate.production_chain = self.generate_chain()
 
         # generate sectors
         self.generate_sectors(
