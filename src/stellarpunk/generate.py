@@ -68,16 +68,16 @@ class Settings:
             "Organic Scaffolds",
         ]
         INTERMEDIATE_INPUTS = [
-            [1, 2, 3, 4, 5, 6, 8],
-            [1, 2, 3, 4, 5, 6, 8],
-            [1, 2, 3, 4, 5, 6],
+            [1, 2, 4, 5, 6, 8],
+            [1, 2, 4, 5, 6, 8],
+            [1, 2, 4, 5, 6],
             [0, 2, 3, 5],
             [0, 2, 3, 5],
             [1, 2, 3, 5],
             [0, 1, 2, 3, 5, 7],
             [1, 2, 4, 5, 6, 7, 8],
             [1, 2, 4, 5, 6, 8],
-            [1, 2, 3, 4, 5, 6, 7],
+            [1, 2, 4, 5, 6, 7],
             [0, 1, 2, 4, 5, 6, 7, 8],
             [1, 2, 5, 6, 8],
             [0, 1, 2, 3, 4, 6],
@@ -86,7 +86,7 @@ class Settings:
             [0, 3, 4, 6, 7],
             [0, 3, 4, 6, 7],
             [0, 2, 3, 6],
-            [0, 2, 3, 4, 6, 7, 8],
+            [0, 2, 3, 4, 6, 7],
         ]
 
         # rank N-1
@@ -283,7 +283,7 @@ class UniverseGenerator:
         g.attr(compound="true", ranksep="1.5")
 
 
-        for rank in range(len(names)-1, 0, -1):
+        for rank in range(len(names)-1, -1, -1):
             for node in range(len(edges[rank])):
                 g.node(f'{rank}_{node}', label=f'{names[rank][node]} ({rank}_{node})')
                 for e in edges[rank][node]:
@@ -1359,7 +1359,7 @@ def main() -> None:
 
     names = [
         Settings.ProductionChain.ORE_NAMES,
-        [f'Refined_{x}' for x in Settings.ProductionChain.ORE_NAMES],
+        [f'Refined {x}' for x in Settings.ProductionChain.ORE_NAMES],
         Settings.ProductionChain.INTERMEDIATE_NAMES,
         Settings.ProductionChain.HIGHTECH_NAMES,
         Settings.ProductionChain.SINK_NAMES,
