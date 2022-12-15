@@ -84,6 +84,10 @@ class Icons:
 
     LOCATION_INDICATOR = "X"
 
+    STAR_LARGE = "🞣"
+    STAR_SMALL = "🞟"
+    STAR_SMALL_ALTS = ["·", "˙", "."]
+
     """
     "△" \u25B3 white up pointing triangle
     "" \u25B7 white right pointing triangle
@@ -122,6 +126,11 @@ class Icons:
     "⌬" benzene ring
     "⬡" white hexagon
     "⬢" black hexagon
+    "🞣" medium greek cross
+    "🞟" medium small lozenge
+    "·" middle dot
+    "˙" dot above
+    "." arabic dot below
     """
 
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
@@ -134,6 +143,9 @@ class Icons:
 
     COLOR_UNIVERSE_SECTOR = 29
     COLOR_UNIVERSE_EDGE = 40
+
+    COLOR_STAR_SMALL = 245
+    COLOR_STAR_LARGE = 252
 
     @staticmethod
     def angle_to_ship(angle:float) -> str:
@@ -204,6 +216,75 @@ class Canvas:
             string = string[:self.viewscreen_width-x]
 
         self.viewscreen.addstr(y, x, string, attr)
+
+class Perspective:
+    """ Represents a view on space, at some position, at some zoom """
+    def __init__(self, interface:Interface, zoom:float) -> None:
+        self.interface = interface
+
+        # expressed in meters per character width
+        self.zoom = 0.
+
+        # min x, min y, max x, max y
+        self.bbox = (0., 0., 0., 0.)
+        self.meters_per_char = (0., 0.)
+
+        self._cursor = (0., 0.)
+
+    def get_cursor(self) -> Tuple[float, float]:
+        return self._cursor
+
+    def set_cursor(self, c:Tuple[float, float]) -> None:
+        self._cursor = c
+        self.update_bbox()
+
+    cursor = property(get_cursor, set_cursor)
+
+    def move_cursor(self, direction:int) -> None:
+        # ~4 characters horzontally or 2 characters vertically
+        stepsize = 4.
+
+        if direction == ord('w'):
+            self.cursor[1] -= stepsize
+        elif direction == ord('a'):
+            self.cursor[0] -= stepsize
+        elif direction == ord('s'):
+            self.cursor[1] += stepsize
+        elif direction == ord('d'):
+            self.cursor[0] += stepsize
+        else:
+            raise ValueError(f'unknown direction {direction}')
+
+        self.update_bbox()
+
+    def zoom_cursor(self, direction:int) -> None:
+        if direction == ord('+'):
+            self.zoom *= 0.9
+        elif direction == ord('-'):
+            self.zoom *= 1.1
+        else:
+            raise ValueError(f'unknown direction {direction}')
+
+        self.update_bbox()
+
+    def update_bbox(self):
+        self.meters_per_char = (
+                self.zoom,
+                self.zoom / self.interface.font_width * self.interface.font_height
+        )
+
+        assert self.zoom / self.meters_per_char[1] <= self.interface.viewscreen_height
+        assert self.zoom / self.meters_per_char[0] <= self.interface.viewscreen_width
+
+        vsw = self.interface.viewscreen_width
+        vsh = self.interface.viewscreen_height
+
+        self.bbox = (
+            self.cursor[0] - (vsw/2 * self.meters_per_char[0]),
+            self.cursor[1] - (vsh/2 * self.meters_per_char[1]),
+            self.cursor[0] + (vsw/2 * self.meters_per_char[0]),
+            self.cursor[1] + (vsh/2 * self.meters_per_char[1]),
+        )
 
 class View(abc.ABC):
     def __init__(self, interface: Interface) -> None:

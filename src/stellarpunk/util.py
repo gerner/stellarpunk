@@ -8,7 +8,7 @@ import bisect
 import logging
 import pdb
 import curses
-from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, overload
+from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -36,6 +36,29 @@ def throttled_log(timestamp:float, throttle:float, logger:logging.Logger, level:
         return timestamp + limit
     else:
         return throttle
+
+def peaked_bounded_random(
+        r:np.random.Generator, mu:float, sigma:float,
+        size:Optional[Union[int, Sequence[int]]]=None,
+        lb:float=0., ub:float=1.0) -> Union[float, npt.NDArray[np.float64]]:
+    if mu <= lb or mu >= ub:
+        raise ValueError(f'mu={mu} must be lb<mu<ub')
+    if sigma <= 0.:
+        raise ValueError(f'sigma={sigma} must be > 0.')
+
+    scale = ub-lb
+    mu = (mu-lb)/scale
+    sigma = (sigma-lb)/scale
+    phi = mu * (1-mu)/(sigma**2.)-1.
+    if phi <= 1./mu or phi <= 1./(1.-mu):
+        raise ValueError(f'sigma={sigma} must be s.t. after transforming mu and sigma to 0,1, mu * (1-mu)/(sigma**2.)-1. < 1/mu and < 1/(1-mu)')
+    alpha = mu * phi
+    beta = (1-mu) * phi
+    # make sure alpha/beta > 1, which makes beta unimodal between 0,1
+    assert alpha > 1.
+    assert beta > 1.
+
+    return lb+scale*r.beta(alpha, beta, size=size)
 
 def human_distance(distance_meters:float) -> str:
     """ Human readable approx string for distance_meters.

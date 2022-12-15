@@ -953,6 +953,8 @@ class Gamestate:
 
         self.counters = [0.] * len(Counters)
 
+        self.starfield:Sequence[Tuple[Tuple[float, float], float]]
+
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()
 

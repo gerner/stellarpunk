@@ -245,10 +245,51 @@ class UniverseView(interface.View):
 
         return self.sector_view
 
+    def draw_starfield(self) -> None:
+        # draw the starfield with parallax
+
+        # parallax basically means the background layer is more zoomed out
+        zoom_factor = 1.5
+        mpc_x = self.meters_per_char_x*zoom_factor
+        mpc_y = self.meters_per_char_y*zoom_factor
+
+        vsw = self.interface.viewscreen_width
+        vsh = self.interface.viewscreen_height
+
+        bbox = (
+            self.ucursor_x - (self.bbox[2]-self.bbox[0])/2*zoom_factor,
+            self.ucursor_y - (self.bbox[3]-self.bbox[1])/2*zoom_factor,
+            self.ucursor_x + (self.bbox[2]-self.bbox[0])/2*zoom_factor,
+            self.ucursor_y + (self.bbox[3]-self.bbox[1])/2*zoom_factor,
+        )
+
+        for (x,y), size in self.interface.gamestate.starfield:
+            if bbox[0] < x < bbox[2] and bbox[1] < y < bbox[3]:
+                s_x, s_y = util.sector_to_screen(
+                    x, y,
+                    bbox[0], bbox[1],
+                    mpc_x, mpc_y)
+
+                if size > 0.5:
+                    icon = interface.Icons.STAR_LARGE
+                    attr = curses.color_pair(interface.Icons.COLOR_STAR_LARGE)
+                else:
+                    attr = curses.color_pair(interface.Icons.COLOR_STAR_SMALL)
+                    if size < 0.167:
+                        icon = interface.Icons.STAR_SMALL_ALTS[0]
+                    elif size < 0.333:
+                        icon = interface.Icons.STAR_SMALL_ALTS[1]
+                    else:
+                        icon = interface.Icons.STAR_SMALL_ALTS[2]
+
+                self.viewscreen.viewscreen.addch(s_y, s_x, icon, attr)
+
     def update_display(self) -> None:
         """ Draws a map of all sectors. """
 
         self.viewscreen.erase()
+
+        self.draw_starfield()
 
         # draw the cached sector/edge geometry
         for (y,x), c in self._cached_sector_layout[1].items():

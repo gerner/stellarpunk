@@ -197,28 +197,22 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np
         V[edge[1]] = True
     return E
 
-def peaked_bounded_random(
-        r:np.random.Generator, mu:float, sigma:float,
-        size:Optional[Union[int, Sequence[int]]]=None,
-        lb:float=0., ub:float=1.0) -> Union[float, npt.NDArray[np.float64]]:
-    if mu <= lb or mu >= ub:
-        raise ValueError(f'mu={mu} must be lb<mu<ub')
-    if sigma <= 0.:
-        raise ValueError(f'sigma={sigma} must be > 0.')
+def generate_starfield(random:np.random.Generator, universe_radius:float, num_stars:int) -> Sequence[Tuple[Tuple[float, float], float]]:
 
-    scale = ub-lb
-    mu = (mu-lb)/scale
-    sigma = (sigma-lb)/scale
-    phi = mu * (1-mu)/(sigma**2.)-1.
-    if phi <= 1./mu or phi <= 1./(1.-mu):
-        raise ValueError(f'sigma={sigma} must be s.t. after transforming mu and sigma to 0,1, mu * (1-mu)/(sigma**2.)-1. < 1/mu and < 1/(1-mu)')
-    alpha = mu * phi
-    beta = (1-mu) * phi
-    # make sure alpha/beta > 1, which makes beta unimodal between 0,1
-    assert alpha > 1.
-    assert beta > 1.
+    bbox = (
+        -universe_radius, -universe_radius,
+        universe_radius, universe_radius
+    )
 
-    return lb+scale*r.beta(alpha, beta, size=size)
+    # stars have location, size
+    # location is uniform random in bbox
+    # size between 0,1, closer to 0
+
+    x = random.uniform(bbox[0], bbox[2], size=num_stars)
+    y = random.uniform(bbox[1], bbox[3], size=num_stars)
+    size = util.peaked_bounded_random(random, 0.35, 0.2, size=num_stars)
+    return list(zip(zip(x,y),size)) # type: ignore
+
 
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
@@ -837,7 +831,7 @@ class UniverseGenerator:
         min_ownership = 1
         max_ownership = 3
         sigma_ownership = 0.12 * (max_ownership-min_ownership) + min_ownership
-        mean_ownership = peaked_bounded_random(self.r, mu_ownership, sigma_ownership, lb=min_ownership, ub=max_ownership)
+        mean_ownership = util.peaked_bounded_random(self.r, mu_ownership, sigma_ownership, lb=min_ownership, ub=max_ownership)
         num_assets = len(assets)
         num_owners = int(np.ceil(num_assets/mean_ownership))
         assert num_assets/num_owners >= min_ownership
@@ -1352,6 +1346,12 @@ class UniverseGenerator:
 
         # spawn the player
         self.spawn_player()
+
+        self.gamestate.starfield = generate_starfield(
+            self.r,
+            universe_radius=4*Settings.UNIVERSE_RADIUS,
+            num_stars=4000,
+        )
 
         return self.gamestate
 
