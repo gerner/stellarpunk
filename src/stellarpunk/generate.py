@@ -200,22 +200,25 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np
         V[edge[1]] = True
     return E
 
-def generate_starfield(random:np.random.Generator, universe_radius:float, num_stars:int) -> Sequence[Tuple[Tuple[float, float], float]]:
+def generate_starfield(random:np.random.Generator, radius:float, num_stars:int) -> Sequence[Sequence[Tuple[Tuple[float, float], float]]]:
 
-    bbox = (
-        -universe_radius, -universe_radius,
-        universe_radius, universe_radius
-    )
+    starfields:List[Sequence[Tuple[Tuple[float, float], float]]] = []
+    for _ in range(2):
+        bbox = (
+            -radius, -radius,
+            radius, radius
+        )
 
-    # stars have location, size
-    # location is uniform random in bbox
-    # size between 0,1, closer to 0
+        # stars have location, size
+        # location is uniform random in bbox
+        # size between 0,1, closer to 0
 
-    x = random.uniform(bbox[0], bbox[2], size=num_stars)
-    y = random.uniform(bbox[1], bbox[3], size=num_stars)
-    size = util.peaked_bounded_random(random, 0.35, 0.2, size=num_stars)
-    return list(zip(zip(x,y),size)) # type: ignore
+        x = random.uniform(bbox[0], bbox[2], size=num_stars)
+        y = random.uniform(bbox[1], bbox[3], size=num_stars)
+        size = util.peaked_bounded_random(random, 0.35, 0.2, size=num_stars)
+        starfields.append(list(zip(zip(x,y),size))) # type: ignore
 
+    return starfields
 
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
@@ -942,7 +945,7 @@ class UniverseGenerator:
             max_fraction_one_to_one:float=0.5,
             max_fraction_single_input:float=0.9,
             max_fraction_single_output:float=0.9,
-            max_tries:int=256,
+            max_tries:int=512,
             ) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -1352,8 +1355,14 @@ class UniverseGenerator:
 
         self.gamestate.starfield = generate_starfield(
             self.r,
-            universe_radius=4*Settings.UNIVERSE_RADIUS,
+            radius=4*Settings.UNIVERSE_RADIUS,
             num_stars=4000,
+        )
+
+        self.gamestate.sector_starfield = generate_starfield(
+            self.r,
+            radius=4*Settings.SECTOR_RADIUS_MEAN,
+            num_stars=500,
         )
 
         return self.gamestate

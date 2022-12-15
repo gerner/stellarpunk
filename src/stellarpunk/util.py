@@ -369,8 +369,10 @@ def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
 
 def compute_uigrid(
         bbox:Tuple[float, float, float, float],
-        meters_per_char_x:float, meters_per_char_y:float, max_ticks:int=10
-    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, str]:
+        meters_per_char_x:float, meters_per_char_y:float,
+        bounds:Tuple[int, int, int, int],
+        max_ticks:int=10,
+    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, Mapping[Tuple[int, int], str]]:
     """ Materializes a grid, in text, that fits in a bounding box.
 
     returns a tuple of major/minor x/y tics and the grid itself in text. """
@@ -430,7 +432,7 @@ def compute_uigrid(
         minor_ticks_y,
         major_ticks_y,
         minor_ticks_x,
-        text
+        lines_to_dict(text, bounds=bounds)
     )
 
 def compute_uiradar(

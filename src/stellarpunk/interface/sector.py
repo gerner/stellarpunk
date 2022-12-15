@@ -15,7 +15,7 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, orders, effects
-from stellarpunk.interface import command_input, presenter, pilot as pilot_interface
+from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
 class SectorView(interface.View, interface.PerspectiveObserver):
     """ Sector mode: interacting with the sector map.
@@ -48,13 +48,15 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         self.presenter = presenter.Presenter(self.interface.gamestate, self, self.sector, self.perspective)
 
-        self._cached_grid = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), "")
+        self._cached_grid:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
         self.debug_entity = False
         self.debug_entity_vectors = False
 
         # the child view we spawn
         # if we receive focus, this should be dead
         self.pilot_view:Optional[pilot_interface.PilotView] = None
+
+        self.starfield = starfield.Starfield(self.interface.gamestate.sector_starfield, self.perspective)
 
     def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
@@ -64,11 +66,12 @@ class SectorView(interface.View, interface.PerspectiveObserver):
     def focus(self) -> None:
         super().focus()
         self.active = True
+        self.perspective.update_bbox()
         if self.pilot_view:
             if self.pilot_view.ship.sector and self.pilot_view.ship.sector != self.sector:
                 self.logger.info(f'piloted ship in new sector, changing to view {self.pilot_view.ship.sector}')
                 self.sector = self.pilot_view.ship.sector
-                self.perspective_cursor = tuple(self.pilot_view.ship.loc)
+                self.perspective.cursor = tuple(self.pilot_view.ship.loc)
             self.pilot_view = None
         self.interface.reinitialize_screen(name=f'Sector Map of {self.sector.short_id()}')
 
@@ -101,15 +104,17 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                     self.interface.log_message(f'cargo {i}: {entity.cargo[i]}')
 
     def _compute_grid(self, max_ticks:int=10) -> None:
-        self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char)
+        self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
 
     def draw_grid(self) -> None:
         """ Draws a grid at tick lines. """
 
-        major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, text = self._cached_grid
+        major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, grid_content = self._cached_grid
 
-        for lineno, line in enumerate(text):
-            self.viewscreen.addstr(lineno, 0, line, curses.color_pair(29))
+        #for lineno, line in enumerate(text):
+        #    self.viewscreen.addstr(lineno, 0, line, curses.color_pair(29))
+        for (y,x), c in grid_content.items():
+            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -138,7 +143,6 @@ class SectorView(interface.View, interface.PerspectiveObserver):
     def draw_sector_map(self) -> None:
         """ Draws a map of a sector. """
 
-        self.viewscreen.erase()
         self.draw_grid()
         self.presenter.draw_sector_map()
         self.interface.refresh_viewscreen()
@@ -205,6 +209,9 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         return self.pilot_view
 
     def update_display(self) -> None:
+        self.viewscreen.erase()
+        #TODO: the starfield will get stomped on by the radar unless we switch to a lines_to_dict style approach as in SectorView
+        self.starfield.draw_starfield(self.viewscreen)
         self.draw_sector_map()
         self._draw_hud()
         self.interface.refresh_viewscreen()

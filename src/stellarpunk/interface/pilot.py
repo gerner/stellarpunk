@@ -12,7 +12,7 @@ import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders
-from stellarpunk.interface import presenter, command_input
+from stellarpunk.interface import presenter, command_input, starfield
 from stellarpunk.orders import steering, movement, collision
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
@@ -224,6 +224,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.mouse_state = MouseState.EMPTY
         self.mouse_state_clear_time = np.inf
 
+        self.starfield = starfield.Starfield(self.interface.gamestate.sector_starfield, self.perspective)
 
     def _command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
 
@@ -608,6 +609,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         #TODO: would be great not to erase the screen on every tick
         self.viewscreen.erase()
+        self.starfield.draw_starfield(self.viewscreen)
         self._draw_radar()
         self.presenter.draw_sector_map()
 

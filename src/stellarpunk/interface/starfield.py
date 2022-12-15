@@ -8,16 +8,12 @@ import numpy as np
 from stellarpunk import util, interface
 
 class Starfield:
-    def __init__(self, starfield:Sequence[Tuple[Tuple[float, float], float]], perspective:interface.Perspective) -> None:
+    def __init__(self, starfields:Sequence[Sequence[Tuple[Tuple[float, float], float]]], perspective:interface.Perspective) -> None:
         # a set of layers corresponding to different zoom levels
-        self.starfield = starfield
+        self.starfields = starfields
         self.perspective = perspective
 
-    def draw_starfield(self, canvas:interface.Canvas) -> None:
-        # draw the starfield with parallax
-
-        # parallax basically means the background layer is more zoomed out
-        zoom_factor = 1.5
+    def _draw_one_starfield(self, starfield:Sequence[Tuple[Tuple[float, float], float]], zoom_factor:float, canvas:interface.Canvas) -> None:
         mpc_x = self.perspective.meters_per_char[0]*zoom_factor
         mpc_y = self.perspective.meters_per_char[1]*zoom_factor
 
@@ -31,7 +27,7 @@ class Starfield:
             self.perspective.cursor[1] + (bbox_height)/2*zoom_factor,
         )
 
-        for (x,y), size in self.starfield:
+        for (x,y), size in reversed(starfield):
             if bbox[0] < x < bbox[2] and bbox[1] < y < bbox[3]:
                 s_x, s_y = util.sector_to_screen(
                     x, y,
@@ -51,4 +47,15 @@ class Starfield:
                         icon = interface.Icons.STAR_SMALL_ALTS[2]
 
                 canvas.viewscreen.addch(s_y, s_x, icon, attr)
+
+    def draw_starfield(self, canvas:interface.Canvas) -> None:
+        # draw the starfield with parallax
+
+        # parallax basically means the background layer is more zoomed out
+        zoom_factor = 1.5
+        for starfield in self.starfields:
+            self._draw_one_starfield(starfield, zoom_factor, canvas)
+            zoom_factor *= 1.5
+
+
 
