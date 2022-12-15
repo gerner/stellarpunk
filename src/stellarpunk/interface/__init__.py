@@ -17,7 +17,7 @@ import collections.abc
 import cProfile
 import pstats
 import abc
-from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping
+from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set
 
 import numpy as np
 
@@ -217,19 +217,27 @@ class Canvas:
 
         self.viewscreen.addstr(y, x, string, attr)
 
+class PerspectiveObserver(abc.ABC):
+    def perspective_updated(self, perspective:Perspective) -> None: ...
+
 class Perspective:
     """ Represents a view on space, at some position, at some zoom """
     def __init__(self, interface:Interface, zoom:float) -> None:
         self.interface = interface
 
         # expressed in meters per character width
-        self.zoom = 0.
+        self.zoom = zoom
 
         # min x, min y, max x, max y
         self.bbox = (0., 0., 0., 0.)
         self.meters_per_char = (0., 0.)
 
         self._cursor = (0., 0.)
+
+        self.observers:Set[PerspectiveObserver] = set()
+
+    def observe(self, observer:PerspectiveObserver) -> None:
+        self.observers.add(observer)
 
     def get_cursor(self) -> Tuple[float, float]:
         return self._cursor
@@ -242,20 +250,22 @@ class Perspective:
 
     def move_cursor(self, direction:int) -> None:
         # ~4 characters horzontally or 2 characters vertically
-        stepsize = 4.
+        stepsize = self.meters_per_char[0]*4.
+
+        x,y = self.cursor
 
         if direction == ord('w'):
-            self.cursor[1] -= stepsize
+            y -= stepsize
         elif direction == ord('a'):
-            self.cursor[0] -= stepsize
+            x -= stepsize
         elif direction == ord('s'):
-            self.cursor[1] += stepsize
+            y += stepsize
         elif direction == ord('d'):
-            self.cursor[0] += stepsize
+            x += stepsize
         else:
             raise ValueError(f'unknown direction {direction}')
 
-        self.update_bbox()
+        self.cursor = (x,y)
 
     def zoom_cursor(self, direction:int) -> None:
         if direction == ord('+'):
@@ -267,14 +277,13 @@ class Perspective:
 
         self.update_bbox()
 
-    def update_bbox(self):
+    def update_bbox(self) -> None:
+        if self.zoom <= 0.:
+            raise ValueError(f'zoom must be positive {self.zoom=}')
         self.meters_per_char = (
                 self.zoom,
                 self.zoom / self.interface.font_width * self.interface.font_height
         )
-
-        assert self.zoom / self.meters_per_char[1] <= self.interface.viewscreen_height
-        assert self.zoom / self.meters_per_char[0] <= self.interface.viewscreen_width
 
         vsw = self.interface.viewscreen_width
         vsh = self.interface.viewscreen_height
@@ -284,6 +293,24 @@ class Perspective:
             self.cursor[1] - (vsh/2 * self.meters_per_char[1]),
             self.cursor[0] + (vsw/2 * self.meters_per_char[0]),
             self.cursor[1] + (vsh/2 * self.meters_per_char[1]),
+        )
+
+        for o in self.observers:
+            o.perspective_updated(self)
+
+    def screen_to_sector(self, screen_loc_x:int, screen_loc_y:int) -> Tuple[float, float]:
+        return  util.screen_to_sector(
+            screen_loc_x, screen_loc_y,
+            self.bbox[0], self.bbox[1],
+            self.meters_per_char[0], self.meters_per_char[1],
+            self.interface.viewscreen_x, self.interface.viewscreen_y
+        )
+
+    def sector_to_screen(self, sector_loc_x:float, sector_loc_y:float) -> Tuple[int, int]:
+        return util.sector_to_screen(
+            sector_loc_x, sector_loc_y,
+            self.bbox[0], self.bbox[1],
+            self.meters_per_char[0], self.meters_per_char[1]
         )
 
 class View(abc.ABC):
