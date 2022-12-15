@@ -187,7 +187,7 @@ class MouseState(enum.Enum):
     EMPTY = enum.auto()
     GOTO = enum.auto()
 
-class PilotView(interface.View):
+class PilotView(interface.View, interface.PerspectiveObserver):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
@@ -197,14 +197,10 @@ class PilotView(interface.View):
         if self.ship.sector is None:
             raise ValueError("ship must be in a sector to pilot")
 
-        # where the sector map is centered in sector coordinates
-        self.scursor_x = 0.
-        self.scursor_y = 0.
-
-        # sector zoom level, expressed in meters to fit on screen
-        self.szoom = 40.*1000.
-        self.meters_per_char_x = 0.
-        self.meters_per_char_y = 0.
+        # perspective on the sector, zoomed so the player ship's shape is
+        # barely visible on screen
+        self.perspective = interface.Perspective(self.interface, zoom=self.ship.radius/2)
+        self.perspective.observe(self)
 
         self.direction_indicator_radius = 15
         self.heading_indicator_radius = 12
@@ -212,12 +208,11 @@ class PilotView(interface.View):
         self.velocity_indicator_radius_min = 2
         self.velocity_indicator_radius_max = 14
 
-        # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
-        self.bbox = (0.,0.,0.,0.)
-
+        # cache the radar, we'll regenerate it when the zoom changes
+        self._cached_radar_zoom = 0.
         self._cached_radar = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), "")
 
-        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.ship.sector, self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.ship.sector, self.perspective)
 
         # indicates if the ship should follow its orders, or direct player
         # control
@@ -317,16 +312,6 @@ class PilotView(interface.View):
 
         return True
 
-    def _zoom_scursor(self, key:int) -> bool:
-        if key == ord("+"):
-            self.szoom *= 0.9
-        elif key == ord("-"):
-            self.szoom *= 1.1
-        else:
-            raise ValueError("can only zoom + or -")
-        self._update_bbox()
-        return True
-
     def _handle_cancel(self) -> bool:
         """ Cancels current operation (e.g. deselect target) """
         if self.selected_entity is not None:
@@ -340,20 +325,15 @@ class PilotView(interface.View):
         m_tuple = curses.getmouse()
         m_id, m_x, m_y, m_z, bstate = m_tuple
 
-        ul_x = self.scursor_x - (self.interface.viewscreen_width/2 * self.meters_per_char_x)
-        ul_y = self.scursor_y - (self.interface.viewscreen_height/2 * self.meters_per_char_y)
-        sector_x, sector_y = util.screen_to_sector(
-                m_x, m_y, ul_x, ul_y,
-                self.meters_per_char_x, self.meters_per_char_y,
-                self.interface.viewscreen_x, self.interface.viewscreen_y)
-
+        sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
+        self.logger.debug(f'clicked {(m_x,m_y)} translates to {(sector_x,sector_y)}')
 
         if self.mouse_state == MouseState.EMPTY:
             # select a target within a cell of the mouse click
             if self.ship.sector is None:
                 raise ValueError("ship must be in a sector to select a target")
 
-            hit = next(self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.meters_per_char_y), None)
+            hit = next(self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.perspective.meters_per_char[1]), None)
             if hit:
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
@@ -392,7 +372,7 @@ class PilotView(interface.View):
 
         if key == curses.ascii.ESC: return self._handle_cancel()
         elif key == ord(":"): return self._open_command_prompt()
-        elif key in (ord("+"), ord("-")): return self._zoom_scursor(key)
+        elif key in (ord("+"), ord("-")): self.perspective.zoom_cursor(key)
         elif key == ord("p"): return self._toggle_autopilot()
         elif key in DRIVE_KEYS: return self._drive(key, dt)
         elif key == curses.KEY_MOUSE: return self._handle_mouse()
@@ -403,46 +383,30 @@ class PilotView(interface.View):
         return True
 
     def _compute_radar(self, max_ticks:int=10) -> None:
+        self._cached_radar_zoom = self.perspective.zoom
         self._cached_radar = util.compute_uiradar(
-                (self.scursor_x, self.scursor_y),
-                self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+                self.perspective.cursor,
+                self.perspective.bbox,
+                *self.perspective.meters_per_char)
 
-    def _update_bbox(self, recompute_radar:bool=True) -> None:
-        if self.ship.sector is None:
-            raise ValueError(f'ship {self.ship} is not in any sector')
-
-        self.meters_per_char_x, self.meters_per_char_y = self._meters_per_char()
-
-        vsw = self.interface.viewscreen_width
-        vsh = self.interface.viewscreen_height
-
-        ul_x = self.scursor_x - (vsw/2 * self.meters_per_char_x)
-        ul_y = self.scursor_y - (vsh/2 * self.meters_per_char_y)
-        lr_x = self.scursor_x + (vsw/2 * self.meters_per_char_x)
-        lr_y = self.scursor_y + (vsh/2 * self.meters_per_char_y)
-
-        self.bbox = (ul_x, ul_y, lr_x, lr_y)
-
-        if recompute_radar:
+    def perspective_updated(self, perspective:interface.Perspective) -> None:
+        if self.perspective.zoom != self._cached_radar_zoom:
             self._compute_radar()
 
+        assert self.ship.sector
+
         self.presenter.sector = self.ship.sector
-        self.presenter.bbox = self.bbox
-        self.presenter.meters_per_char_x = self.meters_per_char_x
-        self.presenter.meters_per_char_y = self.meters_per_char_y
 
     def _auto_pan(self) -> None:
         """ Pans the viewscreen to center on the ship, but only if the ship has
         moved enough. Avoid's updating the bbox on every tick. """
 
         # exit early if recentering won't move by half a display cell
-        if (abs(self.ship.loc[0] - self.scursor_x) < self.meters_per_char_x/2.
-            and abs(self.ship.loc[1] - self.scursor_y) < self.meters_per_char_y/2.):
+        if (abs(self.ship.loc[0] - self.perspective.cursor[0]) < self.perspective.meters_per_char[0]/2.
+            and abs(self.ship.loc[1] - self.perspective.cursor[1]) < self.perspective.meters_per_char[1]/2.):
             return
 
-        self.scursor_x = self.ship.loc[0]
-        self.scursor_y = self.ship.loc[1]
-        self._update_bbox(recompute_radar=False)
+        self.perspective.cursor = tuple(self.ship.loc)
 
     def _draw_radar(self) -> None:
         """ Draws a grid at tick lines. """
@@ -455,27 +419,27 @@ class PilotView(interface.View):
         # draw location indicators
         i = major_ticks_x.niceMin
         while i <= major_ticks_x.niceMax:
-            s_x, s_y = util.sector_to_screen(
-                    i+self.scursor_x, self.scursor_y,
-                    self.bbox[0], self.bbox[1],
-                    self.meters_per_char_x, self.meters_per_char_y)
+            s_x, s_y = self.perspective.sector_to_screen(
+                    i+self.perspective.cursor[0], self.perspective.cursor[1]
+            )
             self.viewscreen.addstr(s_y, s_x, util.human_distance(i), curses.color_pair(29))
             i += major_ticks_x.tickSpacing
         j = major_ticks_y.niceMin
         while j <= major_ticks_y.niceMax:
-            s_x, s_y = util.sector_to_screen(
-                    self.scursor_x, j+self.scursor_y,
-                    self.bbox[0], self.bbox[1],
-                    self.meters_per_char_x, self.meters_per_char_y)
+            s_x, s_y = self.perspective.sector_to_screen(
+                    self.perspective.cursor[0], j+self.perspective.cursor[1]
+            )
             self.viewscreen.addstr(s_y, s_x, util.human_distance(j), curses.color_pair(29))
             j += major_ticks_y.tickSpacing
 
         # draw degree indicators
-        r = self.meters_per_char_y * self.direction_indicator_radius
+        r = self.perspective.meters_per_char[1] * self.direction_indicator_radius
         for theta in np.linspace(0., 2*np.pi, 12, endpoint=False):
             # convert to 0 at positive x to get the right display
             x,y = util.polar_to_cartesian(r, theta-np.pi/2)
-            s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+            s_x, s_y = self.perspective.sector_to_screen(
+                    self.perspective.cursor[0]+x, self.perspective.cursor[1]+y
+            )
             self.viewscreen.addstr(s_y, s_x, f'{math.degrees(theta):.0f}°', curses.color_pair(29))
 
         # add a scale near corner
@@ -485,7 +449,7 @@ class PilotView(interface.View):
         self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
 
         # add center position near corner
-        pos_label = f'({self.scursor_x:.0f},{self.scursor_y:.0f})'
+        pos_label = f'({self.perspective.cursor[0]:.0f},{self.perspective.cursor[1]:.0f})'
         pos_x = self.interface.viewscreen_width - len(pos_label) - 2
         pos_y = self.interface.viewscreen_height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
@@ -493,7 +457,7 @@ class PilotView(interface.View):
     def _draw_target_indicators(self) -> None:
         current_order = self.ship.current_order()
         if isinstance(current_order, movement.GoToLocation):
-            s_x, s_y = util.sector_to_screen(current_order._target_location[0], current_order._target_location[1], self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+            s_x, s_y = self.perspective.sector_to_screen(*current_order._target_location)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
 
@@ -504,15 +468,15 @@ class PilotView(interface.View):
         """
 
         # heading, on a circle at a fixed distance from the center
-        x,y = util.polar_to_cartesian(self.meters_per_char_y * self.heading_indicator_radius, self.ship.angle)
-        s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+        x,y = util.polar_to_cartesian(self.perspective.meters_per_char[1] * self.heading_indicator_radius, self.ship.angle)
+        s_x, s_y = self.perspective.sector_to_screen(self.perspective.cursor[0]+x, self.perspective.cursor[1]+y)
 
         self.viewscreen.addstr(s_y, s_x, interface.Icons.HEADING_INDICATOR, curses.color_pair(interface.Icons.COLOR_HEADING_INDICATOR))
 
         if self.selected_entity is not None:
             distance, bearing = util.cartesian_to_polar(*(self.selected_entity.loc - self.ship.loc))
-            x,y = util.polar_to_cartesian(self.meters_per_char_y * self.target_indicator_radius, bearing)
-            s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+            x,y = util.polar_to_cartesian(self.perspective.meters_per_char[1] * self.target_indicator_radius, bearing)
+            s_x, s_y = self.perspective.sector_to_screen(self.perspective.cursor[0]+x, self.perspective.cursor[1]+y)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_DIRECTION_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_DIRECTION_INDICATOR))
 
@@ -520,19 +484,10 @@ class PilotView(interface.View):
         vmag, vangle = util.cartesian_to_polar(*self.ship.velocity)
         if not util.isclose(vmag, 0.):
             r = vmag / self.ship.max_speed() * (self.velocity_indicator_radius_max - self.velocity_indicator_radius_min) + self.velocity_indicator_radius_min
-            x,y = util.polar_to_cartesian(self.meters_per_char_y * r, vangle)
-            s_x, s_y = util.sector_to_screen(self.scursor_x+x, self.scursor_y+y, self.bbox[0], self.bbox[1], self.meters_per_char_x, self.meters_per_char_y)
+            x,y = util.polar_to_cartesian(self.perspective.meters_per_char[1] * r, vangle)
+            s_x, s_y = self.perspective.sector_to_screen(self.perspective.cursor[0]+x, self.perspective.cursor[1]+y)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.VELOCITY_INDICATOR, curses.color_pair(interface.Icons.COLOR_VELOCITY_INDICATOR))
-
-    def _meters_per_char(self) -> Tuple[float, float]:
-        meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
-        meters_per_char_y = meters_per_char_x / self.interface.font_width * self.interface.font_height
-
-        assert self.szoom / meters_per_char_y <= self.interface.viewscreen_height
-        assert self.szoom / meters_per_char_x <= self.interface.viewscreen_width
-
-        return (meters_per_char_x, meters_per_char_y)
 
     def _draw_target_info(self) -> None:
         if self.selected_entity is None:
@@ -636,10 +591,7 @@ class PilotView(interface.View):
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
-        self.meters_per_char_x = 0.
-        self.meters_per_char_y = 0.
-
-        self._update_bbox()
+        self.perspective.update_bbox()
         self.interface.reinitialize_screen(name="Pilot's Seat")
 
     def terminate(self) -> None:

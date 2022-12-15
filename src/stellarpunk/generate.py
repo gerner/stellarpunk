@@ -43,6 +43,9 @@ class Settings:
     # how many resources available in uninhabited sectors
     MEAN_UNINHABITABLE_RESOURCES = 1e7
 
+    class SectorEntities:
+        STATION_RADIUS = 300.
+
     class ProductionChain:
         # rank 0 (9 items)
         ORE_NAMES = [
@@ -557,7 +560,7 @@ class UniverseGenerator:
 
         assert resource < self.gamestate.production_chain.num_products
 
-        station_radius = 300.
+        station_radius = Settings.SectorEntities.STATION_RADIUS
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -1318,8 +1321,8 @@ class UniverseGenerator:
         assert refinery.sector
 
         ship_loc = refinery.loc
-        while not 2e3 < util.distance(ship_loc, refinery.loc) < 3e3:
-            ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3)
+        while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
+            ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
         player_character = self.spawn_character(ship)
 

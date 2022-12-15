@@ -146,7 +146,7 @@ class Sector(Entity):
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
             yield hit.body.data
 
-    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
+    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
         #TODO: honor mask
         if not max_dist:
             max_dist = np.inf

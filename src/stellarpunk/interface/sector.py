@@ -17,7 +17,7 @@ import numpy as np
 from stellarpunk import util, core, interface, orders, effects
 from stellarpunk.interface import command_input, presenter, pilot as pilot_interface
 
-class SectorView(interface.View):
+class SectorView(interface.View, interface.PerspectiveObserver):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -35,9 +35,10 @@ class SectorView(interface.View):
         #   need to write messages outside the viewscreen (do we?)
         self.sector = sector
 
-        # where the sector map is centered in sector coordinates
-        self.scursor_x = 0.
-        self.scursor_y = 0.
+        # perspective on the sector, zoomed in so all of it fits comfortably
+        # in 80 characters
+        self.perspective = interface.Perspective(self.interface, zoom=self.sector.radius/80)
+        self.perspective.observe(self)
 
         # entity id of the currently selected target
         self.selected_target:Optional[uuid.UUID] = None
@@ -45,15 +46,7 @@ class SectorView(interface.View):
 
         self.selected_character:Optional[core.Character] = None
 
-        # sector zoom level, expressed in meters to fit on screen
-        self.szoom = self.sector.radius*2
-        self.meters_per_char_x = 0.
-        self.meters_per_char_y = 0.
-
-        # sector coord bounding box (ul_x, ul_y, lr_x, lr_y)
-        self.bbox = (0.,0.,0.,0.)
-
-        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.sector, self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.sector, self.perspective)
 
         self._cached_grid = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), "")
         self.debug_entity = False
@@ -65,7 +58,7 @@ class SectorView(interface.View):
 
     def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
-        self.update_bbox()
+        self.perspective.update_bbox()
         self.interface.reinitialize_screen(name=f'Sector Map of {self.sector.short_id()}')
 
     def focus(self) -> None:
@@ -75,77 +68,13 @@ class SectorView(interface.View):
             if self.pilot_view.ship.sector and self.pilot_view.ship.sector != self.sector:
                 self.logger.info(f'piloted ship in new sector, changing to view {self.pilot_view.ship.sector}')
                 self.sector = self.pilot_view.ship.sector
-                self.set_scursor(
-                        self.pilot_view.ship.loc[0],
-                        self.pilot_view.ship.loc[1]
-                )
-                self.update_bbox()
+                self.perspective_cursor = tuple(self.pilot_view.ship.loc)
             self.pilot_view = None
         self.interface.reinitialize_screen(name=f'Sector Map of {self.sector.short_id()}')
 
-    def update_bbox(self) -> None:
-        self.meters_per_char_x, self.meters_per_char_y = self.meters_per_char()
-
-        vsw = self.interface.viewscreen_width
-        vsh = self.interface.viewscreen_height
-
-        ul_x = self.scursor_x - (vsw/2 * self.meters_per_char_x)
-        ul_y = self.scursor_y - (vsh/2 * self.meters_per_char_y)
-        lr_x = self.scursor_x + (vsw/2 * self.meters_per_char_x)
-        lr_y = self.scursor_y + (vsh/2 * self.meters_per_char_y)
-
-        self.bbox = (ul_x, ul_y, lr_x, lr_y)
-
+    def perspective_updated(self, perspective:interface.Perspective) -> None:
         self._compute_grid()
-
         self.presenter.sector = self.sector
-        self.presenter.bbox = self.bbox
-        self.presenter.meters_per_char_x = self.meters_per_char_x
-        self.presenter.meters_per_char_y = self.meters_per_char_y
-
-    def set_scursor(self, x:float, y:float) -> None:
-        self.scursor_x = x
-        self.scursor_y = y
-
-        self.update_bbox()
-
-    def move_scursor(self, direction:int) -> None:
-        old_x = self.scursor_x
-        old_y = self.scursor_y
-
-        stepsize = self.szoom/32
-
-        if direction == ord('w'):
-            self.scursor_y -= stepsize
-        elif direction == ord('a'):
-            self.scursor_x -= stepsize
-        elif direction == ord('s'):
-            self.scursor_y += stepsize
-        elif direction == ord('d'):
-            self.scursor_x += stepsize
-        else:
-            raise ValueError(f'unknown direction {direction}')
-
-        self.update_bbox()
-
-    def zoom_scursor(self, direction:int) -> None:
-        if direction == ord('+'):
-            self.szoom *= 0.9
-        elif direction == ord('-'):
-            self.szoom *= 1.1
-        else:
-            raise ValueError(f'unknown direction {direction}')
-
-        self.update_bbox()
-
-    def meters_per_char(self) -> Tuple[float, float]:
-        meters_per_char_x = self.szoom / min(self.interface.viewscreen_width, math.floor(self.interface.viewscreen_height/self.interface.font_width*self.interface.font_height))
-        meters_per_char_y = meters_per_char_x / self.interface.font_width * self.interface.font_height
-
-        assert self.szoom / meters_per_char_y <= self.interface.viewscreen_height
-        assert self.szoom / meters_per_char_x <= self.interface.viewscreen_width
-
-        return (meters_per_char_x, meters_per_char_y)
 
     def select_target(self, target_id:Optional[uuid.UUID], entity:Optional[core.SectorEntity]) -> None:
         if target_id == self.selected_target:
@@ -172,8 +101,7 @@ class SectorView(interface.View):
                     self.interface.log_message(f'cargo {i}: {entity.cargo[i]}')
 
     def _compute_grid(self, max_ticks:int=10) -> None:
-        self._cached_grid = util.compute_uigrid(
-                self.bbox, self.meters_per_char_x, self.meters_per_char_y)
+        self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char)
 
     def draw_grid(self) -> None:
         """ Draws a grid at tick lines. """
@@ -186,18 +114,12 @@ class SectorView(interface.View):
         # draw location indicators
         i = major_ticks_x.niceMin
         while i <= major_ticks_x.niceMax:
-            s_i, _ = util.sector_to_screen(
-                    i, 0,
-                    self.bbox[0], self.bbox[1],
-                    self.meters_per_char_x, self.meters_per_char_y)
+            s_i, _ = self.perspective.sector_to_screen(i, 0)
             self.viewscreen.addstr(0, s_i, util.human_distance(i), curses.color_pair(29))
             i += major_ticks_x.tickSpacing
         j = major_ticks_y.niceMin
         while j <= major_ticks_y.niceMax:
-            _, s_j = util.sector_to_screen(
-                    0, j,
-                    self.bbox[0], self.bbox[1],
-                    self.meters_per_char_x, self.meters_per_char_y)
+            _, s_j = self.perspective.sector_to_screen(0, j)
             self.viewscreen.addstr(s_j, 0, util.human_distance(j), curses.color_pair(29))
             j += major_ticks_y.tickSpacing
 
@@ -208,7 +130,7 @@ class SectorView(interface.View):
         self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
 
         # add center position near corner
-        pos_label = f'({self.scursor_x:.0f},{self.scursor_y:.0f})'
+        pos_label = f'({self.perspective.cursor[0]:.0f},{self.perspective.cursor[1]:.0f})'
         pos_x = self.interface.viewscreen_width - len(pos_label) - 2
         pos_y = self.interface.viewscreen_height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
@@ -303,7 +225,7 @@ class SectorView(interface.View):
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.CommandInput.UserError(f'order only valid on a ship target')
             if len(args) < 2:
-                x,y = self.scursor_x, self.scursor_y
+                x,y = self.perspective.cursor
             else:
                 try:
                     x,y = int(args[0]), int(args[1])
@@ -336,7 +258,7 @@ class SectorView(interface.View):
 
         def spawn_ship(args:Sequence[str])->None:
             if len(args) < 2:
-                x,y = self.scursor_x, self.scursor_y
+                x,y = self.perspective.cursor
             else:
                 try:
                     x,y = int(args[0]), int(args[1])
@@ -350,7 +272,7 @@ class SectorView(interface.View):
             self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
 
         def spawn_resources(args:Sequence[str])->None:
-            x,y = self.scursor_x, self.scursor_y
+            x,y = self.perspective.cursor
             self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
 
         def pilot(args:Sequence[str])->None:
@@ -380,7 +302,7 @@ class SectorView(interface.View):
             except:
                 raise command_input.CommandInput.UserError("not a valid coordinate")
 
-            self.set_scursor(x,y)
+            self.perspective.cursor = (x,y)
 
         return {
                 "debug_entity": debug_entity,
@@ -400,9 +322,9 @@ class SectorView(interface.View):
 
     def handle_input(self, key:int, dt:float) -> bool:
         if key in (ord('w'), ord('a'), ord('s'), ord('d')):
-            self.move_scursor(key)
+            self.perspective.move_cursor(key)
         elif key in (ord("+"), ord("-")):
-            self.zoom_scursor(key)
+            self.perspective.zoom_cursor(key)
         elif key == ord("t"):
             entity_id_list = sorted(self.sector.entities.keys())
             if len(entity_id_list) == 0:
@@ -416,29 +338,19 @@ class SectorView(interface.View):
                 self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
         elif key in (ord('\n'), ord('\r')):
             if self.selected_target:
-                self.set_scursor(
-                        self.sector.entities[self.selected_target].loc[0],
-                        self.sector.entities[self.selected_target].loc[1]
-                )
+                self.perspective.cursor = tuple(self.sector.entities[self.selected_target].loc)
         elif key == ord(":"):
             self.interface.open_view(command_input.CommandInput(
                 self.interface, commands=self.command_list()))
         elif key == curses.KEY_MOUSE:
             m_tuple = curses.getmouse()
             m_id, m_x, m_y, m_z, bstate = m_tuple
-            ul_x = self.scursor_x - (self.interface.viewscreen_width/2 * self.meters_per_char_x)
-            ul_y = self.scursor_y - (self.interface.viewscreen_height/2 * self.meters_per_char_y)
-            sector_x, sector_y = util.screen_to_sector(
-                    m_x, m_y, ul_x, ul_y,
-                    self.meters_per_char_x, self.meters_per_char_y,
-                    self.interface.viewscreen_x, self.interface.viewscreen_y)
-
-            self.logger.debug(f'got mouse: {m_tuple}, corresponding to {(sector_x, sector_y)} ul: {(ul_x, ul_y)}')
+            sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
 
             # select a target within a cell of the mouse click
             bounds = (
-                    sector_x-self.meters_per_char_x, sector_y-self.meters_per_char_y,
-                    sector_x+self.meters_per_char_x, sector_y+self.meters_per_char_y
+                    sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
+                    sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
             )
             hit = next(self.sector.spatial_query(bounds), None)
             if hit:
