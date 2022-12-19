@@ -76,6 +76,27 @@ def human_distance(distance_meters:float) -> str:
     else:
         return f'{distance_meters:.0e}m'
 
+def human_speed(speed_mps:float) -> str:
+    """ Human readable approx string for speed_mps.
+
+    e.g. 322.8389 => "322m/s", 2.80 => "2.80m/s", 13589.89 => "13.5km/s"
+    """
+    abs_speed = abs(speed_mps)
+    if speed_mps == 0.:
+        return "0m/s"
+    elif abs_speed < 0.01:
+        return "0.00m/s"
+    elif abs_speed < 1e2:
+        return f'{speed_mps:.3}m/s'
+    elif abs_speed < 1e4:
+        return f'{speed_mps:.0f}m/s'
+    elif abs_speed < 1e5:
+        return f'{speed_mps/1000.:.3}km/s'
+    elif abs_speed < 1e7:
+        return f'{speed_mps/1000.:.0f}km/s'
+    else:
+        return f'{speed_mps:.e}m/s'
+
 def sector_to_drawille(
         sector_loc_x:float, sector_loc_y:float,
         meters_per_char_x:float, meters_per_char_y:float) -> Tuple[int, int]:
@@ -438,8 +459,10 @@ def compute_uigrid(
 def compute_uiradar(
         center:Tuple[float, float],
         bbox:Tuple[float, float, float, float],
-        meters_per_char_x:float, meters_per_char_y:float, max_ticks:int=10
-    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, str]:
+        meters_per_char_x:float, meters_per_char_y:float,
+        bounds:Tuple[int, int, int, int],
+        max_ticks:int=10
+    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, Mapping[Tuple[int, int], str]]:
     """ Materializes a radar in text that fits in bbox. """
 
     # choose ticks based on x size, y is forced to that, but we still want the
@@ -529,7 +552,7 @@ def compute_uiradar(
         minor_ticks_y,
         major_ticks_y,
         minor_ticks_x,
-        text
+        lines_to_dict(text, bounds=bounds)
     )
 
 def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None) -> drawille.Canvas:

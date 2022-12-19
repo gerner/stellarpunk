@@ -11,7 +11,7 @@ from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping, Sequ
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import core, interface, util, orders
+from stellarpunk import core, interface, util, orders, generate
 from stellarpunk.interface import presenter, command_input, starfield
 from stellarpunk.orders import steering, movement, collision
 
@@ -199,7 +199,12 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         # perspective on the sector, zoomed so the player ship's shape is
         # barely visible on screen
-        self.perspective = interface.Perspective(self.interface, zoom=self.ship.radius/2)
+        self.perspective = interface.Perspective(
+            self.interface,
+            zoom=self.ship.radius/2,
+            min_zoom=(6*generate.Settings.SECTOR_RADIUS_STD+generate.Settings.SECTOR_RADIUS_MEAN)/80,
+            max_zoom=2*8*generate.Settings.Ship.RADIUS/80.,
+        )
         self.perspective.observe(self)
 
         self.direction_indicator_radius = 15
@@ -210,7 +215,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         # cache the radar, we'll regenerate it when the zoom changes
         self._cached_radar_zoom = 0.
-        self._cached_radar = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), "")
+        self._cached_radar:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
 
         self.presenter = presenter.Presenter(self.interface.gamestate, self, self.ship.sector, self.perspective)
 
@@ -388,7 +393,9 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self._cached_radar = util.compute_uiradar(
                 self.perspective.cursor,
                 self.perspective.bbox,
-                *self.perspective.meters_per_char)
+                *self.perspective.meters_per_char,
+                bounds=self.viewscreen_bounds
+                )
 
     def perspective_updated(self, perspective:interface.Perspective) -> None:
         if self.perspective.zoom != self._cached_radar_zoom:
@@ -412,10 +419,10 @@ class PilotView(interface.View, interface.PerspectiveObserver):
     def _draw_radar(self) -> None:
         """ Draws a grid at tick lines. """
 
-        major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, text = self._cached_radar
+        major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, radar_content = self._cached_radar
 
-        for lineno, line in enumerate(text):
-            self.viewscreen.viewscreen.addstr(lineno, 0, line, curses.color_pair(29))
+        for (y,x), c in radar_content.items():
+            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -505,17 +512,41 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         label_location = "location:"
         label_bearing = "bearing:"
         label_distance = "distance:"
-        distance, bearing = util.cartesian_to_polar(*(self.selected_entity.loc - self.ship.loc))
+        label_rel_speed = "rel speed:"
+        label_eta = "eta:"
+
+        rel_pos = self.selected_entity.loc - self.ship.loc
+        rel_vel = self.selected_entity.velocity - self.ship.velocity
+        rel_speed = util.magnitude(*rel_vel)
+        distance, bearing = util.cartesian_to_polar(*rel_pos)
         rel_bearing = bearing - self.ship.angle
         # convert bearing so 0, North is negative y, instead of positive x
         bearing += np.pi/2
+        # rel speed (toward and perpendicular to target)
+        vel_toward = np.dot(rel_vel, rel_pos)/distance
+        vel_perpendicular = util.magnitude(*(rel_vel - vel_toward * rel_pos / distance))
+        # eta to closest approach
+        if rel_speed == 0.:
+            approach_t = math.inf
+        else:
+            approach_t = -1 * np.dot(rel_vel / rel_speed, rel_pos) / rel_speed
+        if approach_t < 0.:
+            approach_t = math.inf
+        if approach_t < math.inf:
+            closest_approach = util.magnitude(*(rel_pos + rel_vel * approach_t))
+        else:
+            closest_approach = math.inf
+
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {self.selected_entity.speed:.0f}m/s')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {util.human_speed(self.selected_entity.speed)}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
+        self.viewscreen.addstr(status_y+6, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
+        if approach_t < 60*60:
+            self.viewscreen.addstr(status_y+7, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
 
-        status_y += 6
+        status_y += 8
 
         if isinstance(self.selected_entity, core.Station):
             assert self.selected_entity.resource is not None
@@ -539,7 +570,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         label_order = "order:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {self.ship.speed:.0f}m/s')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s)')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
@@ -607,7 +638,6 @@ class PilotView(interface.View, interface.PerspectiveObserver):
     def update_display(self) -> None:
         self._auto_pan()
 
-        #TODO: would be great not to erase the screen on every tick
         self.viewscreen.erase()
         self.starfield.draw_starfield(self.viewscreen)
         self._draw_radar()

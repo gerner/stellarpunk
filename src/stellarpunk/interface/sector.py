@@ -14,7 +14,7 @@ from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, C
 import drawille # type: ignore
 import numpy as np
 
-from stellarpunk import util, core, interface, orders, effects
+from stellarpunk import util, core, interface, orders, effects, generate
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
 class SectorView(interface.View, interface.PerspectiveObserver):
@@ -37,7 +37,12 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         # perspective on the sector, zoomed in so all of it fits comfortably
         # in 80 characters
-        self.perspective = interface.Perspective(self.interface, zoom=self.sector.radius/80)
+        self.perspective = interface.Perspective(
+            self.interface,
+            zoom=self.sector.radius/80/2,
+            min_zoom=(6*generate.Settings.SECTOR_RADIUS_STD+generate.Settings.SECTOR_RADIUS_MEAN)/80,
+            max_zoom=25*8*generate.Settings.Ship.RADIUS/80.,
+        )
         self.perspective.observe(self)
 
         # entity id of the currently selected target
@@ -145,7 +150,6 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         self.draw_grid()
         self.presenter.draw_sector_map()
-        self.interface.refresh_viewscreen()
 
     def _draw_target_info(self) -> None:
         if self.selected_entity is None:

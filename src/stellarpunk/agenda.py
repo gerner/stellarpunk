@@ -132,7 +132,7 @@ def choose_station_to_buy_from(
         return None
     else:
         x = np.array(profits_per_time)
-        p = np.exp(x)/np.exp(x).sum()
+        p = x/x.sum()
         t = gamestate.random.choice(trades, p=p) # type: ignore
         return t
 

@@ -1,5 +1,15 @@
 # Ideas
 
+## Modempunk
+
+Retro, lo-fi computing and connectivity. No instant information across the
+universe becase they use super low bitrate communication, so it's extremely
+expensive to transmit information over long distances. Maybe some super
+wealthy/powerful folks can do it, but most people rely on lo-fi communication
+that might be very out of date.
+
+This helps to explain why getting price information is so tricky.
+
 ## "The Lead", Investigative Reporter
 
 While docked at a station you get a message from the manager of a different

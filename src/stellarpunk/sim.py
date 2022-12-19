@@ -362,8 +362,11 @@ def main() -> None:
         gamestate.econ_logger = data_logger
 
         logging.info("generating universe...")
+        generation_start = time.perf_counter()
         generator = generate.UniverseGenerator(gamestate)
         stellar_punk = generator.generate_universe()
+        generation_stop = time.perf_counter()
+        logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
 
         ui = context_stack.enter_context(interface.Interface(gamestate, generator))
 

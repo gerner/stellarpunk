@@ -86,7 +86,7 @@ class Icons:
 
     STAR_LARGE = "🞣"
     STAR_SMALL = "🞟"
-    STAR_SMALL_ALTS = ["·", "˙", "."]
+    STAR_SMALL_ALTS = ["˙", "·", "."]
 
     """
     "△" \u25B3 white up pointing triangle
@@ -144,8 +144,9 @@ class Icons:
     COLOR_UNIVERSE_SECTOR = 29
     COLOR_UNIVERSE_EDGE = 40
 
-    COLOR_STAR_SMALL = 245
-    COLOR_STAR_LARGE = 252
+    COLOR_STAR_ALTS = [203, 209, 228, 231, 123, 52, 28]
+    COLOR_STAR_SMALL = 203#245
+    COLOR_STAR_LARGE = 249
 
     @staticmethod
     def angle_to_ship(angle:float) -> str:
@@ -222,11 +223,16 @@ class PerspectiveObserver(abc.ABC):
 
 class Perspective:
     """ Represents a view on space, at some position, at some zoom """
-    def __init__(self, interface:Interface, zoom:float) -> None:
+    def __init__(self, interface:Interface, zoom:float, min_zoom:float, max_zoom:float) -> None:
         self.interface = interface
 
         # expressed in meters per character width
         self.zoom = zoom
+
+        # most zoomed out (largest value)
+        self.min_zoom = min_zoom
+        # most zoomed in (smallest value)
+        self.max_zoom = max_zoom
 
         # min x, min y, max x, max y
         self.bbox = (0., 0., 0., 0.)
@@ -270,8 +276,12 @@ class Perspective:
     def zoom_cursor(self, direction:int) -> None:
         if direction == ord('+'):
             self.zoom *= 0.9
+            if self.zoom < self.max_zoom:
+                self.zoom = self.max_zoom
         elif direction == ord('-'):
             self.zoom *= 1.1
+            if self.zoom > self.min_zoom:
+                self.zoom = self.min_zoom
         else:
             raise ValueError(f'unknown direction {direction}')
 
@@ -870,10 +880,10 @@ class Interface(AbstractInterface):
         # process input according to what has focus (i.e. umap, smap, pilot, command)
         #self.stdscr.timeout(int(timeout*100))
 
-        # clear out any buffered keys
         key = self.stdscr.getch()
-        while self.stdscr.getch() != -1:
-            pass
+        # clear out any buffered keys
+        #while self.stdscr.getch() != -1:
+        #    pass
 
         if key == -1:
             return

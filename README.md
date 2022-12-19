@@ -73,6 +73,12 @@ accumulate power.
 - [ ] player directed trading
 - [ ] discovering asteroids/stations
 
+### Intel System
+
+Intel manager keeps track of known points of interest (stations, asteroid
+clusters, entire sectors in a universe context, etc.), prices (which might be
+out of date), inventories (stations and asteroids)
+
 ### Combat
 
 - [ ] basic sensors

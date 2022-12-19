@@ -8,7 +8,7 @@ from typing import Any, Tuple, Sequence, Mapping, Optional
 import numpy as np
 import drawille # type: ignore
 
-from stellarpunk import interface, util, core
+from stellarpunk import interface, util, core, generate
 from stellarpunk.interface import command_input, starfield, sector as sector_interface
 
 class UniverseView(interface.View, interface.PerspectiveObserver):
@@ -19,7 +19,12 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
         # perspective on the universe, zoomed in so the mean sector fits
         # comfortably in 80 characters
-        self.perspective = interface.Perspective(self.interface, zoom=5e5/80*2)
+        self.perspective = interface.Perspective(
+                self.interface,
+                zoom=generate.Settings.SECTOR_RADIUS_MEAN/80*16,
+                min_zoom=generate.Settings.UNIVERSE_RADIUS/80.,
+                max_zoom=generate.Settings.SECTOR_RADIUS_MEAN/80*8,
+        )
         self.perspective.observe(self)
 
         #TODO: what's the right choice for selected sector?

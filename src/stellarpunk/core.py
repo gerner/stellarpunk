@@ -860,6 +860,25 @@ class AbstractGameRuntime:
         """ Request time acceleration. """
         pass
 
+class StarfieldLayer:
+    def __init__(self, bbox:Tuple[float, float, float, float], zoom:float) -> None:
+        self.bbox:Tuple[float, float, float, float] = bbox
+
+        # list of stars: loc=(x,y), size, spectral_class
+        self._star_list:List[Tuple[Tuple[float, float], float, int]] = []
+        self.num_stars = 0
+
+        # density in stars per m^2
+        self.density:float = 0.
+
+        # zoom level in meters per character
+        self.zoom:float = zoom
+
+    def add_star(self, loc:Tuple[float, float], size:float, spectral_class:int) -> None:
+        self._star_list.append((loc, size, spectral_class))
+        self.num_stars += 1
+        self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
+
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
         """generate consecutive automatic numbers starting from zero"""
@@ -953,8 +972,8 @@ class Gamestate:
 
         self.counters = [0.] * len(Counters)
 
-        self.starfield:Sequence[Sequence[Tuple[Tuple[float, float], float]]]
-        self.sector_starfield:Sequence[Sequence[Tuple[Tuple[float, float], float]]]
+        self.starfield:Sequence[StarfieldLayer] = []
+        self.sector_starfield:Sequence[StarfieldLayer] = []
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()

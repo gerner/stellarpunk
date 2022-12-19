@@ -1,19 +1,60 @@
 """ Tools for generating and drawing a starfield. """
 
 import curses
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Mapping, Dict
+import bisect
+import logging
+import math
+import itertools
 
 import numpy as np
 
-from stellarpunk import util, interface
+from stellarpunk import util, interface, core
 
-class Starfield:
-    def __init__(self, starfields:Sequence[Sequence[Tuple[Tuple[float, float], float]]], perspective:interface.Perspective) -> None:
+class Starfield(interface.PerspectiveObserver):
+    def __init__(self, starfields:Sequence[core.StarfieldLayer], perspective:interface.Perspective) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
         # a set of layers corresponding to different zoom levels
         self.starfields = starfields
         self.perspective = perspective
+        self.perspective.observe(self)
+        self.desired_stars_per_char = (4./80.)**2
 
-    def _draw_one_starfield(self, starfield:Sequence[Tuple[Tuple[float, float], float]], zoom_factor:float, canvas:interface.Canvas) -> None:
+        # stars to draw to screen as screen coords -> icon, attr
+        self._cached_star_layout:Mapping[Tuple[int,int],Tuple[str, int]]
+
+    def perspective_updated(self, perspective:interface.Perspective) -> None:
+        self._cached_star_layout = self.compute_star_layout()
+
+    def _compute_star(self, loc:Tuple[float, float], size:float, color:int, bbox:Tuple[float, float, float, float], mpc:Tuple[float, float]) -> Tuple[Tuple[int,int], Tuple[str, int]]:
+        s_x, s_y = util.sector_to_screen(
+            loc[0], loc[1],
+            bbox[0], bbox[1],
+            mpc[0], mpc[1])
+
+        attr = 0
+        if size > 0.5:
+            #icon = interface.Icons.STAR_LARGE
+            icon = interface.Icons.STAR_SMALL_ALTS[2]
+        else:
+            if size < 0.167:
+                icon = interface.Icons.STAR_SMALL_ALTS[0]
+            elif size < 0.333:
+                icon = interface.Icons.STAR_SMALL_ALTS[1]
+            else:
+                icon = interface.Icons.STAR_SMALL_ALTS[2]
+            attr = curses.A_DIM
+
+        color = curses.color_pair(interface.Icons.COLOR_STAR_ALTS[color])
+
+        return (s_y, s_x), (icon, color | attr)
+
+    def _compute_one_starfield(self, starfield:core.StarfieldLayer, conversion_factor:float, zoom_factor:float) -> Dict[Tuple[int,int],Tuple[str, int]]:
+        # translate the starfield layer into coordinates as if it were at the
+        # perspective's level
+
+        computed_layout:Dict[Tuple[int,int],Tuple[str, int]] = {}
+
         mpc_x = self.perspective.meters_per_char[0]*zoom_factor
         mpc_y = self.perspective.meters_per_char[1]*zoom_factor
 
@@ -27,35 +68,65 @@ class Starfield:
             self.perspective.cursor[1] + (bbox_height)/2*zoom_factor,
         )
 
-        for (x,y), size in reversed(starfield):
-            if bbox[0] < x < bbox[2] and bbox[1] < y < bbox[3]:
-                s_x, s_y = util.sector_to_screen(
-                    x, y,
-                    bbox[0], bbox[1],
-                    mpc_x, mpc_y)
+        x_tile_width = (starfield.bbox[2]-starfield.bbox[0])*conversion_factor
+        y_tile_width = (starfield.bbox[3]-starfield.bbox[1])*conversion_factor
 
-                if size > 0.5:
-                    icon = interface.Icons.STAR_LARGE
-                    attr = curses.color_pair(interface.Icons.COLOR_STAR_LARGE)
-                else:
-                    attr = curses.color_pair(interface.Icons.COLOR_STAR_SMALL)
-                    if size < 0.167:
-                        icon = interface.Icons.STAR_SMALL_ALTS[0]
-                    elif size < 0.333:
-                        icon = interface.Icons.STAR_SMALL_ALTS[1]
-                    else:
-                        icon = interface.Icons.STAR_SMALL_ALTS[2]
+        x_tiles_min = math.floor((bbox[0] - starfield.bbox[0]*conversion_factor)/x_tile_width)
+        x_tiles_max = math.floor((bbox[2] - starfield.bbox[0]*conversion_factor)/x_tile_width)
+        y_tiles_min = math.floor((bbox[1] - starfield.bbox[1]*conversion_factor)/y_tile_width)
+        y_tiles_max = math.floor((bbox[3] - starfield.bbox[1]*conversion_factor)/y_tile_width)
 
-                canvas.viewscreen.addch(s_y, s_x, icon, attr)
+        tiles = list(itertools.product(range(x_tiles_min, x_tiles_max+1), range(y_tiles_min, y_tiles_max+1)))
 
-    def draw_starfield(self, canvas:interface.Canvas) -> None:
+        for (x,y), size, color in starfield._star_list:
+
+            # convert the x,y coordinates of the star into the virtual layer
+            # coordinates (scaling and tiling)
+            for i,j in tiles:
+                x_tiled = x * conversion_factor + i*x_tile_width
+                y_tiled = y * conversion_factor + j*y_tile_width
+                if bbox[0] < x_tiled < bbox[2] and bbox[1] < y_tiled < bbox[3]:
+                    k,v = self._compute_star((x_tiled,y_tiled), size, color, bbox, (mpc_x, mpc_y))
+                    computed_layout[k] = v
+
+        return computed_layout
+
+    def compute_star_layout(self) -> Mapping[Tuple[int,int],Tuple[str, int]]:
+
         # draw the starfield with parallax
 
         # parallax basically means the background layer is more zoomed out
-        zoom_factor = 1.5
-        for starfield in self.starfields:
-            self._draw_one_starfield(starfield, zoom_factor, canvas)
-            zoom_factor *= 1.5
 
+        # model is that we have an unlimited number of layers
+        # as we zoom we're always going to be looking at two and zooming into
+        # them
+        # in reality we only have two fields which we rescale and tile
+        # as we get too close for the upper layer, we'll rescale and swap it to
+        # the back
 
+        # map the perspective's zoom level to some discrete stops
+        # this effectively indexes into the layer space
 
+        zoom_stop = self.perspective.min_zoom*0.6**int(math.log(self.perspective.zoom/self.perspective.min_zoom)/math.log(0.6))
+
+        computed_layout = {}
+        computed_layout.update(
+            self._compute_one_starfield(
+                self.starfields[0],
+                conversion_factor=zoom_stop/self.starfields[0].zoom,
+                zoom_factor=1.5,
+            )
+        )
+        computed_layout.update(
+            self._compute_one_starfield(
+                self.starfields[1],
+                conversion_factor=zoom_stop/self.starfields[1].zoom,
+                zoom_factor=1.5*1.5,
+            )
+        )
+
+        return computed_layout
+
+    def draw_starfield(self, canvas:interface.Canvas) -> None:
+        for (y,x), (s, a) in self._cached_star_layout.items():
+            canvas.viewscreen.addch(y, x, s, a)

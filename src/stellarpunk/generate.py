@@ -200,25 +200,60 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np
         V[edge[1]] = True
     return E
 
-def generate_starfield(random:np.random.Generator, radius:float, num_stars:int) -> Sequence[Sequence[Tuple[Tuple[float, float], float]]]:
+def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars:int, zoom:float) -> core.StarfieldLayer:
 
-    starfields:List[Sequence[Tuple[Tuple[float, float], float]]] = []
-    for _ in range(2):
-        bbox = (
-            -radius, -radius,
-            radius, radius
-        )
+    if num_stars > 5e6:
+        raise ValueError(f'too many {num_stars=}')
 
-        # stars have location, size
-        # location is uniform random in bbox
-        # size between 0,1, closer to 0
+    bbox = (
+        -radius, -radius,
+        radius, radius
+    )
+    starfield_layer = core.StarfieldLayer(bbox, zoom)
 
-        x = random.uniform(bbox[0], bbox[2], size=num_stars)
-        y = random.uniform(bbox[1], bbox[3], size=num_stars)
-        size = util.peaked_bounded_random(random, 0.35, 0.2, size=num_stars)
-        starfields.append(list(zip(zip(x,y),size))) # type: ignore
+    # stars have location, size
+    # location is uniform random in bbox
+    # size between 0,1, closer to 0
 
-    return starfields
+    x = random.uniform(bbox[0], bbox[2], size=num_stars)
+    y = random.uniform(bbox[1], bbox[3], size=num_stars)
+    sizes = util.peaked_bounded_random(random, 0.30, 0.15, size=num_stars)
+    spectral_classes = random.integers(7, size=num_stars)
+    for i in range(num_stars):
+        starfield_layer.add_star((x[i], y[i]), sizes[i], spectral_classes[i]) # type: ignore
+
+    return starfield_layer
+
+def generate_starfield(random:np.random.Generator, radius:float, desired_stars_per_char:float, min_zoom:float, max_zoom:float, layer_zoom_step:float) -> Sequence[core.StarfieldLayer]:
+    """ Generates a sequence of starfield layers according to parameters.
+
+    random: npumpy.random.Generator to use for generation of the field
+    radius: float radius to generate stars over
+    desired_stars_per_character: float the desired star density to display in
+        stars per character. E.g. 4/80 would be ~4 stars in a 80 character
+        line.
+    min_zoom: float minimum (most zoomed out) zoom level in meters per char
+    max_zoom: float max (most zoomed in) zoom level in meters per char
+    layer_zoom_step: desired step factor between layers (between 0 and 1)
+
+    returns: sequence of core.StarfieldLayer, sorted by density
+    """
+
+    if min_zoom < max_zoom:
+        raise ValueError(f'{min_zoom=} should be numerically greater than {max_zoom=} (min refers to most zoomed out, or the largest number of meters per character')
+    if layer_zoom_step >= 1. or layer_zoom_step <= 0.:
+        raise ValueError(f'{layer_zoom_step=} must be strictly between 0 and 1')
+
+    starfield:List[core.StarfieldLayer] = []
+
+    for zoom in [min_zoom, min_zoom*layer_zoom_step]:
+        # generate layers of constant density in stars per character
+        density = desired_stars_per_char / (zoom**2)
+        num_stars = int(density * (2*radius)**2)
+        starfield.append(generate_starfield_layer(random, radius, num_stars, zoom))
+
+
+    return starfield
 
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
@@ -1332,6 +1367,31 @@ class UniverseGenerator:
         self.gamestate.player.character = player_character
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
 
+    def generate_starfields(self) -> None:
+        self.logger.info(f'generating universe_starfield...')
+        self.gamestate.starfield = generate_starfield(
+            self.r,
+            radius=4*Settings.UNIVERSE_RADIUS,
+            desired_stars_per_char=(4/80.)**2,
+            min_zoom=Settings.UNIVERSE_RADIUS/80.,
+            max_zoom=Settings.SECTOR_RADIUS_MEAN/80*8,
+            layer_zoom_step=0.25,
+        )
+        self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.starfield)} universe stars in {len(self.gamestate.starfield)} layers')
+
+        self.logger.info(f'generating sector starfield...')
+        self.gamestate.sector_starfield = generate_starfield(
+            self.r,
+            radius=8*Settings.SECTOR_RADIUS_MEAN,
+            desired_stars_per_char=(4/80.)**2,
+            min_zoom=(6*Settings.SECTOR_RADIUS_STD+Settings.SECTOR_RADIUS_MEAN)/80,
+            max_zoom=Settings.Ship.RADIUS*2,
+            layer_zoom_step=0.25,
+        )
+
+        self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
+
+
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r
 
@@ -1353,17 +1413,8 @@ class UniverseGenerator:
         # spawn the player
         self.spawn_player()
 
-        self.gamestate.starfield = generate_starfield(
-            self.r,
-            radius=4*Settings.UNIVERSE_RADIUS,
-            num_stars=4000,
-        )
-
-        self.gamestate.sector_starfield = generate_starfield(
-            self.r,
-            radius=4*Settings.SECTOR_RADIUS_MEAN,
-            num_stars=500,
-        )
+        # generate pretty starfields for the background
+        self.generate_starfields()
 
         return self.gamestate
 
