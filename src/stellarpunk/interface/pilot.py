@@ -640,6 +640,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         self.viewscreen.erase()
         self.starfield.draw_starfield(self.viewscreen)
+        self.presenter.draw_shapes()
         self._draw_radar()
         self.presenter.draw_sector_map()
 

@@ -1383,7 +1383,7 @@ class UniverseGenerator:
         self.gamestate.sector_starfield = generate_starfield(
             self.r,
             radius=8*Settings.SECTOR_RADIUS_MEAN,
-            desired_stars_per_char=(4/80.)**2,
+            desired_stars_per_char=(3/80.)**2,
             min_zoom=(6*Settings.SECTOR_RADIUS_STD+Settings.SECTOR_RADIUS_MEAN)/80,
             max_zoom=Settings.Ship.RADIUS*2,
             layer_zoom_step=0.25,

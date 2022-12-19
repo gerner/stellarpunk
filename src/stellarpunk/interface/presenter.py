@@ -123,14 +123,29 @@ class Presenter:
                 self.view.viewscreen.addstr(y+1+non_zero_cargo, x, f' {i}: {entity.cargo[i]:.0f}', description_attr)
                 non_zero_cargo += 1
 
-    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
-        """ Draws a single sector entity at screen position (y,x) """
-
+    def draw_entity_shape(self, entity:core.SectorEntity) -> None:
         #TODO: handle shapes not circles?
         #TODO: better handle drawing entity shapes: refactor into own method
-        if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
-            c = util.make_circle_canvas(entity.radius, *self.perspective.meters_per_char)
-            util.draw_canvas_at(c, self.view.viewscreen.viewscreen, y, x, bounds=self.view.viewscreen_bounds)
+
+        # clear out the interior of the entity circle
+        loc_x, loc_y = entity.loc
+        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.radius, loc_y-entity.radius)
+        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.radius, loc_y+entity.radius)
+        for s_x in range(s_x_min, s_x_max+1):
+            for s_y in range(s_y_min, s_y_max+1):
+                e_x, e_y = self.perspective.screen_to_sector(s_x, s_y)
+                dist2 = (e_x - loc_x)**2.+(e_y - loc_y)**2
+                if dist2 < entity.radius**2.:
+                    self.view.viewscreen.addstr(s_y, s_x, " ", 0)
+
+
+        # actually draw the circle
+        screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
+        c = util.make_circle_canvas(entity.radius, *self.perspective.meters_per_char)
+        util.draw_canvas_at(c, self.view.viewscreen.viewscreen, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+
+    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
+        """ Draws a single sector entity at screen position (y,x) """
 
         icon = interface.Icons.sector_entity_icon(entity)
         icon_attr |= interface.Icons.sector_entity_attr(entity)
@@ -237,3 +252,7 @@ class Presenter:
 
             self.draw_entity_vectors(screen_y, screen_x, entity)
 
+    def draw_shapes(self) -> None:
+        for entity in self.sector.spatial_query(self.perspective.bbox):
+            if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
+                self.draw_entity_shape(entity)

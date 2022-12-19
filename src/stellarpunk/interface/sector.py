@@ -148,6 +148,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
     def draw_sector_map(self) -> None:
         """ Draws a map of a sector. """
 
+        self.presenter.draw_shapes()
         self.draw_grid()
         self.presenter.draw_sector_map()
 

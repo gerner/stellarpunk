@@ -126,8 +126,8 @@ def screen_to_sector(
         screen_offset_x:int=0, screen_offset_y:int=0) -> Tuple[float, float]:
     """ converts from screen coordinates to sector coordinates. """
     return (
-            (screen_loc_x-screen_offset_x) * meters_per_char_x + ul_x,
-            (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
+            (screen_loc_x-screen_offset_x) * meters_per_char_x + (ul_x+meters_per_char_x),
+            (screen_loc_y-screen_offset_y) * meters_per_char_y + (ul_y+meters_per_char_y),
     )
 
 @jit(cache=True, nopython=True, fastmath=True)
