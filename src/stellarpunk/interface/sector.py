@@ -316,6 +316,9 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
             self.perspective.cursor = (x,y)
 
+        def universe(args:Sequence[str]) -> None:
+            self.interface.close_view(self)
+
         return {
                 "debug_entity": debug_entity,
                 "debug_vectors": debug_vectors,
@@ -330,6 +333,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 "pilot": pilot,
                 "chr_info": (chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
                 "scursor": scursor,
+                "universe": universe,
         }
 
     def handle_input(self, key:int, dt:float) -> bool:
@@ -373,7 +377,5 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 self.selected_character = None
             elif self.selected_target is not None:
                 self.select_target(None, None)
-            else:
-                return False
 
         return True

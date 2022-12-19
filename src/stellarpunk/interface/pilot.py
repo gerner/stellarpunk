@@ -247,10 +247,14 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.ship.clear_orders(self.interface.gamestate)
             self.ship.prepend_order(order)
 
+        def sector(args:Sequence[str]) -> None:
+            self.interface.close_view(self)
+
         return {
             "clear_orders": lambda x: self.ship.clear_orders(self.interface.gamestate),
             "jump": order_jump,
             "mine": order_mine,
+            "sector": sector,
         }
 
     def _open_command_prompt(self) -> bool:
@@ -320,11 +324,16 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
     def _handle_cancel(self) -> bool:
         """ Cancels current operation (e.g. deselect target) """
-        if self.selected_entity is not None:
+        if self.mouse_state != MouseState.EMPTY:
+            self._cancel_mouse()
+        elif self.selected_entity is not None:
             self._select_target(None)
-            return True
-        else:
-            return False
+        elif self.autopilot_on:
+            self._toggle_autopilot()
+        return True
+
+    def _cancel_mouse(self) -> None:
+            self.mouse_state = MouseState.EMPTY
 
     def _handle_mouse(self) -> bool:
         """ Orders trip to go to location via autopilot. """
