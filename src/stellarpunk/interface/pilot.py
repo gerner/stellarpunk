@@ -201,7 +201,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         # barely visible on screen
         self.perspective = interface.Perspective(
             self.interface,
-            zoom=self.ship.radius/2,
+            zoom=self.ship.radius,
             min_zoom=(6*generate.Settings.SECTOR_RADIUS_STD+generate.Settings.SECTOR_RADIUS_MEAN)/80,
             max_zoom=2*8*generate.Settings.Ship.RADIUS/80.,
         )
@@ -523,8 +523,12 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         # convert bearing so 0, North is negative y, instead of positive x
         bearing += np.pi/2
         # rel speed (toward and perpendicular to target)
-        vel_toward = np.dot(rel_vel, rel_pos)/distance
-        vel_perpendicular = util.magnitude(*(rel_vel - vel_toward * rel_pos / distance))
+        if distance > 0.:
+            vel_toward = np.dot(rel_vel, rel_pos)/distance
+            vel_perpendicular = util.magnitude(*(rel_vel - vel_toward * rel_pos / distance))
+        else:
+            vel_toward = 0.
+            vel_perpendicular = 0.
         # eta to closest approach
         if rel_speed == 0.:
             approach_t = math.inf
@@ -570,9 +574,9 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         label_order = "order:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)}')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s)')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
 
         status_y += 5

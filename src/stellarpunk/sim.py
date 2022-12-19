@@ -27,7 +27,7 @@ class Simulator(core.AbstractGameRuntime):
         self.ui = ui
 
         self.pause_on_collision = False
-        self.enable_collisions = False
+        self.enable_collisions = True
 
         # time between ticks, this is the framerate
         self.desired_dt = gamestate.desired_dt

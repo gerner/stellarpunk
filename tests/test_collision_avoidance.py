@@ -184,8 +184,6 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     assert any(False if hist_entry.order_hist is None else hist_entry.order_hist.get("cbdr", False) for hist_entry in ship_a.history), "ship_a never detected CBDR"
     assert any(False if hist_entry.order_hist is None else hist_entry.order_hist.get("cbdr", False) for hist_entry in ship_b.history), "ship_b never detected CBDR"
 
-
-
 @write_history
 def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulator):
     # got a weird CBDR issue when ship_a was lesser uuid, so let's force it to be the bigger one
@@ -1048,7 +1046,7 @@ def test_rotate_lag(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta
+    testui.eta = eta*1.2
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]

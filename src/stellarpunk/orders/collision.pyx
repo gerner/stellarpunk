@@ -675,6 +675,8 @@ cdef class Navigator:
 
     cdef double base_neighborhood_radius
     cdef double neighborhood_radius
+    cdef double full_neighborhood_radius_period
+    cdef double full_neighborhood_radius_ts
 
     # we'll calculate a desired max speed based on conditions (e.g. how crowded
     # things are)
@@ -740,6 +742,8 @@ cdef class Navigator:
 
         self.base_neighborhood_radius = base_neighborhood_radius
         self.neighborhood_radius = base_neighborhood_radius
+        self.full_neighborhood_radius_period = 5.
+        self.full_neighborhood_radius_ts = -self.full_neighborhood_radius_period*2.
 
         self.base_max_speed = max_speed
         self.max_speed = max_speed
@@ -966,17 +970,22 @@ cdef class Navigator:
 
         cdef double max_speed = self.base_max_speed
 
-        # choose a neighborhood_radius depending on our speed
-        s_low = 100
-        nr_low = 1e3
-        s_high= max_speed
-        nr_high = self.base_neighborhood_radius
-        self.neighborhood_radius = clip(
-            interpolate(s_low, nr_low, s_high, nr_high,
-                ccymunk.cpvlength(self.body._body.v)
-            ),
-            nr_low, nr_high
-        )
+        if timestamp - self.full_neighborhood_radius_ts > self.full_neighborhood_radius_period:
+            # periodically do a "full" ping of the neighborhood
+            self.neighborhood_radius = self.base_neighborhood_radius
+            self.full_neighborhood_radius_ts = timestamp
+        else:
+            # choose a neighborhood_radius depending on our speed
+            s_low = 100
+            nr_low = 1e3
+            s_high= max_speed
+            nr_high = self.base_neighborhood_radius
+            self.neighborhood_radius = clip(
+                interpolate(s_low, nr_low, s_high, nr_high,
+                    ccymunk.cpvlength(self.body._body.v)
+                ),
+                nr_low, nr_high
+            )
 
         # ramp down speed as nearby density increases
         # ramp down with inverse of the density: max_speed = m / (density + b)
@@ -1512,7 +1521,7 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     cdef double difference_angle = ccymunk.cpvtoangle(dv)
 
     if difference_mag < VELOCITY_EPS:
-        difference_angle = 0.
+        difference_angle = body.a
         if fabs(body.w) < ANGLE_EPS:
             return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY)
 
