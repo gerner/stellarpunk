@@ -7,6 +7,7 @@ import importlib.resources
 import itertools
 import enum
 import collections
+import heapq
 
 import numpy as np
 import numpy.typing as npt
@@ -32,7 +33,7 @@ class Settings:
     SECTOR_RADIUS_MEAN = 5e5
     SECTOR_RADIUS_STD = 1e5
     # max distance between sectors to guarantee a gate connection
-    MAX_SECTOR_EDGE_LENGTH = 1e5*15
+    MAX_SECTOR_EDGE_LENGTH = 2e8
 
     # how many total sectors
     NUM_SECTORS = 49
@@ -174,12 +175,37 @@ RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
 
-def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np.float64]:
+def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
+    # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
+    d = {start: 0}
+    parent = {start: start}
+    pq = [(0, start)]
+    visited = set()
+    while pq:
+        du, u = heapq.heappop(pq)
+        if u in visited: continue
+        if u == target:
+            break
+        visited.add(u)
+        for v, weight in enumerate(adj[u]):
+            if not weight < math.inf:
+                # inf weight means no edge
+                continue
+            if v not in d or d[v] > du + weight:
+                d[v] = du + weight
+                parent[v] = u
+                heapq.heappush(pq, (d[v], v))
+
+
+    return parent, d
+
+def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     # prim's algorithm to construct a minimum spanning tree
     # https://en.wikipedia.org/wiki/Prim%27s_algorithm
     # choose starting vertex arbitrarily
     V = np.zeros(len(distances), bool)
     E = np.zeros((len(distances), len(distances)))
+    edge_distances = np.full((len(distances), len(distances)), math.inf)
     # while some nodes not connected
     # invariant(s):
     # V is a mask indicating elements in the tree
@@ -198,7 +224,9 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> npt.NDArray[np
         E[edge] = 1.
         E[edge[1], edge[0]] = 1.
         V[edge[1]] = True
-    return E
+        edge_distances[edge] = distances[edge]
+        edge_distances[edge[1], edge[0]] = distances[edge]
+    return E, edge_distances
 
 def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars:int, zoom:float) -> core.StarfieldLayer:
 
@@ -1317,22 +1345,78 @@ class UniverseGenerator:
 
         # set up connectivity between sectors
         distances = distance.squareform(distance.pdist(sector_coords))
-        sector_edges = prims_mst(distances, self.r.integers(0, len(distances)))
+        sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
 
-        # add edges for nearby sectors
-        #TODO: edges should not cross sectors
+        # index of bboxes for edges
+        edge_id = 0
+        edge_index = index.Index()
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
+            if sector_edges[i,j] == 1:
+                a = self.gamestate.sectors[source_id].loc
+                b = self.gamestate.sectors[dest_id].loc
+                bbox = (
+                    min(a[0],b[0]), min(a[1],b[1]),
+                    max(a[0],b[0]), max(a[1],b[1]),
+                )
+                edge_index.insert(edge_id, bbox, ((*a, *b), (source_id, dest_id)))
+                edge_id += 1
+
+        # add edges for nearby sectors, shortest distance first
+        for (i,j) in np.dstack(np.unravel_index(np.argsort(distances.flatten()), (len(distances),len(distances))))[0]:
+            source_id = sector_ids[i]
+            dest_id = sector_ids[j]
+            # skip self edges
             if source_id == dest_id:
                 continue
-            if util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc) < max_sector_edge_length:
-                sector_edges[i,j] = 1
+            # skip existing edges
+            if sector_edges[i,j] == 1:
+                continue
+
+            dist = util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc)
+            if dist > max_sector_edge_length:
+                continue
+
+            # do not add crossing edges
+            a = self.gamestate.sectors[source_id].loc
+            b = self.gamestate.sectors[dest_id].loc
+            bbox = (
+                min(a[0],b[0]), min(a[1],b[1]),
+                max(a[0],b[0]), max(a[1],b[1]),
+            )
+            segment = (a[0],a[1],b[0],b[1])
+            collision = False
+            for (hit, ids) in edge_index.intersection(bbox, objects="raw"):
+                # ignore segments that share an endpoint
+                if source_id in ids or dest_id in ids:
+                    continue
+                if util.segments_intersect(segment, hit):
+                    collision = True
+                    break
+            if collision:
+                continue
+
+            # do not add edges if the current best distance is not much more
+            p, path_dist = dijkstra(edge_distances, i, j)
+            if path_dist[j] < dist*1.5:
+                continue
+
+            # sometmes don't take the edge, related to its length
+            if self.r.uniform() < 0.8:#(max_sector_edge_length*2 - dist)/(max_sector_edge_length*2):
+                continue
+
+            sector_edges[i,j] = 1
+            sector_edges[j,i] = 1
+            edge_distances[i,j] = dist
+            edge_distances[j,i] = dist
+            edge_index.insert(edge_id, bbox, ((*a, *b), (source_id, dest_id)))
+            edge_id += 1
 
         self.gamestate.update_edges(sector_edges, sector_ids)
 
         # add gates for the travel lanes
         #TODO: there's probably a clever way to get these indicies
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
-            if sector_edges[i,j] == 1:
+            if sector_edges[i,j] < math.inf:
                 self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id])
 
         #TODO: post-expansion decline

@@ -1118,7 +1118,7 @@ class Gamestate:
         self.sector_ids = sector_ids
         self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
         self.max_edge_length = max(
-            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] > 0
+            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
         )
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
