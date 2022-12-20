@@ -32,10 +32,9 @@ class Starfield(interface.PerspectiveObserver):
             bbox[0], bbox[1],
             mpc[0], mpc[1])
 
-        attr = 0
+        attr = curses.A_DIM
         if size > 0.5:
-            #icon = interface.Icons.STAR_LARGE
-            icon = interface.Icons.STAR_SMALL_ALTS[2]
+            icon = interface.Icons.STAR_LARGE
         else:
             if size < 0.167:
                 icon = interface.Icons.STAR_SMALL_ALTS[0]
@@ -43,7 +42,6 @@ class Starfield(interface.PerspectiveObserver):
                 icon = interface.Icons.STAR_SMALL_ALTS[1]
             else:
                 icon = interface.Icons.STAR_SMALL_ALTS[2]
-            attr = curses.A_DIM
 
         color = curses.color_pair(interface.Icons.COLOR_STAR_ALTS[color])
 
@@ -86,7 +84,7 @@ class Starfield(interface.PerspectiveObserver):
                 x_tiled = x * conversion_factor + i*x_tile_width
                 y_tiled = y * conversion_factor + j*y_tile_width
                 if bbox[0] < x_tiled < bbox[2] and bbox[1] < y_tiled < bbox[3]:
-                    k,v = self._compute_star((x_tiled,y_tiled), size, color, bbox, (mpc_x, mpc_y))
+                    k,v = self._compute_star((x_tiled,y_tiled), size/zoom_factor, color, bbox, (mpc_x, mpc_y))
                     computed_layout[k] = v
 
         return computed_layout
@@ -107,21 +105,35 @@ class Starfield(interface.PerspectiveObserver):
         # map the perspective's zoom level to some discrete stops
         # this effectively indexes into the layer space
 
-        zoom_stop = self.perspective.min_zoom*0.6**int(math.log(self.perspective.zoom/self.perspective.min_zoom)/math.log(0.6))
+        zoom_index = int(math.log(self.perspective.zoom/self.perspective.min_zoom)/math.log(0.6))
+        zoom_stop = self.perspective.min_zoom*0.6**zoom_index
+        self.logger.debug(f'{zoom_stop=} {zoom_index=}')
+
+        # swap starfields on consecutive zoom levels
+        starfield_A = self.starfields[zoom_index % 2]
+        starfield_B = self.starfields[(zoom_index + 1) % 2]
+
+        #TODO: maintain consistency when zooming through layers
+        # when we zoom "through" the starfields we want to maintain consistency
+        # of the stars, so if we push the "front" layer to the "back" all the
+        # stars in the front should still be visible in the back at their same
+        # positions (even if they have a different size). This won't be the
+        # case because of the zoom_factor parameter below I think.
+        # if we don't do this then all stars will be shuffled whenever we swap zooms
 
         computed_layout = {}
         computed_layout.update(
             self._compute_one_starfield(
-                self.starfields[0],
-                conversion_factor=zoom_stop/self.starfields[0].zoom,
-                zoom_factor=1.5,
+                starfield_A,
+                conversion_factor=zoom_stop/starfield_A.zoom,
+                zoom_factor=1.4,
             )
         )
         computed_layout.update(
             self._compute_one_starfield(
-                self.starfields[1],
-                conversion_factor=zoom_stop/self.starfields[1].zoom,
-                zoom_factor=1.5*1.5,
+                starfield_B,
+                conversion_factor=zoom_stop/starfield_B.zoom,
+                zoom_factor=1.4*1.4,
             )
         )
 
@@ -129,4 +141,4 @@ class Starfield(interface.PerspectiveObserver):
 
     def draw_starfield(self, canvas:interface.Canvas) -> None:
         for (y,x), (s, a) in self._cached_star_layout.items():
-            canvas.viewscreen.addch(y, x, s, a)
+            canvas.viewscreen.addstr(y, x, s, a)

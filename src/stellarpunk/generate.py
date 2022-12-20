@@ -1504,7 +1504,7 @@ class UniverseGenerator:
                 continue
 
             # sometmes don't take the edge, related to its length
-            if self.r.uniform() < 0.8:#(max_sector_edge_length*2 - dist)/(max_sector_edge_length*2):
+            if self.r.uniform() < 0.9:#(max_sector_edge_length*2 - dist)/(max_sector_edge_length*2):
                 continue
 
             sector_edges[i,j] = 1
