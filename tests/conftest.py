@@ -16,8 +16,13 @@ def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
     gamestate.random = ug.r
-    gamestate.production_chain = ug.generate_chain()
-    #        n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
+    gamestate.production_chain = ug.generate_chain(
+            max_fraction_one_to_one=1.,
+            max_fraction_single_input=1.,
+            max_fraction_single_output=1.,
+            assign_names=False,
+            #n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
+    )
     return ug
 
 @pytest.fixture

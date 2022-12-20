@@ -48,6 +48,33 @@ class Settings:
         STATION_RADIUS = 300.
 
     class ProductionChain:
+        n_ranks = 3
+        min_per_rank = (3,5,5)
+        max_per_rank = (4,7,6)
+
+        max_outputs = 3
+        max_inputs = 3
+        min_final_inputs = 3
+        max_final_inputs = 5
+
+        min_raw_per_processed = 3
+        max_raw_per_processed = 10
+        min_input_per_output = 2
+        max_input_per_output = 10
+
+        min_raw_price = 1.
+        max_raw_price = 15.
+        min_markup = 1.05
+        max_markup = 2.5
+
+        min_final_prices = (1e6, 1e7, 1e5)
+        max_final_prices = (3*1e6, 4*1e7, 3*1e5)
+
+        max_fraction_one_to_one = 0.5
+        max_fraction_single_input = 0.8
+        max_fraction_single_output = 0.8
+        max_tries = 512
+
         # rank 0 (9 items)
         ORE_NAMES = [
             "Volatiles", "Ferroids", "Silicoids",
@@ -98,7 +125,7 @@ class Settings:
             "Hull Parts", "Nav Consoles", "Lifesupport Systems",
             "Computing Nodes", "Engine Components", "Fuel Generators",
             "Air Handlers", "Hydrofarming Bays", "Packaged Meals",
-            "Unisex Clothing",
+            "Unisex Jumpsuits",
         ]
         HIGHTECH_INPUTS = [
             [2, 5, 8, 11, 17],
@@ -995,20 +1022,28 @@ class UniverseGenerator:
 
     def generate_chain(
             self,
-            n_ranks:int=3,
-            min_per_rank:Sequence[int]=(3,5,5), max_per_rank:Sequence[int]=(4,7,6),
-            max_outputs:int=3, max_inputs:int=3,
-            min_input_per_output:int=2, max_input_per_output:int=10,
-            min_raw_price:float=1., max_raw_price:float=15.,
-            min_markup:float=1.05, max_markup:float=2.5,
-            min_final_inputs:int=2, max_final_inputs:int=5,
-            min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
-            max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
-            min_raw_per_processed:int=3, max_raw_per_processed:int=10,
-            max_fraction_one_to_one:float=0.5,
-            max_fraction_single_input:float=0.9,
-            max_fraction_single_output:float=0.9,
-            max_tries:int=512,
+            n_ranks:Optional[int]=None,
+            min_per_rank:Optional[Sequence[int]]=None,
+            max_per_rank:Optional[Sequence[int]]=None,
+            max_outputs:Optional[int]=None,
+            max_inputs:Optional[int]=None,
+            min_input_per_output:Optional[int]=None,
+            max_input_per_output:Optional[int]=None,
+            min_raw_price:Optional[float]=None,
+            max_raw_price:Optional[float]=None,
+            min_markup:Optional[float]=None,
+            max_markup:Optional[float]=None,
+            min_final_inputs:Optional[int]=None,
+            max_final_inputs:Optional[int]=None,
+            min_final_prices:Optional[Sequence[float]]=None,
+            max_final_prices:Optional[Sequence[float]]=None,
+            min_raw_per_processed:Optional[int]=None,
+            max_raw_per_processed:Optional[int]=None,
+            max_fraction_one_to_one:Optional[float]=None,
+            max_fraction_single_input:Optional[float]=None,
+            max_fraction_single_output:Optional[float]=None,
+            max_tries:Optional[int]=None,
+            assign_names:bool=True,
             ) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -1045,12 +1080,69 @@ class UniverseGenerator:
         max_tries: int how many tries should we make to generate a production chain meeting all criteria
         """
 
+        if n_ranks is None:
+            n_ranks = Settings.ProductionChain.n_ranks
+        if min_per_rank is None:
+            min_per_rank = Settings.ProductionChain.min_per_rank
+        if max_per_rank is None:
+            max_per_rank = Settings.ProductionChain.max_per_rank
+        if max_outputs is None:
+            max_outputs = Settings.ProductionChain.max_outputs
+        if max_inputs is None:
+            max_inputs = Settings.ProductionChain.max_inputs
+        if min_input_per_output is None:
+            min_input_per_output = Settings.ProductionChain.min_input_per_output
+        if max_input_per_output is None:
+            max_input_per_output = Settings.ProductionChain.max_input_per_output
+        if min_raw_price is None:
+            min_raw_price = Settings.ProductionChain.min_raw_price
+        if max_raw_price is None:
+            max_raw_price = Settings.ProductionChain.max_raw_price
+        if min_markup is None:
+            min_markup = Settings.ProductionChain.min_markup
+        if max_markup is None:
+            max_markup = Settings.ProductionChain.max_markup
+        if min_final_inputs is None:
+            min_final_inputs = Settings.ProductionChain.min_final_inputs
+        if max_final_inputs is None:
+            max_final_inputs = Settings.ProductionChain.max_final_inputs
+        if min_final_prices is None:
+            min_final_prices = Settings.ProductionChain.min_final_prices
+        if max_final_prices is None:
+            max_final_prices = Settings.ProductionChain.max_final_prices
+        if min_raw_per_processed is None:
+            min_raw_per_processed = Settings.ProductionChain.min_raw_per_processed
+        if max_raw_per_processed is None:
+            max_raw_per_processed = Settings.ProductionChain.max_raw_per_processed
+        if max_fraction_one_to_one is None:
+            max_fraction_one_to_one = Settings.ProductionChain.max_fraction_one_to_one
+        if max_fraction_single_input is None:
+            max_fraction_single_input = Settings.ProductionChain.max_fraction_single_input
+        if max_fraction_single_output is None:
+            max_fraction_single_output = Settings.ProductionChain.max_fraction_single_output
+        if max_tries is None:
+            max_tries = Settings.ProductionChain.max_tries
+
         production_chain:Optional[core.ProductionChain] = None
         tries = 0
         generation_error_cases:Dict[GenerationErrorCase, int] = collections.defaultdict(int)
         while production_chain is None and tries < max_tries:
             try:
-                production_chain = self._generate_chain()
+                production_chain = self._generate_chain(
+                    n_ranks, min_per_rank, max_per_rank,
+                    max_outputs, max_inputs,
+                    min_input_per_output, max_input_per_output,
+                    min_raw_price, max_raw_price,
+                    min_markup, max_markup,
+                    min_final_inputs, max_final_inputs,
+                    min_final_prices,
+                    max_final_prices,
+                    min_raw_per_processed, max_raw_per_processed,
+                    max_fraction_one_to_one,
+                    max_fraction_single_input,
+                    max_fraction_single_output,
+                    assign_names,
+                )
             except GenerationError as e:
                 generation_error_cases[e.case] += 1
                 pass
@@ -1063,19 +1155,27 @@ class UniverseGenerator:
 
     def _generate_chain(
             self,
-            n_ranks:int=3,
-            min_per_rank:Sequence[int]=(3,5,5), max_per_rank:Sequence[int]=(4,7,6),
-            max_outputs:int=3, max_inputs:int=3,
-            min_input_per_output:int=2, max_input_per_output:int=10,
-            min_raw_price:float=1., max_raw_price:float=15.,
-            min_markup:float=1.05, max_markup:float=2.5,
-            min_final_inputs:int=2, max_final_inputs:int=5,
-            min_final_prices:Sequence[float]=(1e6, 1e7, 1e5),
-            max_final_prices:Sequence[float]=(3*1e6, 4*1e7, 3*1e5),
-            min_raw_per_processed:int=3, max_raw_per_processed:int=10,
-            max_fraction_one_to_one:float=0.5,
-            max_fraction_single_input:float=0.9,
-            max_fraction_single_output:float=0.9,
+            n_ranks:int,
+            min_per_rank:Sequence[int],
+            max_per_rank:Sequence[int],
+            max_outputs:int,
+            max_inputs:int,
+            min_input_per_output:int,
+            max_input_per_output:int,
+            min_raw_price:float,
+            max_raw_price:float,
+            min_markup:float,
+            max_markup:float,
+            min_final_inputs:int,
+            max_final_inputs:int,
+            min_final_prices:Sequence[float],
+            max_final_prices:Sequence[float],
+            min_raw_per_processed:int,
+            max_raw_per_processed:int,
+            max_fraction_one_to_one:float,
+            max_fraction_single_input:float,
+            max_fraction_single_output:float,
+            assign_names:bool,
             ) -> core.ProductionChain:
         """ Generates a random production chain.
 
@@ -1253,7 +1353,10 @@ class UniverseGenerator:
         batch_sizes = np.clip(3. * np.ceil(np.min(adj_matrix, axis=1, where=adj_matrix>0, initial=np.inf)), 1., 50)
         batch_sizes[-ranks[-1]:] = 1
 
-        product_names = self._generate_product_names(ranks, adj_matrix)
+        if assign_names:
+            product_names = self._generate_product_names(ranks, adj_matrix)
+        else:
+            product_names = [f'product_{x}' for x in range(len(adj_matrix))]
 
         chain = core.ProductionChain()
         chain.ranks = ranks
