@@ -123,6 +123,7 @@ class InterfaceManager:
             self.bind_key(ord(">"), self.time_accel),
             self.bind_key(ord("<"), self.time_decel),
             self.bind_key(ord(":"), open_command_prompt),
+            self.bind_key(ord("?"), self.help),
         ]
 
     def command_list(self) -> Collection[interface.CommandBinding]:

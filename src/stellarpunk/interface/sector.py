@@ -322,27 +322,34 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.bind_command("debug_vectors", debug_vectors),
             self.bind_command("debug_write_history", debug_write_history),
             self.bind_command("debug_write_sector", debug_write_sector),
-            self.bind_command("target", target, util.tab_completer(map(str, self.sector.entities.keys()))),
+            self.bind_command("debug_pilot", pilot),
             self.bind_command("spawn_ship", spawn_ship),
             self.bind_command("spawn_collision", spawn_collision),
             self.bind_command("spawn_resources", spawn_resources),
             self.bind_command("goto", goto),
             self.bind_command("wait", wait),
-            self.bind_command("pilot", pilot),
+
+            self.bind_command("target", target, util.tab_completer(map(str, self.sector.entities.keys()))),
             self.bind_command("chr_info", chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
-            self.bind_command("scursor", scursor),
+            self.bind_command("cursor", scursor),
         ]
 
-    def _change_target(self) -> None:
+    def _change_target(self, direction:int) -> None:
         entity_id_list = sorted(self.sector.entities.keys())
         if len(entity_id_list) == 0:
             self.select_target(None, None)
         elif self.selected_target is None:
             self.select_target(entity_id_list[0], self.sector.entities[entity_id_list[0]])
         else:
-            next_index = bisect.bisect_right(entity_id_list, self.selected_target)
+            if direction >= 0:
+                next_index = bisect.bisect_right(entity_id_list, self.selected_target)
+            else:
+                next_index = bisect.bisect_left(entity_id_list, self.selected_target)
+                if entity_id_list[next_index] == self.selected_target:
+                    next_index -= 1
             if next_index >= len(entity_id_list):
                 next_index = 0
+            self.logger.debug(f'{next_index=}')
             self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
 
     def focus_target(self) -> None:
@@ -378,7 +385,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord('d'), lambda: self.perspective.move_cursor(ord('d'))),
             self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
-            self.bind_key(ord("t"), self._change_target),
+            self.bind_key(ord("t"), lambda: self._change_target(1)),
+            self.bind_key(ord("r"), lambda: self._change_target(-1)),
             self.bind_key(ord('\n'), self.focus_target),
             self.bind_key(ord('\r'), self.focus_target),
             self.bind_key(curses.KEY_MOUSE, self._handle_mouse),

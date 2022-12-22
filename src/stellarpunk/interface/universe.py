@@ -241,8 +241,8 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
             assert ship.sector
             self.open_sector_view(ship.sector).select_target(ship.entity_id, ship)
         return [
-            self.bind_command("target", target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
             self.bind_command("debug_collision", debug_collision),
+            self.bind_command("target", target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
         ]
 
     def key_list(self) -> Collection[interface.KeyBinding]:
