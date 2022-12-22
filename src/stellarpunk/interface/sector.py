@@ -9,7 +9,7 @@ import curses.ascii
 import time
 import uuid
 import re
-from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union
+from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Collection
 
 import drawille # type: ignore
 import numpy as np
@@ -207,10 +207,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
     def open_pilot_view(self, ship:core.Ship) -> pilot_interface.PilotView:
         self.pilot_view = pilot_interface.PilotView(ship, self.interface)
+        self.interface.close_view(self)
         self.interface.open_view(self.pilot_view)
-        # suspend input until we get focus again
-        self.active = False
-
         return self.pilot_view
 
     def update_display(self) -> None:
@@ -221,7 +219,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         self._draw_hud()
         self.interface.refresh_viewscreen()
 
-    def command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
+    def command_list(self) -> Collection[interface.CommandBinding]:
         def target(args:Sequence[str])->None:
             if not args:
                 raise command_input.CommandInput.UserError("need a valid target")
@@ -316,66 +314,72 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
             self.perspective.cursor = (x,y)
 
-        def universe(args:Sequence[str]) -> None:
-            self.interface.close_view(self)
+        return [
+            self.bind_command("debug_entity", debug_entity),
+            self.bind_command("debug_vectors", debug_vectors),
+            self.bind_command("debug_write_history", debug_write_history),
+            self.bind_command("debug_write_sector", debug_write_sector),
+            self.bind_command("target", target, util.tab_completer(map(str, self.sector.entities.keys()))),
+            self.bind_command("spawn_ship", spawn_ship),
+            self.bind_command("spawn_collision", spawn_collision),
+            self.bind_command("spawn_resources", spawn_resources),
+            self.bind_command("goto", goto),
+            self.bind_command("wait", wait),
+            self.bind_command("pilot", pilot),
+            self.bind_command("chr_info", chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
+            self.bind_command("scursor", scursor),
+        ]
 
-        return {
-                "debug_entity": debug_entity,
-                "debug_vectors": debug_vectors,
-                "debug_write_history": debug_write_history,
-                "debug_write_sector": debug_write_sector,
-                "target": (target, util.tab_completer(map(str, self.sector.entities.keys()))),
-                "spawn_ship": spawn_ship,
-                "spawn_collision": spawn_collision,
-                "spawn_resources": spawn_resources,
-                "goto": goto,
-                "wait": wait,
-                "pilot": pilot,
-                "chr_info": (chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
-                "scursor": scursor,
-                "universe": universe,
-        }
+    def _change_target(self) -> None:
+        entity_id_list = sorted(self.sector.entities.keys())
+        if len(entity_id_list) == 0:
+            self.select_target(None, None)
+        elif self.selected_target is None:
+            self.select_target(entity_id_list[0], self.sector.entities[entity_id_list[0]])
+        else:
+            next_index = bisect.bisect_right(entity_id_list, self.selected_target)
+            if next_index >= len(entity_id_list):
+                next_index = 0
+            self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
 
-    def handle_input(self, key:int, dt:float) -> bool:
-        if key in (ord('w'), ord('a'), ord('s'), ord('d')):
-            self.perspective.move_cursor(key)
-        elif key in (ord("+"), ord("-")):
-            self.perspective.zoom_cursor(key)
-        elif key == ord("t"):
-            entity_id_list = sorted(self.sector.entities.keys())
-            if len(entity_id_list) == 0:
-                self.select_target(None, None)
-            elif self.selected_target is None:
-                self.select_target(entity_id_list[0], self.sector.entities[entity_id_list[0]])
-            else:
-                next_index = bisect.bisect_right(entity_id_list, self.selected_target)
-                if next_index >= len(entity_id_list):
-                    next_index = 0
-                self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
-        elif key in (ord('\n'), ord('\r')):
-            if self.selected_target:
-                self.perspective.cursor = tuple(self.sector.entities[self.selected_target].loc)
-        elif key == ord(":"):
-            self.interface.open_view(command_input.CommandInput(
-                self.interface, commands=self.command_list()))
-        elif key == curses.KEY_MOUSE:
-            m_tuple = curses.getmouse()
-            m_id, m_x, m_y, m_z, bstate = m_tuple
-            sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
+    def _focus_target(self) -> None:
+        if self.selected_target:
+            self.perspective.cursor = tuple(self.sector.entities[self.selected_target].loc)
 
-            # select a target within a cell of the mouse click
-            bounds = (
-                    sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
-                    sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
-            )
-            hit = next(self.sector.spatial_query(bounds), None)
-            if hit:
-                #TODO: check if the hit is close enough
-                self.select_target(hit.entity_id, hit)
-        elif key == curses.ascii.ESC: #TODO: should handle escape here
-            if self.selected_character is not None:
-                self.selected_character = None
-            elif self.selected_target is not None:
-                self.select_target(None, None)
+    def _handle_mouse(self) -> None:
+        m_tuple = curses.getmouse()
+        m_id, m_x, m_y, m_z, bstate = m_tuple
+        sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
 
-        return True
+        # select a target within a cell of the mouse click
+        bounds = (
+                sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
+                sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
+        )
+        hit = next(self.sector.spatial_query(bounds), None)
+        if hit:
+            #TODO: check if the hit is close enough
+            self.select_target(hit.entity_id, hit)
+
+    def _handle_cancel(self) -> None:
+        if self.selected_character is not None:
+            self.selected_character = None
+        elif self.selected_target is not None:
+            self.select_target(None, None)
+
+    def key_list(self) -> Collection[interface.KeyBinding]:
+        key_list = [
+            self.bind_key(ord('w'), lambda: self.perspective.move_cursor(ord('w'))),
+            self.bind_key(ord('a'), lambda: self.perspective.move_cursor(ord('a'))),
+            self.bind_key(ord('s'), lambda: self.perspective.move_cursor(ord('s'))),
+            self.bind_key(ord('d'), lambda: self.perspective.move_cursor(ord('d'))),
+            self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
+            self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
+            self.bind_key(ord("t"), self._change_target),
+            self.bind_key(ord('\n'), self._focus_target),
+            self.bind_key(ord('\r'), self._focus_target),
+            self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
+            self.bind_key(curses.ascii.ESC, self._handle_cancel),
+        ]
+
+        return key_list

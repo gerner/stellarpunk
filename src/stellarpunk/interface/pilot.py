@@ -6,7 +6,7 @@ Sits within a sector view.
 import math
 import curses
 import enum
-from typing import Tuple, Optional, Any, Callable, Mapping, MutableMapping, Sequence
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection
 
 import numpy as np
 import cymunk # type: ignore
@@ -39,14 +39,14 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_command = False
 
-    def _clip_force_to_max_speed(self, force:Tuple[float, float], dt:float, max_thrust:float) -> Tuple[float, float]:
+    def _clip_force_to_max_speed(self, force:Tuple[float, float], max_thrust:float) -> Tuple[float, float]:
         # clip force s.t. resulting speed (after dt) is at most max_speed
         # we do this by computing what the resulting speed will be after dt
         # and checking if that's ok and if not, finding a (positive) scale for
         # 
         r_v, theta_v = util.cartesian_to_polar(*(self.ship.velocity))
         r_h, theta_h = util.cartesian_to_polar(force[0], force[1])
-        r_h = r_h / self.ship.mass * dt
+        r_h = r_h / self.ship.mass * self.gamestate.dt
         expected_speed = np.sqrt(r_v**2 + r_h**2 + 2 * r_v * r_h * np.cos(theta_h - theta_v))
 
         if expected_speed > self.ship.max_speed():
@@ -77,22 +77,22 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             if r_desired <= 0.:
                 return (0., 0.)
 
-            r_desired = np.clip(r_desired * self.ship.mass / dt, 0., max_thrust)
+            r_desired = np.clip(r_desired * self.ship.mass / self.gamestate.dt, 0., max_thrust)
             return util.polar_to_cartesian(r_desired, theta_h)
         else:
             return force
 
-    def _clip_torque_to_max_angular_velocity(self, torque:float, dt:float, max_torque:float, max_angular_velocity:float) -> float:
+    def _clip_torque_to_max_angular_velocity(self, torque:float, max_torque:float, max_angular_velocity:float) -> float:
         # clip torque s.t. resulting angular velocity (after dt) is at most
         # max_angular_velocity
         # w = w_0 + torque * dt
 
-        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * dt
+        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * self.gamestate.dt
         if abs(expected_w) > max_angular_velocity:
             if expected_w < 0:
-                return (-max_angular_velocity - self.ship.phys.angular_velocity)/dt*self.ship.moment
+                return (-max_angular_velocity - self.ship.phys.angular_velocity)/self.gamestate.dt*self.ship.moment
             else:
-                return (max_angular_velocity - self.ship.phys.angular_velocity)/dt*self.ship.moment
+                return (max_angular_velocity - self.ship.phys.angular_velocity)/self.gamestate.dt*self.ship.moment
         return torque
 
     def act(self, dt:float) -> None:
@@ -121,12 +121,12 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
     # action functions, imply player direct input
 
-    def accelerate(self, dt:float) -> None:
+    def accelerate(self) -> None:
         self.has_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_thrust, self.ship.angle)
 
-        force = self._clip_force_to_max_speed(force, dt, self.ship.max_thrust)
+        force = self._clip_force_to_max_speed(force, self.ship.max_thrust)
 
         self.ship.apply_torque(0., False)
         if not np.allclose(force, steering.ZERO_VECTOR):
@@ -134,17 +134,17 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         else:
             self.ship.apply_force(steering.ZERO_VECTOR, False)
 
-    def kill_velocity(self, dt:float) -> None:
+    def kill_velocity(self) -> None:
         self.has_command = True
         if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
             return
         #TODO: handle continuous force/torque
         period = collision.accelerate_to(
-                self.ship.phys, cymunk.Vec2d(0,0), dt,
+                self.ship.phys, cymunk.Vec2d(0,0), self.gamestate.dt,
                 self.ship.max_speed(), self.ship.max_torque,
                 self.ship.max_thrust, self.ship.max_fine_thrust)
 
-    def rotate(self, scale:float, dt:float) -> None:
+    def rotate(self, scale:float) -> None:
         """ Rotates the ship in desired direction
 
         scale is the direction 1 is clockwise,-1 is counter clockwise
@@ -156,14 +156,13 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         self.ship.apply_torque(
             self._clip_torque_to_max_angular_velocity(
                 self.ship.max_torque * scale,
-                dt,
                 self.ship.max_torque,
                 Settings.MAX_ANGULAR_VELOCITY
             ),
             False
         )
 
-    def translate(self, direction:float, dt:float) -> None:
+    def translate(self, direction:float) -> None:
         """ Translates the ship in the desired direction
 
         direction is an angle relative to heading
@@ -172,7 +171,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_fine_thrust, self.ship.angle + direction)
 
-        force = self._clip_force_to_max_speed(force, dt, self.ship.max_fine_thrust)
+        force = self._clip_force_to_max_speed(force, self.ship.max_fine_thrust)
 
         self.ship.apply_force(force, False)
 
@@ -231,7 +230,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         self.starfield = starfield.Starfield(self.interface.gamestate.sector_starfield, self.perspective)
 
-    def _command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
+    def command_list(self) -> Collection[interface.CommandBinding]:
 
         def order_jump(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
@@ -247,20 +246,11 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.ship.clear_orders(self.interface.gamestate)
             self.ship.prepend_order(order)
 
-        def sector(args:Sequence[str]) -> None:
-            self.interface.close_view(self)
-
-        return {
-            "clear_orders": lambda x: self.ship.clear_orders(self.interface.gamestate),
-            "jump": order_jump,
-            "mine": order_mine,
-            "sector": sector,
-        }
-
-    def _open_command_prompt(self) -> bool:
-        self.interface.open_view(command_input.CommandInput(
-            self.interface, commands=self._command_list()))
-        return True
+        return [
+            self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.interface.gamestate)),
+            self.bind_command("jump", order_jump),
+            self.bind_command("mine", order_mine),
+        ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:
         if entity is None:
@@ -270,7 +260,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.selected_entity = entity
             self.presenter.selected_target = entity.entity_id
 
-    def _toggle_autopilot(self) -> bool:
+    def _toggle_autopilot(self) -> None:
         """ Toggles autopilot state.
 
         If autopilot is on, we follow normal orders for the ship. Otherwise we
@@ -296,9 +286,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.control_order = control_order
             self.autopilot_on = True
 
-        return True
-
-    def _drive(self, key:int, dt:float) -> bool:
+    def _drive(self, key:int) -> None:
         """ Inputs a direct navigation control for the ship.
 
         "w" increases velocity, "a" rotates left, "d" rotates right,
@@ -307,22 +295,20 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         """
 
         if not self.autopilot_on:
-            return True
+            return
         elif self.control_order is None:
             raise ValueError("autopilot on, but no control order set")
 
         if key == ord("w"):
-            self.control_order.accelerate(dt)
+            self.control_order.accelerate()
         elif key == ord("s"):
-            self.control_order.kill_velocity(dt)
+            self.control_order.kill_velocity()
         elif key in (ord("a"), ord("d")):
-            self.control_order.rotate(1. if key == ord("d") else -1., dt)
+            self.control_order.rotate(1. if key == ord("d") else -1.)
         elif key in TRANSLATE_KEYS:
-            self.control_order.translate(TRANSLATE_DIRECTIONS[key], dt)
+            self.control_order.translate(TRANSLATE_DIRECTIONS[key])
 
-        return True
-
-    def _handle_cancel(self) -> bool:
+    def _handle_cancel(self) -> None:
         """ Cancels current operation (e.g. deselect target) """
         if self.mouse_state != MouseState.EMPTY:
             self._cancel_mouse()
@@ -330,12 +316,11 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self._select_target(None)
         elif self.autopilot_on:
             self._toggle_autopilot()
-        return True
 
     def _cancel_mouse(self) -> None:
             self.mouse_state = MouseState.EMPTY
 
-    def _handle_mouse(self) -> bool:
+    def _handle_mouse(self) -> None:
         """ Orders trip to go to location via autopilot. """
         m_tuple = curses.getmouse()
         m_id, m_x, m_y, m_z, bstate = m_tuple
@@ -353,7 +338,6 @@ class PilotView(interface.View, interface.PerspectiveObserver):
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
 
-            return True
         elif self.mouse_state == MouseState.GOTO:
             if self.autopilot_on:
                 self._toggle_autopilot()
@@ -365,11 +349,10 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
             self.mouse_state = MouseState.EMPTY
 
-            return True
         else:
             raise ValueError(f'unknown mouse state {self.mouse_state}')
 
-    def _next_target(self, direction:int) -> bool:
+    def _next_target(self, direction:int) -> None:
         """ Selects the next or previous target from a sorted list. """
 
         if self.ship.sector is None:
@@ -378,24 +361,29 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         if self.selected_entity is None:
             self._select_target(next(self.ship.sector.spatial_point(self.ship.loc), None))
 
-        return True
+    def _start_goto(self) -> None:
+        self.mouse_state = MouseState.GOTO
 
-    def handle_input(self, key:int, dt:float) -> bool:
-
-        if self.interface.gamestate.timestamp > self.mouse_state_clear_time:
-            self.mouse_state = MouseState.EMPTY
-
-        if key == curses.ascii.ESC: return self._handle_cancel()
-        elif key == ord(":"): return self._open_command_prompt()
-        elif key in (ord("+"), ord("-")): self.perspective.zoom_cursor(key)
-        elif key == ord("p"): return self._toggle_autopilot()
-        elif key in DRIVE_KEYS: return self._drive(key, dt)
-        elif key == curses.KEY_MOUSE: return self._handle_mouse()
-        elif key == ord("g"): self.mouse_state = MouseState.GOTO
-        elif key == ord("t"): return self._next_target(1)
-        elif key == ord("r"): return self._next_target(-1)
-
-        return True
+    def key_list(self) -> Collection[interface.KeyBinding]:
+        key_list = [
+            self.bind_key(curses.ascii.ESC, self._handle_cancel),
+            self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
+            self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
+            self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
+            self.bind_key(ord("p"), self._toggle_autopilot),
+            self.bind_key(ord("g"), self._start_goto),
+            self.bind_key(ord("t"), lambda: self._next_target(1)),
+            self.bind_key(ord("r"), lambda: self._next_target(-1)),
+            self.bind_key(ord("w"), lambda: self._drive(ord("w"))),
+            self.bind_key(ord("a"), lambda: self._drive(ord("a"))),
+            self.bind_key(ord("s"), lambda: self._drive(ord("s"))),
+            self.bind_key(ord("d"), lambda: self._drive(ord("d"))),
+            self.bind_key(ord("i"), lambda: self._drive(ord("i"))),
+            self.bind_key(ord("j"), lambda: self._drive(ord("j"))),
+            self.bind_key(ord("k"), lambda: self._drive(ord("k"))),
+            self.bind_key(ord("l"), lambda: self._drive(ord("l"))),
+        ]
+        return key_list
 
     def _compute_radar(self, max_ticks:int=10) -> None:
         self._cached_radar_zoom = self.perspective.zoom
@@ -649,6 +637,9 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.interface.reinitialize_screen(name="Pilot's Seat")
 
     def update_display(self) -> None:
+        if self.interface.gamestate.timestamp > self.mouse_state_clear_time:
+            self.mouse_state = MouseState.EMPTY
+
         self._auto_pan()
 
         self.viewscreen.erase()

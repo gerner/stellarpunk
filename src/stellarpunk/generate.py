@@ -73,7 +73,8 @@ class Settings:
         max_fraction_one_to_one = 0.5
         max_fraction_single_input = 0.8
         max_fraction_single_output = 0.8
-        max_tries = 512
+        # TODO: I can probably improve chain generation so we need fewer tries
+        max_tries = 1024
 
         # rank 0 (9 items)
         ORE_NAMES = [

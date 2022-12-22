@@ -14,14 +14,12 @@ import time
 import collections
 import math
 import collections.abc
-import cProfile
-import pstats
 import abc
-from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set
+from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
 
-from stellarpunk import util, generate, core
+from stellarpunk import util, generate, core, config
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -323,9 +321,40 @@ class Perspective:
             self.meters_per_char[0], self.meters_per_char[1]
         )
 
+CommandSig = Union[
+        Callable[[Sequence[str]], None],
+        Tuple[
+            Callable[[Sequence[str]], None],
+            Callable[[str, str], str]]
+]
+
+class CommandBinding:
+    def __init__(self, command:str, f:Callable[[Sequence[str]], None], h:str, tab_completer:Optional[Callable[[str, str], str]]=None) -> None:
+        self.command = command
+        self.f = f
+        self.help = h
+        self.tab_completer = tab_completer
+
+    def __call__(self, args:Sequence[str]) -> None:
+        self.f(args)
+
+    def complete(self, partial:str, command:str) -> str:
+        if self.tab_completer:
+            return self.tab_completer(partial, command) or " "
+        else:
+            return self.command
+
+class KeyBinding:
+    def __init__(self, key:int, f:Callable[[], None], h:str) -> None:
+        self.key = key
+        self.f = f
+        self.help = h
+
+    def __call__(self) -> None:
+        self.f()
+
 class View(abc.ABC):
     def __init__(self, interface: Interface) -> None:
-
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.active = True
@@ -344,6 +373,20 @@ class View(abc.ABC):
     def viewscreen_bounds(self) -> Tuple[int, int, int, int]:
         return self.interface.viewscreen_bounds
 
+    def bind_key(self, k:int, f:Callable[[], None]) -> KeyBinding:
+        try:
+            h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).keys, chr(k))
+        except AttributeError:
+            h = "NO HELP"
+        return KeyBinding(k, f, h)
+
+    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> CommandBinding:
+        try:
+            h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).commands, command)
+        except AttributeError:
+            h = "NO HELP"
+        return CommandBinding(command, f, h, tab_completer)
+
     def initialize(self) -> None:
         pass
 
@@ -361,7 +404,18 @@ class View(abc.ABC):
         pass
 
     def handle_input(self, key:int, dt:float) -> bool:
-        return True
+        key_list = {x.key: x for x in self.key_list()}
+        if key in key_list:
+            key_list[key]()
+            return True
+        else:
+            return False
+
+    def command_list(self) -> Collection[CommandBinding]:
+        return []
+
+    def key_list(self) -> Collection[KeyBinding]:
+        return []
 
 class ColorDemo(View):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -377,7 +431,11 @@ class ColorDemo(View):
         self.interface.refresh_viewscreen()
 
     def handle_input(self, key:int, dt:float) -> bool:
-        return key == -1
+        if key != -1:
+            self.interface.close_view(self)
+            return True
+        else:
+            return False
 
 class GenerationUI(generate.GenerationListener):
     """ Handles the UI during universe generation. """
@@ -467,6 +525,7 @@ class Interface(AbstractInterface):
         self.logscreen_height = 0
         self.logscreen_x = 0
         self.logscreen_y = 0
+        self.logscreen_buffer:Deque[str] = collections.deque(maxlen=100)
 
         self.gamestate = gamestate
 
@@ -482,10 +541,11 @@ class Interface(AbstractInterface):
 
         self.one_time_step = False
 
-        self.profiler:Optional[cProfile.Profile] = None
 
         self.status_message_lifetime:float = 7.
         self.status_message_clear_time:float = np.inf
+
+        self.key_list:Dict[int, KeyBinding] = {}
 
     def __enter__(self) -> Interface:
         """ Does most simple interface initialization.
@@ -657,6 +717,8 @@ class Interface(AbstractInterface):
         self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width)
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
+        for message in self.logscreen_buffer:
+            self.logscreen.addstr(self.logscreen_height,0, message+"\n")
 
         self.stdscr.noutrefresh()
         self.refresh_viewscreen()
@@ -712,6 +774,7 @@ class Interface(AbstractInterface):
 
     def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """
+        self.logscreen_buffer.append(message)
         self.logscreen.addstr(self.logscreen_height,0, message+"\n")
         self.refresh_logscreen()
 
@@ -767,6 +830,9 @@ class Interface(AbstractInterface):
     def generation_listener(self) -> generate.GenerationListener:
         return GenerationUI(self)
 
+    def focused_view(self) -> View:
+        return self.views[-1]
+
     def open_view(self, view:View) -> None:
         self.logger.debug(f'opening view {view}')
         if len(self.views):
@@ -779,63 +845,8 @@ class Interface(AbstractInterface):
         self.logger.debug(f'closing view {view}')
         view.terminate()
         self.views.remove(view)
-        self.views[-1].focus()
-
-    def c_pause(self, args:Sequence[str]) -> None:
-        self.gamestate.time_acceleration(1.0, False)
-        self.gamestate.paused = not self.gamestate.paused
-
-    def c_time_accel(self, args:Sequence[str]) -> None:
-        old_accel_rate, _ = self.gamestate.get_time_acceleration()
-        new_accel_rate = old_accel_rate * 1.25
-        if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
-            new_accel_rate = 1.0
-        if new_accel_rate >= Settings.MAX_TIME_ACCEL:
-            new_accel_rate = Settings.MAX_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate, False)
-
-    def c_time_decel(self, args:Sequence[str]) -> None:
-        old_accel_rate, _ = self.gamestate.get_time_acceleration()
-        new_accel_rate = old_accel_rate / 1.25
-        if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
-            new_accel_rate = 1.0
-        if new_accel_rate <= Settings.MIN_TIME_ACCEL:
-            new_accel_rate = Settings.MIN_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate, False)
-
-    def command_list(self) -> Mapping[str, Callable[[Sequence[str]], None]]:
-        def fps(args:Sequence[str]) -> None: self.show_fps = not self.show_fps
-        def quit(args:Sequence[str]) -> None: self.gamestate.quit()
-        def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
-        def colordemo(args:Sequence[str]) -> None: self.open_view(ColorDemo(self))
-        def profile(args:Sequence[str]) -> None:
-            if self.profiler:
-                self.profiler.disable()
-                pstats.Stats(self.profiler).dump_stats("/tmp/profile.prof")
-            else:
-                self.profiler = cProfile.Profile()
-                self.profiler.enable()
-
-        def fast(args:Sequence[str]) -> None:
-            _, fast_mode = self.gamestate.get_time_acceleration()
-            self.gamestate.time_acceleration(1.0, fast_mode=not fast_mode)
-
-        def decrease_fps(args:Sequence[str]) -> None: self.decrease_fps()
-        def increase_fps(args:Sequence[str]) -> None: self.increase_fps()
-
-        return {
-                "pause": self.c_pause,
-                "t_accel" : self.c_time_accel,
-                "t_decel" : self.c_time_decel,
-                "fps": fps,
-                "quit": quit,
-                "raise": raise_exception,
-                "colordemo": colordemo,
-                "profile": profile,
-                "fast": fast,
-                "decrease_fps": decrease_fps,
-                "increase_fps": increase_fps,
-        }
+        if len(self.views) > 0:
+            self.views[-1].focus()
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()
@@ -885,25 +896,20 @@ class Interface(AbstractInterface):
         #while self.stdscr.getch() != -1:
         #    pass
 
-        if key == -1:
+        if key < 0:
             return
         elif key == curses.KEY_RESIZE:
             for view in self.views:
                 view.initialize()
-        elif key == ord(" "):
-            self.c_pause(())
-        elif key == ord("."):
-            self.c_pause(())
-            self.one_time_step = True
-        elif key == ord(">"):
-            self.c_time_accel(())
-        elif key == ord("<"):
-            self.c_time_decel(())
-        elif key >= 0:
-            self.status_message()
-            v = self.views[-1]
-            if not v.handle_input(key, dt):
-                self.close_view(v)
+            return
+
+        self.status_message()
+        v = self.views[-1]
+        if v.handle_input(key, dt):
+            return
+
+        if key in self.key_list:
+            self.key_list[key]()
 
     def product_name(self, product_id:Optional[int], max_length:int=1024) -> str:
         if product_id is None:

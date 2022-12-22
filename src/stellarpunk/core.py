@@ -958,6 +958,7 @@ class Gamestate:
         self.timestamp = 0.
 
         self.desired_dt = 1/30
+        self.dt = self.desired_dt
         self.min_tick_sleep = self.desired_dt/5
         self.ticks = 0
         self.ticktime = 0.
@@ -980,6 +981,10 @@ class Gamestate:
 
     def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
         self.game_runtime.time_acceleration(accel_rate, fast_mode)
+
+    def pause(self) -> None:
+        self.time_acceleration(1.0, False)
+        self.paused = not self.paused
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent

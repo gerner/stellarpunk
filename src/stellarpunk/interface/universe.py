@@ -3,7 +3,7 @@ import curses
 import math
 import functools
 import uuid
-from typing import Any, Tuple, Sequence, Mapping, Optional
+from typing import Any, Tuple, Sequence, Mapping, Optional, Callable, Collection
 
 import numpy as np
 import drawille # type: ignore
@@ -37,8 +37,6 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         # the child view we spawn
         # if we receive focus, this should be dead
         self.sector_view:Optional[sector_interface.SectorView] = None
-
-        self._ci = command_input.CommandInput(self.interface, commands=self.command_list())
 
         self.starfield = starfield.Starfield(self.interface.gamestate.starfield, self.perspective)
 
@@ -180,10 +178,8 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
     def open_sector_view(self, sector:core.Sector) -> sector_interface.SectorView:
         self.sector_view = sector_interface.SectorView(
                 self.selected_sector, self.interface)
+        self.interface.close_view(self)
         self.interface.open_view(self.sector_view)
-        # suspend input until we get focus again
-        self.active = False
-
         return self.sector_view
 
     def update_display(self) -> None:
@@ -225,7 +221,7 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
         self.interface.refresh_viewscreen()
 
-    def command_list(self) -> Mapping[str, command_input.CommandInput.CommandSig]:
+    def command_list(self) -> Collection[interface.CommandBinding]:
         def target(args:Sequence[str])->None:
             if not args:
                 raise command_input.CommandInput.UserError("need a valid target")
@@ -251,40 +247,46 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
             assert ship.sector
             self.open_sector_view(ship.sector).select_target(ship.entity_id, ship)
-        return {
-            "target": (target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
-            "debug_collision": debug_collision,
-        }
+        return [
+            self.bind_command("target", target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
+            self.bind_command("debug_collision", debug_collision),
+        ]
 
-    def handle_input(self, key:int, dt:float) -> bool:
-        if key in (ord('w'), ord('a'), ord('s'), ord('d')):
-            self.perspective.move_cursor(key)
-        elif key in (ord("+"), ord("-")):
-            self.perspective.zoom_cursor(key)
-        elif key in (ord('\n'), ord('\r')):
-            if self.selected_sector is None:
-                return True
-            elif not np.all(np.isclose(self.perspective.cursor, self.selected_sector.loc)):
-                self.perspective.cursor = tuple(self.selected_sector.loc)
-                return True
-            else:
-                self.open_sector_view(self.selected_sector)
-        elif key == ord(":"):
-            self.interface.open_view(self._ci)
-        elif key == curses.KEY_MOUSE:
-            m_tuple = curses.getmouse()
-            m_id, m_x, m_y, m_z, bstate = m_tuple
-            sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
+    def _focus_target(self) -> None:
+        if self.selected_sector is None:
+            return
+        elif not np.all(np.isclose(self.perspective.cursor, self.selected_sector.loc)):
+            self.perspective.cursor = tuple(self.selected_sector.loc)
+        else:
+            self.open_sector_view(self.selected_sector)
 
-            # select a target within a cell of the mouse click
-            bounds = (
-                    sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
-                    sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
-            )
-            hit = next(self.gamestate.spatial_query(bounds), None)
-            if hit:
-                #TODO: check if the hit is close enough
-                self.selected_sector = self.gamestate.sectors[hit]
+    def _handle_mouse(self) -> None:
+        m_tuple = curses.getmouse()
+        m_id, m_x, m_y, m_z, bstate = m_tuple
+        sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
 
-        return True
+        # select a target within a cell of the mouse click
+        bounds = (
+                sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
+                sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
+        )
+        hit = next(self.gamestate.spatial_query(bounds), None)
+        if hit:
+            #TODO: check if the hit is close enough
+            self.selected_sector = self.gamestate.sectors[hit]
+
+    def key_list(self) -> Collection[interface.KeyBinding]:
+        key_list = [
+            self.bind_key(ord('w'), lambda: self.perspective.move_cursor(ord('w'))),
+            self.bind_key(ord('a'), lambda: self.perspective.move_cursor(ord('a'))),
+            self.bind_key(ord('s'), lambda: self.perspective.move_cursor(ord('s'))),
+            self.bind_key(ord('d'), lambda: self.perspective.move_cursor(ord('d'))),
+            self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
+            self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
+            self.bind_key(ord('\n'), self._focus_target),
+            self.bind_key(ord('\r'), self._focus_target),
+            self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
+        ]
+
+        return key_list
 
