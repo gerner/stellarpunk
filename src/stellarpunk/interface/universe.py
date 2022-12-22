@@ -34,10 +34,6 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         #self._cached_sector_layout:Tuple[Sequence[str], Sequence[str]] = ([], [])
         self._cached_sector_layout:Tuple[Mapping[Tuple[int, int], str], Mapping[Tuple[int, int], str]] = ({}, {})
 
-        # the child view we spawn
-        # if we receive focus, this should be dead
-        self.sector_view:Optional[sector_interface.SectorView] = None
-
         self.starfield = starfield.Starfield(self.interface.gamestate.starfield, self.perspective)
 
     def initialize(self) -> None:
@@ -49,12 +45,6 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         super().focus()
         self.perspective.update_bbox()
         self.active = True
-        if self.sector_view:
-            if self.sector_view.sector != self.selected_sector:
-                self.logger.info(f'sector view in new sector, changing to view {self.sector_view.sector}')
-                self.selected_sector = self.sector_view.sector
-                self.pan_camera()
-            self.sector_view = None
         self.interface.reinitialize_screen(name="Universe Map")
 
     def pan_camera(self) -> None:
@@ -176,11 +166,9 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         return util.lines_to_dict(text_sectors, bounds=self.viewscreen_bounds), util.lines_to_dict(text_edges, bounds=self.viewscreen_bounds)
 
     def open_sector_view(self, sector:core.Sector) -> sector_interface.SectorView:
-        self.sector_view = sector_interface.SectorView(
-                self.selected_sector, self.interface)
-        self.interface.close_view(self)
-        self.interface.open_view(self.sector_view)
-        return self.sector_view
+        sector_view = sector_interface.SectorView(self.selected_sector, self.interface)
+        self.interface.swap_view(sector_view, self)
+        return sector_view
 
     def update_display(self) -> None:
         """ Draws a map of all sectors. """
@@ -221,21 +209,26 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
         self.interface.refresh_viewscreen()
 
+    def select_sector(self, sector:core.Sector, focus:bool=False) -> None:
+        self.selected_sector = sector
+        if focus:
+            self.perspective.cursor = tuple(self.selected_sector.loc)
+
     def command_list(self) -> Collection[interface.CommandBinding]:
         def target(args:Sequence[str])->None:
             if not args:
-                raise command_input.CommandInput.UserError("need a valid target")
+                raise command_input.UserError("need a valid target")
             try:
                 target_id = uuid.UUID(args[0])
             except ValueError:
-                raise command_input.CommandInput.UserError("not a valid target id, try tab completion.")
+                raise command_input.UserError("not a valid target id, try tab completion.")
             if target_id not in self.interface.gamestate.sectors:
-                raise command_input.CommandInput.UserError("{args[0]} not found among sectors")
-            self.selected_sector = self.interface.gamestate.sectors[target_id]
+                raise command_input.UserError("{args[0]} not found among sectors")
+            self.select_sector(self.interface.gamestate.sectors[target_id])
 
         def debug_collision(args:Sequence[str])->None:
             if len(self.interface.collisions) == 0:
-                raise command_input.CommandInput.UserError("no collisions to debug")
+                raise command_input.UserError("no collisions to debug")
 
             collision = self.interface.collisions[-1]
             if isinstance(collision[0], core.Ship):
@@ -252,30 +245,30 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
             self.bind_command("debug_collision", debug_collision),
         ]
 
-    def _focus_target(self) -> None:
-        if self.selected_sector is None:
-            return
-        elif not np.all(np.isclose(self.perspective.cursor, self.selected_sector.loc)):
-            self.perspective.cursor = tuple(self.selected_sector.loc)
-        else:
-            self.open_sector_view(self.selected_sector)
-
-    def _handle_mouse(self) -> None:
-        m_tuple = curses.getmouse()
-        m_id, m_x, m_y, m_z, bstate = m_tuple
-        sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
-
-        # select a target within a cell of the mouse click
-        bounds = (
-                sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
-                sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
-        )
-        hit = next(self.gamestate.spatial_query(bounds), None)
-        if hit:
-            #TODO: check if the hit is close enough
-            self.selected_sector = self.gamestate.sectors[hit]
-
     def key_list(self) -> Collection[interface.KeyBinding]:
+        def focus_target() -> None:
+            if self.selected_sector is None:
+                return
+            elif not np.all(np.isclose(self.perspective.cursor, self.selected_sector.loc)):
+                self.perspective.cursor = tuple(self.selected_sector.loc)
+            else:
+                self.open_sector_view(self.selected_sector)
+
+        def handle_mouse() -> None:
+            m_tuple = curses.getmouse()
+            m_id, m_x, m_y, m_z, bstate = m_tuple
+            sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
+
+            # select a target within a cell of the mouse click
+            bounds = (
+                    sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
+                    sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
+            )
+            hit = next(self.gamestate.spatial_query(bounds), None)
+            if hit:
+                #TODO: check if the hit is close enough
+                self.selected_sector = self.gamestate.sectors[hit]
+
         key_list = [
             self.bind_key(ord('w'), lambda: self.perspective.move_cursor(ord('w'))),
             self.bind_key(ord('a'), lambda: self.perspective.move_cursor(ord('a'))),
@@ -283,9 +276,9 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord('d'), lambda: self.perspective.move_cursor(ord('d'))),
             self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
-            self.bind_key(ord('\n'), self._focus_target),
-            self.bind_key(ord('\r'), self._focus_target),
-            self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
+            self.bind_key(ord('\n'), focus_target),
+            self.bind_key(ord('\r'), focus_target),
+            self.bind_key(curses.KEY_MOUSE, handle_mouse),
         ]
 
         return key_list

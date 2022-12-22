@@ -830,9 +830,6 @@ class Interface(AbstractInterface):
     def generation_listener(self) -> generate.GenerationListener:
         return GenerationUI(self)
 
-    def focused_view(self) -> View:
-        return self.views[-1]
-
     def open_view(self, view:View) -> None:
         self.logger.debug(f'opening view {view}')
         if len(self.views):
@@ -844,9 +841,15 @@ class Interface(AbstractInterface):
     def close_view(self, view:View) -> None:
         self.logger.debug(f'closing view {view}')
         view.terminate()
+        assert view in self.views
         self.views.remove(view)
         if len(self.views) > 0:
             self.views[-1].focus()
+
+    def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
+        if old_view is not None:
+            self.close_view(old_view)
+        self.open_view(new_view)
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()

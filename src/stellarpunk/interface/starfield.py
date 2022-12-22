@@ -107,7 +107,6 @@ class Starfield(interface.PerspectiveObserver):
 
         zoom_index = int(math.log(self.perspective.zoom/self.perspective.min_zoom)/math.log(0.6))
         zoom_stop = self.perspective.min_zoom*0.6**zoom_index
-        self.logger.debug(f'{zoom_stop=} {zoom_index=}')
 
         # swap starfields on consecutive zoom levels
         starfield_A = self.starfields[zoom_index % 2]

@@ -53,11 +53,11 @@ class CommandHistory:
 
 shared_history = CommandHistory()
 
+class UserError(Exception):
+    pass
+
 class CommandInput(interface.View):
     """ Command mode: typing in a command to execute. """
-
-    class UserError(Exception):
-        pass
 
     def __init__(self, *args:Any, commands:Mapping[str, interface.CommandBinding]={}, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -105,7 +105,7 @@ class CommandInput(interface.View):
                 self.logger.info(f'executing {self.command}')
                 try:
                     self.commands[command_name](self._command_args())
-                except CommandInput.UserError as e:
+                except UserError as e:
                     self.logger.info(f'user error executing {self.command}: {e}')
                     self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
             else:

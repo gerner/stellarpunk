@@ -234,14 +234,14 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         def order_jump(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
-                raise command_input.CommandInput.UserError("can only jump through travel gates as selected target")
+                raise command_input.UserError("can only jump through travel gates as selected target")
             order = orders.TravelThroughGate(self.selected_entity, self.ship, self.interface.gamestate)
             self.ship.clear_orders(self.interface.gamestate)
             self.ship.prepend_order(order)
 
         def order_mine(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.Asteroid):
-                raise command_input.CommandInput.UserError("can only mine asteroids")
+                raise command_input.UserError("can only mine asteroids")
             order = orders.MineOrder(self.selected_entity, math.inf, self.ship, self.interface.gamestate)
             self.ship.clear_orders(self.interface.gamestate)
             self.ship.prepend_order(order)

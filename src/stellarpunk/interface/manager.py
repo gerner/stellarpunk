@@ -35,6 +35,17 @@ class InterfaceManager:
     def __exit__(self, *args:Any) -> None:
         self.interface.__exit__(*args)
 
+    def focused_view(self) -> Optional[interface.View]:
+        """ Get the topmost view that's not the topmost CommandInput """
+        assert len(self.interface.views) > 0
+        if isinstance(self.interface.views[-1], command_input.CommandInput):
+            if len(self.interface.views) == 1:
+                return None
+            else:
+                return self.interface.views[-2]
+        else:
+            return self.interface.views[-1]
+
     def time_accel(self) -> None:
         old_accel_rate, _ = self.gamestate.get_time_acceleration()
         new_accel_rate = old_accel_rate * 1.25
@@ -57,8 +68,9 @@ class InterfaceManager:
         command_list = {x.command: x for x in self.command_list()}
 
         h = object()
-        if len(self.interface.views) > 1:
-            command_list.update({x.command: x for x in self.interface.views[-2].command_list()})
+        view = self.focused_view()
+        if view is not None:
+            command_list.update({x.command: x for x in view.command_list()})
 
         self.interface.log_message("commands:")
         for k,v in command_list.items():
@@ -70,8 +82,9 @@ class InterfaceManager:
         key_list = self.interface.key_list.copy()
 
         h = object()
-        if len(self.interface.views) > 1:
-            key_list.update({x.key: x for x in self.interface.views[-2].key_list()})
+        view = self.focused_view()
+        if view is not None:
+            key_list.update({x.key: x for x in view.key_list()})
 
         self.interface.log_message("keys:")
         for k,v in key_list.items():
@@ -100,8 +113,9 @@ class InterfaceManager:
     def key_list(self) -> Collection[interface.KeyBinding]:
         def open_command_prompt() -> None:
             command_list = self._command_list.copy()
-            if len(self.interface.views) > 1:
-                command_list.update({x.command: x for x in self.interface.views[-2].command_list()})
+            v = self.focused_view()
+            if v is not None:
+                command_list.update({x.command: x for x in v.command_list()})
             self.interface.open_view(command_input.CommandInput(self.interface, commands=command_list))
 
         return [
@@ -141,6 +155,42 @@ class InterfaceManager:
             if self.interface.max_fps > self.interface.desired_fps:
                self.interface.max_fps = self.interface.desired_fps
 
+        def open_pilot(args:Sequence[str]) -> None:
+            """ Opens a PilotView on the ship the player is piloting """
+            if not isinstance(self.gamestate.player.character.location, core.Ship):
+                #TODO: what if the character is just a passenger? surely they cannot just take the helm
+                raise command_input.UserError(f'player is not in a ship to pilot')
+            self.interface.swap_view(
+                pilot.PilotView(self.gamestate.player.character.location, self.interface),
+                self.focused_view()
+            )
+
+        def open_sector(args:Sequence[str]) -> None:
+            """ Opens a sector view on the sector the player is in """
+            assert self.gamestate.player.character.location.sector is not None
+            sector_view = sector.SectorView(self.gamestate.player.character.location.sector, self.interface)
+            self.interface.swap_view(
+                sector_view,
+                self.focused_view()
+            )
+            sector_view.select_target(
+                self.gamestate.player.character.location.entity_id,
+                self.gamestate.player.character.location,
+                focus=True
+            )
+
+        def open_universe(args:Sequence[str]) -> None:
+            assert self.gamestate.player.character.location.sector is not None
+            universe_view = universe.UniverseView(self.gamestate, self.interface)
+            self.interface.swap_view(
+                universe_view,
+                self.focused_view()
+            )
+            universe_view.select_sector(
+                self.gamestate.player.character.location.sector,
+                focus=True
+            )
+
         return [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
             self.bind_command("t_accel", lambda x: self.time_accel()),
@@ -155,5 +205,8 @@ class InterfaceManager:
             self.bind_command("increase_fps", increase_fps),
             self.bind_command("help", lambda x: self.help()),
             self.bind_command("keys", lambda x: self.keys()),
+            self.bind_command("pilot", open_pilot),
+            self.bind_command("sector", open_sector),
+            self.bind_command("universe", open_universe),
         ]
 

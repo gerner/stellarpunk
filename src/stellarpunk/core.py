@@ -281,7 +281,7 @@ class SectorEntity(Entity):
     def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.sector: Optional[Sector] = None
+        self.sector:Optional[Sector] = None
 
         # some physical properties (in SI units)
         self.mass = 0.

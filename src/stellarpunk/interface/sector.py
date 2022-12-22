@@ -84,7 +84,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         self._compute_grid()
         self.presenter.sector = self.sector
 
-    def select_target(self, target_id:Optional[uuid.UUID], entity:Optional[core.SectorEntity]) -> None:
+    def select_target(self, target_id:Optional[uuid.UUID], entity:Optional[core.SectorEntity], focus:bool=False) -> None:
         if target_id == self.selected_target:
             # no-op selecting the same target
             return
@@ -107,6 +107,9 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             for i in range(entity.cargo.shape[0]):
                 if entity.cargo[i] > 0.:
                     self.interface.log_message(f'cargo {i}: {entity.cargo[i]}')
+
+        if focus:
+            self.focus_target()
 
     def _compute_grid(self, max_ticks:int=10) -> None:
         self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
@@ -222,32 +225,32 @@ class SectorView(interface.View, interface.PerspectiveObserver):
     def command_list(self) -> Collection[interface.CommandBinding]:
         def target(args:Sequence[str])->None:
             if not args:
-                raise command_input.CommandInput.UserError("need a valid target")
+                raise command_input.UserError("need a valid target")
             try:
                 target_id = uuid.UUID(args[0])
             except ValueError:
-                raise command_input.CommandInput.UserError("not a valid target id, try tab completion.")
+                raise command_input.UserError("not a valid target id, try tab completion.")
             if target_id not in self.sector.entities:
-                raise command_input.CommandInput.UserError("{args[0]} not found in sector")
+                raise command_input.UserError("{args[0]} not found in sector")
             self.select_target(target_id, self.sector.entities[target_id])
 
         def goto(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
+                raise command_input.UserError(f'order only valid on a ship target')
             if len(args) < 2:
                 x,y = self.perspective.cursor
             else:
                 try:
                     x,y = int(args[0]), int(args[1])
                 except Exception:
-                    raise command_input.CommandInput.UserError("need two int args for x,y pos")
+                    raise command_input.UserError("need two int args for x,y pos")
             self.selected_entity.clear_orders(self.interface.gamestate)
             order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
             self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise command_input.CommandInput.UserError(f'order only valid on a ship target')
+                raise command_input.UserError(f'order only valid on a ship target')
             self.selected_entity.clear_orders(self.interface.gamestate)
             order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
             self.selected_entity.prepend_order(order)
@@ -256,7 +259,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         def debug_vectors(args:Sequence[str])->None: self.debug_entity_vectors = not self.debug_entity_vectors
         def debug_write_history(args:Sequence[str])->None:
             if not self.selected_entity:
-                raise command_input.CommandInput.UserError(f'can only write history for a selected target')
+                raise command_input.UserError(f'can only write history for a selected target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
             core.write_history_to_file(self.selected_entity, filename, now=self.interface.gamestate.timestamp)
@@ -273,7 +276,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 try:
                     x,y = int(args[0]), int(args[1])
                 except Exception:
-                    raise command_input.CommandInput.UserError("need two int args for x,y pos")
+                    raise command_input.UserError("need two int args for x,y pos")
 
             self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
 
@@ -287,30 +290,30 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         def pilot(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
-                raise command_input.CommandInput.UserError(f'can only pilot a selected ship target')
+                raise command_input.UserError(f'can only pilot a selected ship target')
             self.open_pilot_view(self.selected_entity)
 
         def chr_info(args:Sequence[str])->None:
             if not args:
-                raise command_input.CommandInput.UserError("need a valid target")
+                raise command_input.UserError("need a valid target")
             try:
                 target_id = uuid.UUID(args[0])
             except ValueError:
-                raise command_input.CommandInput.UserError("not a valid character id, try tab completion.")
+                raise command_input.UserError("not a valid character id, try tab completion.")
             if target_id not in self.interface.gamestate.characters:
-                raise command_input.CommandInput.UserError("{args[0]} not found")
+                raise command_input.UserError("{args[0]} not found")
             self.selected_character = self.interface.gamestate.characters[target_id]
 
         def scursor(args:Sequence[str])->None:
             if not args:
-                raise command_input.CommandInput.UserError("need a valid target")
+                raise command_input.UserError("need a valid target")
             try:
                 m = re.match(r"(?P<x>[+-]?([0-9]*[.])?[0-9]+),(?P<y>[+-]?([0-9]*[.])?[0-9]+)", args[0])
                 res = m.groupdict() # type: ignore
                 x = float(res["x"])
                 y = float(res["y"])
             except:
-                raise command_input.CommandInput.UserError("not a valid coordinate")
+                raise command_input.UserError("not a valid coordinate")
 
             self.perspective.cursor = (x,y)
 
@@ -342,7 +345,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 next_index = 0
             self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
 
-    def _focus_target(self) -> None:
+    def focus_target(self) -> None:
         if self.selected_target:
             self.perspective.cursor = tuple(self.sector.entities[self.selected_target].loc)
 
@@ -376,8 +379,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
             self.bind_key(ord("t"), self._change_target),
-            self.bind_key(ord('\n'), self._focus_target),
-            self.bind_key(ord('\r'), self._focus_target),
+            self.bind_key(ord('\n'), self.focus_target),
+            self.bind_key(ord('\r'), self.focus_target),
             self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
             self.bind_key(curses.ascii.ESC, self._handle_cancel),
         ]
