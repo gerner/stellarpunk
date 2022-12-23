@@ -37,7 +37,7 @@ def dict_to_simplenamespace(d:Dict[str, Any]) -> types.SimpleNamespace:
     return types.SimpleNamespace(**d)
 
 def load_config(config_file:Optional[TextIO]=None) -> types.SimpleNamespace:
-    config = toml.loads(importlib.resources.read_text("stellarpunk.data", "config.ini"))
+    config = toml.loads(importlib.resources.read_text("stellarpunk.data", "config.toml"))
     if config_file:
         override = toml.load(config_file)
         merge(config, override)
