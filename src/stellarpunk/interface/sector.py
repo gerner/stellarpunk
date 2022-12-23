@@ -349,7 +349,6 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                     next_index -= 1
             if next_index >= len(entity_id_list):
                 next_index = 0
-            self.logger.debug(f'{next_index=}')
             self.select_target(entity_id_list[next_index], self.sector.entities[entity_id_list[next_index]])
 
     def focus_target(self) -> None:

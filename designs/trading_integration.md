@@ -133,12 +133,12 @@ price (as set by the station) is compatible with the floor/ceiling.
 # Plan
 
 - [x] character framework: balance, ownership, decision making hooks
-- [ ] player controlled character
+- [x] player controlled character
 - [ ] info view for `Character` (including player)
 - [ ] info view for `SectorEntity`
 - [x] booting up the economy/initial asset/character/settings
-- [ ] concentrate ownership among a few characters with non-owner characters
-- [ ] make sure owners have enough money to faciliate relevant trading (e.g. planet owners need cash to buy expensive goods)
+- [x] concentrate ownership among a few characters with non-owner characters
+- [x] make sure owners have enough money to faciliate relevant trading (e.g. planet owners need cash to buy expensive goods)
 - [ ] use allowed stations/goods on traders to better round out economy: avoid everyone making the same trades, perhaps have traders focus on specific ranks in the production chain
 - [x] implement trading (agreed upon cargo/money swap)
 - [x] miners choosing asteroids to mine and station to sell at
