@@ -16,188 +16,7 @@ import cymunk # type: ignore
 from rtree import index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ
-
-#TODO: names: sectors, planets, stations, ships, characters, raw materials,
-#   intermediate products, final products, consumer products, station products,
-#   ship products
-
-class Settings:
-    # radius of the universe in meters
-    # Earth's moon equatorial radius is 1.7e6
-    # Earth's moon has ap of 4.05e8
-    # Callisto, Jupiter's farthest moon has ap of 1.9e9
-    # Inner asteroid rings have radius of 3.08e11 to 7.33e11 (to Jupiter)
-    UNIVERSE_RADIUS = 3.5e8
-    # mean and std of sector radius in meters
-    SECTOR_RADIUS_MEAN = 5e5
-    SECTOR_RADIUS_STD = 1e5
-    # max distance between sectors to guarantee a gate connection
-    MAX_SECTOR_EDGE_LENGTH = 2e8
-
-    # how many total sectors
-    NUM_SECTORS = 49
-    # how many inhabited sectors
-    NUM_HABITABLE_SECTORS = 15
-    # how many resources available (initially) in habitable sectors
-    MEAN_HABITABLE_RESOURCES = 1e9
-    # how many resources available in uninhabited sectors
-    MEAN_UNINHABITABLE_RESOURCES = 1e7
-
-    class SectorEntities:
-        STATION_RADIUS = 300.
-
-    class ProductionChain:
-        n_ranks = 3
-        min_per_rank = (3,5,5)
-        max_per_rank = (4,7,6)
-
-        max_outputs = 3
-        max_inputs = 3
-        min_final_inputs = 3
-        max_final_inputs = 5
-
-        min_raw_per_processed = 3
-        max_raw_per_processed = 10
-        min_input_per_output = 2
-        max_input_per_output = 10
-
-        min_raw_price = 1.
-        max_raw_price = 15.
-        min_markup = 1.05
-        max_markup = 2.5
-
-        min_final_prices = (1e6, 1e7, 1e5)
-        max_final_prices = (3*1e6, 4*1e7, 3*1e5)
-
-        max_fraction_one_to_one = 0.5
-        max_fraction_single_input = 0.8
-        max_fraction_single_output = 0.8
-        # TODO: I can probably improve chain generation so we need fewer tries
-        max_tries = 1024
-
-        # rank 0 (9 items)
-        ORE_NAMES = [
-            "Volatiles", "Ferroids", "Silicoids",
-            "Carbonates", "Rare Metals", "Base Metals",
-            "Precious Elements", "Radioisotopes", "Piezoelectrics",
-        ]
-
-        # rank 1 is "Refined" + the corresponding ore (9 items)
-
-        # rank 2
-        INTERMEDIATE_NAMES = [
-            # 0
-            "Processing Units", "Storage Units", "Data Interconnects",
-            "Gas Scrubbers", "Liquid Filters", "Construction Frames",
-            # 6
-            "Refinery Crucibles", "Reactor Housings", "Lift Servos",
-            "Assembly Apparatus", "Thruster Chambers", "Fuel Lines",
-            # 12
-            "Captured Nitrogen", "Nutrient Paste", "Leavening Agents",
-            "Biochar", "Algea Bales", "Bioplastics",
-            # 18
-            "Organic Scaffolds",
-        ]
-        INTERMEDIATE_INPUTS = [
-            [1, 2, 4, 5, 6, 8],
-            [1, 2, 4, 5, 6, 8],
-            [1, 2, 4, 5, 6],
-            [0, 2, 3, 5],
-            [0, 2, 3, 5],
-            [1, 2, 3, 5],
-            [0, 1, 2, 3, 5, 7],
-            [1, 2, 4, 5, 6, 7, 8],
-            [1, 2, 4, 5, 6, 8],
-            [1, 2, 4, 5, 6, 7],
-            [0, 1, 2, 4, 5, 6, 7, 8],
-            [1, 2, 5, 6, 8],
-            [0, 1, 2, 3, 4, 6],
-            [0, 3, 4, 6],
-            [0, 1, 3, 4, 6],
-            [0, 3, 4, 6, 7],
-            [0, 3, 4, 6, 7],
-            [0, 2, 3, 6],
-            [0, 2, 3, 4, 6, 7],
-        ]
-
-        # rank N-1
-        HIGHTECH_NAMES = [
-            "Hull Parts", "Nav Consoles", "Lifesupport Systems",
-            "Computing Nodes", "Engine Components", "Fuel Generators",
-            "Air Handlers", "Hydrofarming Bays", "Packaged Meals",
-            "Unisex Jumpsuits",
-        ]
-        HIGHTECH_INPUTS = [
-            [2, 5, 8, 11, 17],
-            [0, 2, 9, 17],
-            [0, 1, 3, 4, 9, 12, 13, 15, 16, 18],
-            [0, 1, 2, 9, 17],
-            [3, 4, 5, 6, 7, 8, 10, 11],
-            [3, 4, 5, 6, 7, 9, 11, 12, 15, 16],
-            [0, 2, 3, 5, 6, 8, 15],
-            [4, 5, 8, 9, 12, 13, 15, 16, 18],
-            [9, 13, 14, 16, 18],
-            [8, 9, 17, 18],
-        ]
-
-        #rank N
-        SINK_NAMES=["Ships", "Stations", "Consumer Goods"]
-        SINK_INPUTS = [
-            [0, 1, 2, 3, 4, 5],
-            [0, 1, 2, 3, 5, 6],
-            [2, 6, 7, 8, 9],
-        ]
-
-    class Ship:
-        # soyuz 5000 - 10000kg
-        # dragon capsule 4000kg
-        # shuttle orbiter 78000kg
-
-        # ship mass in kilograms
-        MASS = 2e3
-
-        # soyuz: 7-10m long
-        # shuttle orbiter: 37m long
-        # spacex dragon: 6.1m
-        # spacex starship: 120m long
-
-        # ship radius in meters
-        RADIUS = 30.
-
-        # one raptor: 1.81 MN
-        # one SSME: 2.279 MN
-        # OMS main engine: 26.7 kN
-        # KTDU-80 main engine: 2.95 kN
-        #max_thrust = 5e5
-        # 5e5 translates to 250m/s^2 which is over 25 gs
-
-        # max forward thrust in newtons
-        MAX_THRUST = 2e5
-
-        # one draco: 400 N (x16 on Dragon)
-        # OMS aft RCS: 3.87 kN
-        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
-        # some speculation that starship thrusters can do 100-200 kN
-        #max_fine_thrust = 5e3
-
-        # max unidirectional thrust in newtons
-        MAX_FINE_THRUST = 1.5e4
-
-        # note about g-forces:
-        # assuming circle of radius 30m, mass 2e3 kg
-        # mass moment 18,000,000 kg m^2
-        # centriptal acceleration = r * w^2
-        # 1g at 30m with angular velocity of 0.57 rad/sec
-        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
-        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
-        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
-        # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
-        # starting from zero
-        # space shuttle doesn't exeed 3g during ascent
-
-        # max torque in newton-meters
-        MAX_TORQUE = MAX_FINE_THRUST * 6 * RADIUS
+from stellarpunk import util, core, orders, agenda, econ, config
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -589,39 +408,39 @@ class UniverseGenerator:
 
         assert 3 <= len(ranks) <= 5
 
-        assert ranks[0] <= len(Settings.ProductionChain.ORE_NAMES)
+        assert ranks[0] <= len(config.Settings.generate.ProductionChain.ORE_NAMES)
         assert ranks[1] == ranks[0], "rank 0 (ores) must have same size as rank 1 (refined ores)"
         if len(ranks) == 5:
-            assert ranks[2] <= len(Settings.ProductionChain.INTERMEDIATE_NAMES)
+            assert ranks[2] <= len(config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES)
 
         if len(ranks) >= 4:
-            assert ranks[-2] <= len(Settings.ProductionChain.HIGHTECH_NAMES)
-        assert ranks[-1] == len(Settings.ProductionChain.SINK_NAMES)
+            assert ranks[-2] <= len(config.Settings.generate.ProductionChain.HIGHTECH_NAMES)
+        assert ranks[-1] == len(config.Settings.generate.ProductionChain.SINK_NAMES)
 
         # set up product names in reverse order, respecting allowed inputs
-        product_names = list(Settings.ProductionChain.SINK_NAMES)
+        product_names = list(config.Settings.generate.ProductionChain.SINK_NAMES)
 
         if len(ranks) == 3:
             # ore names don't matter, just assign names
-            ore_ids = self.r.choice(np.arange(len(Settings.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
-            product_names = [Settings.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {Settings.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+            ore_ids = self.r.choice(np.arange(len(config.Settings.generate.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
+            product_names = [config.Settings.generate.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {config.Settings.generate.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
         else:
             # high tech names matter
-            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], Settings.ProductionChain.SINK_INPUTS)
-            product_names = [Settings.ProductionChain.HIGHTECH_NAMES[x] for x in hightech_ids] + product_names
+            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], config.Settings.generate.ProductionChain.SINK_INPUTS)
+            product_names = [config.Settings.generate.ProductionChain.HIGHTECH_NAMES[x] for x in hightech_ids] + product_names
 
             if len(ranks) == 4:
                 # ore names don't matter, just assign names
-                ore_ids = self.r.choice(np.arange(len(Settings.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
-                product_names = [Settings.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {Settings.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+                ore_ids = self.r.choice(np.arange(len(config.Settings.generate.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
+                product_names = [config.Settings.generate.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {config.Settings.generate.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
             else:
                 assert len(ranks) == 5
                 # intermediate and ore names matter
-                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [Settings.ProductionChain.HIGHTECH_INPUTS[x] for x in hightech_ids])
-                product_names = [Settings.ProductionChain.INTERMEDIATE_NAMES[x] for x in intermediate_ids] + product_names
+                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [config.Settings.generate.ProductionChain.HIGHTECH_INPUTS[x] for x in hightech_ids])
+                product_names = [config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES[x] for x in intermediate_ids] + product_names
 
-                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [Settings.ProductionChain.INTERMEDIATE_INPUTS[x] for x in intermediate_ids])
-                product_names = [Settings.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {Settings.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS[x] for x in intermediate_ids])
+                product_names = [config.Settings.generate.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {config.Settings.generate.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
 
         assert len(product_names) == sum(ranks)
         return product_names
@@ -654,7 +473,7 @@ class UniverseGenerator:
 
         assert resource < self.gamestate.production_chain.num_products
 
-        station_radius = Settings.SectorEntities.STATION_RADIUS
+        station_radius = config.Settings.generate.SectorEntities.STATION_RADIUS
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -687,11 +506,11 @@ class UniverseGenerator:
 
     def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
 
-        ship_mass = Settings.Ship.MASS
-        ship_radius = Settings.Ship.RADIUS
-        max_thrust = Settings.Ship.MAX_THRUST
-        max_fine_thrust = Settings.Ship.MAX_FINE_THRUST
-        max_torque = Settings.Ship.MAX_TORQUE
+        ship_mass = config.Settings.generate.SectorEntities.SHIP_MASS
+        ship_radius = config.Settings.generate.SectorEntities.SHIP_RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
@@ -1082,47 +901,47 @@ class UniverseGenerator:
         """
 
         if n_ranks is None:
-            n_ranks = Settings.ProductionChain.n_ranks
+            n_ranks = config.Settings.generate.ProductionChain.n_ranks
         if min_per_rank is None:
-            min_per_rank = Settings.ProductionChain.min_per_rank
+            min_per_rank = config.Settings.generate.ProductionChain.min_per_rank
         if max_per_rank is None:
-            max_per_rank = Settings.ProductionChain.max_per_rank
+            max_per_rank = config.Settings.generate.ProductionChain.max_per_rank
         if max_outputs is None:
-            max_outputs = Settings.ProductionChain.max_outputs
+            max_outputs = config.Settings.generate.ProductionChain.max_outputs
         if max_inputs is None:
-            max_inputs = Settings.ProductionChain.max_inputs
+            max_inputs = config.Settings.generate.ProductionChain.max_inputs
         if min_input_per_output is None:
-            min_input_per_output = Settings.ProductionChain.min_input_per_output
+            min_input_per_output = config.Settings.generate.ProductionChain.min_input_per_output
         if max_input_per_output is None:
-            max_input_per_output = Settings.ProductionChain.max_input_per_output
+            max_input_per_output = config.Settings.generate.ProductionChain.max_input_per_output
         if min_raw_price is None:
-            min_raw_price = Settings.ProductionChain.min_raw_price
+            min_raw_price = config.Settings.generate.ProductionChain.min_raw_price
         if max_raw_price is None:
-            max_raw_price = Settings.ProductionChain.max_raw_price
+            max_raw_price = config.Settings.generate.ProductionChain.max_raw_price
         if min_markup is None:
-            min_markup = Settings.ProductionChain.min_markup
+            min_markup = config.Settings.generate.ProductionChain.min_markup
         if max_markup is None:
-            max_markup = Settings.ProductionChain.max_markup
+            max_markup = config.Settings.generate.ProductionChain.max_markup
         if min_final_inputs is None:
-            min_final_inputs = Settings.ProductionChain.min_final_inputs
+            min_final_inputs = config.Settings.generate.ProductionChain.min_final_inputs
         if max_final_inputs is None:
-            max_final_inputs = Settings.ProductionChain.max_final_inputs
+            max_final_inputs = config.Settings.generate.ProductionChain.max_final_inputs
         if min_final_prices is None:
-            min_final_prices = Settings.ProductionChain.min_final_prices
+            min_final_prices = config.Settings.generate.ProductionChain.min_final_prices
         if max_final_prices is None:
-            max_final_prices = Settings.ProductionChain.max_final_prices
+            max_final_prices = config.Settings.generate.ProductionChain.max_final_prices
         if min_raw_per_processed is None:
-            min_raw_per_processed = Settings.ProductionChain.min_raw_per_processed
+            min_raw_per_processed = config.Settings.generate.ProductionChain.min_raw_per_processed
         if max_raw_per_processed is None:
-            max_raw_per_processed = Settings.ProductionChain.max_raw_per_processed
+            max_raw_per_processed = config.Settings.generate.ProductionChain.max_raw_per_processed
         if max_fraction_one_to_one is None:
-            max_fraction_one_to_one = Settings.ProductionChain.max_fraction_one_to_one
+            max_fraction_one_to_one = config.Settings.generate.ProductionChain.max_fraction_one_to_one
         if max_fraction_single_input is None:
-            max_fraction_single_input = Settings.ProductionChain.max_fraction_single_input
+            max_fraction_single_input = config.Settings.generate.ProductionChain.max_fraction_single_input
         if max_fraction_single_output is None:
-            max_fraction_single_output = Settings.ProductionChain.max_fraction_single_output
+            max_fraction_single_output = config.Settings.generate.ProductionChain.max_fraction_single_output
         if max_tries is None:
-            max_tries = Settings.ProductionChain.max_tries
+            max_tries = config.Settings.generate.ProductionChain.max_tries
 
         production_chain:Optional[core.ProductionChain] = None
         tries = 0
@@ -1559,10 +1378,10 @@ class UniverseGenerator:
         self.logger.info(f'generating universe_starfield...')
         self.gamestate.starfield = generate_starfield(
             self.r,
-            radius=4*Settings.UNIVERSE_RADIUS,
+            radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
             desired_stars_per_char=(4/80.)**2,
-            min_zoom=Settings.UNIVERSE_RADIUS/80.,
-            max_zoom=Settings.SECTOR_RADIUS_MEAN/80*8,
+            min_zoom=config.Settings.generate.Universe.UNIVERSE_RADIUS/80.,
+            max_zoom=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8,
             layer_zoom_step=0.25,
         )
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.starfield)} universe stars in {len(self.gamestate.starfield)} layers')
@@ -1570,10 +1389,10 @@ class UniverseGenerator:
         self.logger.info(f'generating sector starfield...')
         self.gamestate.sector_starfield = generate_starfield(
             self.r,
-            radius=8*Settings.SECTOR_RADIUS_MEAN,
+            radius=8*config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
             desired_stars_per_char=(3/80.)**2,
-            min_zoom=(6*Settings.SECTOR_RADIUS_STD+Settings.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=Settings.Ship.RADIUS*2,
+            min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
+            max_zoom=config.Settings.generate.SectorEntities.SHIP_RADIUS*2,
             layer_zoom_step=0.25,
         )
 
@@ -1588,14 +1407,14 @@ class UniverseGenerator:
 
         # generate sectors
         self.generate_sectors(
-            universe_radius=Settings.UNIVERSE_RADIUS,
-            num_sectors=Settings.NUM_SECTORS,
-            sector_radius=Settings.SECTOR_RADIUS_MEAN,
-            sector_radius_std=Settings.SECTOR_RADIUS_STD,
-            max_sector_edge_length=Settings.MAX_SECTOR_EDGE_LENGTH,
-            n_habitable_sectors=Settings.NUM_HABITABLE_SECTORS,
-            mean_habitable_resources=Settings.MEAN_HABITABLE_RESOURCES,
-            mean_uninhabitable_resources=Settings.MEAN_UNINHABITABLE_RESOURCES,
+            universe_radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
+            num_sectors=config.Settings.generate.Universe.NUM_SECTORS,
+            sector_radius=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
+            sector_radius_std=config.Settings.generate.Universe.SECTOR_RADIUS_STD,
+            max_sector_edge_length=config.Settings.generate.Universe.MAX_SECTOR_EDGE_LENGTH,
+            n_habitable_sectors=config.Settings.generate.Universe.NUM_HABITABLE_SECTORS,
+            mean_habitable_resources=config.Settings.generate.Universe.MEAN_HABITABLE_RESOURCES,
+            mean_uninhabitable_resources=config.Settings.generate.Universe.MEAN_UNINHABITABLE_RESOURCES,
         )
 
         # spawn the player
@@ -1609,18 +1428,18 @@ class UniverseGenerator:
 def main() -> None:
 
     names = [
-        Settings.ProductionChain.ORE_NAMES,
-        [f'Refined {x}' for x in Settings.ProductionChain.ORE_NAMES],
-        Settings.ProductionChain.INTERMEDIATE_NAMES,
-        Settings.ProductionChain.HIGHTECH_NAMES,
-        Settings.ProductionChain.SINK_NAMES,
+        config.Settings.generate.ProductionChain.ORE_NAMES,
+        [f'Refined {x}' for x in config.Settings.generate.ProductionChain.ORE_NAMES],
+        config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES,
+        config.Settings.generate.ProductionChain.HIGHTECH_NAMES,
+        config.Settings.generate.ProductionChain.SINK_NAMES,
     ]
     constraints:List[List[List[int]]] = [
-        [[]] * len(Settings.ProductionChain.ORE_NAMES),
-        [[i] for i in range(len(Settings.ProductionChain.ORE_NAMES))],
-        Settings.ProductionChain.INTERMEDIATE_INPUTS,
-        Settings.ProductionChain.HIGHTECH_INPUTS,
-        Settings.ProductionChain.SINK_INPUTS,
+        [[]] * len(config.Settings.generate.ProductionChain.ORE_NAMES),
+        [[i] for i in range(len(config.Settings.generate.ProductionChain.ORE_NAMES))],
+        config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS,
+        config.Settings.generate.ProductionChain.HIGHTECH_INPUTS,
+        config.Settings.generate.ProductionChain.SINK_INPUTS,
     ]
     UniverseGenerator.viz_product_name_graph(names, constraints).render("/tmp/product_name_graph", format="pdf")
 

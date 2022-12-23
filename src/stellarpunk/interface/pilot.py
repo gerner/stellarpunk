@@ -11,7 +11,7 @@ from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import core, interface, util, orders, generate
+from stellarpunk import core, interface, util, orders, config
 from stellarpunk.interface import presenter, command_input, starfield
 from stellarpunk.orders import steering, movement, collision
 
@@ -201,8 +201,8 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.perspective = interface.Perspective(
             self.interface,
             zoom=self.ship.radius,
-            min_zoom=(6*generate.Settings.SECTOR_RADIUS_STD+generate.Settings.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=2*8*generate.Settings.Ship.RADIUS/80.,
+            min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
+            max_zoom=2*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
         )
         self.perspective.observe(self)
 

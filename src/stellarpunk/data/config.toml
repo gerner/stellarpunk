@@ -74,3 +74,182 @@
             d = "scroll right"
         [help.interface.UniverseView.commands]
             target = "target sector by id (with tab completion)"
+
+[generate]
+    [generate.Universe]
+        # radius of the universe in meters
+        # Earth's moon equatorial radius is 1.7e6
+        # Earth's moon has ap of 4.05e8
+        # Callisto, Jupiter's farthest moon has ap of 1.9e9
+        # Inner asteroid rings have radius of 3.08e11 to 7.33e11 (to Jupiter)
+        UNIVERSE_RADIUS = 3.5e8
+        # mean and std of sector radius in meters
+        SECTOR_RADIUS_MEAN = 5e5
+        SECTOR_RADIUS_STD = 1e5
+        # max distance between sectors to guarantee a gate connection
+        MAX_SECTOR_EDGE_LENGTH = 2e8
+
+        # how many total sectors
+        NUM_SECTORS = 49
+        # how many inhabited sectors
+        NUM_HABITABLE_SECTORS = 15
+        # how many resources available (initially) in habitable sectors
+        MEAN_HABITABLE_RESOURCES = 1e9
+        # how many resources available in uninhabited sectors
+        MEAN_UNINHABITABLE_RESOURCES = 1e7
+
+
+    [generate.ProductionChain]
+        n_ranks = 3
+        min_per_rank = [3,5,5]
+        max_per_rank = [4,7,6]
+
+        max_outputs = 3
+        max_inputs = 3
+        min_final_inputs = 3
+        max_final_inputs = 5
+
+        min_raw_per_processed = 3
+        max_raw_per_processed = 10
+        min_input_per_output = 2
+        max_input_per_output = 10
+
+        min_raw_price = 1.0
+        max_raw_price = 15.0
+        min_markup = 1.05
+        max_markup = 2.5
+
+        min_final_prices = [1e6, 1e7, 1e5]
+        max_final_prices = [3e6, 4e7, 3e5]
+
+        max_fraction_one_to_one = 0.5
+        max_fraction_single_input = 0.8
+        max_fraction_single_output = 0.8
+        # TODO: I can probably improve chain generation so we need fewer tries
+        max_tries = 1024
+
+        # rank 0 (9 items)
+        ORE_NAMES = [
+            "Volatiles", "Ferroids", "Silicoids",
+            "Carbonates", "Rare Metals", "Base Metals",
+            "Precious Elements", "Radioisotopes", "Piezoelectrics",
+        ]
+
+        # rank 1 is "Refined" + the corresponding ore (9 items)
+
+        # rank 2
+        INTERMEDIATE_NAMES = [
+            # 0
+            "Processing Units", "Storage Units", "Data Interconnects",
+            "Gas Scrubbers", "Liquid Filters", "Construction Frames",
+            # 6
+            "Refinery Crucibles", "Reactor Housings", "Lift Servos",
+            "Assembly Apparatus", "Thruster Chambers", "Fuel Lines",
+            # 12
+            "Captured Nitrogen", "Nutrient Paste", "Leavening Agents",
+            "Biochar", "Algea Bales", "Bioplastics",
+            # 18
+            "Organic Scaffolds",
+        ]
+        INTERMEDIATE_INPUTS = [
+            [1, 2, 4, 5, 6, 8],
+            [1, 2, 4, 5, 6, 8],
+            [1, 2, 4, 5, 6],
+            [0, 2, 3, 5],
+            [0, 2, 3, 5],
+            [1, 2, 3, 5],
+            [0, 1, 2, 3, 5, 7],
+            [1, 2, 4, 5, 6, 7, 8],
+            [1, 2, 4, 5, 6, 8],
+            [1, 2, 4, 5, 6, 7],
+            [0, 1, 2, 4, 5, 6, 7, 8],
+            [1, 2, 5, 6, 8],
+            [0, 1, 2, 3, 4, 6],
+            [0, 3, 4, 6],
+            [0, 1, 3, 4, 6],
+            [0, 3, 4, 6, 7],
+            [0, 3, 4, 6, 7],
+            [0, 2, 3, 6],
+            [0, 2, 3, 4, 6, 7],
+        ]
+
+        # rank N-1
+        HIGHTECH_NAMES = [
+            "Hull Parts", "Nav Consoles", "Lifesupport Systems",
+            "Computing Nodes", "Engine Components", "Fuel Generators",
+            "Air Handlers", "Hydrofarming Bays", "Packaged Meals",
+            "Unisex Jumpsuits",
+        ]
+        HIGHTECH_INPUTS = [
+            [2, 5, 8, 11, 17],
+            [0, 2, 9, 17],
+            [0, 1, 3, 4, 9, 12, 13, 15, 16, 18],
+            [0, 1, 2, 9, 17],
+            [3, 4, 5, 6, 7, 8, 10, 11],
+            [3, 4, 5, 6, 7, 9, 11, 12, 15, 16],
+            [0, 2, 3, 5, 6, 8, 15],
+            [4, 5, 8, 9, 12, 13, 15, 16, 18],
+            [9, 13, 14, 16, 18],
+            [8, 9, 17, 18],
+        ]
+
+        #rank N
+        SINK_NAMES=["Ships", "Stations", "Consumer Goods"]
+        SINK_INPUTS = [
+            [0, 1, 2, 3, 4, 5],
+            [0, 1, 2, 3, 5, 6],
+            [2, 6, 7, 8, 9],
+        ]
+
+    [generate.SectorEntities]
+        STATION_RADIUS = 300
+
+        # soyuz 5000 - 10000kg
+        # dragon capsule 4000kg
+        # shuttle orbiter 78000kg
+
+        # ship mass in kilograms
+        SHIP_MASS = 2e3
+
+        # soyuz: 7-10m long
+        # shuttle orbiter: 37m long
+        # spacex dragon: 6.1m
+        # spacex starship: 120m long
+
+        # ship radius in meters
+        SHIP_RADIUS = 30.0
+
+        # one raptor: 1.81 MN
+        # one SSME: 2.279 MN
+        # OMS main engine: 26.7 kN
+        # KTDU-80 main engine: 2.95 kN
+        #max_thrust = 5e5
+        # 5e5 translates to 250m/s^2 which is over 25 gs
+
+        # max forward thrust in newtons
+        MAX_THRUST = 2e5
+
+        # one draco: 400 N (x16 on Dragon)
+        # OMS aft RCS: 3.87 kN
+        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
+        # some speculation that starship thrusters can do 100-200 kN
+        #max_fine_thrust = 5e3
+
+        # max unidirectional thrust in newtons
+        MAX_FINE_THRUST = 1.5e4
+
+        # note about g-forces:
+        # assuming circle of radius 30m, mass 2e3 kg
+        # mass moment 18,000,000 kg m^2
+        # centriptal acceleration = r * w^2
+        # 1g at 30m with angular velocity of 0.57 rad/sec
+        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
+        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
+        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
+        # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
+        # starting from zero
+        # space shuttle doesn't exeed 3g during ascent
+
+        # max torque in newton-meters
+        # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
+        MAX_TORQUE = 2.7e6

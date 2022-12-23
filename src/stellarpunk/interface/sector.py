@@ -14,7 +14,7 @@ from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, C
 import drawille # type: ignore
 import numpy as np
 
-from stellarpunk import util, core, interface, orders, effects, generate
+from stellarpunk import util, core, interface, orders, effects, config
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
 class SectorView(interface.View, interface.PerspectiveObserver):
@@ -40,8 +40,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         self.perspective = interface.Perspective(
             self.interface,
             zoom=self.sector.radius/80/2,
-            min_zoom=(6*generate.Settings.SECTOR_RADIUS_STD+generate.Settings.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=25*8*generate.Settings.Ship.RADIUS/80.,
+            min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
+            max_zoom=25*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
         )
         self.perspective.observe(self)
 
