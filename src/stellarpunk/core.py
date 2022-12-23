@@ -435,7 +435,6 @@ class Ship(SectorEntity, Asset):
         return self.default_order_fn(self, gamestate)
 
     def prepend_order(self, order:Order, begin:bool=True) -> None:
-
         co = self.current_order()
         if co is not None:
             #TODO: should we do anything else to suspend the current order?
@@ -450,6 +449,14 @@ class Ship(SectorEntity, Asset):
         self._orders.append(order)
         if begin:
             order.begin_order()
+
+    def remove_order(self, order:Order) -> None:
+        if order in self._orders:
+            self._orders.remove(order)
+
+        co = self.current_order()
+        if co is not None and not co.gamestate.is_order_scheduled(co):
+            co.gamestate.schedule_order_immediate(co)
 
     def clear_orders(self, gamestate:Gamestate) -> None:
         while self._orders:
@@ -747,13 +754,13 @@ class Order:
         for order in self.child_orders:
             order.cancel_order()
             try:
-                self.ship._orders.remove(order)
+                self.ship.remove_order(order)
             except ValueError:
                 # order might already have been removed from the queue
                 pass
 
         try:
-            self.ship._orders.remove(self)
+            self.ship.remove_order(self)
         except ValueError:
             # order might already have been removed from the queue
             pass
