@@ -47,6 +47,11 @@ def load_config(config_file:Optional[TextIO]=None) -> types.SimpleNamespace:
 
     return Settings
 
+def load_dialogs() -> Dict[str, Any]:
+    dialogs = toml.loads(importlib.resources.read_text("stellarpunk.data", "dialogs.toml"))
+    return dialogs
+
 # it's ok to reload the config with a file elsewhere, but we start with the
 # built-in config
 Settings = load_config()
+Dialogs = load_dialogs()

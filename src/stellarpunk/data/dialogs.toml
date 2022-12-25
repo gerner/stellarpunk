@@ -1,0 +1,45 @@
+# Dialog graphs
+
+[dialog_demo]
+root_id = "START"
+
+    [[dialog_demo.nodes]]
+    node_id = "START"
+    text="This is a dialog we're having. What do you think?"
+
+        [[dialog_demo.nodes.choices]]
+        text="A choice"
+        node_id="A"
+
+        [[dialog_demo.nodes.choices]]
+        text="Another choice"
+        node_id="B"
+
+        [[dialog_demo.nodes.choices]]
+        text="A final choice"
+        node_id="C"
+
+    [[dialog_demo.nodes]]
+    node_id="A"
+    text="A yes, a quick choice to make"
+    terminal=true
+
+    [[dialog_demo.nodes]]
+    node_id="B"
+    text="Sort middle of the road type of fellow. Very well, let's just see what you think of a long set of text. Sphinx of black quartz, judge my vow. Or that's what they say I guess. We need a bit more text to ensure we get some word wrapping, so let's give it a go. Pack my box with five dozen liquor jugs. That should be enough."
+
+        [[dialog_demo.nodes.choices]]
+        text=""
+        node_id="START"
+
+    [[dialog_demo.nodes]]
+    node_id="C"
+    text="Beginning or end, makes no difference to me."
+
+        [[dialog_demo.nodes.choices]]
+        text="Start over"
+        node_id="START"
+
+        [[dialog_demo.nodes.choices]]
+        text="Give up"
+        node_id="A"

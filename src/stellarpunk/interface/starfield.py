@@ -140,4 +140,4 @@ class Starfield(interface.PerspectiveObserver):
 
     def draw_starfield(self, canvas:interface.Canvas) -> None:
         for (y,x), (s, a) in self._cached_star_layout.items():
-            canvas.viewscreen.addstr(y, x, s, a)
+            canvas.window.addstr(y, x, s, a)

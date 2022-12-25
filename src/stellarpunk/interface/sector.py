@@ -122,7 +122,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         #for lineno, line in enumerate(text):
         #    self.viewscreen.addstr(lineno, 0, line, curses.color_pair(29))
         for (y,x), c in grid_content.items():
-            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(29))
+            self.viewscreen.window.addch(y, x, c, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin

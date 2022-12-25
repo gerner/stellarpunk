@@ -70,12 +70,12 @@ class Presenter:
                 # circle grows outward
                 r = util.interpolate(effect.started_at, effect.radius, effect.expiration_time, 0., self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
-                util.draw_canvas_at(c, self.view.viewscreen.viewscreen, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+                util.draw_canvas_at(c, self.view.viewscreen.window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
             elif isinstance(effect, effects.WarpInEffect):
                 #circle shrinks inward
                 r = util.interpolate(effect.started_at, 0., effect.expiration_time, effect.radius, self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
-                util.draw_canvas_at(c, self.view.viewscreen.viewscreen, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+                util.draw_canvas_at(c, self.view.viewscreen.window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
             else:
                 e_bbox = effect.bbox()
                 loc = ((e_bbox[2] - e_bbox[0])/2, (e_bbox[3] - e_bbox[1])/2)
@@ -102,7 +102,7 @@ class Presenter:
 
         accel_x, accel_y = entity.phys.force / entity.mass
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, *self.perspective.meters_per_char)
-        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.view.viewscreen.viewscreen, y, x, bounds=self.view.viewscreen_bounds)
+        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.view.viewscreen.window, y, x, bounds=self.view.viewscreen_bounds)
 
     def draw_entity_debug_info(self, y:int, x:int, entity:core.SectorEntity, description_attr:int) -> None:
         if isinstance(entity, core.Ship):
@@ -142,7 +142,7 @@ class Presenter:
         # actually draw the circle
         screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
         c = util.make_circle_canvas(entity.radius, *self.perspective.meters_per_char)
-        util.draw_canvas_at(c, self.view.viewscreen.viewscreen, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+        util.draw_canvas_at(c, self.view.viewscreen.window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
     def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """

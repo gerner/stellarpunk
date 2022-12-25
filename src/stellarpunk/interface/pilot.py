@@ -419,7 +419,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, radar_content = self._cached_radar
 
         for (y,x), c in radar_content.items():
-            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(29))
+            self.viewscreen.window.addch(y, x, c, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -635,6 +635,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
     def focus(self) -> None:
         self.interface.reinitialize_screen(name="Pilot's Seat")
+        self.active=True
 
     def update_display(self) -> None:
         if self.interface.gamestate.timestamp > self.mouse_state_clear_time:

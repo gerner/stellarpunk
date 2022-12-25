@@ -4,9 +4,10 @@ from typing import Optional, Sequence, Any, Mapping, Callable, Collection
 import cProfile
 import pstats
 import curses
+import uuid
 
-from stellarpunk import core, interface, generate, util, config
-from stellarpunk.interface import universe, sector, pilot, command_input
+from stellarpunk import core, interface, generate, util, config, dialog
+from stellarpunk.interface import universe, sector, pilot, command_input, character, comms
 
 class InterfaceManager:
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator) -> None:
@@ -72,7 +73,9 @@ class InterfaceManager:
         if view is not None:
             command_list.update({x.command: x for x in view.command_list()})
 
-        self.interface.log_message("commands:")
+        self.interface.log_message("press \":\" to enter command mode")
+        self.interface.log_message("type a command and press <ENTER> to execute it")
+        self.interface.log_message("available commands:")
         for k,v in command_list.items():
             self.interface.log_message(f'\t{k}\t{v.help}')
 
@@ -88,11 +91,15 @@ class InterfaceManager:
 
         self.interface.log_message("keys:")
         for k,v in key_list.items():
-            if k != curses.KEY_MOUSE and chr(k).isprintable():
-                if chr(k) == " ":
-                    self.interface.log_message(f'\t<SPACE>\t{v.help}')
-                else:
-                    self.interface.log_message(f'\t{chr(k)}\t{v.help}')
+            if k != curses.KEY_MOUSE:
+                if chr(k).isprintable():
+                    if chr(k) == " ":
+                        self.interface.log_message(f'\t<SPACE>\t{v.help}')
+                    else:
+                        self.interface.log_message(f'\t{chr(k)}\t{v.help}')
+                elif k == ord('\r'):
+                    self.interface.log_message(f'\t<ENTER>\t{v.help}')
+
         self.interface.log_message("")
 
     def bind_key(self, k:int, f:Callable[[], None]) -> interface.KeyBinding:
@@ -132,6 +139,7 @@ class InterfaceManager:
         def quit(args:Sequence[str]) -> None: self.interface.gamestate.quit()
         def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(interface.ColorDemo(self.interface))
+        def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(interface.AttrDemo(self.interface))
         def profile(args:Sequence[str]) -> None:
             if self.profiler:
                 self.profiler.disable()
@@ -192,6 +200,31 @@ class InterfaceManager:
                 focus=True
             )
 
+        def open_character(args:Sequence[str]) -> None:
+            if len(args) == 0:
+                target_character = self.gamestate.player.character
+            else:
+                try:
+                    chr_id = uuid.UUID(args[0])
+                except:
+                    raise command_input.UserError(f'{args[0]} is not a valid uuid')
+                if chr_id in self.gamestate.characters:
+                    target_character = self.gamestate.characters[chr_id]
+                else:
+                    raise command_input.UserError(f'no character found for id {args[0]}')
+            character_view = character.CharacterView(target_character, self.interface)
+            self.interface.swap_view(
+                character_view,
+                self.focused_view()
+            )
+
+        def open_comms(args:Sequence[str]) -> None:
+            comms_view = comms.CommsView(dialog.load_dialog("dialog_demo"), self.interface)
+            self.interface.open_view(comms_view, deactivate_views=True)
+
+        def open_dialog(args:Sequence[str]) -> None:
+            d = dialog.load_dialog(args[0])
+
         return [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
             self.bind_command("t_accel", lambda x: self.time_accel()),
@@ -200,6 +233,7 @@ class InterfaceManager:
             self.bind_command("quit", quit),
             self.bind_command("raise", raise_exception),
             self.bind_command("colordemo", colordemo),
+            self.bind_command("attrdemo", attrdemo),
             self.bind_command("profile", profile),
             self.bind_command("fast", fast),
             self.bind_command("decrease_fps", decrease_fps),
@@ -209,5 +243,8 @@ class InterfaceManager:
             self.bind_command("pilot", open_pilot),
             self.bind_command("sector", open_sector),
             self.bind_command("universe", open_universe),
+            self.bind_command("character", open_character, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
+            self.bind_command("comms", open_comms),
+            self.bind_command("dialog", open_dialog),
         ]
 

@@ -546,6 +546,11 @@ class Sprite:
 
     def __init__(self, text:Sequence[str]) -> None:
         self.text = text
+        self.height = len(text)
+        if len(text) > 0:
+            self.width = len(text[0])
+        else:
+            self.width = 0
 
 class Character(Entity):
     id_prefix = "CHR"

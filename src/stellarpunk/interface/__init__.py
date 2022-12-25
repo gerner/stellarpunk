@@ -192,18 +192,28 @@ class Icons:
             return 0
 
 class Canvas:
-    def __init__(self, viewscreen:curses.window, viewscreen_height:int, viewscreen_width:int) -> None:
-        self.viewscreen = viewscreen
-        self.viewscreen_width = viewscreen_width
-        self.viewscreen_height = viewscreen_height
+    def __init__(self, window:curses.window, height:int, width:int, y:int, x:int) -> None:
+        self.window = window
+        self.width = width
+        self.height = height
+        self.x = x
+        self.y = y
 
     def erase(self) -> None:
-        self.viewscreen.erase()
+        self.window.erase()
+
+    def noutrefresh(self, pminrow:int, pmincol:int) -> None:
+        self.window.noutrefresh(
+                pminrow, pmincol,
+                self.y, self.x,
+                self.y+self.height-1,
+                self.x+self.width-1
+        )
 
     def addstr(self, y:int, x:int, string:str, attr:int=0) -> None:
         """ Draws a string to the window, clipping as necessary for offscreen. """
 
-        if y < 0 or y >= self.viewscreen_height or x >= self.viewscreen_width:
+        if y < 0 or y >= self.height or x >= self.width:
             #TODO: do we care about embedded newlines? (some lines might be visible)
             return
 
@@ -211,10 +221,10 @@ class Canvas:
             string = string[-x:]
             x = 0
 
-        if x + len(string) > self.viewscreen_width:
-            string = string[:self.viewscreen_width-x]
+        if x + len(string) > self.width:
+            string = string[:self.width-x]
 
-        self.viewscreen.addstr(y, x, string, attr)
+        self.window.addstr(y, x, string, attr)
 
 class PerspectiveObserver(abc.ABC):
     def perspective_updated(self, perspective:Perspective) -> None: ...
@@ -428,6 +438,43 @@ class ColorDemo(View):
         for c in range(256):
             self.interface.viewscreen.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
         self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key:int, dt:float) -> bool:
+        if key != -1:
+            self.interface.close_view(self)
+            return True
+        else:
+            return False
+
+
+class AttrDemo(View):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "ATTR DEMO");
+
+        attrs = [
+            (curses.A_ALTCHARSET, "Alternate character set mode"),
+            (curses.A_BLINK, "Blink mode"),
+            (curses.A_BOLD, "Bold mode"),
+            (curses.A_DIM, "Dim mode"),
+            (curses.A_INVIS, "Invisible or blank mode"),
+            (curses.A_ITALIC, "Italic mode"),
+            (curses.A_NORMAL, "Normal attribute"),
+            (curses.A_PROTECT, "Protected mode"),
+            (curses.A_REVERSE, "Reverse background and foreground colors"),
+            (curses.A_STANDOUT, "Standout mode"),
+            (curses.A_UNDERLINE, "Underline mode"),
+        ]
+
+        i = 1
+        for a in attrs:
+            self.interface.viewscreen.addstr(i, 1, a[1], a[0])
+            i+=1
+        self.interface.viewscreen.addstr(i+1, 1, "Press any key to continue")
         self.interface.refresh_viewscreen()
 
     def handle_input(self, key:int, dt:float) -> bool:
@@ -714,7 +761,7 @@ class Interface(AbstractInterface):
 
         #self.viewscreen = curses.newpad(Settings.VIEWSCREEN_BUFFER_HEIGHT, Settings.VIEWSCREEN_BUFFER_WIDTH)
         # make the viewscreen 1 extra row to avoid curses error when writing to the bottom right character
-        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width)
+        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width, self.viewscreen_y, self.viewscreen_x)
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
         for message in self.logscreen_buffer:
@@ -734,6 +781,7 @@ class Interface(AbstractInterface):
         self.stdscr.timeout(0)
 
         curses.nonl()
+        curses.curs_set(0)
 
         self.reinitialize_screen()
 
@@ -744,12 +792,7 @@ class Interface(AbstractInterface):
             raise ValueError(f'unknown color {color}')
 
     def refresh_viewscreen(self) -> None:
-        self.viewscreen.viewscreen.noutrefresh(
-                0, 0,
-                self.viewscreen_y, self.viewscreen_x,
-                self.viewscreen_y+self.viewscreen_height-1,
-                self.viewscreen_x+self.viewscreen_width-1
-        )
+        self.viewscreen.noutrefresh(0, 0)
 
     def refresh_logscreen(self) -> None:
         self.logscreen.noutrefresh(
@@ -830,10 +873,13 @@ class Interface(AbstractInterface):
     def generation_listener(self) -> generate.GenerationListener:
         return GenerationUI(self)
 
-    def open_view(self, view:View) -> None:
+    def open_view(self, view:View, deactivate_views:bool=False) -> None:
         self.logger.debug(f'opening view {view}')
         if len(self.views):
             self.views[-1].unfocus()
+            if deactivate_views:
+                for v in self.views:
+                    v.active = False
         view.initialize()
         view.focus()
         self.views.append(view)
@@ -905,6 +951,8 @@ class Interface(AbstractInterface):
             for view in self.views:
                 view.initialize()
             return
+
+        self.logger.debug(f'keypress {key}')
 
         self.status_message()
         v = self.views[-1]

@@ -179,9 +179,9 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
         # draw the cached sector/edge geometry
         for (y,x), c in self._cached_sector_layout[1].items():
-            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE))
+            self.viewscreen.window.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE))
         for (y,x), c in self._cached_sector_layout[0].items():
-            self.viewscreen.viewscreen.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
+            self.viewscreen.window.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
 
         # draw info for each sector
         for sector in self.gamestate.sectors.values():
