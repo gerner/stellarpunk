@@ -18,7 +18,6 @@ class Starfield(interface.PerspectiveObserver):
         self.starfields = starfields
         self.perspective = perspective
         self.perspective.observe(self)
-        self.desired_stars_per_char = (4./80.)**2
 
         # stars to draw to screen as screen coords -> icon, attr
         self._cached_star_layout:Mapping[Tuple[int,int],Tuple[str, int]]
