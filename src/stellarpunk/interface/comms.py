@@ -1,14 +1,57 @@
 """ Comms view between a character and the player """
 
-from typing import Any, Optional, Sequence, Collection
+from typing import Any, Optional, Sequence, Collection, Deque
 import curses
 import textwrap
+import collections
 
 from stellarpunk import core, interface, config, dialog
 from stellarpunk.interface import ui_utils
 
+class DialogKeyFrame:
+    def __init__(self, canvas:interface.Canvas, l_padding:str, text:str, chars_per_sec:float) -> None:
+        self.start_time:float = -1
+        self.l_padding = l_padding
+        self.text = text
+        self.canvas:interface.Canvas = canvas
+        self.chars_per_sec:float = chars_per_sec
+        self.position:int = 0
+
+    def flush(self) -> None:
+        if self.start_time < 0:
+            self.canvas.window.addstr(self.l_padding)
+        self.canvas.window.addstr(self.text[self.position:])
+        self.canvas.noutrefresh(0, 0)
+
+    def animate(self, now:float) -> bool:
+        # we know what we're animating (dialog or response)
+        # we know how far we are through animating it
+        # we know when it started and when now currently is
+        # we just need to "catch up" with now
+        import logging
+        logging.info(f'animate {self.start_time} {now} {self.text}')
+
+        if self.chars_per_sec < 0:
+            self.canvas.window.addstr(self.l_padding+self.text)
+            self.canvas.noutrefresh(0, 0)
+            return True
+
+        if self.start_time < 0:
+            self.start_time = now
+            self.canvas.window.addstr(self.l_padding)
+
+        secs = now - self.start_time
+        end_position = int(secs * self.chars_per_sec)
+        if end_position - self.position > 0:
+            logging.info(f'animate writing {self.position}:{end_position} "{self.text[self.position:end_position]}"')
+            self.canvas.window.addstr(self.text[self.position:end_position])
+            self.canvas.noutrefresh(0, 0)
+            self.position = end_position
+
+        return self.position >= len(self.text)
+
 class CommsView(interface.View):
-    def __init__(self, dialog_graph:dialog.DialogGraph, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, dialog_graph:dialog.DialogGraph, speaker:core.Character, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         # width we use to draw a portrait (and other info) for the speaker
@@ -25,10 +68,28 @@ class CommsView(interface.View):
         # where the dialog plays out
         self.dialog_pad:interface.Canvas = None # type: ignore[assignment]
 
+        #TODO: do we care about multiple speakers?
+        self.speaker:core.Character = speaker
         self.last_character:Optional[core.Character] = None
 
         self.dialog_graph = dialog_graph
         self.current_node:dialog.DialogNode = dialog_graph.nodes[dialog_graph.root_id]
+        self.current_response:Optional[dialog.DialogChoice] = None
+
+        # characters per second
+        self.animation_speed:float = 100.
+        self.animation_queue:Deque[DialogKeyFrame] = collections.deque()
+
+    def _addstr(self, l_padding:str, text:str, chars_per_sec:Optional[float]=None) -> None:
+        if chars_per_sec is None:
+            chars_per_sec = self.animation_speed
+        self.animation_queue.append(DialogKeyFrame(
+            self.dialog_pad, l_padding, text, chars_per_sec,
+        ))
+
+    def _flush_animation_queue(self) -> None:
+        while len(self.animation_queue) > 0:
+            self.animation_queue.popleft().flush()
 
     def initialize(self) -> None:
         self.interface.reinitialize_screen(name="Comms")
@@ -53,9 +114,13 @@ class CommsView(interface.View):
 
     def handle_dialog_node(self, node:dialog.DialogNode) -> None:
         self.current_node = node
-        character = self.interface.gamestate.player.character
-        self.add_message(character, node.text)
+        self.add_message(self.speaker, node.text)
         self.add_responses(node)
+
+    def handle_dialog_response(self, choice:dialog.DialogChoice) -> None:
+        self.current_response = choice
+        self.add_player_message(self.current_response.text)
+        self.handle_dialog_node(self.dialog_graph.nodes[choice.node_id])
 
     def add_responses(self, node:dialog.DialogNode) -> None:
         responses = node.choices
@@ -63,9 +128,9 @@ class CommsView(interface.View):
 
         if len(responses) == 0:
             assert node.terminal
-            self.dialog_pad.window.addstr(f'{left_padding}press <ENTER> to close\n\n')
+            self._addstr(left_padding, 'press <ENTER> to close\n\n', -1)
         elif len(responses) == 1 and responses[0].text == "":
-            self.dialog_pad.window.addstr(f'{left_padding}press <ENTER> to continue\n\n')
+            self._addstr(left_padding, 'press <ENTER> to continue\n\n', -1)
         else:
             # indented to the right
             response_lines = [
@@ -76,11 +141,11 @@ class CommsView(interface.View):
                 ) for i, response in enumerate(responses, start=1)
             ]
 
-            self.dialog_pad.window.addstr(f'{left_padding}Respond:\n')
+            self._addstr(left_padding, 'Respond:\n', -1)
             for response in response_lines:
                 for line in response:
-                    self.dialog_pad.window.addstr(f'{left_padding}{line}\n')
-            self.dialog_pad.window.addstr("\n")
+                    self._addstr(left_padding, f'{line}\n', -1)
+            self._addstr("", "\n", -1)
 
         self.dialog_pad.noutrefresh(0, 0)
 
@@ -114,39 +179,48 @@ class CommsView(interface.View):
         assert len(dialog_lines) == len(portrait_lines)
 
         for (p,d) in zip(portrait_lines, dialog_lines):
-            self.dialog_pad.window.addstr(portrait_padding_l+p+portrait_padding_r+d)
-            self.dialog_pad.window.addstr("\n")
+            self._addstr(portrait_padding_l+p+portrait_padding_r, d)
+            self._addstr("", "\n", -1)
 
-        self.dialog_pad.window.addstr("\n")
+        self._addstr("", "\n", -1)
         self.dialog_pad.noutrefresh(0, 0)
 
     def add_player_message(self, text:str) -> None:
         dialog_lines = textwrap.wrap(text, width=self.dialog_width)
 
         for d in dialog_lines:
-            self.dialog_pad.window.addstr(f'{d:>{self.dialog_width+self.info_width+self.padding}}\n')
+            l_padding = " "*(self.dialog_width+self.info_width+self.padding-len(d))
+            self._addstr(l_padding, f'{d}\n')
 
-        self.dialog_pad.window.addstr("\n")
+        self._addstr("", "\n", -1)
         self.dialog_pad.noutrefresh(0, 0)
 
     def choose_dialog_option(self, i:int) -> None:
         self.logger.info(f'pressed {i} corresponding to "{self.current_node.choices[i].text}" -> {self.current_node.choices[i].node_id}')
-        chosen_option = self.current_node.choices[i]
-        self.add_player_message(chosen_option.text)
-        self.handle_dialog_node(self.dialog_graph.nodes[chosen_option.node_id])
+        self.handle_dialog_response(self.current_node.choices[i])
 
     def bind_dialog_option_key(self, key:int, i:int) -> interface.KeyBinding:
         return self.bind_key(key, lambda: self.choose_dialog_option(i))
 
     def key_list(self) -> Collection[interface.KeyBinding]:
-        keys = []
-        if self.current_node.terminal:
-            keys.append(self.bind_key(ord("\r"), lambda: self.interface.close_view(self)))
-        elif len(self.current_node.choices) == 1 and self.current_node.choices[0].text == "":
-            keys.append(self.bind_dialog_option_key(ord("\r"), 0))
+        if len(self.animation_queue) > 0:
+            return [self.bind_key(ord("\r"), self._flush_animation_queue)]
         else:
-            keys.extend([
-                    self.bind_dialog_option_key(ord(str(i+1)), i)
-                    for i in range(len(self.current_node.choices))
-            ])
-        return keys
+            keys = []
+            if self.current_node.terminal:
+                keys.append(self.bind_key(ord("\r"), lambda: self.interface.close_view(self)))
+            elif len(self.current_node.choices) == 1 and self.current_node.choices[0].text == "":
+                keys.append(self.bind_dialog_option_key(ord("\r"), 0))
+            else:
+                keys.extend([
+                        self.bind_dialog_option_key(ord(str(i+1)), i)
+                        for i in range(len(self.current_node.choices))
+                ])
+            return keys
+
+    def update_display(self) -> None:
+
+        # handle "animation" of the dialog
+        while len(self.animation_queue) > 0 and self.animation_queue[0].animate(self.interface.gamestate.timestamp):
+            self.animation_queue.popleft()
+

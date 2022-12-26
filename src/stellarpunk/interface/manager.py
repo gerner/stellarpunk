@@ -219,7 +219,10 @@ class InterfaceManager:
             )
 
         def open_comms(args:Sequence[str]) -> None:
-            comms_view = comms.CommsView(dialog.load_dialog("dialog_demo"), self.interface)
+            speaker = self.interface.gamestate.player.character
+            comms_view = comms.CommsView(
+                    dialog.load_dialog("dialog_demo"), speaker, self.interface
+            )
             self.interface.open_view(comms_view, deactivate_views=True)
 
         def open_dialog(args:Sequence[str]) -> None:

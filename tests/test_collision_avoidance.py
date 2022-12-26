@@ -145,7 +145,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.estimate_eta()*1.7
+    eta = goto_order.estimate_eta()*2.0
 
     testui.eta = eta
     testui.orders = [goto_order]

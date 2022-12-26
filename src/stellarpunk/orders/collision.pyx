@@ -1453,17 +1453,15 @@ cdef TorqueResult _torque_for_angle(
 
         difference_w = fabs(desired_w - w)
 
-        if difference_w < ANGLE_EPS:
-            return TorqueResult(0., ccymunk.INFINITY)
-
         t = (desired_w - w)*moment/dt
 
+        #TODO: calculate how long it'll take us to break ARRIVAL_ANGLE
         if t < -max_torque:
-            return TorqueResult(-max_torque, difference_w * moment / max_torque)
+            return TorqueResult(-max_torque, 0.001)#difference_w * moment / max_torque)
         elif t > max_torque:
-            return TorqueResult(max_torque, difference_w * moment / max_torque)
+            return TorqueResult(max_torque, 0.001)#difference_w * moment / max_torque)
         else:
-            return TorqueResult(t, dt)
+            return TorqueResult(t, 0.001)#dt)
 
 def torque_for_angle(target_angle:float, angle:float, w:float, moment:float, max_torque:float, dt:float) -> Tuple[float, float]:
     """ Exposes _torque_for_angle to python """
