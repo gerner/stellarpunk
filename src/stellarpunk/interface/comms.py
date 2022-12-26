@@ -8,7 +8,14 @@ import collections
 from stellarpunk import core, interface, config, dialog
 from stellarpunk.interface import ui_utils
 
-class DialogKeyFrame:
+class AnimationSequence:
+    def animate(self, now:float) -> bool:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+class DialogKeyFrame(AnimationSequence):
     def __init__(self, canvas:interface.Canvas, l_padding:str, text:str, chars_per_sec:float) -> None:
         self.start_time:float = -1
         self.l_padding = l_padding
@@ -28,9 +35,6 @@ class DialogKeyFrame:
         # we know how far we are through animating it
         # we know when it started and when now currently is
         # we just need to "catch up" with now
-        import logging
-        logging.info(f'animate {self.start_time} {now} {self.text}')
-
         if self.chars_per_sec < 0:
             self.canvas.window.addstr(self.l_padding+self.text)
             self.canvas.noutrefresh(0, 0)
@@ -43,12 +47,22 @@ class DialogKeyFrame:
         secs = now - self.start_time
         end_position = int(secs * self.chars_per_sec)
         if end_position - self.position > 0:
-            logging.info(f'animate writing {self.position}:{end_position} "{self.text[self.position:end_position]}"')
             self.canvas.window.addstr(self.text[self.position:end_position])
             self.canvas.noutrefresh(0, 0)
             self.position = end_position
 
         return self.position >= len(self.text)
+
+class DialogPause(AnimationSequence):
+    def __init__(self, pause_length:float) -> None:
+        self.end_time:float = -1
+        self.pause_length = pause_length
+
+    def animate(self, now:float) -> bool:
+        if self.end_time < 0:
+            self.end_time = now + self.pause_length
+
+        return now >= self.end_time
 
 class CommsView(interface.View):
     def __init__(self, dialog_graph:dialog.DialogGraph, speaker:core.Character, *args:Any, **kwargs:Any) -> None:
@@ -77,8 +91,9 @@ class CommsView(interface.View):
         self.current_response:Optional[dialog.DialogChoice] = None
 
         # characters per second
-        self.animation_speed:float = 100.
-        self.animation_queue:Deque[DialogKeyFrame] = collections.deque()
+        self.animation_speed:float = config.Settings.interface.CommsView.animation_speed
+        self.pause_time:float = config.Settings.interface.CommsView.pause_time
+        self.animation_queue:Deque[AnimationSequence] = collections.deque()
 
     def _addstr(self, l_padding:str, text:str, chars_per_sec:Optional[float]=None) -> None:
         if chars_per_sec is None:
@@ -92,6 +107,8 @@ class CommsView(interface.View):
             self.animation_queue.popleft().flush()
 
     def initialize(self) -> None:
+        
+
         self.interface.reinitialize_screen(name="Comms")
 
         dph = self.interface.viewscreen_height-self.padding*2
@@ -178,6 +195,7 @@ class CommsView(interface.View):
 
         assert len(dialog_lines) == len(portrait_lines)
 
+        self.animation_queue.append(DialogPause(0.4))
         for (p,d) in zip(portrait_lines, dialog_lines):
             self._addstr(portrait_padding_l+p+portrait_padding_r, d)
             self._addstr("", "\n", -1)

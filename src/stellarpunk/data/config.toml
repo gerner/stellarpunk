@@ -78,14 +78,14 @@
     [help.interface.CommsView]
         [help.interface.CommsView.keys]
             "1" = "response option 1"
-            "2" = "response option 1"
-            "3" = "response option 1"
-            "4" = "response option 1"
-            "5" = "response option 1"
-            "6" = "response option 1"
-            "7" = "response option 1"
-            "8" = "response option 1"
-            "9" = "response option 1"
+            "2" = "response option 2"
+            "3" = "response option 3"
+            "4" = "response option 4"
+            "5" = "response option 5"
+            "6" = "response option 6"
+            "7" = "response option 7"
+            "8" = "response option 8"
+            "9" = "response option 9"
             "\r" = "continue or finish dialog"
 
 [interface]
@@ -96,6 +96,8 @@
 
     [interface.CommsView]
         info_width = 40
+        pause_time = 0.40
+        animation_speed = 120.0
 
 [generate]
     [generate.Universe]
