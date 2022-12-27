@@ -72,6 +72,7 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
     def add_sector_edges_to_canvas(self, c:drawille.Canvas, sector:core.Sector) -> bool:
         used_canvas = False
+        #TODO: how should this be synchronized with the existence of gates between sectors?
         # draw edges with neighbors
         sector_idx = self.gamestate.sector_idx[sector.entity_id]
         for i, edge in enumerate(self.gamestate.sector_edges[sector_idx]):

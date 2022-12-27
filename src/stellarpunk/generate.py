@@ -1339,7 +1339,7 @@ class UniverseGenerator:
         # add gates for the travel lanes
         #TODO: there's probably a clever way to get these indicies
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
-            if sector_edges[i,j] < math.inf:
+            if sector_edges[i,j] != 0:
                 self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id])
 
         #TODO: post-expansion decline

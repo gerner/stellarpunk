@@ -22,14 +22,10 @@ class InterfaceManager:
         self.interface.key_list = {x.key:x for x in self.key_list()}
         self.interface.__enter__()
 
-        # TODO: fix the way we set up the rest of the interface
         self.interface.initialize()
-        uv = universe.UniverseView(self.gamestate, self.interface)
-        self.interface.open_view(uv)
-        assert self.gamestate.player.character.location.sector is not None
-        sv = uv.open_sector_view(self.gamestate.player.character.location.sector)
         assert isinstance(self.gamestate.player.character.location, core.Ship)
-        sv.open_pilot_view(self.gamestate.player.character.location)
+        pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
+        self.interface.open_view(pilot_view)
 
         return self
 
