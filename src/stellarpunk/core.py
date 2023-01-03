@@ -10,7 +10,7 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection, Generator
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection, Generator, Set
 import abc
 import heapq
 import dataclasses
@@ -90,9 +90,12 @@ class ProductionChain:
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
-    def __init__(self, name:str, entity_id:Optional[uuid.UUID]=None)->None:
+    def __init__(self, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
+
+        if name is None:
+            name = str(self.entity_id)
         self.name = name
 
     def short_id(self) -> str:
@@ -779,22 +782,6 @@ class Order:
         """ Performs one immediate tick's worth of action for this order """
         pass
 
-T = TypeVar("T")
-class PrioritizedItem(Generic[T]):
-    def __init__(self, priority:float, item:T) -> None:
-        self.priority = priority
-        self.item = item
-
-    def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, PrioritizedItem):
-            return NotImplemented
-        return self.priority == other.priority
-
-    def __lt__(self, other:Any) -> bool:
-        if not isinstance(other, PrioritizedItem):
-            return NotImplemented
-        return self.priority < other.priority
-
 class EconAgent(abc.ABC):
     _next_id = 0
 
@@ -1180,7 +1167,50 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
     if needs_close:
         fout.close()
 
-class Player:
-    def __init__(self) -> None:
+class Message:
+    def __init__(self, message:str, timestamp:float) -> None:
+        super().__init__()
+
+        self.message = message
+        self.timestamp = timestamp
+
+class PlayerObserver(abc.ABC):
+    def message_received(self, player:Player, message:Message) -> None:
+        pass
+    def flag_set(self, player:Player, flag:str) -> None:
+        pass
+
+class Player(Entity):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.observers:Set[PlayerObserver] = set()
+
         # which character the player controls
         self.character:Character = None # type: ignore[assignment]
+
+        self.message_log:List[Message] = []
+
+        self.flags:Dict[str, float] = {}
+
+    def observe(self, observer:PlayerObserver) -> None:
+        self.observers.add(observer)
+
+    def send_message(self, message:Message) -> None:
+        self.message_log.append(message)
+
+        for observer in self.observers:
+            observer.message_received(self, message)
+
+    def set_flag(self, flag:str, timestamp:float) -> None:
+        self.flags[flag] = timestamp
+
+        for observer in self.observers:
+            observer.flag_set(self, flag)
+
+class Event(abc.ABC):
+    def __init__(self, event_id:str) -> None:
+        self.event_id = event_id
+
+    def is_relevant(self, gamestate:Gamestate, player:Player) -> bool: ...
+    def act(self, gamestate:Gamestate, player:Player) -> None: ...
