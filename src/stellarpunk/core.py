@@ -1129,11 +1129,14 @@ class Gamestate:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits
 
+    def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)
+
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
         # increment the ticks even though we don't process them?
-        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.timestamp)
+        return self.timestamp_to_datetime(self.timestamp)
 
     def quit(self) -> None:
         self.keep_running = False

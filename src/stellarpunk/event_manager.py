@@ -10,11 +10,19 @@ class DemoEvent(core.Event):
         super().__init__("demo_event")
 
     def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool:
-        return gamestate.timestamp > 5. and self.event_id not in player.flags
+        return (
+            (gamestate.timestamp > 5. and self.event_id not in player.flags) or
+            (self.event_id in player.flags and (gamestate.timestamp - player.flags[self.event_id] > 5.) and f'{self.event_id}_ack' not in player.flags)
+        )
 
     def act(self, gamestate:core.Gamestate, player:core.Player) -> None:
-        player.send_message(core.Message("what's up?", gamestate.timestamp))
-        player.set_flag(self.event_id, gamestate.timestamp)
+        if self.event_id not in player.flags:
+            player.send_message(core.Message("what's up? "*20, gamestate.timestamp))
+            player.set_flag(self.event_id, gamestate.timestamp)
+        elif f'{self.event_id}_ack' not in player.flags:
+            player.send_message(core.Message("stop ignoring me! "*20, gamestate.timestamp))
+            player.set_flag(self.event_id, gamestate.timestamp)
+
 
 class EventManager:
     def __init__(self) -> None:

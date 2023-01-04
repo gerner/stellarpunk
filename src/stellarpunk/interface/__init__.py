@@ -15,6 +15,7 @@ import collections
 import math
 import collections.abc
 import abc
+import textwrap
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
@@ -537,7 +538,7 @@ class FPSCounter:
     def fps(self) -> float:
         return self.current_fps
 
-class Interface(AbstractInterface):
+class Interface(AbstractInterface, core.PlayerObserver):
     def __init__(self, gamestate: core.Gamestate, generator: generate.UniverseGenerator):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
@@ -641,6 +642,9 @@ class Interface(AbstractInterface):
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
+
+    def message_received(self, player:core.Player, message:core.Message) -> None:
+        self.log_message(f'Message received {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
 
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
@@ -765,7 +769,7 @@ class Interface(AbstractInterface):
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
         for message in self.logscreen_buffer:
-            self.logscreen.addstr(self.logscreen_height,0, message+"\n")
+            self.draw_log_message(message)
 
         self.stdscr.noutrefresh()
         self.refresh_viewscreen()
@@ -784,6 +788,8 @@ class Interface(AbstractInterface):
         curses.curs_set(0)
 
         self.reinitialize_screen()
+
+        self.gamestate.player.observe(self)
 
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:
@@ -815,10 +821,20 @@ class Interface(AbstractInterface):
                 attr=self.get_color(Color.ERROR)
         )
 
+    def draw_log_message(self, message:str) -> None:
+        for message_line in message.split("\n"):
+            if message_line == "":
+                self.logscreen.addstr(self.logscreen_height,0, "\n")
+            else:
+                lines = textwrap.wrap(message_line, width=self.logscreen_width, subsequent_indent="  ")
+                for line in lines:
+                    self.logscreen.addstr(self.logscreen_height,0, line+"\n")
+        self.logscreen.addstr(self.logscreen_height,0, "\n")
+
     def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """
         self.logscreen_buffer.append(message)
-        self.logscreen.addstr(self.logscreen_height,0, message+"\n")
+        self.draw_log_message(message)
         self.refresh_logscreen()
 
     def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:

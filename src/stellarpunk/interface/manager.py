@@ -69,13 +69,15 @@ class InterfaceManager:
         if view is not None:
             command_list.update({x.command: x for x in view.command_list()})
 
-        self.interface.log_message("press \":\" to enter command mode")
-        self.interface.log_message("type a command and press <ENTER> to execute it")
-        self.interface.log_message("available commands:")
+        help_lines = []
+        help_lines.append("help:")
+        help_lines.append("press \":\" to enter command mode")
+        help_lines.append("type a command and press <ENTER> to execute it")
+        help_lines.append("available commands:")
         for k,v in command_list.items():
-            self.interface.log_message(f'\t{k}\t{v.help}')
+            help_lines.append(f'\t{k}\t{v.help}')
 
-        self.interface.log_message("")
+        self.interface.log_message("\n".join(help_lines))
 
     def keys(self) -> None:
         key_list = self.interface.key_list.copy()
@@ -85,18 +87,19 @@ class InterfaceManager:
         if view is not None:
             key_list.update({x.key: x for x in view.key_list()})
 
-        self.interface.log_message("keys:")
+        help_lines = []
+        help_lines.append("keys:")
         for k,v in key_list.items():
             if k != curses.KEY_MOUSE:
                 if chr(k).isprintable():
                     if chr(k) == " ":
-                        self.interface.log_message(f'\t<SPACE>\t{v.help}')
+                        help_lines.append(f'\t<SPACE>\t{v.help}')
                     else:
-                        self.interface.log_message(f'\t{chr(k)}\t{v.help}')
+                        help_lines.append(f'\t{chr(k)}\t{v.help}')
                 elif k == ord('\r'):
-                    self.interface.log_message(f'\t<ENTER>\t{v.help}')
+                    help_lines.append(f'\t<ENTER>\t{v.help}')
 
-        self.interface.log_message("")
+        self.interface.log_message("\n".join(help_lines))
 
     def bind_key(self, k:int, f:Callable[[], None]) -> interface.KeyBinding:
         try:
