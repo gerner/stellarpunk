@@ -11,3 +11,6 @@ build/build_flag: $(SOURCES)
 
 clean:
 	rm -rf build
+
+test:
+	pytest

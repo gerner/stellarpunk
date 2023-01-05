@@ -6,7 +6,7 @@ import pstats
 import curses
 import uuid
 
-from stellarpunk import core, interface, generate, util, config, dialog
+from stellarpunk import core, interface, generate, util, config, events
 from stellarpunk.interface import universe, sector, pilot, command_input, character, comms
 
 class InterfaceManager:
@@ -234,11 +234,12 @@ class InterfaceManager:
             dialog = message.reply_dialog
             message.replied_at = self.interface.gamestate.timestamp
 
-            comms_view = comms.CommsView(dialog, speaker, self.interface)
+            comms_view = comms.CommsView(
+                events.DialogManager(dialog, self.gamestate, self.gamestate.player),
+                speaker,
+                self.interface,
+            )
             self.interface.open_view(comms_view, deactivate_views=True)
-
-        def open_dialog(args:Sequence[str]) -> None:
-            d = dialog.load_dialog(args[0])
 
         return [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
@@ -260,6 +261,5 @@ class InterfaceManager:
             self.bind_command("universe", open_universe),
             self.bind_command("character", open_character, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
             self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
-            self.bind_command("dialog", open_dialog),
         ]
 

@@ -6,6 +6,7 @@ root_id = "START"
     [[dialog_demo.nodes]]
     node_id = "START"
     text="This is a dialog we're having. What do you think?"
+    event_id = ["demo_event_ack"]
 
         [[dialog_demo.nodes.choices]]
         text="A choice"
@@ -14,6 +15,7 @@ root_id = "START"
         [[dialog_demo.nodes.choices]]
         text="Another choice"
         node_id="B"
+        event_id= ["demo_event_longchoice"]
 
         [[dialog_demo.nodes.choices]]
         text="A final choice"

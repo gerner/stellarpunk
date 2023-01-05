@@ -5,7 +5,7 @@ import curses
 import textwrap
 import collections
 
-from stellarpunk import core, interface, config, dialog
+from stellarpunk import core, interface, config, dialog, events
 from stellarpunk.interface import ui_utils
 
 class AnimationSequence:
@@ -65,7 +65,7 @@ class DialogPause(AnimationSequence):
         return now >= self.end_time
 
 class CommsView(interface.View):
-    def __init__(self, dialog_graph:dialog.DialogGraph, speaker:core.Character, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, dialog_manager:events.DialogManager, speaker:core.Character, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         # width we use to draw a portrait (and other info) for the speaker
@@ -86,9 +86,8 @@ class CommsView(interface.View):
         self.speaker:core.Character = speaker
         self.last_character:Optional[core.Character] = None
 
-        self.dialog_graph = dialog_graph
-        self.current_node:dialog.DialogNode = dialog_graph.nodes[dialog_graph.root_id]
-        self.current_response:Optional[dialog.DialogChoice] = None
+        # manager to keep track and drive biz logic for the current dialog
+        self.dialog_manager = dialog_manager
 
         # characters per second
         self.animation_speed:float = config.Settings.interface.CommsView.animation_speed
@@ -107,8 +106,6 @@ class CommsView(interface.View):
             self.animation_queue.popleft().flush()
 
     def initialize(self) -> None:
-        
-
         self.interface.reinitialize_screen(name="Comms")
 
         dph = self.interface.viewscreen_height-self.padding*2
@@ -127,17 +124,17 @@ class CommsView(interface.View):
         self.response_width = 64
         self.response_indent = dpw - self.response_width
 
-        self.handle_dialog_node(self.dialog_graph.nodes[self.dialog_graph.root_id])
+        self.handle_dialog_node(self.dialog_manager.node)
 
     def handle_dialog_node(self, node:dialog.DialogNode) -> None:
-        self.current_node = node
+        self.dialog_manager.do_node()
         self.add_message(self.speaker, node.text)
         self.add_responses(node)
 
     def handle_dialog_response(self, choice:dialog.DialogChoice) -> None:
-        self.current_response = choice
-        self.add_player_message(self.current_response.text)
-        self.handle_dialog_node(self.dialog_graph.nodes[choice.node_id])
+        self.dialog_manager.choose(choice)
+        self.add_player_message(choice.text)
+        self.handle_dialog_node(self.dialog_manager.node)
 
     def add_responses(self, node:dialog.DialogNode) -> None:
         responses = node.choices
@@ -214,8 +211,9 @@ class CommsView(interface.View):
         self.dialog_pad.noutrefresh(0, 0)
 
     def choose_dialog_option(self, i:int) -> None:
-        self.logger.info(f'pressed {i} corresponding to "{self.current_node.choices[i].text}" -> {self.current_node.choices[i].node_id}')
-        self.handle_dialog_response(self.current_node.choices[i])
+        choice = self.dialog_manager.choices[i]
+        self.logger.debug(f'pressed {i} corresponding to "{choice.text}" -> {choice.node_id}')
+        self.handle_dialog_response(choice)
 
     def bind_dialog_option_key(self, key:int, i:int) -> interface.KeyBinding:
         return self.bind_key(key, lambda: self.choose_dialog_option(i))
@@ -225,14 +223,14 @@ class CommsView(interface.View):
             return [self.bind_key(ord("\r"), self._flush_animation_queue)]
         else:
             keys = []
-            if self.current_node.terminal:
+            if self.dialog_manager.node.terminal:
                 keys.append(self.bind_key(ord("\r"), lambda: self.interface.close_view(self)))
-            elif len(self.current_node.choices) == 1 and self.current_node.choices[0].text == "":
+            elif len(self.dialog_manager.choices) == 1 and self.dialog_manager.choices[0].text == "":
                 keys.append(self.bind_dialog_option_key(ord("\r"), 0))
             else:
                 keys.extend([
                         self.bind_dialog_option_key(ord(str(i+1)), i)
-                        for i in range(len(self.current_node.choices))
+                        for i in range(len(self.dialog_manager.choices))
                 ])
             return keys
 

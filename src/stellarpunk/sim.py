@@ -13,7 +13,7 @@ import heapq
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, event_manager
+from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events
 from stellarpunk.interface import manager as interface_manager
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -21,11 +21,11 @@ ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator(core.AbstractGameRuntime):
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, e_manager:Optional[event_manager.EventManager]=None) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[events.EventManager]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
-        self.e_manager = e_manager or event_manager.EventManager()
+        self.event_manager = event_manager or events.EventManager()
 
         self.pause_on_collision = False
         self.enable_collisions = True
@@ -183,7 +183,7 @@ class Simulator(core.AbstractGameRuntime):
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
 
-        self.e_manager.tick()
+        self.event_manager.tick()
 
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
@@ -373,8 +373,8 @@ def main() -> None:
 
         ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
 
-        e_manager = event_manager.EventManager()
-        e_manager.initialize(gamestate)
+        event_manager = events.EventManager()
+        event_manager.initialize(gamestate)
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
 
@@ -383,7 +383,7 @@ def main() -> None:
 
         stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
-        sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, e_manager=e_manager)
+        sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
         sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
