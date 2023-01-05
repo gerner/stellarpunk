@@ -3,7 +3,7 @@
 from typing import List, Any
 import logging
 
-from stellarpunk import core, config, util
+from stellarpunk import core, config, util, dialog
 
 class DemoEvent(core.Event):
     def __init__(self) -> None:
@@ -17,12 +17,21 @@ class DemoEvent(core.Event):
 
     def act(self, gamestate:core.Gamestate, player:core.Player) -> None:
         if self.event_id not in player.flags:
-            player.send_message(core.Message("what's up? "*20, gamestate.timestamp))
+            player.send_message(core.Message(
+                "what's up? "*20,
+                gamestate.timestamp,
+                reply_to=player.character,
+                reply_dialog=dialog.load_dialog("dialog_demo"),
+            ))
             player.set_flag(self.event_id, gamestate.timestamp)
         elif f'{self.event_id}_ack' not in player.flags:
-            player.send_message(core.Message("stop ignoring me! "*20, gamestate.timestamp))
+            player.send_message(core.Message(
+                "stop ignoring me! "*20,
+                gamestate.timestamp,
+                reply_to=player.character,
+                reply_dialog=dialog.load_dialog("dialog_demo"),
+            ))
             player.set_flag(self.event_id, gamestate.timestamp)
-
 
 class EventManager:
     def __init__(self) -> None:

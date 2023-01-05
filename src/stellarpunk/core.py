@@ -22,7 +22,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 from rtree import index # type: ignore
 
-from stellarpunk import util, task_schedule
+from stellarpunk import util, task_schedule, dialog
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -95,7 +95,7 @@ class Entity(abc.ABC):
         self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
 
         if name is None:
-            name = str(self.entity_id)
+            name = f'{self.__class__} {str(self.entity_id)}'
         self.name = name
 
     def short_id(self) -> str:
@@ -1170,12 +1170,18 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
     if needs_close:
         fout.close()
 
-class Message:
-    def __init__(self, message:str, timestamp:float) -> None:
-        super().__init__()
+class Message(Entity):
+    id_prefix = "MSG"
+
+    def __init__(self, message:str, timestamp:float, *args:Any, reply_to:Optional[Character]=None, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
 
         self.message = message
         self.timestamp = timestamp
+
+        self.reply_to = reply_to
+        self.reply_dialog = reply_dialog
+        self.replied_at:Optional[float] = None
 
 class PlayerObserver(abc.ABC):
     def message_received(self, player:Player, message:Message) -> None:
@@ -1184,6 +1190,8 @@ class PlayerObserver(abc.ABC):
         pass
 
 class Player(Entity):
+    id_prefix = "PLR"
+
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -1192,7 +1200,7 @@ class Player(Entity):
         # which character the player controls
         self.character:Character = None # type: ignore[assignment]
 
-        self.message_log:List[Message] = []
+        self.messages:Dict[uuid.UUID, Message] = {}
 
         self.flags:Dict[str, float] = {}
 
@@ -1200,7 +1208,7 @@ class Player(Entity):
         self.observers.add(observer)
 
     def send_message(self, message:Message) -> None:
-        self.message_log.append(message)
+        self.messages[message.entity_id] = message
 
         for observer in self.observers:
             observer.message_received(self, message)

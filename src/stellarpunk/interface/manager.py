@@ -16,8 +16,6 @@ class InterfaceManager:
 
         self.profiler:Optional[cProfile.Profile] = None
 
-        self._command_list = {x.command:x for x in self.command_list()}
-
     def __enter__(self) -> "InterfaceManager":
         self.interface.key_list = {x.key:x for x in self.key_list()}
         self.interface.__enter__()
@@ -118,7 +116,7 @@ class InterfaceManager:
 
     def key_list(self) -> Collection[interface.KeyBinding]:
         def open_command_prompt() -> None:
-            command_list = self._command_list.copy()
+            command_list = {x.command:x for x in self.command_list()}
             v = self.focused_view()
             if v is not None:
                 command_list.update({x.command: x for x in v.command_list()})
@@ -218,10 +216,25 @@ class InterfaceManager:
             )
 
         def open_comms(args:Sequence[str]) -> None:
-            speaker = self.interface.gamestate.player.character
-            comms_view = comms.CommsView(
-                    dialog.load_dialog("dialog_demo"), speaker, self.interface
-            )
+            if len(args) < 1:
+                raise command_input.UserError(f'need to specify message to reply to')
+
+            try:
+                msg_id = uuid.UUID(args[0])
+                message = self.gamestate.player.messages[msg_id]
+            except:
+                raise command_input.UserError(f'{args[0]} not a recognized message id')
+
+            if message.reply_to is None:
+                raise command_input.UserError(f'{message.short_id()} has no reply to')
+            if message.replied_at is not None:
+                raise command_input.UserError(f'already replied to {message.short_id()}')
+            assert message.reply_dialog
+            speaker = message.reply_to
+            dialog = message.reply_dialog
+            message.replied_at = self.interface.gamestate.timestamp
+
+            comms_view = comms.CommsView(dialog, speaker, self.interface)
             self.interface.open_view(comms_view, deactivate_views=True)
 
         def open_dialog(args:Sequence[str]) -> None:
@@ -246,7 +259,7 @@ class InterfaceManager:
             self.bind_command("sector", open_sector),
             self.bind_command("universe", open_universe),
             self.bind_command("character", open_character, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
-            self.bind_command("comms", open_comms),
+            self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
             self.bind_command("dialog", open_dialog),
         ]
 

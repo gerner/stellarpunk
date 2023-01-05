@@ -644,7 +644,7 @@ class Interface(AbstractInterface, core.PlayerObserver):
             self.logger.info("done")
 
     def message_received(self, player:core.Player, message:core.Message) -> None:
-        self.log_message(f'Message received {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
+        self.log_message(f'Message {message.short_id()} received at {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
 
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
