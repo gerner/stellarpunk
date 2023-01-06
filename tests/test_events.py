@@ -4,9 +4,9 @@ import uuid
 
 import pytest
 
-from stellarpunk import core, events, dialog
+from stellarpunk import core, events, dialog, predicates
 
-class EventMock(core.Event):
+class EventMock(events.Event):
     message_entity_id = uuid.UUID('6b34e2b3-f6c0-4ee4-aaf1-d4e4cec9d1a6')
 
     def __init__(self) -> None:
@@ -66,3 +66,77 @@ def test_dialog_manager(gamestate):
 
     with pytest.raises(ValueError):
         dialog_manager.choose(choice)
+
+def test_load_criteria_good():
+    criteria1 = events.load_criteria("foo")
+    assert isinstance(criteria1, events.FlagCriteria)
+    assert criteria1.flag == "foo"
+
+    criteria1 = events.load_criteria("(foo)")
+    assert isinstance(criteria1, events.FlagCriteria)
+    assert criteria1.flag == "foo"
+
+    criteria2 = events.load_criteria("!foo")
+    assert isinstance(criteria2, predicates.Negation)
+    assert isinstance(criteria2.inner, events.FlagCriteria)
+
+    criteria3 = events.load_criteria("foo | bar")
+    assert isinstance(criteria3, predicates.Disjunction)
+    assert isinstance(criteria3.a, events.FlagCriteria)
+    assert criteria3.a.flag == "foo"
+    assert isinstance(criteria3.b, events.FlagCriteria)
+    assert criteria3.b.flag == "bar"
+
+    criteria4 = events.load_criteria("foo & bar")
+    assert isinstance(criteria4, predicates.Conjunction)
+    assert isinstance(criteria4.a, events.FlagCriteria)
+    assert criteria4.a.flag == "foo"
+    assert isinstance(criteria4.b, events.FlagCriteria)
+    assert criteria4.b.flag == "bar"
+
+    criteria5= events.load_criteria("(foo & bar) | !blerf")
+    assert isinstance(criteria5, predicates.Disjunction)
+    assert isinstance(criteria5.a, predicates.Conjunction)
+    assert isinstance(criteria5.a.a, events.FlagCriteria)
+    assert criteria5.a.a.flag == "foo"
+    assert isinstance(criteria5.a.b, events.FlagCriteria)
+    assert criteria5.a.b.flag == "bar"
+    assert isinstance(criteria5.b, predicates.Negation)
+    assert isinstance(criteria5.b.inner, events.FlagCriteria)
+    assert criteria5.b.inner.flag == "blerf"
+
+    # equiv to foo & (bar | !blerf)
+    criteria6 = events.load_criteria("foo & bar | !blerf")
+    assert isinstance(criteria6, predicates.Conjunction)
+    assert isinstance(criteria6.a, events.FlagCriteria)
+    assert criteria6.a.flag == "foo"
+    assert isinstance(criteria6.b, predicates.Disjunction)
+    assert isinstance(criteria6.b.a, events.FlagCriteria)
+    assert criteria6.b.a.flag == "bar"
+    assert isinstance(criteria6.b.b, predicates.Negation)
+    assert isinstance(criteria6.b.b.inner, events.FlagCriteria)
+    assert criteria6.b.b.inner.flag == "blerf"
+
+    criteria7 = events.load_criteria("foo & (bar | !blerf)")
+    assert isinstance(criteria7, predicates.Conjunction)
+    assert isinstance(criteria7.a, events.FlagCriteria)
+    assert criteria7.a.flag == "foo"
+    assert isinstance(criteria7.b, predicates.Disjunction)
+    assert isinstance(criteria7.b.a, events.FlagCriteria)
+    assert criteria7.b.a.flag == "bar"
+    assert isinstance(criteria7.b.b, predicates.Negation)
+    assert isinstance(criteria7.b.b.inner, events.FlagCriteria)
+    assert criteria7.b.b.inner.flag == "blerf"
+
+def test_load_criteria_bad():
+    with pytest.raises(ValueError):
+        events.load_criteria("foo & bar blerf")
+
+    with pytest.raises(ValueError):
+        events.load_criteria("(foo & bar")
+
+    with pytest.raises(ValueError):
+        events.load_criteria("!")
+
+    with pytest.raises(ValueError):
+        events.load_criteria("foo)")

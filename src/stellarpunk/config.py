@@ -51,7 +51,12 @@ def load_dialogs() -> Dict[str, Any]:
     dialogs = toml.loads(importlib.resources.read_text("stellarpunk.data", "dialogs.toml"))
     return dialogs
 
+def load_events() -> Dict[str, Any]:
+    events = toml.loads(importlib.resources.read_text("stellarpunk.data", "events.toml"))
+    return events
+
 # it's ok to reload the config with a file elsewhere, but we start with the
 # built-in config
 Settings = load_config()
 Dialogs = load_dialogs()
+#Events = load_events()

@@ -1,13 +1,22 @@
 """ Manages Events """
 
-from typing import List, Any, Sequence
+import abc
 import logging
+import re
+from typing import List, Any, Sequence, Dict, Tuple
 
-from stellarpunk import core, config, util, dialog
+from stellarpunk import core, util, dialog, predicates
 
-class DemoEvent(core.Event):
-    def __init__(self) -> None:
-        super().__init__("demo_event")
+class Event(abc.ABC):
+    def __init__(self, event_id:str) -> None:
+        self.event_id = event_id
+
+    def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool: ...
+    def act(self, gamestate:core.Gamestate, player:core.Player) -> None: ...
+
+class DemoEvent(Event):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__("demo_event", *args, **kwargs)
 
     def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool:
         return (
@@ -37,11 +46,97 @@ class DemoEvent(core.Event):
             ))
             player.set_flag(self.event_id, gamestate.timestamp)
 
+class FlagCriteria(predicates.Criteria[core.Player]):
+    def __init__(self, flag:str) -> None:
+        self.flag = flag
+
+    def evaluate(self, player:core.Player) -> bool:
+        return self.flag in player.flags
+
+FLAG_RE = re.compile(r'[ \t]*([a-zA-Z0-9_.]+)[ \t]*')
+JUNCTION_OP_RE = re.compile(r'[ \t]*([|&])[ \t]*')
+WS_RE = re.compile(f'[ \t]*')
+
+def parse_junction(criteria_text:str, start:int, m:re.Match, left:predicates.Criteria[core.Player]) -> Tuple[int, predicates.Criteria[core.Player]]:
+    # JUNCTION := CRITERIA "|" CRITERIA | CRITERIA "&" CRITERIA
+    new_start, right = parse_criteria(criteria_text, start+m.end())
+
+    if m.group(1) == "|":
+        return new_start, predicates.Disjunction(left, right)
+    elif m.group(1) == "&":
+        return new_start, predicates.Conjunction(left, right)
+    else:
+        raise Exception(f'JUNCTION_OP_RE incorrectly matched "{m.group(0)}"')
+
+def parse_criteria(criteria_text:str, start:int=0) -> Tuple[int, predicates.Criteria[core.Player]]:
+
+    # CRITERIA :=  "!" CRITERIA | FLAG | ( CRITERIA ) | CRITERIA JUNCTION
+    # FLAG := a string matching FLAG_RE
+    # JUNCTION := "|" CRITERIA | "&" CRITERIA
+
+    # (( foo | bar ) & baz) | (blerf & bling)
+
+    # fast foward past leading whitespace
+    m = WS_RE.match(criteria_text[start:])
+    assert m is not None
+    start = start+m.end()
+
+    if len(criteria_text[start:]) == 0:
+        raise ValueError(f'no input to process')
+
+    if criteria_text[start] == "!":
+        new_start, criteria = parse_criteria(criteria_text, start+1)
+        criteria = predicates.Negation(criteria)
+        start = new_start
+    elif m := FLAG_RE.match(criteria_text[start:]):
+        criteria = FlagCriteria(m.group(1))
+        start = start+m.end()
+    elif criteria_text[start] == "(":
+        new_start, criteria = parse_criteria(criteria_text, start+1)
+        if len(criteria_text) <= new_start or criteria_text[new_start] != ")":
+            raise ValueError(f'expected ")" at position {new_start},{new_start-start} while parsing "{criteria_text[start:new_start+8]}..."')
+        m = WS_RE.match(criteria_text[new_start+1:])
+        assert m is not None
+        start = new_start+1+m.end()
+
+    m = JUNCTION_OP_RE.match(criteria_text[start:])
+    if m is not None:
+        return parse_junction(criteria_text, start, m, criteria)
+    else:
+        return start, criteria
+
+def load_criteria(criteria_text:str) -> predicates.Criteria[core.Player]:
+    new_start, criteria = parse_criteria(criteria_text)
+    if new_start != len(criteria_text):
+        raise ValueError(f'after processing, had left over text: "{criteria_text[new_start:]}"')
+    return criteria
+
+def load_events(event_data:Dict[str, Any]) -> Dict[str, Event]:
+    return {}
+
+class ScriptedEvent(Event):
+    """ Event that's driven from a scripted configuration. """
+
+    @staticmethod
+    def load_from_config(event_id:str, data:Dict[str, Any]) -> "ScriptedEvent":
+
+        return ScriptedEvent(event_id, predicates.Literal(False))
+
+    def __init__(self, event_id:str, criteria:predicates.Criteria[core.Player], *args:Any, **kwargs:Any) -> None:
+        super().__init__(event_id, *args, **kwargs)
+        self.criteria = criteria
+
+    def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool:
+        return self.criteria.evaluate(player)
+
+    def act(self, gamestate:core.Gamestate, player:core.Player) -> None:
+        player.set_flag(self.event_id, gamestate.timestamp)
+
 class EventManager:
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate:core.Gamestate = None # type: ignore[assignment]
-        self.events:List[core.Event] = []
+        self.events:List[Event] = []
 
     def initialize(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate

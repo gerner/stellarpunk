@@ -1219,9 +1219,3 @@ class Player(Entity):
         for observer in self.observers:
             observer.flag_set(self, flag)
 
-class Event(abc.ABC):
-    def __init__(self, event_id:str) -> None:
-        self.event_id = event_id
-
-    def is_relevant(self, gamestate:Gamestate, player:Player) -> bool: ...
-    def act(self, gamestate:Gamestate, player:Player) -> None: ...
