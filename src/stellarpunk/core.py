@@ -1184,6 +1184,8 @@ class Message(Entity):
         self.replied_at:Optional[float] = None
 
 class PlayerObserver(abc.ABC):
+    def notification_received(self, player:Player, notification:str) -> None:
+        pass
     def message_received(self, player:Player, message:Message) -> None:
         pass
     def flag_set(self, player:Player, flag:str) -> None:
@@ -1200,6 +1202,7 @@ class Player(Entity):
         # which character the player controls
         self.character:Character = None # type: ignore[assignment]
 
+        self.notifications:List[str] = []
         self.messages:Dict[uuid.UUID, Message] = {}
 
         self.flags:Dict[str, float] = {}
@@ -1207,9 +1210,13 @@ class Player(Entity):
     def observe(self, observer:PlayerObserver) -> None:
         self.observers.add(observer)
 
+    def send_notification(self, notification:str) -> None:
+        self.notifications.append(notification)
+        for observer in self.observers:
+            observer.notification_received(self, notification)
+
     def send_message(self, message:Message) -> None:
         self.messages[message.entity_id] = message
-
         for observer in self.observers:
             observer.message_received(self, message)
 

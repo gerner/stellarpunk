@@ -573,6 +573,7 @@ class Interface(AbstractInterface, core.PlayerObserver):
         self.logscreen_height = 0
         self.logscreen_x = 0
         self.logscreen_y = 0
+        self.logscreen_padding = 1
         self.logscreen_buffer:Deque[str] = collections.deque(maxlen=100)
 
         self.gamestate = gamestate
@@ -642,6 +643,9 @@ class Interface(AbstractInterface, core.PlayerObserver):
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
+
+    def notification_received(self, player:core.Player, notification:str) -> None:
+        self.log_message(notification)
 
     def message_received(self, player:core.Player, message:core.Message) -> None:
         self.log_message(f'Message {message.short_id()} received at {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
@@ -824,12 +828,12 @@ class Interface(AbstractInterface, core.PlayerObserver):
     def draw_log_message(self, message:str) -> None:
         for message_line in message.split("\n"):
             if message_line == "":
-                self.logscreen.addstr(self.logscreen_height,0, "\n")
+                self.logscreen.addstr(self.logscreen_height, self.logscreen_padding, "\n")
             else:
-                lines = textwrap.wrap(message_line, width=self.logscreen_width, subsequent_indent="  ")
+                lines = textwrap.wrap(message_line, width=self.logscreen_width-self.logscreen_padding*2, subsequent_indent="  ")
                 for line in lines:
-                    self.logscreen.addstr(self.logscreen_height,0, line+"\n")
-        self.logscreen.addstr(self.logscreen_height,0, "\n")
+                    self.logscreen.addstr(self.logscreen_height,self.logscreen_padding, line+"\n")
+        self.logscreen.addstr(self.logscreen_height,self.logscreen_padding, "\n")
 
     def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """

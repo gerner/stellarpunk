@@ -6,7 +6,7 @@ from typing import Dict, Optional, Any, List, TextIO
 import contextlib
 
 def merge(a:Dict[str, Any], b:Dict[str, Any], path:Optional[List[str]]=None) -> Dict[str, Any]:
-    """ recursively merges b into a
+    """ recursively merges dict b into dict a
 
     b[key] overrides a[key] if key present in both. raises an exception if
     b[key] and a[key] are not of the same type.
@@ -59,4 +59,4 @@ def load_events() -> Dict[str, Any]:
 # built-in config
 Settings = load_config()
 Dialogs = load_dialogs()
-#Events = load_events()
+Events = load_events()

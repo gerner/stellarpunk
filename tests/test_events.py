@@ -128,6 +128,20 @@ def test_load_criteria_good():
     assert isinstance(criteria7.b.b.inner, events.FlagCriteria)
     assert criteria7.b.b.inner.flag == "blerf"
 
+    # make sure that negation doesn't grab junctions
+    criteria8 = events.load_criteria("!foo & (blerf | bar)")
+    assert isinstance(criteria8, predicates.Conjunction)
+    assert isinstance(criteria8.a, predicates.Negation)
+    assert isinstance(criteria8.b, predicates.Disjunction)
+
+def test_load_criteria_cmp():
+    criteria1 = events.load_criteria("CMP(NOW > 2)")
+    assert isinstance(criteria1, events.CompareCriteria)
+    assert criteria1.left == "NOW"
+    assert criteria1.op == ">"
+    assert not criteria1.relative
+    assert criteria1.right == 2.
+
 def test_load_criteria_bad():
     with pytest.raises(ValueError):
         events.load_criteria("foo & bar blerf")

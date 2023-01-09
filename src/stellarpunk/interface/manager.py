@@ -68,7 +68,7 @@ class InterfaceManager:
             command_list.update({x.command: x for x in view.command_list()})
 
         help_lines = []
-        help_lines.append("help:")
+        help_lines.append("context sensitive help:")
         help_lines.append("press \":\" to enter command mode")
         help_lines.append("type a command and press <ENTER> to execute it")
         help_lines.append("available commands:")

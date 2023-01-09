@@ -1,0 +1,5 @@
+# Events
+
+[event_demo]
+criteria="!event_demo & CMP(NOW > 1)"
+notification="press \"?\" for help"
