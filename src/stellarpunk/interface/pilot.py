@@ -199,7 +199,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         # perspective on the sector, zoomed so the player ship's shape is
         # barely visible on screen
         self.perspective = interface.Perspective(
-            self.interface,
+            self.interface.viewscreen,
             zoom=self.ship.radius,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
             max_zoom=2*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,

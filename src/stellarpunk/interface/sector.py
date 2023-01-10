@@ -38,7 +38,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         # perspective on the sector, zoomed in so all of it fits comfortably
         # in 80 characters
         self.perspective = interface.Perspective(
-            self.interface,
+            self.interface.viewscreen,
             zoom=self.sector.radius/80/2,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
             max_zoom=25*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
@@ -278,15 +278,19 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 except Exception:
                     raise command_input.UserError("need two int args for x,y pos")
 
-            self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
+            #TODO: dropped this to break the dependency on generate
+            #self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
 
         def spawn_collision(args:Sequence[str])->None:
-            self.interface.generator.spawn_ship(self.sector, 0, 1100, v=np.array((0,0)), w=0)
-            self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
+            pass
+            #TODO: dropped this to break the dependency on generate
+            #self.interface.generator.spawn_ship(self.sector, 0, 1100, v=np.array((0,0)), w=0)
+            #self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
 
         def spawn_resources(args:Sequence[str])->None:
             x,y = self.perspective.cursor
-            self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
+            #TODO: dropped this to break the dependency on generate
+            #self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
 
         def pilot(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):

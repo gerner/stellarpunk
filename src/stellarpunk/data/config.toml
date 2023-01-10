@@ -94,6 +94,11 @@
         detail_lines = 1024
         info_width = 40
 
+    [interface.StationView]
+        info_lines = 1024
+        detail_lines = 1024
+        info_width = 52
+
     [interface.CommsView]
         info_width = 40
         pause_time = 0.40

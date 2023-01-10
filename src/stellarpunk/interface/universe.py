@@ -20,7 +20,7 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         # perspective on the universe, zoomed in so the mean sector fits
         # comfortably in 80 characters
         self.perspective = interface.Perspective(
-                self.interface,
+                self.interface.viewscreen,
                 zoom=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*16,
                 min_zoom=config.Settings.generate.Universe.UNIVERSE_RADIUS/80.,
                 max_zoom=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8,

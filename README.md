@@ -79,6 +79,12 @@ Intel manager keeps track of known points of interest (stations, asteroid
 clusters, entire sectors in a universe context, etc.), prices (which might be
 out of date), inventories (stations and asteroids)
 
+### Station Experience
+
+- [ ] buy/sell goods
+- [ ] meet other characters (sense of activitiy, content/interaction opp)
+- [ ] trigger for events (on docking, on leave, maybe other actions)
+
 ### Combat
 
 - [ ] basic sensors

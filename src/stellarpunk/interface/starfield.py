@@ -1,7 +1,7 @@
 """ Tools for generating and drawing a starfield. """
 
 import curses
-from typing import Sequence, Tuple, Mapping, Dict
+from typing import Sequence, Tuple, Mapping, Dict, List
 import bisect
 import logging
 import math
@@ -20,12 +20,12 @@ class Starfield(interface.PerspectiveObserver):
         self.perspective.observe(self)
 
         # stars to draw to screen as screen coords -> icon, attr
-        self._cached_star_layout:Mapping[Tuple[int,int],Tuple[str, int]]
+        self._cached_star_layout:Mapping[Tuple[int,int],Tuple[str, int, int]]
 
     def perspective_updated(self, perspective:interface.Perspective) -> None:
         self._cached_star_layout = self.compute_star_layout()
 
-    def _compute_star(self, loc:Tuple[float, float], size:float, color:int, bbox:Tuple[float, float, float, float], mpc:Tuple[float, float]) -> Tuple[Tuple[int,int], Tuple[str, int]]:
+    def _compute_star(self, loc:Tuple[float, float], size:float, color:int, bbox:Tuple[float, float, float, float], mpc:Tuple[float, float]) -> Tuple[Tuple[int,int], Tuple[str, int, int]]:
         s_x, s_y = util.sector_to_screen(
             loc[0], loc[1],
             bbox[0], bbox[1],
@@ -42,15 +42,13 @@ class Starfield(interface.PerspectiveObserver):
             else:
                 icon = interface.Icons.STAR_SMALL_ALTS[2]
 
-        color = curses.color_pair(interface.Icons.COLOR_STAR_ALTS[color])
+        return (s_y, s_x), (icon, attr, interface.Icons.COLOR_STAR_ALTS[color])
 
-        return (s_y, s_x), (icon, color | attr)
-
-    def _compute_one_starfield(self, starfield:core.StarfieldLayer, conversion_factor:float, zoom_factor:float) -> Dict[Tuple[int,int],Tuple[str, int]]:
+    def _compute_one_starfield(self, starfield:core.StarfieldLayer, conversion_factor:float, zoom_factor:float) -> Dict[Tuple[int,int],Tuple[str, int, int]]:
         # translate the starfield layer into coordinates as if it were at the
         # perspective's level
 
-        computed_layout:Dict[Tuple[int,int],Tuple[str, int]] = {}
+        computed_layout:Dict[Tuple[int,int],Tuple[str, int, int]] = {}
 
         mpc_x = self.perspective.meters_per_char[0]*zoom_factor
         mpc_y = self.perspective.meters_per_char[1]*zoom_factor
@@ -88,7 +86,7 @@ class Starfield(interface.PerspectiveObserver):
 
         return computed_layout
 
-    def compute_star_layout(self) -> Mapping[Tuple[int,int],Tuple[str, int]]:
+    def compute_star_layout(self) -> Mapping[Tuple[int,int],Tuple[str, int, int]]:
 
         # draw the starfield with parallax
 
@@ -138,5 +136,16 @@ class Starfield(interface.PerspectiveObserver):
         return computed_layout
 
     def draw_starfield(self, canvas:interface.Canvas) -> None:
-        for (y,x), (s, a) in self._cached_star_layout.items():
-            canvas.window.addstr(y, x, s, a)
+        for (y,x), (s, a, c) in self._cached_star_layout.items():
+            canvas.window.addstr(y, x, s, a | curses.color_pair(c))
+
+    def draw_starfield_to_sprite(self, width:int, height:int, x_start:int=0, y_start:int=0) -> core.Sprite:
+        text = [[" "]*width for _ in range(height)]
+        attr:Dict[Tuple[int,int], Tuple[int, int]] = {}
+        for (x,y) in itertools.product(range(x_start, x_start+width), range(y_start, y_start+height)):
+            if (x,y) in self._cached_star_layout:
+                s,a,c = self._cached_star_layout[x,y]
+                text[y-y_start][x-x_start] = s
+                attr[x-x_start,y-y_start] = (a,c)
+
+        return core.Sprite(["".join(t) for t in text], attr)

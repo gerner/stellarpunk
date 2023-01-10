@@ -7,14 +7,16 @@ import curses
 import uuid
 
 from stellarpunk import core, interface, generate, util, config, events
-from stellarpunk.interface import universe, sector, pilot, command_input, character, comms
+from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station
 
 class InterfaceManager:
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator) -> None:
-        self.interface = interface.Interface(gamestate, generator)
+        self.interface = interface.Interface(gamestate)
         self.gamestate = gamestate
+        self.generator = generator
 
         self.profiler:Optional[cProfile.Profile] = None
+        self.mouse_on = True
 
     def __enter__(self) -> "InterfaceManager":
         self.interface.key_list = {x.key:x for x in self.key_list()}
@@ -210,10 +212,21 @@ class InterfaceManager:
                 else:
                     raise command_input.UserError(f'no character found for id {args[0]}')
             character_view = character.CharacterView(target_character, self.interface)
-            self.interface.swap_view(
-                character_view,
-                self.focused_view()
-            )
+            self.interface.open_view(character_view, deactivate_views=True)
+
+        def open_station(args:Sequence[str]) -> None:
+            if len(args) < 1:
+                raise command_input.UserError(f'need to specify station to view')
+
+            try:
+                station_id = uuid.UUID(args[0])
+                assert self.gamestate.player.character.location.sector is not None
+                target_station = next(x for x in self.gamestate.player.character.location.sector.stations if x.entity_id == station_id)
+            except:
+                raise command_input.UserError(f'{args[0]} not a recognized station id')
+
+            station_view = station.StationView(target_station, self.interface)
+            self.interface.open_view(station_view, deactivate_views=True)
 
         def open_comms(args:Sequence[str]) -> None:
             if len(args) < 1:
@@ -241,6 +254,15 @@ class InterfaceManager:
             )
             self.interface.open_view(comms_view, deactivate_views=True)
 
+        def toggle_mouse(args:Sequence[str]) -> None:
+            if self.mouse_on:
+                curses.mousemask(0)
+            else:
+                curses.mousemask(curses.ALL_MOUSE_EVENTS)
+            self.mouse_on = not self.mouse_on
+
+        assert self.gamestate.player.character.location.sector is not None
+
         return [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
             self.bind_command("t_accel", lambda x: self.time_accel()),
@@ -259,7 +281,9 @@ class InterfaceManager:
             self.bind_command("pilot", open_pilot),
             self.bind_command("sector", open_sector),
             self.bind_command("universe", open_universe),
-            self.bind_command("character", open_character, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
+            self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
             self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
+            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations)),
+            self.bind_command("toggle_mouse", toggle_mouse),
         ]
 

@@ -20,7 +20,7 @@ from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping
 
 import numpy as np
 
-from stellarpunk import util, generate, core, config
+from stellarpunk import util, core, config
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -192,13 +192,18 @@ class Icons:
         else:
             return 0
 
-class Canvas:
-    def __init__(self, window:curses.window, height:int, width:int, y:int, x:int) -> None:
-        self.window = window
+class BasicCanvas:
+    def __init__(self, height:int, width:int, y:int, x:int, aspect_ratio:float) -> None:
         self.width = width
         self.height = height
         self.x = x
         self.y = y
+        self.aspect_ratio = aspect_ratio
+
+class Canvas(BasicCanvas):
+    def __init__(self, window:curses.window, *args:Any) -> None:
+        super().__init__(*args)
+        self.window = window
 
     def erase(self) -> None:
         self.window.erase()
@@ -232,8 +237,8 @@ class PerspectiveObserver(abc.ABC):
 
 class Perspective:
     """ Represents a view on space, at some position, at some zoom """
-    def __init__(self, interface:Interface, zoom:float, min_zoom:float, max_zoom:float) -> None:
-        self.interface = interface
+    def __init__(self, canvas:BasicCanvas, zoom:float, min_zoom:float, max_zoom:float) -> None:
+        self.canvas = canvas
 
         # expressed in meters per character width
         self.zoom = zoom
@@ -301,11 +306,11 @@ class Perspective:
             raise ValueError(f'zoom must be positive {self.zoom=}')
         self.meters_per_char = (
                 self.zoom,
-                self.zoom / self.interface.font_width * self.interface.font_height
+                self.zoom * self.canvas.aspect_ratio
         )
 
-        vsw = self.interface.viewscreen_width
-        vsh = self.interface.viewscreen_height
+        vsw = self.canvas.width
+        vsh = self.canvas.height
 
         self.bbox = (
             self.cursor[0] - (vsw/2 * self.meters_per_char[0]),
@@ -322,7 +327,7 @@ class Perspective:
             screen_loc_x, screen_loc_y,
             self.bbox[0], self.bbox[1],
             self.meters_per_char[0], self.meters_per_char[1],
-            self.interface.viewscreen_x, self.interface.viewscreen_y
+            self.canvas.x, self.canvas.y
         )
 
     def sector_to_screen(self, sector_loc_x:float, sector_loc_y:float) -> Tuple[int, int]:
@@ -485,19 +490,6 @@ class AttrDemo(View):
         else:
             return False
 
-class GenerationUI(generate.GenerationListener):
-    """ Handles the UI during universe generation. """
-
-    def __init__(self, ui:Interface) -> None:
-        self.ui = ui
-
-    def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
-        pass
-
-    def sectors_complete(self, sectors:Mapping[Tuple[int,int], core.Sector]) -> None:
-        #self.ui.universe_mode()
-        pass
-
 class AbstractInterface(abc.ABC):
     def decrease_fps(self) -> bool:
         return False
@@ -539,7 +531,7 @@ class FPSCounter:
         return self.current_fps
 
 class Interface(AbstractInterface, core.PlayerObserver):
-    def __init__(self, gamestate: core.Gamestate, generator: generate.UniverseGenerator):
+    def __init__(self, gamestate: core.Gamestate):
         self.stdscr:curses.window = None # type: ignore[assignment]
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -581,8 +573,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
         # keep track of collisions we've seen
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
 
-        self.generator = generator
-
         # last view has focus for input handling
         self.views:List[View] = []
 
@@ -595,6 +585,9 @@ class Interface(AbstractInterface, core.PlayerObserver):
         self.status_message_clear_time:float = np.inf
 
         self.key_list:Dict[int, KeyBinding] = {}
+
+    def aspect_ratio(self) -> float:
+        return self.font_height/self.font_width
 
     def __enter__(self) -> Interface:
         """ Does most simple interface initialization.
@@ -769,7 +762,7 @@ class Interface(AbstractInterface, core.PlayerObserver):
 
         #self.viewscreen = curses.newpad(Settings.VIEWSCREEN_BUFFER_HEIGHT, Settings.VIEWSCREEN_BUFFER_WIDTH)
         # make the viewscreen 1 extra row to avoid curses error when writing to the bottom right character
-        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width, self.viewscreen_y, self.viewscreen_x)
+        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width, self.viewscreen_y, self.viewscreen_x, self.aspect_ratio())
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
         for message in self.logscreen_buffer:
@@ -889,9 +882,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
                 self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
                 date_string
         )
-
-    def generation_listener(self) -> generate.GenerationListener:
-        return GenerationUI(self)
 
     def open_view(self, view:View, deactivate_views:bool=False) -> None:
         self.logger.debug(f'opening view {view}')

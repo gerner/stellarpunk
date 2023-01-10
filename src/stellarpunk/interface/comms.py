@@ -116,6 +116,7 @@ class CommsView(interface.View):
             dpw,
             self.interface.viewscreen_y+self.padding,
             self.interface.viewscreen_x+self.padding,
+            self.interface.aspect_ratio(),
         )
         self.dialog_pad.window.scrollok(True)
 

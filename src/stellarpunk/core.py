@@ -360,12 +360,14 @@ class Station(SectorEntity, Asset):
     id_prefix = "STA"
     object_type = ObjectType.STATION
 
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sprite:Sprite, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
         self.next_batch_time = 0.
         self.next_production_time = 0.
         self.cargo_capacity = 1e5
+
+        self.sprite = sprite
 
 class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
@@ -547,8 +549,43 @@ class Agendum:
 class Sprite:
     """ A "sprite" from a text file that can be drawn in text """
 
-    def __init__(self, text:Sequence[str]) -> None:
+    @staticmethod
+    def load_sprites(data:str, sprite_size:Tuple[int, int]) -> List[Sprite]:
+        sprites = []
+        sheet = data.split("\n")
+        offset_limit = (len(sheet[0])//sprite_size[0], len(sheet)//sprite_size[1])
+        for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
+            sprites.append(Sprite(
+                [
+                    x[offset_x*sprite_size[0]:offset_x*sprite_size[0]+sprite_size[0]] for x in sheet[offset_y*sprite_size[1]:offset_y*sprite_size[1]+sprite_size[1]]
+                ]
+            ))
+
+        return sprites
+
+    @staticmethod
+    def composite_sprites(sprites:Sequence[Sprite]) -> Sprite:
+        if len(sprites) == 0:
+            raise ValueError("no sprites to composite")
+
+        text = [[" "]*sprites[0].width for _ in range(sprites[0].height)]
+        attr:Dict[Tuple[int,int], Tuple[int, int]] = {}
+
+        for sprite in sprites:
+            for y, row in enumerate(sprite.text):
+                for x, c in enumerate(sprite.text[y]):
+                    if c != " ":
+                        text[y][x] = c
+                        if (x,y) in sprite.attr:
+                            attr[x,y] = sprite.attr[x,y]
+                        else:
+                            attr[x,y] = (0,0)
+
+        return Sprite(["".join(t) for t in text], attr)
+
+    def __init__(self, text:Sequence[str], attr:Optional[Dict[Tuple[int,int], Tuple[int, int]]]=None) -> None:
         self.text = text
+        self.attr = attr or {}
         self.height = len(text)
         if len(text) > 0:
             self.width = len(text[0])

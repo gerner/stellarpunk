@@ -16,7 +16,9 @@ import cymunk # type: ignore
 from rtree import index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ, config
+#TODO: we should not import interface here. we just do it to get interface.starfield, which could not import interface, but does
+from stellarpunk import util, core, orders, agenda, econ, config, interface
+from stellarpunk.interface import starfield
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -145,13 +147,6 @@ class GenerationError(Exception):
         super().__init__(*args, **kwargs)
         self.case = case
 
-class GenerationListener:
-    def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
-        pass
-
-    def sectors_complete(self, sectors:Mapping[Tuple[int,int], core.Sector]) -> None:
-        pass
-
 def order_fn_null(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     return core.Order(ship, gamestate)
 
@@ -169,22 +164,6 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
         raise Exception("cannot disembark to if ship isn't in a sector")
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
-
-"""
-def order_fn_harvest_random_resource(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
-    if ship.sector is None:
-        raise Exception("cannot harvest if ship isn't in a sector")
-    # choose a station to mine for. this is the resource we'll mine
-    station = gamestate.random.choice(np.array(list(filter(
-        lambda x: x.resource in gamestate.production_chain.first_product_ids(),
-        ship.sector.stations
-    ))))
-
-    # find the id of the raw resource input for this station
-    resource = gamestate.production_chain.inputs_of(station.resource)[0]
-
-    return orders.HarvestOrder(station, resource, ship, gamestate)
-"""
 
 class UniverseGenerator:
     @staticmethod
@@ -210,19 +189,6 @@ class UniverseGenerator:
         self.r = np.random.default_rng(seed)
 
         self.parallel_max_edges_tries = 10000
-
-        # load character portraits
-        self.portraits:List[core.Sprite] = []
-        sheet = importlib.resources.read_text("stellarpunk.data", "portraits.txt").split("\n")
-        size = (32//2, 32//4)
-        offset_limit = (len(sheet[0])//size[0], len(sheet)//size[1])
-        # portraits are 32x32 pixels, binary chars are 2x4 pixels per char
-        for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
-            self.portraits.append(core.Sprite(
-                [
-                    x[offset_x*size[0]:offset_x*size[0]+size[0]] for x in sheet[offset_y*size[1]:offset_y*size[1]+size[1]]
-                ]
-            ))
 
     def _random_bipartite_graph(
             self,
@@ -448,6 +414,9 @@ class UniverseGenerator:
     def _choose_portrait(self) -> core.Sprite:
         return self.portraits[self.r.integers(0, len(self.portraits))]
 
+    def _choose_station_sprite(self) -> core.Sprite:
+        return self.station_sprites[self.r.integers(0, len(self.station_sprites))]
+
     def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> cymunk.Body:
         if mass is None:
             body = cymunk.Body()
@@ -478,7 +447,7 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
-        station = core.Station(np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
+        station = core.Station(self._choose_station_sprite(), np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
         station.resource = resource
 
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
@@ -1398,12 +1367,48 @@ class UniverseGenerator:
 
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
+    def prepare_sprites(self) -> None:
+        self.logger.info(f'loading sprites...')
+        # load character portraits
+        self.portraits:List[core.Sprite] = core.Sprite.load_sprites(
+                importlib.resources.read_text("stellarpunk.data", "portraits.txt"),
+                (32//2, 32//4)
+        )
+
+        # load station sprites
+        self.station_sprites:List[core.Sprite] = core.Sprite.load_sprites(
+                importlib.resources.read_text("stellarpunk.data", "stations.txt"),
+                (96//2, 96//4)
+        )
+
+        self.logger.info(f'generating sprite starfield...')
+        min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/80.
+        max_zoom = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8
+        sprite_starfields = generate_starfield(
+            self.r,
+            radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
+            desired_stars_per_char=(4/80.)**2*4.,
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            layer_zoom_step=0.25,
+        )
+        p = interface.Perspective(
+            interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
+            min_zoom, min_zoom, max_zoom,
+        )
+        sf = starfield.Starfield(sprite_starfields, p)
+        p.update_bbox()
+        starfield_sprite = sf.draw_starfield_to_sprite(self.station_sprites[0].width, self.station_sprites[0].height)
+        for i in range(len(self.station_sprites)):
+            self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r
 
         # generate a production chain
         self.gamestate.production_chain = self.generate_chain()
+
+        self.prepare_sprites()
 
         # generate sectors
         self.generate_sectors(

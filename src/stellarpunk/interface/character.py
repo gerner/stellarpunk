@@ -6,17 +6,6 @@ import curses
 from stellarpunk import core, interface, config
 from stellarpunk.interface import ui_utils
 
-def draw_info(character:core.Character, canvas:interface.Canvas) -> None:
-    ui_utils.draw_portrait(character.portrait, canvas)
-    canvas.window.addstr('\n')
-
-    canvas.window.addstr(f'{character.name}\n')
-    canvas.window.addstr(f'{character.location.address_str()}\n')
-    canvas.window.addstr("\n")
-
-    canvas.window.addstr("more info goes here")
-    canvas.window.addstr("\n")
-
 class CharacterView(interface.View):
     def __init__(self, character:core.Character, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -39,6 +28,7 @@ class CharacterView(interface.View):
             ipw,
             self.interface.viewscreen_y+1,
             self.interface.viewscreen_x+1,
+            self.interface.aspect_ratio(),
         )
 
         dpw = self.interface.viewscreen_width - ipw - 3
@@ -48,6 +38,7 @@ class CharacterView(interface.View):
             dpw,
             self.interface.viewscreen_y+1,
             self.info_pad.x+ipw+1,
+            self.interface.aspect_ratio(),
         )
         self.detail_pad.window.scrollok(True)
 
@@ -62,8 +53,19 @@ class CharacterView(interface.View):
         self.detail_pad.noutrefresh(position, 0)
 
     def draw_character_data(self) -> None:
-        draw_info(self.character, self.info_pad)
+        self.draw_info()
         self.draw_detail()
+
+    def draw_info(self) -> None:
+        ui_utils.draw_portrait(self.character.portrait, self.info_pad)
+        self.info_pad.window.addstr('\n')
+
+        self.info_pad.window.addstr(f'{self.character.name}\n')
+        self.info_pad.window.addstr(f'{self.character.location.address_str()}\n')
+        self.info_pad.window.addstr("\n")
+
+        self.info_pad.window.addstr("more info goes here")
+        self.info_pad.window.addstr("\n")
 
     def draw_detail(self) -> None:
         ui_utils.draw_heading(self.detail_pad, "Agenda")
