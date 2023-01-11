@@ -358,8 +358,28 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         if self.ship.sector is None:
             raise ValueError("ship must be in a sector to select a target")
 
+        potential_targets = sorted(
+            (x for x in self.ship.sector.spatial_point(self.ship.loc) if x != self.ship),
+            key=lambda x: util.distance(self.ship.loc, x.loc)
+        )
+
+        if len(potential_targets) == 0:
+            self._select_target(None)
+            return
+
         if self.selected_entity is None:
-            self._select_target(next(self.ship.sector.spatial_point(self.ship.loc), None))
+            self._select_target(potential_targets[0])
+            return
+
+        try:
+            idx = potential_targets.index(self.selected_entity)
+            if direction > 0:
+                self._select_target(potential_targets[(idx+1)%len(potential_targets)])
+            else:
+                self._select_target(potential_targets[(idx-1)%len(potential_targets)])
+
+        except ValueError:
+            self._select_target(potential_targets[0])
 
     def _start_goto(self) -> None:
         self.mouse_state = MouseState.GOTO
@@ -372,8 +392,8 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
             self.bind_key(ord("p"), self._toggle_autopilot),
             self.bind_key(ord("g"), self._start_goto),
-            self.bind_key(ord("t"), lambda: self._next_target(1)),
-            self.bind_key(ord("r"), lambda: self._next_target(-1)),
+            self.bind_key(ord("t"), lambda: self._next_target(1), help_key="pilot_targt_cycle"),
+            self.bind_key(ord("r"), lambda: self._next_target(-1), help_key="pilot_targt_cycle"),
             self.bind_key(ord("w"), lambda: self._drive(ord("w"))),
             self.bind_key(ord("a"), lambda: self._drive(ord("a")), help_key="pilot_rotate"),
             self.bind_key(ord("s"), lambda: self._drive(ord("s"))),

@@ -90,7 +90,7 @@ class InterfaceManager:
 
         help_entries:Dict[str, Tuple[List[str], str]] = collections.defaultdict(lambda: ([], ""))
         for k,v in key_list.items():
-            if k == curses.KEY_MOUSE:
+            if k == curses.KEY_MOUSE or not chr(k).isprintable():
                 continue
             if k in [ord('\r'), ord('\n')]:
                 k_label = "<ENTER>"

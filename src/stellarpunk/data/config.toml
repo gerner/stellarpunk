@@ -37,8 +37,7 @@
             s = "in direct control mode, accelerate to a stop"
             i = "in direct control mode, translate the ship"
             g = "order the ship to go to the subsequently mouse selected point"
-            t = "select the next target"
-            r = "select the previous target"
+            t = "cycle through targets in distance order"
 
         [help.interface.PilotView.commands]
             clear_orders = "clear the ship's order quue"
