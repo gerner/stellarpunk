@@ -367,6 +367,7 @@ def main() -> None:
         logging.info("generating universe...")
         generation_start = time.perf_counter()
         generator = generate.UniverseGenerator(gamestate)
+        generator.initialize()
         stellar_punk = generator.generate_universe()
         generation_stop = time.perf_counter()
         logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')

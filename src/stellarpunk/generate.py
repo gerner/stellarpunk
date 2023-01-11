@@ -77,7 +77,7 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDAr
         edge_distances[edge[1], edge[0]] = distances[edge]
     return E, edge_distances
 
-def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars:int, zoom:float) -> core.StarfieldLayer:
+def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars:int, zoom:float, mu:float, sigma:float) -> core.StarfieldLayer:
 
     if num_stars > 5e6:
         raise ValueError(f'too many {num_stars=}')
@@ -94,14 +94,14 @@ def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars
 
     x = random.uniform(bbox[0], bbox[2], size=num_stars)
     y = random.uniform(bbox[1], bbox[3], size=num_stars)
-    sizes = util.peaked_bounded_random(random, 0.30, 0.15, size=num_stars)
+    sizes = util.peaked_bounded_random(random, mu, sigma, size=num_stars)
     spectral_classes = random.integers(7, size=num_stars)
     for i in range(num_stars):
         starfield_layer.add_star((x[i], y[i]), sizes[i], spectral_classes[i]) # type: ignore
 
     return starfield_layer
 
-def generate_starfield(random:np.random.Generator, radius:float, desired_stars_per_char:float, min_zoom:float, max_zoom:float, layer_zoom_step:float) -> Sequence[core.StarfieldLayer]:
+def generate_starfield(random:np.random.Generator, radius:float, desired_stars_per_char:float, min_zoom:float, max_zoom:float, layer_zoom_step:float, mu:float=0.3, sigma:float=0.15) -> Sequence[core.StarfieldLayer]:
     """ Generates a sequence of starfield layers according to parameters.
 
     random: npumpy.random.Generator to use for generation of the field
@@ -127,7 +127,7 @@ def generate_starfield(random:np.random.Generator, radius:float, desired_stars_p
         # generate layers of constant density in stars per character
         density = desired_stars_per_char / (zoom**2)
         num_stars = int(density * (2*radius)**2)
-        starfield.append(generate_starfield_layer(random, radius, num_stars, zoom))
+        starfield.append(generate_starfield_layer(random, radius, num_stars, zoom, mu, sigma))
 
 
     return starfield
@@ -189,6 +189,9 @@ class UniverseGenerator:
         self.r = np.random.default_rng(seed)
 
         self.parallel_max_edges_tries = 10000
+
+        self.portraits:List[Sprite] = []
+        self.station_sprites:List[Sprite] = []
 
     def _random_bipartite_graph(
             self,
@@ -435,6 +438,46 @@ class UniverseGenerator:
         entity.radius = radius
         entity.phys_shape = shape
         return shape
+
+    def _prepare_sprites(self, starfield_composite:bool) -> None:
+        self.logger.info(f'loading sprites...')
+        # load character portraits
+        self.portraits:List[core.Sprite] = core.Sprite.load_sprites(
+                importlib.resources.read_text("stellarpunk.data", "portraits.txt"),
+                (32//2, 32//4)
+        )
+
+        # load station sprites
+        self.station_sprites:List[core.Sprite] = core.Sprite.load_sprites(
+                importlib.resources.read_text("stellarpunk.data", "stations.txt"),
+                (96//2, 96//4)
+        )
+
+        if starfield_composite:
+            self.logger.info(f'generating sprite starfield...')
+            min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/80.
+            max_zoom = min_zoom#config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8
+            sprite_starfields = generate_starfield(
+                self.r,
+                radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
+                desired_stars_per_char=(4/80.)**2*10.,
+                min_zoom=min_zoom,
+                max_zoom=max_zoom,
+                layer_zoom_step=0.25,
+                mu=0.3, sigma=0.15,
+            )
+            p = interface.Perspective(
+                interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
+                min_zoom, min_zoom, max_zoom,
+            )
+            sf = starfield.Starfield(sprite_starfields, p, zoom_step=1.0)
+            p.update_bbox()
+            starfield_sprite = sf.draw_starfield_to_sprite(self.station_sprites[0].width, self.station_sprites[0].height)
+            for i in range(len(self.station_sprites)):
+                self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
+
+    def initialize(self, starfield_composite:bool=True) -> None:
+        self._prepare_sprites(starfield_composite=starfield_composite)
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
@@ -1367,48 +1410,11 @@ class UniverseGenerator:
 
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
-    def prepare_sprites(self) -> None:
-        self.logger.info(f'loading sprites...')
-        # load character portraits
-        self.portraits:List[core.Sprite] = core.Sprite.load_sprites(
-                importlib.resources.read_text("stellarpunk.data", "portraits.txt"),
-                (32//2, 32//4)
-        )
-
-        # load station sprites
-        self.station_sprites:List[core.Sprite] = core.Sprite.load_sprites(
-                importlib.resources.read_text("stellarpunk.data", "stations.txt"),
-                (96//2, 96//4)
-        )
-
-        self.logger.info(f'generating sprite starfield...')
-        min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/80.
-        max_zoom = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8
-        sprite_starfields = generate_starfield(
-            self.r,
-            radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
-            desired_stars_per_char=(4/80.)**2*4.,
-            min_zoom=min_zoom,
-            max_zoom=max_zoom,
-            layer_zoom_step=0.25,
-        )
-        p = interface.Perspective(
-            interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
-            min_zoom, min_zoom, max_zoom,
-        )
-        sf = starfield.Starfield(sprite_starfields, p)
-        p.update_bbox()
-        starfield_sprite = sf.draw_starfield_to_sprite(self.station_sprites[0].width, self.station_sprites[0].height)
-        for i in range(len(self.station_sprites)):
-            self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
-
     def generate_universe(self) -> core.Gamestate:
         self.gamestate.random = self.r
 
         # generate a production chain
         self.gamestate.production_chain = self.generate_chain()
-
-        self.prepare_sprites()
 
         # generate sectors
         self.generate_sectors(

@@ -12,11 +12,12 @@ import numpy as np
 from stellarpunk import util, interface, core
 
 class Starfield(interface.PerspectiveObserver):
-    def __init__(self, starfields:Sequence[core.StarfieldLayer], perspective:interface.Perspective) -> None:
+    def __init__(self, starfields:Sequence[core.StarfieldLayer], perspective:interface.Perspective, zoom_step:float=1.4) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         # a set of layers corresponding to different zoom levels
         self.starfields = starfields
         self.perspective = perspective
+        self.zoom_step = zoom_step
         self.perspective.observe(self)
 
         # stars to draw to screen as screen coords -> icon, attr
@@ -122,14 +123,14 @@ class Starfield(interface.PerspectiveObserver):
             self._compute_one_starfield(
                 starfield_A,
                 conversion_factor=zoom_stop/starfield_A.zoom,
-                zoom_factor=1.4,
+                zoom_factor=self.zoom_step,
             )
         )
         computed_layout.update(
             self._compute_one_starfield(
                 starfield_B,
                 conversion_factor=zoom_stop/starfield_B.zoom,
-                zoom_factor=1.4*1.4,
+                zoom_factor=self.zoom_step*self.zoom_step,
             )
         )
 

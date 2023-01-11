@@ -15,6 +15,7 @@ def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
 @pytest.fixture
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
+    ug.initialize(starfield_composite=False)
     gamestate.random = ug.r
     gamestate.production_chain = ug.generate_chain(
             max_fraction_one_to_one=1.,
