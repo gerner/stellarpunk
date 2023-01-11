@@ -16,6 +16,7 @@ import math
 import collections.abc
 import abc
 import textwrap
+import uuid
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
@@ -345,11 +346,14 @@ CommandSig = Union[
 ]
 
 class CommandBinding:
-    def __init__(self, command:str, f:Callable[[Sequence[str]], None], h:str, tab_completer:Optional[Callable[[str, str], str]]=None) -> None:
+    def __init__(self, command:str, f:Callable[[Sequence[str]], None], h:str, tab_completer:Optional[Callable[[str, str], str]]=None, help_key:Optional[str]=None) -> None:
         self.command = command
         self.f = f
         self.help = h
         self.tab_completer = tab_completer
+        if help_key is None:
+            help_key = str(uuid.uuid4())
+        self.help_key = help_key
 
     def __call__(self, args:Sequence[str]) -> None:
         self.f(args)
@@ -361,10 +365,13 @@ class CommandBinding:
             return self.command
 
 class KeyBinding:
-    def __init__(self, key:int, f:Callable[[], None], h:str) -> None:
+    def __init__(self, key:int, f:Callable[[], None], h:str, help_key:Optional[str]=None) -> None:
         self.key = key
         self.f = f
         self.help = h
+        if help_key is None:
+            help_key = str(uuid.uuid4())
+        self.help_key = help_key
 
     def __call__(self) -> None:
         self.f()
@@ -389,12 +396,12 @@ class View(abc.ABC):
     def viewscreen_bounds(self) -> Tuple[int, int, int, int]:
         return self.interface.viewscreen_bounds
 
-    def bind_key(self, k:int, f:Callable[[], None]) -> KeyBinding:
+    def bind_key(self, k:int, f:Callable[[], None], help_key:Optional[str]=None) -> KeyBinding:
         try:
             h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).keys, chr(k))
         except AttributeError:
             h = "NO HELP"
-        return KeyBinding(k, f, h)
+        return KeyBinding(k, f, h, help_key=help_key)
 
     def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> CommandBinding:
         try:

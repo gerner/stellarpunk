@@ -66,5 +66,3 @@ class StationView(interface.View):
 
         self.info_pad.window.addstr("more info goes here")
         self.info_pad.window.addstr("\n")
-
-

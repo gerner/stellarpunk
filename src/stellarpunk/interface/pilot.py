@@ -375,13 +375,13 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord("t"), lambda: self._next_target(1)),
             self.bind_key(ord("r"), lambda: self._next_target(-1)),
             self.bind_key(ord("w"), lambda: self._drive(ord("w"))),
-            self.bind_key(ord("a"), lambda: self._drive(ord("a"))),
+            self.bind_key(ord("a"), lambda: self._drive(ord("a")), help_key="pilot_rotate"),
             self.bind_key(ord("s"), lambda: self._drive(ord("s"))),
-            self.bind_key(ord("d"), lambda: self._drive(ord("d"))),
-            self.bind_key(ord("i"), lambda: self._drive(ord("i"))),
-            self.bind_key(ord("j"), lambda: self._drive(ord("j"))),
-            self.bind_key(ord("k"), lambda: self._drive(ord("k"))),
-            self.bind_key(ord("l"), lambda: self._drive(ord("l"))),
+            self.bind_key(ord("d"), lambda: self._drive(ord("d")), help_key="pilot_rotate"),
+            self.bind_key(ord("i"), lambda: self._drive(ord("i")), help_key="pilot_translate"),
+            self.bind_key(ord("j"), lambda: self._drive(ord("j")), help_key="pilot_translate"),
+            self.bind_key(ord("k"), lambda: self._drive(ord("k")), help_key="pilot_translate"),
+            self.bind_key(ord("l"), lambda: self._drive(ord("l")), help_key="pilot_translate"),
         ]
         return key_list
 

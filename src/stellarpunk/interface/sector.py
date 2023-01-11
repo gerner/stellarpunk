@@ -382,10 +382,10 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
     def key_list(self) -> Collection[interface.KeyBinding]:
         key_list = [
-            self.bind_key(ord('w'), lambda: self.perspective.move_cursor(ord('w'))),
-            self.bind_key(ord('a'), lambda: self.perspective.move_cursor(ord('a'))),
-            self.bind_key(ord('s'), lambda: self.perspective.move_cursor(ord('s'))),
-            self.bind_key(ord('d'), lambda: self.perspective.move_cursor(ord('d'))),
+            self.bind_key(ord('w'), lambda: self.perspective.move_cursor(ord('w')), help_key="sector_scroll"),
+            self.bind_key(ord('a'), lambda: self.perspective.move_cursor(ord('a')), help_key="sector_scroll"),
+            self.bind_key(ord('s'), lambda: self.perspective.move_cursor(ord('s')), help_key="sector_scroll"),
+            self.bind_key(ord('d'), lambda: self.perspective.move_cursor(ord('d')), help_key="sector_scroll"),
             self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
             self.bind_key(ord("t"), lambda: self._change_target(1)),

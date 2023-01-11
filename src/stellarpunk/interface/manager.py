@@ -1,10 +1,11 @@
 """ Interface Manager gluing together the interface elements """
 
-from typing import Optional, Sequence, Any, Mapping, Callable, Collection
+from typing import Optional, Sequence, Any, Mapping, Callable, Collection, Dict, Tuple, List
 import cProfile
 import pstats
 import curses
 import uuid
+import collections
 
 from stellarpunk import core, interface, generate, util, config, events
 from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station
@@ -87,26 +88,34 @@ class InterfaceManager:
         if view is not None:
             key_list.update({x.key: x for x in view.key_list()})
 
+        help_entries:Dict[str, Tuple[List[str], str]] = collections.defaultdict(lambda: ([], ""))
+        for k,v in key_list.items():
+            if k == curses.KEY_MOUSE:
+                continue
+            if k in [ord('\r'), ord('\n')]:
+                k_label = "<ENTER>"
+            elif k == ord(' '):
+                k_label = "<SPACE>"
+            else:
+                k_label = chr(k)
+
+            key_items, help_text = help_entries[v.help_key]
+            key_items.append(k_label)
+            help_entries[v.help_key] = (key_items, help_text or v.help)
+
         help_lines = []
         help_lines.append("keys:")
-        for k,v in key_list.items():
-            if k != curses.KEY_MOUSE:
-                if chr(k).isprintable():
-                    if chr(k) == " ":
-                        help_lines.append(f'\t<SPACE>\t{v.help}')
-                    else:
-                        help_lines.append(f'\t{chr(k)}\t{v.help}')
-                elif k == ord('\r'):
-                    help_lines.append(f'\t<ENTER>\t{v.help}')
+        for _, (key_items, help_text) in help_entries.items():
+            help_lines.append(f'\t{",".join(key_items)}\t{help_text}')
 
         self.interface.log_message("\n".join(help_lines))
 
-    def bind_key(self, k:int, f:Callable[[], None]) -> interface.KeyBinding:
+    def bind_key(self, k:int, f:Callable[[], None], help_key:Optional[str]=None) -> interface.KeyBinding:
         try:
             h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).keys, chr(k))
         except AttributeError:
             h = "NO HELP"
-        return interface.KeyBinding(k, f, h)
+        return interface.KeyBinding(k, f, h, help_key=help_key)
 
     def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> interface.CommandBinding:
         try:

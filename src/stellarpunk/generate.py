@@ -190,8 +190,8 @@ class UniverseGenerator:
 
         self.parallel_max_edges_tries = 10000
 
-        self.portraits:List[Sprite] = []
-        self.station_sprites:List[Sprite] = []
+        self.portraits:List[core.Sprite] = []
+        self.station_sprites:List[core.Sprite] = []
 
     def _random_bipartite_graph(
             self,
@@ -442,13 +442,13 @@ class UniverseGenerator:
     def _prepare_sprites(self, starfield_composite:bool) -> None:
         self.logger.info(f'loading sprites...')
         # load character portraits
-        self.portraits:List[core.Sprite] = core.Sprite.load_sprites(
+        self.portraits = core.Sprite.load_sprites(
                 importlib.resources.read_text("stellarpunk.data", "portraits.txt"),
                 (32//2, 32//4)
         )
 
         # load station sprites
-        self.station_sprites:List[core.Sprite] = core.Sprite.load_sprites(
+        self.station_sprites = core.Sprite.load_sprites(
                 importlib.resources.read_text("stellarpunk.data", "stations.txt"),
                 (96//2, 96//4)
         )
