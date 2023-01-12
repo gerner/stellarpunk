@@ -90,12 +90,12 @@ class InterfaceManager:
 
         help_entries:Dict[str, Tuple[List[str], str]] = collections.defaultdict(lambda: ([], ""))
         for k,v in key_list.items():
-            if k == curses.KEY_MOUSE or not chr(k).isprintable():
-                continue
             if k in [ord('\r'), ord('\n')]:
                 k_label = "<ENTER>"
             elif k == ord(' '):
                 k_label = "<SPACE>"
+            elif k == curses.KEY_MOUSE or not chr(k).isprintable():
+                continue
             else:
                 k_label = chr(k)
 

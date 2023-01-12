@@ -1,10 +1,10 @@
 """ Utils for drawing Stellarpunk UI """
 
 import curses
-from typing import List, Callable, Any
+from typing import List, Callable, Any, Collection
 from dataclasses import dataclass
 
-from stellarpunk import core, interface
+from stellarpunk import core, interface, config
 
 
 def draw_sprite(
@@ -87,3 +87,14 @@ class Menu:
                 attr
             )
             y += 1
+
+    def key_list(self) -> Collection[interface.KeyBinding]:
+        nav_help = config.key_help(self, "j")
+        act_help = config.key_help(self, "\r")
+        return [
+            interface.KeyBinding(ord("j"), self.select_next, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(ord("k"), self.select_prev, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(ord("w"), self.select_next, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(ord("s"), self.select_prev, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(ord("\r"), self.activate_item, act_help, help_key="menu_act"),
+        ]

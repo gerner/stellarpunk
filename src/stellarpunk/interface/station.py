@@ -154,13 +154,7 @@ class StationView(interface.View):
         self.detail_pad.noutrefresh(0, 0)
 
     def _key_list_station_menu(self) -> Collection[interface.KeyBinding]:
-        return [
-            self.bind_key(ord('j'), self.station_menu.select_next, help_key="station_menu_nav"),
-            self.bind_key(ord('k'), self.station_menu.select_prev, help_key="station_menu_nav"),
-            self.bind_key(ord('s'), self.station_menu.select_next, help_key="station_menu_nav"),
-            self.bind_key(ord('w'), self.station_menu.select_prev, help_key="station_menu_nav"),
-            self.bind_key(ord('\r'), self.station_menu.activate_item),
-        ]
+        return self.station_menu.key_list()
 
     def _enter_trade(self) -> None:
         pass

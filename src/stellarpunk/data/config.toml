@@ -72,6 +72,11 @@
             "1" = "choose a corresponding response option"
             "\r" = "continue or finish dialog"
 
+    [help.interface.Menu]
+        [help.interface.Menu.keys]
+            "j" = "navigate menu options"
+            "\r" = "activate selected menu item"
+
 [interface]
     [interface.CharacterView]
         info_lines = 1024

@@ -55,6 +55,13 @@ def load_events() -> Dict[str, Any]:
     events = toml.loads(importlib.resources.read_text("stellarpunk.data", "events.toml"))
     return events
 
+def key_help(obj: object, k: str) -> str:
+        try:
+            return getattr(getattr(Settings.help.interface, obj.__class__.__name__).keys, k)
+        except AttributeError:
+            return "NO HELP"
+
+
 # it's ok to reload the config with a file elsewhere, but we start with the
 # built-in config
 Settings = load_config()
