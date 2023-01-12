@@ -10,6 +10,103 @@ import collections
 from stellarpunk import core, interface, generate, util, config, events
 from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station
 
+class ColorDemo(interface.View):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
+
+        for c in range(256):
+            self.interface.viewscreen.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
+        self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key:int, dt:float) -> bool:
+        if key != -1:
+            self.interface.close_view(self)
+            return True
+        else:
+            return False
+
+
+class AttrDemo(interface.View):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "ATTR DEMO");
+
+        attrs = [
+            (curses.A_ALTCHARSET, "Alternate character set mode"),
+            (curses.A_BLINK, "Blink mode"),
+            (curses.A_BOLD, "Bold mode"),
+            (curses.A_DIM, "Dim mode"),
+            (curses.A_INVIS, "Invisible or blank mode"),
+            (curses.A_ITALIC, "Italic mode"),
+            (curses.A_NORMAL, "Normal attribute"),
+            (curses.A_PROTECT, "Protected mode"),
+            (curses.A_REVERSE, "Reverse background and foreground colors"),
+            (curses.A_STANDOUT, "Standout mode"),
+            (curses.A_UNDERLINE, "Underline mode"),
+        ]
+
+        i = 1
+        for a in attrs:
+            self.interface.viewscreen.addstr(i, 1, a[1], a[0])
+            i+=1
+        self.interface.viewscreen.addstr(i+1, 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key:int, dt:float) -> bool:
+        if key != -1:
+            self.interface.close_view(self)
+            return True
+        else:
+            return False
+
+
+class KeyDemo(interface.View):
+    @staticmethod
+    def get_curses_keys() -> Dict[int, str]:
+        curses_keys = {}
+        for k in curses.__dict__.keys():
+            if k.startswith("KEY_") and isinstance(curses.__dict__[k], int):
+                curses_keys[curses.__dict__[k]] = k
+
+        return curses_keys
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.curses_keys = KeyDemo.get_curses_keys()
+
+    def initialize(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(1, 1, "type any key and see its code in the log window")
+        self.interface.viewscreen.addstr(2, 1, "this tool captures all keys, so help won't work here")
+        self.interface.viewscreen.addstr(5, 1, "press <ESC> to exit")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == curses.ascii.ESC:
+            self.interface.close_view(self)
+            return True
+
+        print_view = "(unprintable)"
+        if chr(key).isprintable():
+            print_view = f'"{chr(key)}"'
+
+        curses_key = ""
+        if key in self.curses_keys:
+            curses_key = self.curses_keys[key]
+
+        self.interface.log_message(f'pressed {key} {print_view} {curses_key}')
+
+        return True
+
+
 class InterfaceManager:
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator) -> None:
         self.interface = interface.Interface(gamestate)
@@ -146,8 +243,9 @@ class InterfaceManager:
         def fps(args:Sequence[str]) -> None: self.interface.show_fps = not self.interface.show_fps
         def quit(args:Sequence[str]) -> None: self.interface.gamestate.quit()
         def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
-        def colordemo(args:Sequence[str]) -> None: self.interface.open_view(interface.ColorDemo(self.interface))
-        def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(interface.AttrDemo(self.interface))
+        def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
+        def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(AttrDemo(self.interface), deactivate_views=True)
+        def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
         def profile(args:Sequence[str]) -> None:
             if self.profiler:
                 self.profiler.disable()
@@ -281,6 +379,7 @@ class InterfaceManager:
             self.bind_command("raise", raise_exception),
             self.bind_command("colordemo", colordemo),
             self.bind_command("attrdemo", attrdemo),
+            self.bind_command("keydemo", keydemo),
             self.bind_command("profile", profile),
             self.bind_command("fast", fast),
             self.bind_command("decrease_fps", decrease_fps),

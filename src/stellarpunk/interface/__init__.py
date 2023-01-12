@@ -440,63 +440,6 @@ class View(abc.ABC):
     def key_list(self) -> Collection[KeyBinding]:
         return []
 
-class ColorDemo(View):
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-
-    def update_display(self) -> None:
-        self.interface.viewscreen.erase()
-        self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
-
-        for c in range(256):
-            self.interface.viewscreen.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
-        self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
-        self.interface.refresh_viewscreen()
-
-    def handle_input(self, key:int, dt:float) -> bool:
-        if key != -1:
-            self.interface.close_view(self)
-            return True
-        else:
-            return False
-
-
-class AttrDemo(View):
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-
-    def update_display(self) -> None:
-        self.interface.viewscreen.erase()
-        self.interface.viewscreen.addstr(0, 35, "ATTR DEMO");
-
-        attrs = [
-            (curses.A_ALTCHARSET, "Alternate character set mode"),
-            (curses.A_BLINK, "Blink mode"),
-            (curses.A_BOLD, "Bold mode"),
-            (curses.A_DIM, "Dim mode"),
-            (curses.A_INVIS, "Invisible or blank mode"),
-            (curses.A_ITALIC, "Italic mode"),
-            (curses.A_NORMAL, "Normal attribute"),
-            (curses.A_PROTECT, "Protected mode"),
-            (curses.A_REVERSE, "Reverse background and foreground colors"),
-            (curses.A_STANDOUT, "Standout mode"),
-            (curses.A_UNDERLINE, "Underline mode"),
-        ]
-
-        i = 1
-        for a in attrs:
-            self.interface.viewscreen.addstr(i, 1, a[1], a[0])
-            i+=1
-        self.interface.viewscreen.addstr(i+1, 1, "Press any key to continue")
-        self.interface.refresh_viewscreen()
-
-    def handle_input(self, key:int, dt:float) -> bool:
-        if key != -1:
-            self.interface.close_view(self)
-            return True
-        else:
-            return False
-
 class AbstractInterface(abc.ABC):
     def decrease_fps(self) -> bool:
         return False

@@ -96,5 +96,8 @@ class Menu:
             interface.KeyBinding(ord("k"), self.select_prev, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("w"), self.select_next, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("s"), self.select_prev, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(curses.KEY_DOWN, self.select_next, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(curses.KEY_UP, self.select_next, nav_help, help_key="menu_nav"),
+            interface.KeyBinding(ord("s"), self.select_prev, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("\r"), self.activate_item, act_help, help_key="menu_act"),
         ]
