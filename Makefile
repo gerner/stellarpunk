@@ -14,3 +14,6 @@ clean:
 
 test:
 	pytest
+
+lint:
+	flake8 src/stellarpunk/ tests/

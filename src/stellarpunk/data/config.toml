@@ -69,15 +69,7 @@
 
     [help.interface.CommsView]
         [help.interface.CommsView.keys]
-            "1" = "response option 1"
-            "2" = "response option 2"
-            "3" = "response option 3"
-            "4" = "response option 4"
-            "5" = "response option 5"
-            "6" = "response option 6"
-            "7" = "response option 7"
-            "8" = "response option 8"
-            "9" = "response option 9"
+            "1" = "choose a corresponding response option"
             "\r" = "continue or finish dialog"
 
 [interface]

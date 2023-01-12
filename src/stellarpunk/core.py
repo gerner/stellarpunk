@@ -90,13 +90,15 @@ class ProductionChain:
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
-    def __init__(self, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None)->None:
+    def __init__(self, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
 
         if name is None:
             name = f'{self.__class__} {str(self.entity_id)}'
         self.name = name
+
+        self.description = description or name
 
     def short_id(self) -> str:
         """ first 32 bits as hex """

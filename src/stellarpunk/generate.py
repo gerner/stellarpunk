@@ -490,7 +490,14 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
-        station = core.Station(self._choose_station_sprite(), np.array((x, y), dtype=np.float64), station_body, self.gamestate.production_chain.shape[0], self._gen_station_name(), entity_id=entity_id)
+        station = core.Station(
+                self._choose_station_sprite(),
+                np.array((x, y), dtype=np.float64),
+                station_body,
+                self.gamestate.production_chain.shape[0],
+                self._gen_station_name(),
+                entity_id=entity_id,
+                description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit.")
         station.resource = resource
 
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)

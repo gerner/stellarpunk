@@ -365,7 +365,7 @@ class CommandBinding:
             return self.command
 
 class KeyBinding:
-    def __init__(self, key:int, f:Callable[[], None], h:str, help_key:Optional[str]=None) -> None:
+    def __init__(self, key:int, f:Callable[[], Any], h:str, help_key:Optional[str]=None) -> None:
         self.key = key
         self.f = f
         self.help = h
@@ -396,7 +396,7 @@ class View(abc.ABC):
     def viewscreen_bounds(self) -> Tuple[int, int, int, int]:
         return self.interface.viewscreen_bounds
 
-    def bind_key(self, k:int, f:Callable[[], None], help_key:Optional[str]=None) -> KeyBinding:
+    def bind_key(self, k:int, f:Callable[[], Any], help_key:Optional[str]=None) -> KeyBinding:
         try:
             h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).keys, chr(k))
         except AttributeError:

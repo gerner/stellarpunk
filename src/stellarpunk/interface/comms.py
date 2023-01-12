@@ -6,7 +6,6 @@ import textwrap
 import collections
 
 from stellarpunk import core, interface, config, dialog, events
-from stellarpunk.interface import ui_utils
 
 class AnimationSequence:
     def animate(self, now:float) -> bool:

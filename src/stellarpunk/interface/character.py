@@ -4,7 +4,7 @@ from typing import Any
 import curses
 
 from stellarpunk import core, interface, config
-from stellarpunk.interface import ui_utils
+from stellarpunk.interface import ui_util
 
 class CharacterView(interface.View):
     def __init__(self, character:core.Character, *args:Any, **kwargs:Any) -> None:
@@ -57,7 +57,7 @@ class CharacterView(interface.View):
         self.draw_detail()
 
     def draw_info(self) -> None:
-        ui_utils.draw_portrait(self.character.portrait, self.info_pad)
+        ui_util.draw_portrait(self.character.portrait, self.info_pad)
         self.info_pad.window.addstr('\n')
 
         self.info_pad.window.addstr(f'{self.character.name}\n')
@@ -68,7 +68,7 @@ class CharacterView(interface.View):
         self.info_pad.window.addstr("\n")
 
     def draw_detail(self) -> None:
-        ui_utils.draw_heading(self.detail_pad, "Agenda")
+        ui_util.draw_heading(self.detail_pad, "Agenda")
         if len(self.character.agenda) == 0:
             self.detail_pad.window.addstr("no agenda\n")
         else:
@@ -76,7 +76,7 @@ class CharacterView(interface.View):
                 self.detail_pad.window.addstr(f'* {agendum}\n')
         self.detail_pad.window.addstr("\n")
 
-        ui_utils.draw_heading(self.detail_pad, "Assets")
+        ui_util.draw_heading(self.detail_pad, "Assets")
         if len(self.character.assets) == 0:
             self.detail_pad.window.addstr("no assets\n")
         else:
@@ -84,5 +84,5 @@ class CharacterView(interface.View):
                 self.detail_pad.window.addstr(f'* {asset}\n')
         self.detail_pad.window.addstr("\n")
 
-        ui_utils.draw_heading(self.detail_pad, "History")
+        ui_util.draw_heading(self.detail_pad, "History")
         self.detail_pad.window.addstr("\n")
