@@ -365,7 +365,7 @@ class CommandBinding:
             return self.command
 
 class KeyBinding:
-    def __init__(self, key:int, f:Callable[[], Any], h:str, help_key:Optional[str]=None) -> None:
+    def __init__(self, key:int, f:Callable[[], Any], h:Optional[str], help_key:Optional[str]=None) -> None:
         self.key = key
         self.f = f
         self.help = h
@@ -397,11 +397,15 @@ class View(abc.ABC):
         return self.interface.viewscreen_bounds
 
     def bind_key(self, k:int, f:Callable[[], Any], help_key:Optional[str]=None) -> KeyBinding:
-        try:
-            h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).keys, chr(k))
-        except AttributeError:
-            h = "NO HELP"
+        h = config.get_key_help(self, help_key or chr(k))
         return KeyBinding(k, f, h, help_key=help_key)
+
+    def bind_aliases(self, keys: Collection[int], f: Callable[[], Any], help_key:Optional[str]=None) -> Collection[KeyBinding]:
+        bindings = []
+        for k in keys:
+            bindings.append(self.bind_key(k, f, help_key))
+
+        return bindings
 
     def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> CommandBinding:
         try:

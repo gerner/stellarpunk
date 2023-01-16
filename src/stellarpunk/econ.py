@@ -185,7 +185,7 @@ class StationAgent(core.EconAgent):
     def get_character(self) -> core.Character:
         return self.character
 
-    def buy_resources(self) -> Collection:
+    def buy_resources(self) -> Collection[int]:
         return self._buy_resources
 
     def sell_resources(self) -> Collection:

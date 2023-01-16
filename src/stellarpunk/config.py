@@ -61,6 +61,11 @@ def key_help(obj: object, k: str) -> str:
         except AttributeError:
             return "NO HELP"
 
+def get_key_help(obj: object, help_key: str) -> Optional[str]:
+    try:
+        return getattr(getattr(Settings.help.interface, obj.__class__.__name__).keys, help_key)
+    except AttributeError:
+        return None
 
 # it's ok to reload the config with a file elsewhere, but we start with the
 # built-in config

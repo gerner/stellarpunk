@@ -1382,6 +1382,9 @@ class UniverseGenerator:
 
         if refinery is None:
             raise ValueError("no suitable refinery could be found")
+
+        refinery.cargo[refinery.resource] += math.floor((refinery.cargo_capacity - np.sum(refinery.cargo))*0.2)
+
         assert refinery.sector
 
         ship_loc = refinery.loc

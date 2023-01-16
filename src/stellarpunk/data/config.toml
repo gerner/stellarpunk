@@ -72,10 +72,22 @@
             "1" = "choose a corresponding response option"
             "\r" = "continue or finish dialog"
 
+    [help.interface.StationView]
+        [help.interface.StationView.keys]
+            "station_trade_nav" = "navigate options"
+            "station_trade_inc" = "increase or decrease selected value"
+            "station_trade_accept" = "accept the current trade"
+            "station_trade_cancel" = "reset trade to zero or cancel trading"
+
     [help.interface.Menu]
         [help.interface.Menu.keys]
             "j" = "navigate menu options"
             "\r" = "activate selected menu item"
+
+    [help.interface.MeterMenu]
+        [help.interface.MeterMenu.keys]
+            "j" = "navigate options"
+            "d" = "increase or decrease selected value"
 
 [interface]
     [interface.CharacterView]

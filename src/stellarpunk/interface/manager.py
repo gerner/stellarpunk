@@ -1,6 +1,6 @@
 """ Interface Manager gluing together the interface elements """
 
-from typing import Optional, Sequence, Any, Mapping, Callable, Collection, Dict, Tuple, List
+from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List
 import cProfile
 import pstats
 import curses
@@ -10,21 +10,41 @@ import collections
 from stellarpunk import core, interface, generate, util, config, events
 from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station
 
+
+KEY_DISPLAY = {
+    ord('\r') :         "<ENTER>",
+    ord('\n') :         "<ENTER>",
+    curses.ascii.ESC :  "<ESC>",
+    ord(' ') :          "<SPACE>",
+    curses.KEY_LEFT :   "<LEFT>",
+    curses.KEY_UP :     "<UP>",
+    curses.KEY_RIGHT :  "<RIGHT>",
+    curses.KEY_DOWN :   "<DOWN>",
+    ord(',') :          "\",\"",
+}
+
+
 class ColorDemo(interface.View):
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
     def update_display(self) -> None:
         self.interface.viewscreen.erase()
-        self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
+        self.interface.viewscreen.addstr(0, 35, "COLOR DEMO")
 
         for c in range(256):
-            self.interface.viewscreen.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
+            self.interface.viewscreen.addstr(
+                int(c/8)+1, c % 8 * 9,
+                f'...{c:03}...', curses.color_pair(c)
+            )
         self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
         self.interface.refresh_viewscreen()
 
-    def handle_input(self, key:int, dt:float) -> bool:
-        if key != -1:
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == ord(" "):
+            curses.flash()
+            return True
+        elif key != -1:
             self.interface.close_view(self)
             return True
         else:
@@ -187,10 +207,8 @@ class InterfaceManager:
 
         help_entries:Dict[str, Tuple[List[str], str]] = collections.defaultdict(lambda: ([], ""))
         for k,v in key_list.items():
-            if k in [ord('\r'), ord('\n')]:
-                k_label = "<ENTER>"
-            elif k == ord(' '):
-                k_label = "<SPACE>"
+            if k in KEY_DISPLAY:
+                k_label = KEY_DISPLAY[k]
             elif k == curses.KEY_MOUSE or not chr(k).isprintable():
                 continue
             else:
@@ -198,7 +216,7 @@ class InterfaceManager:
 
             key_items, help_text = help_entries[v.help_key]
             key_items.append(k_label)
-            help_entries[v.help_key] = (key_items, help_text or v.help)
+            help_entries[v.help_key] = (key_items, help_text or v.help or "NO HELP")
 
         help_lines = []
         help_lines.append("keys:")
@@ -332,7 +350,8 @@ class InterfaceManager:
             except:
                 raise command_input.UserError(f'{args[0]} not a recognized station id')
 
-            station_view = station.StationView(target_station, self.interface)
+            ship = self.gamestate.player.character.location if isinstance(self.gamestate.player.character.location, core.Ship) else next(x for x in self.gamestate.player.character.assets if isinstance(x, core.Ship))
+            station_view = station.StationView(target_station, ship, self.interface)
             self.interface.open_view(station_view, deactivate_views=True)
 
         def open_comms(args:Sequence[str]) -> None:

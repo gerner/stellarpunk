@@ -1,7 +1,8 @@
 """ Docked View """
 
-from typing import Any, Collection
+from typing import Any, Collection, List
 import curses
+import curses.ascii
 from curses import textpad
 import textwrap
 import enum
@@ -21,10 +22,11 @@ class Mode(enum.Enum):
 class StationView(interface.View):
     """ UI experience while docked at a station. """
     def __init__(
-            self, station: core.Station, *args: Any, **kwargs: Any) -> None:
+            self, station: core.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.station = station
+        self.ship = ship
 
         # info pad sits to the left
         self.info_pad: interface.Canvas = None  # type: ignore[assignment]
@@ -37,6 +39,9 @@ class StationView(interface.View):
 
         self.mode = Mode.NONE
         self.station_menu = ui_util.Menu("uninitialized", [])
+        self.sell_menu = ui_util.MeterMenu("uninitialized", [])
+        self.buy_menu = ui_util.MeterMenu("uninitialized", [])
+        self._enter_station_menu()
 
     def initialize(self) -> None:
         self.interface.reinitialize_screen(name="Station View")
@@ -66,7 +71,6 @@ class StationView(interface.View):
 
         self._draw_station_info()
 
-        self._enter_station_menu()
 
     def update_display(self) -> None:
         if self.mode == Mode.STATION_MENU:
@@ -120,7 +124,7 @@ class StationView(interface.View):
             "Station Menu",
             [
                 ui_util.MenuItem(
-                    "Option A", lambda: self.interface.log_message("Option A")
+                    "Trade", self._enter_trade
                 ),
                 ui_util.MenuItem(
                     "Option B", lambda: self.interface.log_message("Option B")
@@ -136,6 +140,8 @@ class StationView(interface.View):
 
     def _draw_station_menu(self) -> None:
         """ Draws the main station menu of options. """
+
+        self.detail_pad.erase()
 
         description_lines = textwrap.wrap(
             self.station.description,
@@ -157,13 +163,118 @@ class StationView(interface.View):
         return self.station_menu.key_list()
 
     def _enter_trade(self) -> None:
-        pass
+        self.mode = Mode.TRADE
+
+        station_agent = self.interface.gamestate.econ_agents[self.station.entity_id]
+        pchain = self.interface.gamestate.production_chain
+
+        # stuff we can sell that station buys
+        sell_items:List[ui_util.MeterItem] = []
+        for resource in station_agent.buy_resources():
+            sell_items.append(ui_util.MeterItem(
+                pchain.product_names[resource],
+                int(self.ship.cargo[resource]),
+                maximum=int(self.ship.cargo_capacity),
+                pool=int(station_agent.inventory(resource))
+            ))
+
+        self.sell_menu = ui_util.MeterMenu(
+            "Sell to Station",
+            sell_items,
+        )
+
+        # stuff we can buy that station sells
+        buy_items:List[ui_util.MeterItem] = []
+        for resource in station_agent.sell_resources():
+            buy_items.append(ui_util.MeterItem(
+                pchain.product_names[resource],
+                int(self.ship.cargo[resource]),
+                maximum=int(self.ship.cargo_capacity),
+                pool=int(station_agent.inventory(resource)),
+            ))
+
+        self.buy_menu = ui_util.MeterMenu(
+            "Buy from Station",
+            buy_items,
+        )
+        self.buy_menu.selected_option = -1
 
     def _draw_trade(self) -> None:
-        pass
+        self.detail_pad.erase()
+        self.sell_menu.draw(self.detail_pad, 2, 1)
+        self.buy_menu.draw(self.detail_pad, 3 + self.sell_menu.height, 1)
+
+        y = 4 + self.sell_menu.height + self.buy_menu.height
+        self.detail_pad.addstr(y, 1, "Press <ENTER> to accept or <ESC> to cancel")
+        self.detail_pad.noutrefresh(0, 0)
 
     def _key_list_trade(self) -> Collection[interface.KeyBinding]:
-        return []
+        if self.sell_menu.selected_option >= 0:
+            prev_menu = self.buy_menu
+            current_menu = self.sell_menu
+            next_menu = self.buy_menu
+        else:
+            prev_menu = self.sell_menu
+            current_menu = self.buy_menu
+            next_menu = self.sell_menu
+
+        def sel_next() -> None:
+            if current_menu.selected_option == len(current_menu.options)-1:
+                current_menu.selected_option = -1
+                next_menu.selected_option = 0
+            else:
+                current_menu.select_next()
+
+        def sel_prev() -> None:
+            if current_menu.selected_option == 0:
+                current_menu.selected_option = -1
+                prev_menu.selected_option = len(prev_menu.options)-1
+            else:
+                current_menu.select_prev()
+
+        def cancel() -> None:
+            any_different = any(map(lambda x: x.setting != x.value, self.buy_menu.options + self.sell_menu.options))
+            if any_different:
+                self._enter_trade()
+            else:
+                self._enter_station_menu()
+
+        def accept() -> None:
+            # conduct the trade
+            pass
+
+        key_list:List[interface.KeyBinding] = []
+        key_list.extend(self.bind_aliases(
+            [ord("j"), ord("s"), curses.KEY_DOWN],
+            sel_next, help_key="station_trade_nav"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord("k"), ord("w"), curses.KEY_UP],
+            sel_prev, help_key="station_trade_nav"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord("l"), ord("d"), curses.KEY_RIGHT],
+            current_menu.select_more, help_key="station_trade_inc"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord("h"), ord("a"), curses.KEY_LEFT],
+            current_menu.select_less, help_key="station_trade_inc"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord("L"), ord("D"), curses.KEY_SRIGHT],
+            lambda: current_menu.select_more(increment=10),
+            help_key="station_trade_biginc"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord("H"), ord("A"), curses.KEY_SLEFT],
+            lambda: current_menu.select_less(increment=10),
+            help_key="station_trade_biginc"
+        ))
+        key_list.extend([
+            self.bind_key(curses.ascii.ESC, cancel, help_key="station_trade_cancel"),
+            self.bind_key(curses.ascii.CR, accept, help_key="station_trade_accept"),
+        ])
+        return key_list
 
     def _enter_people(self) -> None:
         pass
