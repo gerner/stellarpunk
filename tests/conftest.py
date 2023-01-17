@@ -38,7 +38,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
 
 @pytest.fixture
 def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(gamestate, sector)
+    return MonitoringUI(sector, gamestate)
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:

@@ -12,7 +12,7 @@ import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders, config
-from stellarpunk.interface import presenter, command_input, starfield
+from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.orders import steering, movement, collision
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
@@ -216,7 +216,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self._cached_radar_zoom = 0.
         self._cached_radar:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
 
-        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.ship.sector, self.perspective)
+        self.presenter = presenter.Presenter(self.gamestate, self, self.ship.sector, self.perspective)
 
         # indicates if the ship should follow its orders, or direct player
         # control
@@ -228,26 +228,26 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.mouse_state = MouseState.EMPTY
         self.mouse_state_clear_time = np.inf
 
-        self.starfield = starfield.Starfield(self.interface.gamestate.sector_starfield, self.perspective)
+        self.starfield = starfield.Starfield(self.gamestate.sector_starfield, self.perspective)
 
     def command_list(self) -> Collection[interface.CommandBinding]:
 
         def order_jump(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
                 raise command_input.UserError("can only jump through travel gates as selected target")
-            order = orders.TravelThroughGate(self.selected_entity, self.ship, self.interface.gamestate)
-            self.ship.clear_orders(self.interface.gamestate)
+            order = orders.TravelThroughGate(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
         def order_mine(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.Asteroid):
                 raise command_input.UserError("can only mine asteroids")
-            order = orders.MineOrder(self.selected_entity, math.inf, self.ship, self.interface.gamestate)
-            self.ship.clear_orders(self.interface.gamestate)
+            order = orders.MineOrder(self.selected_entity, math.inf, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
         return [
-            self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.interface.gamestate)),
+            self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
         ]
@@ -277,11 +277,11 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.autopilot_on = False
         else:
             self.logger.info("exiting autopilot")
-            self.ship.clear_orders(self.interface.gamestate)
+            self.ship.clear_orders(self.gamestate)
 
             if self.control_order is not None:
                 raise ValueError("autopilot off, but has control order while toggling autopilot")
-            control_order = PlayerControlOrder(self.ship, self.interface.gamestate)
+            control_order = PlayerControlOrder(self.ship, self.gamestate)
             self.ship.prepend_order(control_order)
             self.control_order = control_order
             self.autopilot_on = True
@@ -342,9 +342,9 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             if self.autopilot_on:
                 self._toggle_autopilot()
 
-            self.ship.clear_orders(self.interface.gamestate)
+            self.ship.clear_orders(self.gamestate)
 
-            goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.interface.gamestate, arrival_distance=5e2)
+            goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.gamestate, arrival_distance=5e2)
             self.ship.prepend_order(goto_order)
 
             self.mouse_state = MouseState.EMPTY
@@ -439,7 +439,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, radar_content = self._cached_radar
 
         for (y,x), c in radar_content.items():
-            self.viewscreen.window.addch(y, x, c, curses.color_pair(29))
+            self.viewscreen.addstr(y, x, c, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -469,14 +469,14 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         # add a scale near corner
         scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
-        scale_x = self.interface.viewscreen_width - len(scale_label) - 2
-        scale_y = self.interface.viewscreen_height - 2
+        scale_x = self.interface.viewscreen.width - len(scale_label) - 2
+        scale_y = self.interface.viewscreen.height - 2
         self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
 
         # add center position near corner
         pos_label = f'({self.perspective.cursor[0]:.0f},{self.perspective.cursor[1]:.0f})'
-        pos_x = self.interface.viewscreen_width - len(pos_label) - 2
-        pos_y = self.interface.viewscreen_height - 1
+        pos_x = self.interface.viewscreen.width - len(pos_label) - 2
+        pos_y = self.interface.viewscreen.height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
     def _draw_target_indicators(self) -> None:
@@ -519,7 +519,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             return
 
         info_width = 12 + 1 + 24
-        status_x = self.interface.viewscreen_width - info_width
+        status_x = self.interface.viewscreen.width - info_width
         status_y = 1
 
         self.viewscreen.addstr(status_y, status_x, "Target Info:")
@@ -572,11 +572,11 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         if isinstance(self.selected_entity, core.Station):
             assert self.selected_entity.resource is not None
             label_product = "product:"
-            self.viewscreen.addstr(status_y, status_x, f'{label_product:>12} {self.interface.product_name(self.selected_entity.resource, 20)}')
+            self.viewscreen.addstr(status_y, status_x, f'{label_product:>12} {ui_util.product_name(self.gamestate.production_chain, self.selected_entity.resource, 20)}')
         elif isinstance(self.selected_entity, core.Asteroid):
             assert self.selected_entity.resource is not None
             label_ore = "ore:"
-            self.viewscreen.addstr(status_y, status_x, f'{label_ore:>12} {self.interface.product_name(self.selected_entity.resource, 20)}')
+            self.viewscreen.addstr(status_y, status_x, f'{label_ore:>12} {ui_util.product_name(self.gamestate.production_chain, self.selected_entity.resource, 20)}')
 
     def _draw_status(self) -> None:
         current_order = self.ship.current_order()
@@ -620,7 +620,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             for i in range(len(self.ship.cargo)):
                 if self.ship.cargo[i] == 0.:
                     continue
-                label = self.interface.product_name(i, 16)
+                label = ui_util.product_name(self.gamestate.production_chain, i, 16)
                 self.viewscreen.addstr(status_y, status_x, f'{label:>16}: {math.floor(self.ship.cargo[i])}')
                 status_y += 1
         else:
@@ -631,7 +631,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
     def _draw_command_state(self) -> None:
         status_x = 1
-        status_y = self.interface.viewscreen_height - 2
+        status_y = self.interface.viewscreen.height - 2
         if self.mouse_state == MouseState.GOTO:
             self.viewscreen.addstr(status_y, status_x, f'Go To')
 
@@ -658,7 +658,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.active=True
 
     def update_display(self) -> None:
-        if self.interface.gamestate.timestamp > self.mouse_state_clear_time:
+        if self.gamestate.timestamp > self.mouse_state_clear_time:
             self.mouse_state = MouseState.EMPTY
 
         self._auto_pan()

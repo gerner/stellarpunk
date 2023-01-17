@@ -1,6 +1,6 @@
 """ Docked View """
 
-from typing import Any, Collection, List
+from typing import Any, Collection, List, Optional
 import curses
 import curses.ascii
 from curses import textpad
@@ -33,10 +33,10 @@ class StationView(interface.View):
         self.ship = ship
 
         # info pad sits to the left
-        self.info_pad: interface.Canvas = None  # type: ignore[assignment]
+        self.info_pad: interface.BasicCanvas = None  # type: ignore[assignment]
 
         # detail pad sits to the right
-        self.detail_pad: interface.Canvas = None  # type: ignore[assignment]
+        self.detail_pad: interface.BasicCanvas = None  # type: ignore[assignment]
 
         self.detail_top_padding = 3
         self.detail_padding = 5
@@ -51,33 +51,26 @@ class StationView(interface.View):
         self.station_menu = ui_util.Menu("uninitialized", [])
         self.sell_menu = ui_util.MeterMenu("uninitialized", [])
         self.buy_menu = ui_util.MeterMenu("uninitialized", [])
-        self._enter_station_menu()
+        self.enter_mode(Mode.STATION_MENU)
 
     def initialize(self) -> None:
         self.interface.reinitialize_screen(name="Station View")
 
         ipw = config.Settings.interface.StationView.info_width
-        self.info_pad = interface.Canvas(
-            curses.newpad(
-                config.Settings.interface.StationView.info_lines, ipw),
-            self.interface.viewscreen_height-2,
-            ipw,
-            self.interface.viewscreen_y+1,
-            self.interface.viewscreen_x+1,
-            self.interface.aspect_ratio(),
+        self.info_pad = self.interface.newpad(
+            config.Settings.interface.StationView.info_lines, ipw,
+            self.interface.viewscreen.height-2, ipw,
+            self.interface.viewscreen.y+1, self.interface.viewscreen.x+1,
+            self.interface.aspect_ratio,
         )
 
-        dpw = self.interface.viewscreen_width - ipw - 3
-        self.detail_pad = interface.Canvas(
-            curses.newpad(
-                config.Settings.interface.StationView.detail_lines, dpw),
-            self.interface.viewscreen_height-2,
-            dpw,
-            self.interface.viewscreen_y+1,
-            self.info_pad.x+ipw+1,
-            self.interface.aspect_ratio(),
+        dpw = self.interface.viewscreen.width - ipw - 3
+        self.detail_pad = self.interface.newpad(
+            config.Settings.interface.StationView.detail_lines, dpw,
+            self.interface.viewscreen.height-2, dpw,
+            self.interface.viewscreen.y+1, self.info_pad.x+ipw+1,
+            self.interface.aspect_ratio,
         )
-        self.detail_pad.window.scrollok(True)
 
     def update_display(self) -> None:
         self._draw_station_info()
@@ -100,13 +93,29 @@ class StationView(interface.View):
         else:
             raise ValueError(f'unknown mode {self.mode}')
 
+    def enter_mode(self, mode:Mode) -> None:
+        # leave the old mode
+        if self.mode == Mode.TRADE:
+            self._leave_trade()
+
+        # enter the new mode
+        self.mode = mode
+        if mode == Mode.STATION_MENU:
+            self._enter_station_menu()
+        elif mode == Mode.TRADE:
+            self._enter_trade()
+        elif mode == Mode.PEOPLE:
+            self._enter_people()
+        else:
+            raise ValueError(f'unknown mode {self.mode}')
+
     def _update_station_sprite(self) -> None:
         now = time.perf_counter()
         if now - self.last_station_sprite_update < self.station_sprite_update_interval:
             return
         self.logger.info(f'updating sprite')
         self.last_station_sprite_update = now
-        starfield_layers = self.interface.gamestate.portrait_starfield
+        starfield_layers = self.gamestate.portrait_starfield
         perspective = interface.Perspective(
             interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
             starfield_layers[0].zoom, starfield_layers[0].zoom, starfield_layers[1].zoom,
@@ -123,8 +132,7 @@ class StationView(interface.View):
         left_padding = int(
             (self.info_pad.width - self.station.sprite.width)//2
         )-1
-        textpad.rectangle(
-            self.info_pad.window,
+        self.info_pad.rectangle(
             0,
             left_padding,
             self.station.sprite.height+1,
@@ -135,18 +143,13 @@ class StationView(interface.View):
         ui_util.draw_sprite(
             self.station_sprite, self.info_pad, 1, left_padding+1
         )
-        #ui_util.draw_sprite(
-        #    self.station.sprite, self.info_pad, 1, left_padding+1
-        #)
 
-        self.info_pad.window.move(self.station.sprite.height+3, 0)
+        y = self.station.sprite.height+3
+        x = 0
+        self.info_pad.addstr(y, x, f'{self.station.name}')
+        self.info_pad.addstr(y+1, x, f'{self.station.address_str()}')
 
-        self.info_pad.window.addstr(f'{self.station.name}\n')
-        self.info_pad.window.addstr(f'{self.station.address_str()}\n')
-        self.info_pad.window.addstr("\n")
-
-        self.info_pad.window.addstr("more info goes here")
-        self.info_pad.window.addstr("\n")
+        self.info_pad.addstr(y+3, x, "more info goes here")
         self.info_pad.noutrefresh(0, 0)
 
     def _enter_station_menu(self) -> None:
@@ -155,7 +158,7 @@ class StationView(interface.View):
             "Station Menu",
             [
                 ui_util.MenuItem(
-                    "Trade", self._enter_trade
+                    "Trade", lambda: self.enter_mode(Mode.TRADE)
                 ),
                 ui_util.MenuItem(
                     "Option B", lambda: self.interface.log_message("Option B")
@@ -194,11 +197,11 @@ class StationView(interface.View):
         return self.station_menu.key_list()
 
     def _enter_trade(self) -> None:
-        self.interface.gamestate.force_pause(self)
+        self.gamestate.force_pause(self)
         self.mode = Mode.TRADE
 
-        station_agent = self.interface.gamestate.econ_agents[self.station.entity_id]
-        pchain = self.interface.gamestate.production_chain
+        station_agent = self.gamestate.econ_agents[self.station.entity_id]
+        pchain = self.gamestate.production_chain
 
         # stuff we can sell that station buys
         sell_items:List[ui_util.MeterItem] = []
@@ -216,6 +219,7 @@ class StationView(interface.View):
             "Sell to Station",
             sell_items,
             validator=self._validate_trade,
+            total_width=self.detail_pad.width-2*self.detail_padding,
         )
 
         # stuff we can buy that station sells
@@ -237,57 +241,77 @@ class StationView(interface.View):
         )
         self.buy_menu.selected_option = -1
 
+    def _leave_trade(self) -> None:
+        self.gamestate.force_unpause(self)
+
     def _validate_trade(self, *args:Any) -> bool:
         # validate the overall set of trades are valid
         # validate ship and station have the relevant goods
-        # validate ship and station have total cargo capacity
-        # validate station budgets for each resource
-        # validate player and station agent can afford the overall trade
+        # validate ship and station have total cargo capacity for buys/sells
+        # validate station budgets for each resource for sells
+        # validate player and station agent can afford all buys/sells
 
-        station_agent = self.interface.gamestate.econ_agents[self.station.entity_id]
+        # the trades will be conducted item-wise in any order, so they must all
+        # be valid if conducted in any order
+        # so we'll be as strict as possible:
+        # the station must have capacity and budget for all player sales
+        # the player must have capacity and budget for all player buys
+
+        station_agent = self.gamestate.econ_agents[self.station.entity_id]
         ship_capacity = self.ship.cargo_capacity - np.sum(self.ship.cargo)
         station_capacity = self.station.cargo_capacity - np.sum(self.station.cargo)
-        total_trade_value = 0.
+        total_buy_amount = 0.
+        total_sell_amount = 0.
+        total_buy_value = 0.
+        total_sell_value = 0.
+        error_message:Optional[str] = None
         for item in self.sell_menu.options + self.buy_menu.options:
             resource = item.data
             assert isinstance(resource, int)
             resource_delta = item.setting - item.value
+
+            # player buys case
             if resource_delta > 0:
                 if station_agent.inventory(resource) - resource_delta < 0:
-                    self.interface.status_message("The station doesn't have any more of that good to sell", self.interface.error_color)
-                    return False
-                trade_value = resource_delta * station_agent.sell_price(resource)
-            else:
+                    error_message = "The station doesn't have any more of that good to sell"
+                    break
+                total_buy_amount += resource_delta
+                trade_buy_value = resource_delta * station_agent.sell_price(resource)
+            # player sells case
+            elif resource_delta < 0:
                 if self.ship.cargo[resource] + resource_delta < 0:
-                    self.interface.status_message("Your ship doesn't have any more of that good to sell", self.interface.error_color)
-                    return False
+                    error_message = "Your ship doesn't have any more of that good to sell"
+                    break
                 trade_value = resource_delta * station_agent.buy_price(resource)
                 if station_agent.budget(resource) + trade_value < 0:
-                    self.interface.status_message("The station won't buy that many of those goods", self.interface.error_color)
-                    return False
+                    error_message = "The station won't buy that many of those goods"
+                    break
+                total_sell_amount -= resource_delta
+                total_sell_value -= trade_value
+            else:
+                continue
 
-            ship_capacity -= resource_delta
-            station_capacity += resource_delta
-            total_trade_value += trade_value
+        if error_message is None:
+            if ship_capacity - total_buy_amount < 0:
+                error_message = "Your ship doesn't have the capacity to buy those goods"
+            elif self.interface.player.character.balance - total_buy_value < 0:
+                error_message = "You don't have enough money to buy those goods"
+            elif station_capacity - total_sell_amount < 0:
+                error_message = "The station doesn't have the capacity to buy those goods"
+            elif station_agent.balance() - total_sell_value < 0:
+                error_message = "The station doesn't have enough money to buy those goods"
 
-        if ship_capacity < 0:
-            self.interface.status_message("Your ship doesn't have the capacity for those goods", self.interface.error_color)
+        if error_message is not None:
+            self.interface.status_message(
+                    error_message,
+                    self.interface.get_color(interface.Color.ERROR)
+            )
             return False
-        if self.interface.gamestate.player.character.balance - total_trade_value < 0:
-            self.interface.status_message("You don't have enough money to buy those goods", self.interface.error_color)
-            return False
-
-        if station_capacity < 0:
-            self.interface.status_message("The station doesn't have the capacity for those goods", self.interface.error_color)
-            return False
-        if station_agent.balance() + total_trade_value < 0:
-            self.interface.status_message("The station doesn't have enough money to buy all those goods", self.interface.error_color)
-            return False
-
-        return True
+        else:
+            return True
 
     def _compute_trade_value(self) -> float:
-        station_agent = self.interface.gamestate.econ_agents[self.station.entity_id]
+        station_agent = self.gamestate.econ_agents[self.station.entity_id]
         total_trade_value = 0.
         for item in self.sell_menu.options + self.buy_menu.options:
             resource = item.data
@@ -302,14 +326,14 @@ class StationView(interface.View):
 
     def _draw_trade(self) -> None:
         self.detail_pad.erase()
-        self.sell_menu.draw(self.detail_pad, 2, 1)
-        self.buy_menu.draw(self.detail_pad, 3 + self.sell_menu.height, 1)
+        self.sell_menu.draw(self.detail_pad, 2, self.detail_padding)
+        self.buy_menu.draw(self.detail_pad, 3 + self.sell_menu.height, self.detail_padding)
 
         y = 4 + self.sell_menu.height + self.buy_menu.height
         trade_value = self._compute_trade_value()
         if trade_value > 0.:
-            self.detail_pad.addstr(y, 1, f'Trade Value: ${trade_value:.2f}')
-        self.detail_pad.addstr(y+1, 1, "Press <ENTER> to accept or <ESC> to cancel")
+            self.detail_pad.addstr(y, self.detail_padding, f'Trade Value: ${trade_value:.2f}')
+        self.detail_pad.addstr(y+1, self.detail_padding, "Press <ENTER> to accept or <ESC> to cancel")
         self.detail_pad.noutrefresh(0, 0)
 
     def _key_list_trade(self) -> Collection[interface.KeyBinding]:
@@ -341,13 +365,11 @@ class StationView(interface.View):
             if any_different:
                 self._enter_trade()
             else:
-                self.interface.gamestate.force_unpause(self)
-                self._enter_station_menu()
+                self.enter_mode(Mode.STATION_MENU)
 
         def accept() -> None:
             # conduct the trade
-            #self.interface.gamestate.force_unpause(self)
-            pass
+            self.enter_mode(Mode.STATION_MENU)
 
         key_list:List[interface.KeyBinding] = []
         key_list.extend(self.bind_aliases(

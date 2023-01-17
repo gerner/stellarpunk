@@ -51,7 +51,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         self.selected_character:Optional[core.Character] = None
 
-        self.presenter = presenter.Presenter(self.interface.gamestate, self, self.sector, self.perspective)
+        self.presenter = presenter.Presenter(self.gamestate, self, self.sector, self.perspective)
 
         self._cached_grid:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
         self.debug_entity = False
@@ -61,7 +61,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         # if we receive focus, this should be dead
         self.pilot_view:Optional[pilot_interface.PilotView] = None
 
-        self.starfield = starfield.Starfield(self.interface.gamestate.sector_starfield, self.perspective)
+        self.starfield = starfield.Starfield(self.gamestate.sector_starfield, self.perspective)
 
     def initialize(self) -> None:
         self.logger.info(f'entering sector mode for {self.sector.entity_id}')
@@ -122,7 +122,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         #for lineno, line in enumerate(text):
         #    self.viewscreen.addstr(lineno, 0, line, curses.color_pair(29))
         for (y,x), c in grid_content.items():
-            self.viewscreen.window.addch(y, x, c, curses.color_pair(29))
+            self.viewscreen.addstr(y, x, c, curses.color_pair(29))
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -138,14 +138,14 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         # add a scale near corner
         scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
-        scale_x = self.interface.viewscreen_width - len(scale_label) - 2
-        scale_y = self.interface.viewscreen_height - 2
+        scale_x = self.interface.viewscreen.width - len(scale_label) - 2
+        scale_y = self.interface.viewscreen.height - 2
         self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
 
         # add center position near corner
         pos_label = f'({self.perspective.cursor[0]:.0f},{self.perspective.cursor[1]:.0f})'
-        pos_x = self.interface.viewscreen_width - len(pos_label) - 2
-        pos_y = self.interface.viewscreen_height - 1
+        pos_x = self.interface.viewscreen.width - len(pos_label) - 2
+        pos_y = self.interface.viewscreen.height - 1
         self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
 
     def draw_sector_map(self) -> None:
@@ -160,7 +160,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             return
 
         info_width = 12 + 1 + 16
-        status_x = self.interface.viewscreen_width - info_width
+        status_x = self.interface.viewscreen.width - info_width
         status_y = 1
 
         self.viewscreen.addstr(status_y, status_x, "Target Info:")
@@ -244,15 +244,15 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise command_input.UserError("need two int args for x,y pos")
-            self.selected_entity.clear_orders(self.interface.gamestate)
-            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.interface.gamestate)
+            self.selected_entity.clear_orders(self.gamestate)
+            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.gamestate)
             self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.UserError(f'order only valid on a ship target')
-            self.selected_entity.clear_orders(self.interface.gamestate)
-            order = orders.WaitOrder(self.selected_entity, self.interface.gamestate)
+            self.selected_entity.clear_orders(self.gamestate)
+            order = orders.WaitOrder(self.selected_entity, self.gamestate)
             self.selected_entity.prepend_order(order)
 
         def debug_entity(args:Sequence[str])->None: self.debug_entity = not self.debug_entity
@@ -262,12 +262,12 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 raise command_input.UserError(f'can only write history for a selected target')
             filename = "/tmp/stellarpunk.history"
             self.logger.info(f'writing history for {self.selected_entity} to {filename}')
-            core.write_history_to_file(self.selected_entity, filename, now=self.interface.gamestate.timestamp)
+            core.write_history_to_file(self.selected_entity, filename, now=self.gamestate.timestamp)
 
         def debug_write_sector(args:Sequence[str])->None:
             filename = "/tmp/stellarpunk.history.gz"
             self.logger.info(f'writing history for sector {self.sector.short_id()} to {filename}')
-            core.write_history_to_file(self.sector, filename, now=self.interface.gamestate.timestamp)
+            core.write_history_to_file(self.sector, filename, now=self.gamestate.timestamp)
 
         def spawn_ship(args:Sequence[str])->None:
             if len(args) < 2:
@@ -304,9 +304,9 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 target_id = uuid.UUID(args[0])
             except ValueError:
                 raise command_input.UserError("not a valid character id, try tab completion.")
-            if target_id not in self.interface.gamestate.characters:
+            if target_id not in self.gamestate.characters:
                 raise command_input.UserError("{args[0]} not found")
-            self.selected_character = self.interface.gamestate.characters[target_id]
+            self.selected_character = self.gamestate.characters[target_id]
 
         def scursor(args:Sequence[str])->None:
             if not args:
@@ -334,7 +334,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.bind_command("wait", wait),
 
             self.bind_command("target", target, util.tab_completer(map(str, self.sector.entities.keys()))),
-            self.bind_command("chr_info", chr_info, util.tab_completer(map(str, self.interface.gamestate.characters.keys()))),
+            self.bind_command("chr_info", chr_info, util.tab_completer(map(str, self.gamestate.characters.keys()))),
             self.bind_command("cursor", scursor),
         ]
 

@@ -201,6 +201,15 @@ class BasicCanvas:
         self.y = y
         self.aspect_ratio = aspect_ratio
 
+    def erase(self) -> None:
+        pass
+    def addstr(self, y:int, x:int, string:str, attr:int=0) -> None:
+        pass
+    def rectangle(self, uly:int, ulx:int, lry:int, lrx:int) -> None:
+        pass
+    def noutrefresh(self, pminrow:int, pmincol:int) -> None:
+        pass
+
 class Canvas(BasicCanvas):
     def __init__(self, window:curses.window, *args:Any) -> None:
         super().__init__(*args)
@@ -232,6 +241,9 @@ class Canvas(BasicCanvas):
             string = string[:self.width-x]
 
         self.window.addstr(y, x, string, attr)
+
+    def rectangle(self, uly:int, ulx:int, lry:int, lrx:int) -> None:
+        textpad.rectangle(self.window, uly, ulx, lry, lrx)
 
 class PerspectiveObserver(abc.ABC):
     def perspective_updated(self, perspective:Perspective) -> None: ...
@@ -377,24 +389,25 @@ class KeyBinding:
         self.f()
 
 class View(abc.ABC):
-    def __init__(self, interface: Interface) -> None:
+    def __init__(self, interface: AbstractInterface) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.active = True
         self.fast_render = False
         self.interface = interface
+        self.gamestate = interface.gamestate
 
     @property
-    def viewscreen(self) -> Canvas:
+    def viewscreen(self) -> BasicCanvas:
         return self.interface.viewscreen
 
     @property
     def viewscreen_dimensions(self) -> Tuple[int, int]:
-        return (self.interface.viewscreen_width, self.interface.viewscreen_height)
+        return (self.interface.viewscreen.width, self.interface.viewscreen.height)
 
     @property
     def viewscreen_bounds(self) -> Tuple[int, int, int, int]:
-        return self.interface.viewscreen_bounds
+        return (0, 0, self.interface.viewscreen.width, self.interface.viewscreen.height)
 
     def bind_key(self, k:int, f:Callable[[], Any], help_key:Optional[str]=None) -> KeyBinding:
         h = config.get_key_help(self, help_key or chr(k))
@@ -445,6 +458,11 @@ class View(abc.ABC):
         return []
 
 class AbstractInterface(abc.ABC):
+    def __init__(self, gamestate:core.Gamestate) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
+        self.gamestate = gamestate
+        self.views:List[View] = []
+
     def decrease_fps(self) -> bool:
         return False
 
@@ -460,6 +478,65 @@ class AbstractInterface(abc.ABC):
     @abc.abstractmethod
     def tick(self, timeout:float, dt:float) -> None:
         pass
+
+    def reinitialize_screen(self, name:str="Main Viewscreen") -> None:
+        pass
+
+    def refresh_viewscreen(self) -> None:
+        pass
+
+    def open_view(self, view:View, deactivate_views:bool=False) -> None:
+        self.logger.debug(f'opening view {view}')
+        if len(self.views):
+            self.views[-1].unfocus()
+            if deactivate_views:
+                for v in self.views:
+                    v.active = False
+        view.initialize()
+        view.focus()
+        self.views.append(view)
+
+    def close_view(self, view:View) -> None:
+        self.logger.debug(f'closing view {view}')
+        view.terminate()
+        assert view in self.views
+        self.views.remove(view)
+        if len(self.views) > 0:
+            self.views[-1].focus()
+
+    def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
+        if old_view is not None:
+            self.close_view(old_view)
+        self.open_view(new_view)
+
+    def log_message(self, message:str) -> None:
+        pass
+
+    def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:
+        pass
+
+    def get_color(self, color:Color) -> int:
+        return 0
+
+    @property
+    @abc.abstractmethod
+    def player(self) -> core.Player: ...
+
+    @abc.abstractmethod
+    def newpad(
+        self,
+        pad_lines:int, pad_cols:int,
+        height:int, width:int,
+        y:int, x:int,
+        aspect_ratio:float) -> BasicCanvas: ...
+
+    @property
+    @abc.abstractmethod
+    def viewscreen(self) -> BasicCanvas: ...
+
+    @property
+    @abc.abstractmethod
+    def aspect_ratio(self) -> float: ...
 
 class FPSCounter:
     """ Measures FPS by keeping track of frame render times. """
@@ -485,9 +562,9 @@ class FPSCounter:
         return self.current_fps
 
 class Interface(AbstractInterface, core.PlayerObserver):
-    def __init__(self, gamestate: core.Gamestate):
+    def __init__(self, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
         self.stdscr:curses.window = None # type: ignore[assignment]
-        self.logger = logging.getLogger(util.fullname(self))
 
         self.desired_fps = Settings.MAX_FPS
         self.max_fps = self.desired_fps
@@ -507,7 +584,7 @@ class Interface(AbstractInterface, core.PlayerObserver):
 
         # viewport sizes and positions in the global screen
         # this is what's visible
-        self.viewscreen:Canvas = None # type: ignore[assignment]
+        self._viewscreen:Canvas = None # type: ignore[assignment]
         self.viewscreen_width = 0
         self.viewscreen_height = 0
         self.viewscreen_x = 0
@@ -521,8 +598,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
         self.logscreen_y = 0
         self.logscreen_padding = 1
         self.logscreen_buffer:Deque[str] = collections.deque(maxlen=100)
-
-        self.gamestate = gamestate
 
         # keep track of collisions we've seen
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
@@ -540,8 +615,15 @@ class Interface(AbstractInterface, core.PlayerObserver):
 
         self.key_list:Dict[int, KeyBinding] = {}
 
-        self.error_color = 0
+    @property
+    def player(self) -> core.Player:
+        return self.gamestate.player
 
+    @property
+    def viewscreen(self) -> BasicCanvas:
+        return self._viewscreen
+
+    @property
     def aspect_ratio(self) -> float:
         return self.font_height/self.font_width
 
@@ -574,8 +656,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
         except:
             pass
         self.logger.debug(f'extended color support? {curses.can_change_color()} {curses.COLORS}')
-
-        self.error_color = curses.color_pair(1)
 
         return self
 
@@ -718,9 +798,9 @@ class Interface(AbstractInterface, core.PlayerObserver):
         )
         self.stdscr.addstr(self.logscreen_y-1, self.logscreen_x+1, " Message Log ")
 
-        #self.viewscreen = curses.newpad(Settings.VIEWSCREEN_BUFFER_HEIGHT, Settings.VIEWSCREEN_BUFFER_WIDTH)
-        # make the viewscreen 1 extra row to avoid curses error when writing to the bottom right character
-        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width, self.viewscreen_y, self.viewscreen_x, self.aspect_ratio())
+        # make the viewscreen 1 extra row to avoid curses error when writing to
+        # the bottom right character
+        self._viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width, self.viewscreen_y, self.viewscreen_x, self.aspect_ratio)
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
         for message in self.logscreen_buffer:
@@ -752,8 +832,22 @@ class Interface(AbstractInterface, core.PlayerObserver):
         else:
             raise ValueError(f'unknown color {color}')
 
+    def newpad(
+            self,
+            pad_lines:int, pad_cols:int,
+            height:int, width:int,
+            y:int, x:int,
+            aspect_ratio:float
+    ) -> BasicCanvas:
+        return Canvas(
+                curses.newpad(pad_lines, pad_cols),
+                height, width,
+                y, x,
+                aspect_ratio,
+            )
+
     def refresh_viewscreen(self) -> None:
-        self.viewscreen.noutrefresh(0, 0)
+        self._viewscreen.noutrefresh(0, 0)
 
     def refresh_logscreen(self) -> None:
         self.logscreen.noutrefresh(
@@ -841,29 +935,14 @@ class Interface(AbstractInterface, core.PlayerObserver):
                 date_string
         )
 
-    def open_view(self, view:View, deactivate_views:bool=False) -> None:
-        self.logger.debug(f'opening view {view}')
-        if len(self.views):
-            self.views[-1].unfocus()
-            if deactivate_views:
-                for v in self.views:
-                    v.active = False
-        view.initialize()
-        view.focus()
-        self.views.append(view)
+    def handle_input(self, key:int, dt:float) -> None:
+        self.status_message()
+        v = self.views[-1]
+        if v.handle_input(key, dt):
+            return
 
-    def close_view(self, view:View) -> None:
-        self.logger.debug(f'closing view {view}')
-        view.terminate()
-        assert view in self.views
-        self.views.remove(view)
-        if len(self.views) > 0:
-            self.views[-1].focus()
-
-    def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
-        if old_view is not None:
-            self.close_view(old_view)
-        self.open_view(new_view)
+        if key in self.key_list:
+            self.key_list[key]()
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()
@@ -921,17 +1000,4 @@ class Interface(AbstractInterface, core.PlayerObserver):
             return
 
         self.logger.debug(f'keypress {key}')
-
-        self.status_message()
-        v = self.views[-1]
-        if v.handle_input(key, dt):
-            return
-
-        if key in self.key_list:
-            self.key_list[key]()
-
-    def product_name(self, product_id:Optional[int], max_length:int=1024) -> str:
-        if product_id is None:
-            return util.elipsis("None", max_length)
-        else:
-            return util.elipsis(self.gamestate.production_chain.product_names[product_id], max_length)
+        self.handle_input(key, dt)

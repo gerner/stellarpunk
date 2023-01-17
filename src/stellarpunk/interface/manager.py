@@ -387,6 +387,27 @@ class InterfaceManager:
                 curses.mousemask(curses.ALL_MOUSE_EVENTS)
             self.mouse_on = not self.mouse_on
 
+        def debug_collision(args:Sequence[str])->None:
+            if len(self.interface.collisions) == 0:
+                raise command_input.UserError("no collisions to debug")
+
+            collision = self.interface.collisions[-1]
+            if isinstance(collision[0], core.Ship):
+                ship = collision[0]
+            elif isinstance(collision[1], core.Ship):
+                ship = collision[1]
+            else:
+                raise Exception("expected one of colliding objects to be a ship")
+
+            assert ship.sector
+
+            sector_view = sector.SectorView(ship.sector, self.interface)
+            self.interface.swap_view(
+                sector_view,
+                self.focused_view()
+            )
+            sector_view.select_target(ship.entity_id, ship, focus=True)
+
         assert self.gamestate.player.character.location.sector is not None
 
         return [
@@ -412,5 +433,6 @@ class InterfaceManager:
             self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
             self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations)),
             self.bind_command("toggle_mouse", toggle_mouse),
+            self.bind_command("debug_collision", debug_collision),
         ]
 

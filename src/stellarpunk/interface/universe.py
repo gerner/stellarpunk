@@ -34,7 +34,7 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         #self._cached_sector_layout:Tuple[Sequence[str], Sequence[str]] = ([], [])
         self._cached_sector_layout:Tuple[Mapping[Tuple[int, int], str], Mapping[Tuple[int, int], str]] = ({}, {})
 
-        self.starfield = starfield.Starfield(self.interface.gamestate.starfield, self.perspective)
+        self.starfield = starfield.Starfield(self.gamestate.starfield, self.perspective)
 
     def initialize(self) -> None:
         self.logger.info(f'entering universe mode')
@@ -180,9 +180,9 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
 
         # draw the cached sector/edge geometry
         for (y,x), c in self._cached_sector_layout[1].items():
-            self.viewscreen.window.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE))
+            self.viewscreen.addstr(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_EDGE))
         for (y,x), c in self._cached_sector_layout[0].items():
-            self.viewscreen.window.addch(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
+            self.viewscreen.addstr(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
 
         # draw info for each sector
         for sector in self.gamestate.sectors.values():
@@ -223,27 +223,12 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
                 target_id = uuid.UUID(args[0])
             except ValueError:
                 raise command_input.UserError("not a valid target id, try tab completion.")
-            if target_id not in self.interface.gamestate.sectors:
+            if target_id not in self.gamestate.sectors:
                 raise command_input.UserError("{args[0]} not found among sectors")
-            self.select_sector(self.interface.gamestate.sectors[target_id])
+            self.select_sector(self.gamestate.sectors[target_id])
 
-        def debug_collision(args:Sequence[str])->None:
-            if len(self.interface.collisions) == 0:
-                raise command_input.UserError("no collisions to debug")
-
-            collision = self.interface.collisions[-1]
-            if isinstance(collision[0], core.Ship):
-                ship = collision[0]
-            elif isinstance(collision[1], core.Ship):
-                ship = collision[1]
-            else:
-                raise Exception("expected one of colliding objects to be a ship")
-
-            assert ship.sector
-            self.open_sector_view(ship.sector).select_target(ship.entity_id, ship)
         return [
-            self.bind_command("debug_collision", debug_collision),
-            self.bind_command("target", target, util.tab_completer(map(str, self.interface.gamestate.sectors.keys()))),
+            self.bind_command("target", target, util.tab_completer(map(str, self.gamestate.sectors.keys()))),
         ]
 
     def key_list(self) -> Collection[interface.KeyBinding]:

@@ -107,15 +107,15 @@ class CommsView(interface.View):
     def initialize(self) -> None:
         self.interface.reinitialize_screen(name="Comms")
 
-        dph = self.interface.viewscreen_height-self.padding*2
-        dpw = self.interface.viewscreen_width-self.padding*2
+        dph = self.interface.viewscreen.height-self.padding*2
+        dpw = self.interface.viewscreen.width-self.padding*2
         self.dialog_pad = interface.Canvas(
             curses.newpad(dph, dpw),
             dph,
             dpw,
-            self.interface.viewscreen_y+self.padding,
-            self.interface.viewscreen_x+self.padding,
-            self.interface.aspect_ratio(),
+            self.interface.viewscreen.y+self.padding,
+            self.interface.viewscreen.x+self.padding,
+            self.interface.aspect_ratio,
         )
         self.dialog_pad.window.scrollok(True)
 
@@ -237,6 +237,6 @@ class CommsView(interface.View):
     def update_display(self) -> None:
 
         # handle "animation" of the dialog
-        while len(self.animation_queue) > 0 and self.animation_queue[0].animate(self.interface.gamestate.timestamp):
+        while len(self.animation_queue) > 0 and self.animation_queue[0].animate(self.gamestate.timestamp):
             self.animation_queue.popleft()
 

@@ -5,23 +5,23 @@ import math
 from typing import List, Callable, Any, Collection, Optional
 from dataclasses import dataclass
 
-from stellarpunk import core, interface, config
+from stellarpunk import core, interface, config, util
 
 
 def draw_sprite(
-        sprite: core.Sprite, canvas: interface.Canvas, y: int, x: int) -> None:
+        sprite: core.Sprite, canvas: interface.BasicCanvas, y: int, x: int) -> None:
     y_off = 0
     for row in sprite.text:
         for x_off, s in enumerate(row):
             if (x_off, y_off) in sprite.attr:
                 a, c = sprite.attr[x_off, y_off]
-                canvas.window.addstr(
+                canvas.addstr(
                     y+y_off, x+x_off,
                     s,
                     a | curses.color_pair(c)
                 )
             else:
-                canvas.window.addstr(y+y_off, x+x_off, s)
+                canvas.addstr(y+y_off, x+x_off, s)
         y_off += 1
 
 
@@ -36,6 +36,16 @@ def draw_heading(canvas: interface.Canvas, text: str) -> None:
     canvas.window.addstr(f' {text} ', curses.A_UNDERLINE | curses.A_BOLD)
     canvas.window.addstr("\n\n")
 
+
+def product_name(
+        production_chain: core.ProductionChain,
+        product_id: Optional[int],
+        max_length: int=1024
+) -> str:
+    if product_id is None:
+        return util.elipsis("None", max_length)
+    else:
+        return util.elipsis(production_chain.product_names[product_id], max_length)
 
 @dataclass
 class MenuItem:
@@ -70,7 +80,7 @@ class Menu:
     def activate_item(self) -> Any:
         self.options[self.selected_option].action()
 
-    def draw_menu(self, canvas: interface.Canvas, y: int, x: int) -> None:
+    def draw_menu(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
         canvas.addstr(
             y, x,
             f' {self.title} \n\n',
@@ -201,7 +211,7 @@ class MeterMenu:
             option.setting = old_setting
         return option.setting
 
-    def draw(self, canvas: interface.Canvas, y: int, x: int) -> None:
+    def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
         canvas.addstr(
             y, x,
             f' {self.title} \n\n',
@@ -244,7 +254,7 @@ class MeterMenu:
 
     def _draw_meter(
             self,
-            canvas: interface.Canvas,
+            canvas: interface.BasicCanvas,
             option: MeterItem,
             y: int, x: int,
             attr: int = 0

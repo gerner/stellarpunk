@@ -29,6 +29,9 @@ class Presenter:
 
     def draw_effect(self, effect:core.Effect) -> None:
         """ Draws an effect (if visible) on the map. """
+
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        window = self.view.viewscreen.window
         for effect in self.sector._effects:
             if isinstance(effect, effects.MiningEffect):
                 if not isinstance(effect.source, core.Asteroid):
@@ -70,12 +73,12 @@ class Presenter:
                 # circle grows outward
                 r = util.interpolate(effect.started_at, effect.radius, effect.expiration_time, 0., self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
-                util.draw_canvas_at(c, self.view.viewscreen.window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+                util.draw_canvas_at(c, window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
             elif isinstance(effect, effects.WarpInEffect):
                 #circle shrinks inward
                 r = util.interpolate(effect.started_at, 0., effect.expiration_time, effect.radius, self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
-                util.draw_canvas_at(c, self.view.viewscreen.window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+                util.draw_canvas_at(c, window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
             else:
                 e_bbox = effect.bbox()
                 loc = ((e_bbox[2] - e_bbox[0])/2, (e_bbox[3] - e_bbox[1])/2)
@@ -92,6 +95,9 @@ class Presenter:
         if not isinstance(entity, core.Ship):
             return
 
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        window = self.view.viewscreen.window
+
         heading_x, heading_y = util.polar_to_cartesian(self.perspective.meters_per_char[1]*5, entity.angle)
         d_x, d_y = util.sector_to_drawille(heading_x, heading_y, *self.perspective.meters_per_char)
         c = util.drawille_vector(d_x, d_y)
@@ -102,7 +108,7 @@ class Presenter:
 
         accel_x, accel_y = entity.phys.force / entity.mass
         d_x, d_y = util.sector_to_drawille(accel_x, accel_y, *self.perspective.meters_per_char)
-        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), self.view.viewscreen.window, y, x, bounds=self.view.viewscreen_bounds)
+        util.draw_canvas_at(util.drawille_vector(d_x, d_y, canvas=c), window, y, x, bounds=self.view.viewscreen_bounds)
 
     def draw_entity_debug_info(self, y:int, x:int, entity:core.SectorEntity, description_attr:int) -> None:
         if isinstance(entity, core.Ship):
@@ -139,10 +145,13 @@ class Presenter:
                     self.view.viewscreen.addstr(s_y, s_x, " ", 0)
 
 
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        window = self.view.viewscreen.window
+
         # actually draw the circle
         screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
         c = util.make_circle_canvas(entity.radius, *self.perspective.meters_per_char)
-        util.draw_canvas_at(c, self.view.viewscreen.window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+        util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
     def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """

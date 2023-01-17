@@ -136,9 +136,9 @@ class Starfield(interface.PerspectiveObserver):
 
         return computed_layout
 
-    def draw_starfield(self, canvas:interface.Canvas) -> None:
+    def draw_starfield(self, canvas:interface.BasicCanvas) -> None:
         for (y,x), (s, a, c) in self._cached_star_layout.items():
-            canvas.window.addstr(y, x, s, a | curses.color_pair(c))
+            canvas.addstr(y, x, s, a | curses.color_pair(c))
 
     def draw_starfield_to_sprite(self, width:int, height:int, x_start:int=0, y_start:int=0) -> core.Sprite:
         text = [[" "]*width for _ in range(height)]

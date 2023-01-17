@@ -24,21 +24,21 @@ class CharacterView(interface.View):
         ipw = config.Settings.interface.CharacterView.info_width
         self.info_pad = interface.Canvas(
             curses.newpad(config.Settings.interface.CharacterView.info_lines, ipw),
-            self.interface.viewscreen_height-2,
+            self.interface.viewscreen.height-2,
             ipw,
-            self.interface.viewscreen_y+1,
-            self.interface.viewscreen_x+1,
-            self.interface.aspect_ratio(),
+            self.interface.viewscreen.y+1,
+            self.interface.viewscreen.x+1,
+            self.interface.aspect_ratio,
         )
 
-        dpw = self.interface.viewscreen_width - ipw - 3
+        dpw = self.interface.viewscreen.width - ipw - 3
         self.detail_pad = interface.Canvas(
             curses.newpad(config.Settings.interface.CharacterView.detail_lines, dpw),
-            self.interface.viewscreen_height-2,
+            self.interface.viewscreen.height-2,
             dpw,
-            self.interface.viewscreen_y+1,
+            self.interface.viewscreen.y+1,
             self.info_pad.x+ipw+1,
-            self.interface.aspect_ratio(),
+            self.interface.aspect_ratio,
         )
         self.detail_pad.window.scrollok(True)
 

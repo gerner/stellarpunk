@@ -2,7 +2,7 @@ import functools
 import os
 import json
 import uuid
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple, Union, Any
 from dataclasses import dataclass
 
 import numpy as np
@@ -162,8 +162,8 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
         pass
 
 class MonitoringUI(interface.AbstractInterface):
-    def __init__(self, gamestate:core.Gamestate, sector:core.Sector) -> None:
-        self.gamestate = gamestate
+    def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.sector = sector
         self.margin = 2e2
         self.min_neighbor_dist = np.inf
@@ -182,6 +182,28 @@ class MonitoringUI(interface.AbstractInterface):
         self.done = False
 
         self.order_eta_error_factor = 1.0
+
+        self._viewscreen = interface.BasicCanvas(0, 0, 0, 0, self.aspect_ratio)
+
+    @property
+    def player(self) -> core.Player:
+        return self.gamestate.player
+
+    @property
+    def aspect_ratio(self) -> float:
+        return 2.0
+
+    @property
+    def viewscreen(self) -> interface.BasicCanvas:
+        return self._viewscreen
+
+    def newpad(
+            self,
+            pad_lines:int, pad_cols:int,
+            height:int, width:int,
+            y:int, x:int,
+            aspect_ratio:float) -> interface.BasicCanvas:
+        return interface.BasicCanvas(height, width, y, x, aspect_ratio)
 
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
