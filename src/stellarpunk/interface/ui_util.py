@@ -137,8 +137,8 @@ class MeterMenu:
             self,
             title: str,
             options: List[MeterItem],
-            total_width: int = 64,
-            label_width: int = 16,
+            total_width: int = 128,
+            label_width: int = 32,
             number_width: int = 7,
             validator: Optional[Callable[[MeterItem, "MeterMenu"], bool]] = None,
     ) -> None:

@@ -28,6 +28,7 @@ class Simulator(core.AbstractGameRuntime):
         self.event_manager = event_manager or events.EventManager()
 
         self.pause_on_collision = False
+        self.notify_on_collision = False
         self.enable_collisions = True
 
         # time between ticks, this is the framerate
@@ -133,8 +134,9 @@ class Simulator(core.AbstractGameRuntime):
                 # for comparison, a typical briefcase bomb is comparable to
                 # 50 pounds of TNT, which is nearly 100M joules
                 self.gamestate.paused = self.pause_on_collision
-                for entity_a, entity_b, impulse, ke in self._collisions:
-                    self.ui.collision_detected(entity_a, entity_b, impulse, ke)
+                if self.notify_on_collision:
+                    for entity_a, entity_b, impulse, ke in self._collisions:
+                        self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
                 # keep _collisions clear for next time
                 self._collisions.clear()

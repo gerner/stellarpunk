@@ -21,6 +21,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 from rtree import index # type: ignore
+import drawille # type: ignore
 
 from stellarpunk import util, task_schedule, dialog
 
@@ -576,7 +577,7 @@ class Sprite:
         for sprite in sprites:
             for y, row in enumerate(sprite.text):
                 for x, c in enumerate(sprite.text[y]):
-                    if c != " ":
+                    if c != " " and c != chr(drawille.braille_char_offset):
                         text[y][x] = c
                         if (x,y) in sprite.attr:
                             attr[x,y] = sprite.attr[x,y]
@@ -1005,6 +1006,7 @@ class Gamestate:
 
         self.keep_running = True
         self.paused = False
+        self.force_pause_holder:Optional[object] = None
         self.should_raise= False
 
         self.player = Player()
@@ -1013,6 +1015,7 @@ class Gamestate:
 
         self.starfield:Sequence[StarfieldLayer] = []
         self.sector_starfield:Sequence[StarfieldLayer] = []
+        self.portrait_starfield:Sequence[StarfieldLayer] = []
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()
@@ -1020,9 +1023,31 @@ class Gamestate:
     def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
         self.game_runtime.time_acceleration(accel_rate, fast_mode)
 
-    def pause(self) -> None:
+    def _pause(self, paused:Optional[bool]=None) -> None:
         self.time_acceleration(1.0, False)
-        self.paused = not self.paused
+        if paused is None:
+            self.paused = not self.paused
+        else:
+            self.paused = paused
+
+    def pause(self) -> None:
+        if self.force_pause_holder is not None:
+            return
+        self._pause()
+
+    def force_pause(self, requesting_object:object) -> None:
+        if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
+            raise ValueError(f'already paused by {self.force_pause}')
+        else:
+            self._pause(True)
+            self.force_pause_holder = requesting_object
+
+    def force_unpause(self, requesting_object:object) -> None:
+        if self.force_pause_holder != requesting_object:
+            raise ValueError(f'pause requested by {self.force_pause}')
+        else:
+            self.force_pause_holder = None
+            self._pause(False)
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent

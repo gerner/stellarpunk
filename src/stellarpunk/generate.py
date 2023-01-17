@@ -456,25 +456,26 @@ class UniverseGenerator:
         if starfield_composite:
             self.logger.info(f'generating sprite starfield...')
             min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/80.
-            max_zoom = min_zoom#config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8
+            max_zoom = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8
             sprite_starfields = generate_starfield(
                 self.r,
                 radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
-                desired_stars_per_char=(4/80.)**2*10.,
+                desired_stars_per_char=(4/80.)**2*4.,
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
                 layer_zoom_step=0.25,
-                mu=0.3, sigma=0.15,
+                mu=0.6, sigma=0.15,
             )
-            p = interface.Perspective(
-                interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
-                min_zoom, min_zoom, max_zoom,
-            )
-            sf = starfield.Starfield(sprite_starfields, p, zoom_step=1.0)
-            p.update_bbox()
-            starfield_sprite = sf.draw_starfield_to_sprite(self.station_sprites[0].width, self.station_sprites[0].height)
-            for i in range(len(self.station_sprites)):
-                self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
+            self.gamestate.portrait_starfield = sprite_starfields
+            #p = interface.Perspective(
+            #    interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
+            #    min_zoom, min_zoom, max_zoom,
+            #)
+            #sf = starfield.Starfield(sprite_starfields, p, zoom_step=1.0)
+            #p.update_bbox()
+            #starfield_sprite = sf.draw_starfield_to_sprite(self.station_sprites[0].width, self.station_sprites[0].height)
+            #for i in range(len(self.station_sprites)):
+            #    self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
     def initialize(self, starfield_composite:bool=True) -> None:
         self._prepare_sprites(starfield_composite=starfield_composite)
@@ -1391,7 +1392,7 @@ class UniverseGenerator:
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
             ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
-        player_character = self.spawn_character(ship)
+        player_character = self.spawn_character(ship, balance=2e3)
 
         self.gamestate.player.character = player_character
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')

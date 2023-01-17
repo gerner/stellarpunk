@@ -540,6 +540,8 @@ class Interface(AbstractInterface, core.PlayerObserver):
 
         self.key_list:Dict[int, KeyBinding] = {}
 
+        self.error_color = 0
+
     def aspect_ratio(self) -> float:
         return self.font_height/self.font_width
 
@@ -572,6 +574,8 @@ class Interface(AbstractInterface, core.PlayerObserver):
         except:
             pass
         self.logger.debug(f'extended color support? {curses.can_change_color()} {curses.COLORS}')
+
+        self.error_color = curses.color_pair(1)
 
         return self
 
