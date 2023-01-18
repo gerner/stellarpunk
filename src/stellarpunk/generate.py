@@ -455,12 +455,12 @@ class UniverseGenerator:
 
         if starfield_composite:
             self.logger.info(f'generating sprite starfield...')
-            min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/80.
-            max_zoom = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8
+            min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.
+            max_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.*0.25
             sprite_starfields = generate_starfield(
                 self.r,
-                radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
-                desired_stars_per_char=(4/80.)**2*4.,
+                radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
+                desired_stars_per_char=(4/80.)**2*3.,
                 min_zoom=min_zoom,
                 max_zoom=max_zoom,
                 layer_zoom_step=0.25,

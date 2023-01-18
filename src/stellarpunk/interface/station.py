@@ -49,11 +49,10 @@ class StationView(interface.View):
         self.station_sprite_stepsize = 0.25
         self.last_station_sprite_update = 0.
 
-        self.mode = Mode.NONE
+        self.mode = Mode.STATION_MENU
         self.station_menu = ui_util.Menu("uninitialized", [])
         self.sell_menu = ui_util.MeterMenu("uninitialized", [])
         self.buy_menu = ui_util.MeterMenu("uninitialized", [])
-        self.enter_mode(Mode.STATION_MENU)
 
     def initialize(self) -> None:
         self.interface.reinitialize_screen(name="Station View")
@@ -73,6 +72,8 @@ class StationView(interface.View):
             self.interface.viewscreen.y+1, self.info_pad.x+ipw+1,
             self.interface.aspect_ratio,
         )
+
+        self.enter_mode(self.mode)
 
     def update_display(self) -> None:
         self._draw_station_info()
@@ -113,10 +114,10 @@ class StationView(interface.View):
         else:
             raise ValueError(f'unknown mode {self.mode}')
 
-    def _update_station_sprite(self) -> None:
+    def _update_station_sprite(self) -> bool:
         now = time.perf_counter()
         if now - self.last_station_sprite_update < self.station_sprite_update_interval:
-            return
+            return False
 
         self.last_station_sprite_update = now
         starfield_layers = self.gamestate.portrait_starfield
@@ -130,6 +131,7 @@ class StationView(interface.View):
 
         starfield_sprite = sf.draw_starfield_to_sprite(self.station.sprite.width, self.station.sprite.height)
         self.station_sprite = core.Sprite.composite_sprites([starfield_sprite, self.station.sprite])
+        return True
 
     def _draw_station_info(self) -> None:
         """ Draws overall station information in the info pad. """
@@ -143,10 +145,10 @@ class StationView(interface.View):
             left_padding+self.station.sprite.width+2
         )
         # TODO: scrolling star background
-        self._update_station_sprite()
-        ui_util.draw_sprite(
-            self.station_sprite, self.info_pad, 1, left_padding+1
-        )
+        if self._update_station_sprite():
+            ui_util.draw_sprite(
+                self.station_sprite, self.info_pad, 1, left_padding+1
+            )
 
         y = self.station.sprite.height+3
         x = 0
@@ -157,6 +159,7 @@ class StationView(interface.View):
         self.info_pad.noutrefresh(0, 0)
 
     def _enter_station_menu(self) -> None:
+        self.detail_pad.erase()
         self.mode = Mode.STATION_MENU
         self.station_menu = ui_util.Menu(
             "Station Menu",
@@ -176,7 +179,6 @@ class StationView(interface.View):
     def _draw_station_menu(self) -> None:
         """ Draws the main station menu of options. """
 
-        self.detail_pad.erase()
 
         description_lines = textwrap.wrap(
             self.station.description,
@@ -198,6 +200,7 @@ class StationView(interface.View):
         return self.station_menu.key_list()
 
     def _enter_trade(self) -> None:
+        self.detail_pad.erase()
         self.gamestate.force_pause(self)
         self.mode = Mode.TRADE
 
@@ -328,7 +331,6 @@ class StationView(interface.View):
         return total_trade_value
 
     def _draw_trade(self) -> None:
-        self.detail_pad.erase()
         self.sell_menu.draw(self.detail_pad, 2, self.detail_padding)
         self.buy_menu.draw(self.detail_pad, 3 + self.sell_menu.height, self.detail_padding)
 
@@ -444,10 +446,9 @@ class StationView(interface.View):
         return key_list
 
     def _enter_people(self) -> None:
-        pass
+        self.detail_pad.erase()
 
     def _draw_people(self) -> None:
-        self.detail_pad.erase()
         self.detail_pad.addstr(1, self.detail_padding, "Press <ESC> to cancel")
         self.detail_pad.noutrefresh(0, 0)
 
