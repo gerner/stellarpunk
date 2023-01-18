@@ -25,13 +25,11 @@ class EventMock(events.Event):
         ))
         player.set_flag(self.event_id, gamestate.timestamp)
 
-def test_event_tick(gamestate):
+def test_event_tick(gamestate, player):
     event_manager = events.EventManager()
     event_manager.initialize(gamestate)
     test_event = EventMock()
     event_manager.events = [test_event]
-
-    player = gamestate.player
 
     assert test_event.event_id not in player.flags
     assert len(player.messages) == 0
@@ -42,16 +40,16 @@ def test_event_tick(gamestate):
     assert len(player.messages) == 1
     assert player.messages[EventMock.message_entity_id].reply_dialog.dialog_id == "dialog_demo"
 
-def test_dialog_manager(gamestate):
+def test_dialog_manager(gamestate, player):
     dialog_graph = dialog.load_dialog("dialog_demo")
     dialog_manager = events.DialogManager(dialog_graph, gamestate, gamestate.player)
 
-    assert "demo_event_ack" not in gamestate.player.flags
+    assert "demo_event_ack" not in player.flags
 
     dialog_manager.do_node()
 
-    assert "demo_event_ack" in gamestate.player.flags
-    assert gamestate.player.flags["demo_event_ack"] == gamestate.timestamp
+    assert "demo_event_ack" in player.flags
+    assert player.flags["demo_event_ack"] == gamestate.timestamp
 
     dialog_manager.node.node_id == dialog_graph.root_id
 
@@ -59,9 +57,9 @@ def test_dialog_manager(gamestate):
 
     choice = dialog_manager.choices[1]
 
-    assert "demo_event_longchoice" not in gamestate.player.flags
+    assert "demo_event_longchoice" not in player.flags
     dialog_manager.choose(choice)
-    assert "demo_event_longchoice" in gamestate.player.flags
+    assert "demo_event_longchoice" in player.flags
     assert dialog_manager.node.node_id == choice.node_id
 
     with pytest.raises(ValueError):

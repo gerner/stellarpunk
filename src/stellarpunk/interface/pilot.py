@@ -13,6 +13,7 @@ import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders, config
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
+from stellarpunk.interface import station as v_station
 from stellarpunk.orders import steering, movement, collision
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
@@ -26,6 +27,29 @@ TRANSLATE_DIRECTIONS = {
 
 class Settings:
     MAX_ANGULAR_VELOCITY = 2. # about 115 degrees per second
+
+class LambdaOrderObserver(core.OrderObserver):
+    def __init__(
+        self,
+        begin: Optional[Callable[[core.Order], None]] = None,
+        complete: Optional[Callable[[core.Order], None]] = None,
+        cancel: Optional[Callable[[core.Order], None]] = None,
+    ):
+        self.begin = begin
+        self.complete = complete
+        self.cancel = cancel
+
+    def order_begin(self, order: core.Order) -> None:
+        if self.begin:
+            self.begin(order)
+
+    def order_complete(self, order: core.Order) -> None:
+        if self.complete:
+            self.complete(order)
+
+    def order_cancel(self, order: core.Order) -> None:
+        if self.cancel:
+            self.cancel(order)
 
 class PlayerControlOrder(steering.AbstractSteeringOrder):
     """ Order indicating the player is in direct control.
@@ -230,6 +254,11 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         self.starfield = starfield.Starfield(self.gamestate.sector_starfield, self.perspective)
 
+    def open_station_view(self, dock_station: core.Station) -> None:
+        # TODO: make sure we're within docking range?
+        station_view = v_station.StationView(dock_station, self.ship, self.interface)
+        self.interface.open_view(station_view, deactivate_views=True)
+
     def command_list(self) -> Collection[interface.CommandBinding]:
 
         def order_jump(args:Sequence[str]) -> None:
@@ -243,6 +272,20 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             if self.selected_entity is None or not isinstance(self.selected_entity, core.Asteroid):
                 raise command_input.UserError("can only mine asteroids")
             order = orders.MineOrder(self.selected_entity, math.inf, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
+        def order_dock(args:Sequence[str]) -> None:
+            if not isinstance(self.selected_entity, core.Station):
+                raise command_input.UserError("can only dock at stations")
+            order = orders.DockingOrder(self.selected_entity, self.ship, self.gamestate)
+            dock_station = self.selected_entity
+
+            def complete_docking(order: core.Order) -> None:
+                self.interface.player.send_notification(f'{self.ship.short_id()}, {dock_station.short_id()}. Our tugs have you. Welcome aboard.')
+                self.open_station_view(dock_station)
+
+            order.observe(LambdaOrderObserver(complete=complete_docking))
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
@@ -267,6 +310,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
+            self.bind_command("dock", order_dock),
             self.bind_command("cargo", log_cargo),
         ]
 

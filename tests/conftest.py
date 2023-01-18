@@ -37,6 +37,16 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     return sector
 
 @pytest.fixture
+def ship(gamestate: core.Gamestate, generator: generate.UniverseGenerator, sector: core.Sector) -> core.Ship:
+    return generator.spawn_ship(sector, 0, 2400, v=np.array((0,0)), w=0, theta=0)
+
+@pytest.fixture
+def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, ship:core.Ship) -> core.Player:
+    player = generator.spawn_player(ship, balance=2.5e3)
+    gamestate.player = player
+    return player
+
+@pytest.fixture
 def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
     return MonitoringUI(sector, gamestate)
 
