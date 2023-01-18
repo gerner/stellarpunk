@@ -185,6 +185,8 @@ class MonitoringUI(interface.AbstractInterface):
 
         self._viewscreen = interface.BasicCanvas(0, 0, 0, 0, self.aspect_ratio)
 
+        self.last_status_message = ""
+
     @property
     def player(self) -> core.Player:
         return self.gamestate.player
@@ -196,6 +198,9 @@ class MonitoringUI(interface.AbstractInterface):
     @property
     def viewscreen(self) -> interface.BasicCanvas:
         return self._viewscreen
+
+    def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:
+        self.last_status_message = message
 
     def newpad(
             self,

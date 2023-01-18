@@ -518,7 +518,11 @@ class StationManager(core.Agendum):
         super().__init__(*args, **kwargs)
 
         self.station = station
-        self.agent = econ.StationAgent.create_station_agent(self.character, station, self.gamestate.production_chain)
+        self.agent = econ.StationAgent.create_station_agent(
+            self.character,
+            station,
+            self.gamestate.production_chain,
+        )
         self.produced_batches = 0
 
         #TODO: how do we keep this up to date if there's a change?

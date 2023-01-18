@@ -1009,7 +1009,7 @@ class Gamestate:
         self.force_pause_holder:Optional[object] = None
         self.should_raise= False
 
-        self.player = Player()
+        self.player:Player = None # type: ignore[assignment]
 
         self.counters = [0.] * len(Counters)
 

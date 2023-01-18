@@ -485,6 +485,13 @@ class AbstractInterface(abc.ABC):
     def refresh_viewscreen(self) -> None:
         pass
 
+    def handle_input(self, key:int, dt:float) -> bool:
+        self.status_message()
+        v = self.views[-1]
+        if v.handle_input(key, dt):
+            return True
+        return False
+
     def open_view(self, view:View, deactivate_views:bool=False) -> None:
         self.logger.debug(f'opening view {view}')
         if len(self.views):
@@ -498,9 +505,9 @@ class AbstractInterface(abc.ABC):
 
     def close_view(self, view:View) -> None:
         self.logger.debug(f'closing view {view}')
-        view.terminate()
         assert view in self.views
         self.views.remove(view)
+        view.terminate()
         if len(self.views) > 0:
             self.views[-1].focus()
 
@@ -943,14 +950,14 @@ class Interface(AbstractInterface, core.PlayerObserver):
             balance_string
         )
 
-    def handle_input(self, key:int, dt:float) -> None:
-        self.status_message()
-        v = self.views[-1]
-        if v.handle_input(key, dt):
-            return
-
-        if key in self.key_list:
+    def handle_input(self, key:int, dt:float) -> bool:
+        if super().handle_input(key, dt):
+            return True
+        elif key in self.key_list:
             self.key_list[key]()
+            return True
+        else:
+            return False
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()

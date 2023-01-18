@@ -649,6 +649,14 @@ class UniverseGenerator:
         self.gamestate.add_character(character)
         return character
 
+    def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
+        player_character = self.spawn_character(location, balance=balance)
+        player = core.Player()
+        player.character = player_character
+        player.agent = econ.PlayerAgent(player)
+
+        return player
+
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
         pchain = self.gamestate.production_chain
 
@@ -1371,7 +1379,7 @@ class UniverseGenerator:
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
 
-    def spawn_player(self) -> None:
+    def generate_player(self) -> None:
         # mining start: working for someone else, doing mining for a refinery
         # player starts in a ship near a refinery, ship owned by refinery owner
         refinery:Optional[core.Station] = None
@@ -1392,7 +1400,9 @@ class UniverseGenerator:
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
             ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
-        player_character = self.spawn_character(ship, balance=2e3)
+
+        self.gamestate.player = self.spawn_player(ship, balance=2e3)
+        player_character = self.gamestate.player.character
 
         self.gamestate.player.character = player_character
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player)
@@ -1441,8 +1451,8 @@ class UniverseGenerator:
             mean_uninhabitable_resources=config.Settings.generate.Universe.MEAN_UNINHABITABLE_RESOURCES,
         )
 
-        # spawn the player
-        self.spawn_player()
+        # generate the player
+        self.generate_player()
 
         # generate pretty starfields for the background
         self.generate_starfields()

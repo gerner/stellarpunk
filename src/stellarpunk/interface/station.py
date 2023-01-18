@@ -17,11 +17,9 @@ from stellarpunk.interface.ui_util import ValidationError
 
 class Mode(enum.Enum):
     """ Station view UI modes, mutually exclusive things to display. """
-    NONE = enum.auto()
     STATION_MENU = enum.auto()
     TRADE = enum.auto()
     PEOPLE = enum.auto()
-
     EXIT = enum.auto()
 
 
@@ -75,6 +73,11 @@ class StationView(interface.View):
 
         self.enter_mode(self.mode)
 
+    def terminate(self) -> None:
+        # transition to EXIT mode to leave, e.g., TRADE and relase pause lock
+        # we might have already done this if we chose to exit docking
+        self.enter_mode(Mode.EXIT)
+
     def update_display(self) -> None:
         self._draw_station_info()
         if self.mode == Mode.STATION_MENU:
@@ -110,7 +113,9 @@ class StationView(interface.View):
         elif mode == Mode.PEOPLE:
             self._enter_people()
         elif mode == Mode.EXIT:
-            self.interface.close_view(self)
+            # nothing to do on exit, should only happen if we're terminating
+            self.logger.debug(f'exiting station view')
+            pass
         else:
             raise ValueError(f'unknown mode {self.mode}')
 
@@ -171,7 +176,7 @@ class StationView(interface.View):
                     "People", lambda: self.enter_mode(Mode.PEOPLE)
                 ),
                 ui_util.MenuItem(
-                    "Undock", lambda: self.enter_mode(Mode.EXIT)
+                    "Undock", lambda: self.interface.close_view(self)
                 ),
             ]
         )
@@ -375,6 +380,9 @@ class StationView(interface.View):
         def accept() -> None:
             station_agent = self.gamestate.econ_agents[self.station.entity_id]
 
+            total_sell_value = 0.
+            total_buy_value = 0.
+
             # conduct the sells player -> station
             for sell_item in self.sell_menu.options:
                 if sell_item.setting == sell_item.value:
@@ -388,9 +396,10 @@ class StationView(interface.View):
                     resource,
                     station_agent,
                     self.interface.player.agent,
-                    station_agent.buy_price(resource),
+                    price,
                     amount
                 )
+                total_sell_value += price * amount
 
             # conduct the buys station -> player
             for buy_item in self.buy_menu.options:
@@ -399,15 +408,21 @@ class StationView(interface.View):
                 assert buy_item.setting > buy_item.value
                 assert isinstance(buy_item.data, int)
                 resource = buy_item.data
-                price = station_agent.buy_price(resource)
+                price = station_agent.sell_price(resource)
                 amount = buy_item.setting - buy_item.value
                 self.gamestate.transact(
                     resource,
                     self.interface.player.agent,
                     station_agent,
-                    station_agent.sell_price(resource),
+                    price,
                     amount
                 )
+                total_buy_value += price*amount
+
+            if total_sell_value > 0. or total_buy_value > 0.:
+                self.interface.status_message(f'Trade completed: sold ${total_sell_value:.2f} bought ${total_buy_value:.2f}, total: ${total_sell_value - total_buy_value:.2f}')
+            else:
+                self.interface.status_message("No trade conducted")
 
             # return to station menu
             self.enter_mode(Mode.STATION_MENU)
