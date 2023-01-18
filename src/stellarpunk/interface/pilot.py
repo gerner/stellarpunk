@@ -6,7 +6,7 @@ Sits within a sector view.
 import math
 import curses
 import enum
-from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict
 
 import numpy as np
 import cymunk # type: ignore
@@ -246,10 +246,28 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
+        def log_cargo(args:Sequence[str]) -> None:
+            if np.sum(self.ship.cargo) == 0.:
+                self.interface.log_message("No cargo on ship")
+                return
+
+            cargo:Dict[str,float] = {}
+            resource_width = 0
+            for resource, amount in enumerate(self.ship.cargo):
+                if amount > 0:
+                    cargo[ui_util.product_name(self.gamestate.production_chain, resource)] = amount
+
+            amount_width = int(math.ceil(np.max(self.ship.cargo)/10.))
+            cargo_lines = ["Ship cargo:"]
+            for name, amount in cargo.items():
+                cargo_lines.append(f'\t{name:>{resource_width}}: {amount:>{amount_width}.2f}')
+            self.interface.log_message("\n".join(cargo_lines))
+
         return [
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
+            self.bind_command("cargo", log_cargo),
         ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:

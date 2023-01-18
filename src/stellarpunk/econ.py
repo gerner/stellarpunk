@@ -108,10 +108,61 @@ class YesAgent(core.EconAgent):
         return np.inf
 
     def buy(self, resource:int, price:float, amount:float) -> None:
-        raise ValueError("do not trade with the YesAgent")
+        raise NotImplementedError("do not trade with the YesAgent")
 
     def sell(self, resource:int, price:float, amount:float) -> None:
-        raise ValueError("do not trade with the YesAgent")
+        raise NotImplementedError("do not trade with the YesAgent")
+
+class PlayerAgent(core.EconAgent):
+    def __init__(self, player:core.Player, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.player = player
+
+    @property
+    def location(self) -> core.SectorEntity:
+        return self.player.character.location
+
+    def get_owner(self) -> core.Character:
+        return self.player.character
+
+    def buy_resources(self) -> Collection:
+        return []
+
+    def sell_resources(self) -> Collection:
+        return []
+
+    def buy_price(self, resource:int) -> float:
+        return 0.
+
+    def sell_price(self, resource:int) -> float:
+        return np.inf
+
+    def balance(self) -> float:
+        return self.player.character.balance
+
+    def budget(self, resource:int) -> float:
+        return np.inf
+
+    def inventory(self, resource:int) -> float:
+        return self.location.cargo[resource]
+
+    def buy(self, resource:int, price:float, amount:float) -> None:
+        value = price * amount
+        assert self.balance()+PRICE_EPS >= value
+        assert self.location.cargo.sum() <= self.location.cargo_capacity
+        self.location.cargo[resource] += amount
+        self.player.character.balance -= value
+        if util.isclose(self.player.character.balance, 0.):
+            self.player.character.balance = 0.
+
+    def sell(self, resource:int, price:float, amount:float) -> None:
+        assert self.inventory(resource) >= amount
+
+        self.location.cargo[resource] -= amount
+        if util.isclose(self.location.cargo[resource], 0.):
+            self.location.cargo[resource] = 0.
+        self.player.character.balance += price * amount
+
 
 class StationAgent(core.EconAgent):
     """ Agent for a Station.

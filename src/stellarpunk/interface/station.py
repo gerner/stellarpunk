@@ -13,7 +13,7 @@ import numpy as np
 
 from stellarpunk import interface, core, config, util
 from stellarpunk.interface import ui_util, starfield
-
+from stellarpunk.interface.ui_util import ValidationError
 
 class Mode(enum.Enum):
     """ Station view UI modes, mutually exclusive things to display. """
@@ -21,6 +21,8 @@ class Mode(enum.Enum):
     STATION_MENU = enum.auto()
     TRADE = enum.auto()
     PEOPLE = enum.auto()
+
+    EXIT = enum.auto()
 
 
 class StationView(interface.View):
@@ -106,6 +108,8 @@ class StationView(interface.View):
             self._enter_trade()
         elif mode == Mode.PEOPLE:
             self._enter_people()
+        elif mode == Mode.EXIT:
+            self.interface.close_view(self)
         else:
             raise ValueError(f'unknown mode {self.mode}')
 
@@ -113,7 +117,7 @@ class StationView(interface.View):
         now = time.perf_counter()
         if now - self.last_station_sprite_update < self.station_sprite_update_interval:
             return
-        self.logger.info(f'updating sprite')
+
         self.last_station_sprite_update = now
         starfield_layers = self.gamestate.portrait_starfield
         perspective = interface.Perspective(
@@ -161,13 +165,10 @@ class StationView(interface.View):
                     "Trade", lambda: self.enter_mode(Mode.TRADE)
                 ),
                 ui_util.MenuItem(
-                    "Option B", lambda: self.interface.log_message("Option B")
+                    "People", lambda: self.enter_mode(Mode.PEOPLE)
                 ),
                 ui_util.MenuItem(
-                    "Option C", lambda: self.interface.log_message("Option C")
-                ),
-                ui_util.MenuItem(
-                    "Option D", lambda: self.interface.log_message("Option D")
+                    "Undock", lambda: self.enter_mode(Mode.EXIT)
                 ),
             ]
         )
@@ -257,54 +258,56 @@ class StationView(interface.View):
         # the station must have capacity and budget for all player sales
         # the player must have capacity and budget for all player buys
 
-        station_agent = self.gamestate.econ_agents[self.station.entity_id]
-        ship_capacity = self.ship.cargo_capacity - np.sum(self.ship.cargo)
-        station_capacity = self.station.cargo_capacity - np.sum(self.station.cargo)
-        total_buy_amount = 0.
-        total_sell_amount = 0.
-        total_buy_value = 0.
-        total_sell_value = 0.
-        error_message:Optional[str] = None
-        for item in self.sell_menu.options + self.buy_menu.options:
-            resource = item.data
-            assert isinstance(resource, int)
-            resource_delta = item.setting - item.value
+        try:
+            station_agent = self.gamestate.econ_agents[self.station.entity_id]
+            ship_capacity = self.ship.cargo_capacity - np.sum(self.ship.cargo)
+            station_capacity = self.station.cargo_capacity - np.sum(self.station.cargo)
+            total_buy_amount = 0.
+            total_sell_amount = 0.
+            total_buy_value = 0.
+            total_sell_value = 0.
+            for item in self.sell_menu.options:
+                resource = item.data
+                assert isinstance(resource, int)
+                resource_delta = item.setting - item.value
+                # player sells case
+                if resource_delta > 0:
+                    raise ValidationError("The station does not sell that good")
+                elif resource_delta < 0:
+                    if self.ship.cargo[resource] + resource_delta < 0:
+                        raise ValidationError("Your ship doesn't have any more of that good to sell")
+                    trade_value = resource_delta * station_agent.buy_price(resource)
+                    if station_agent.budget(resource) + trade_value < 0:
+                        raise ValidationError("The station won't buy that many of those goods")
+                    total_sell_amount -= resource_delta
+                    total_sell_value -= trade_value
 
-            # player buys case
-            if resource_delta > 0:
-                if station_agent.inventory(resource) - resource_delta < 0:
-                    error_message = "The station doesn't have any more of that good to sell"
-                    break
-                total_buy_amount += resource_delta
-                trade_buy_value = resource_delta * station_agent.sell_price(resource)
-            # player sells case
-            elif resource_delta < 0:
-                if self.ship.cargo[resource] + resource_delta < 0:
-                    error_message = "Your ship doesn't have any more of that good to sell"
-                    break
-                trade_value = resource_delta * station_agent.buy_price(resource)
-                if station_agent.budget(resource) + trade_value < 0:
-                    error_message = "The station won't buy that many of those goods"
-                    break
-                total_sell_amount -= resource_delta
-                total_sell_value -= trade_value
-            else:
-                continue
+            for item in self.buy_menu.options:
+                resource = item.data
+                assert isinstance(resource, int)
+                resource_delta = item.setting - item.value
+                # player buys case
+                if resource_delta < 0:
+                    raise ValidationError("The station doen't buy that good")
+                elif resource_delta > 0:
+                    if station_agent.inventory(resource) - resource_delta < 0:
+                        raise ValidationError("The station doesn't have any more of that good to sell")
+                    total_buy_amount += resource_delta
+                    total_buy_value += resource_delta * station_agent.sell_price(resource)
 
-        if error_message is None:
             if ship_capacity - total_buy_amount < 0:
-                error_message = "Your ship doesn't have the capacity to buy those goods"
+                raise ValidationError("Your ship doesn't have the capacity to buy those goods")
             elif self.interface.player.character.balance - total_buy_value < 0:
-                error_message = "You don't have enough money to buy those goods"
+                raise ValidationError("You don't have enough money to buy those goods")
             elif station_capacity - total_sell_amount < 0:
-                error_message = "The station doesn't have the capacity to buy those goods"
+                raise ValidationError("The station doesn't have the capacity to buy those goods")
             elif station_agent.balance() - total_sell_value < 0:
-                error_message = "The station doesn't have enough money to buy those goods"
+                raise ValidationError("The station doesn't have enough money to buy those goods")
 
-        if error_message is not None:
+        except ValidationError as e:
             self.interface.status_message(
-                    error_message,
-                    self.interface.get_color(interface.Color.ERROR)
+                e.message,
+                self.interface.get_color(interface.Color.ERROR)
             )
             return False
         else:
@@ -368,7 +371,43 @@ class StationView(interface.View):
                 self.enter_mode(Mode.STATION_MENU)
 
         def accept() -> None:
-            # conduct the trade
+            station_agent = self.gamestate.econ_agents[self.station.entity_id]
+
+            # conduct the sells player -> station
+            for sell_item in self.sell_menu.options:
+                if sell_item.setting == sell_item.value:
+                    continue
+                assert sell_item.setting < sell_item.value
+                assert isinstance(sell_item.data, int)
+                resource = sell_item.data
+                price = station_agent.buy_price(resource)
+                amount = sell_item.value - sell_item.setting
+                self.gamestate.transact(
+                    resource,
+                    station_agent,
+                    self.interface.player.agent,
+                    station_agent.buy_price(resource),
+                    amount
+                )
+
+            # conduct the buys station -> player
+            for buy_item in self.buy_menu.options:
+                if buy_item.setting == buy_item.value:
+                    continue
+                assert buy_item.setting > buy_item.value
+                assert isinstance(buy_item.data, int)
+                resource = buy_item.data
+                price = station_agent.buy_price(resource)
+                amount = buy_item.setting - buy_item.value
+                self.gamestate.transact(
+                    resource,
+                    self.interface.player.agent,
+                    station_agent,
+                    station_agent.sell_price(resource),
+                    amount
+                )
+
+            # return to station menu
             self.enter_mode(Mode.STATION_MENU)
 
         key_list:List[interface.KeyBinding] = []
@@ -408,7 +447,11 @@ class StationView(interface.View):
         pass
 
     def _draw_people(self) -> None:
-        pass
+        self.detail_pad.erase()
+        self.detail_pad.addstr(1, self.detail_padding, "Press <ESC> to cancel")
+        self.detail_pad.noutrefresh(0, 0)
 
     def _key_list_people(self) -> Collection[interface.KeyBinding]:
-        return []
+        return [
+            self.bind_key(curses.ascii.ESC, lambda: self.enter_mode(Mode.STATION_MENU), help_key="station_people_cancel"),
+        ]

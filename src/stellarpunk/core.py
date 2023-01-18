@@ -834,11 +834,11 @@ class EconAgent(abc.ABC):
         self.agent_id = EconAgent._next_id
         EconAgent._next_id += 1
 
-    @abc.abstractmethod
-    def get_owner(self) -> Character: ...
+    #@abc.abstractmethod
+    #def get_owner(self) -> Character: ...
 
-    def get_character(self) -> Character:
-        return self.get_owner()
+    #def get_character(self) -> Character:
+    #    return self.get_owner()
 
     @abc.abstractmethod
     def buy_resources(self) -> Collection[int]: ...
@@ -952,7 +952,7 @@ class Counters(enum.IntEnum):
 
 class Gamestate:
     def __init__(self) -> None:
-
+        self.logger = logging.getLogger(util.fullname(self))
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
 
         self.random = np.random.default_rng()
@@ -1124,6 +1124,7 @@ class Gamestate:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
     def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
+        self.logger.info(f'transaction: {product_id} from {buyer.agent_id} to {seller.agent_id} at ${price} x {amount} = ${price * amount}')
         seller.sell(product_id, price, amount)
         buyer.buy(product_id, price, amount)
         self.econ_logger.transact(0., product_id, buyer.agent_id, seller.agent_id, price, amount, ticks=self.timestamp)
@@ -1265,6 +1266,7 @@ class Player(Entity):
 
         # which character the player controls
         self.character:Character = None # type: ignore[assignment]
+        self.agent:EconAgent = None # type: ignore[assignment]
 
         self.notifications:List[str] = []
         self.messages:Dict[uuid.UUID, Message] = {}

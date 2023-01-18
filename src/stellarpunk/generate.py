@@ -1395,6 +1395,8 @@ class UniverseGenerator:
         player_character = self.spawn_character(ship, balance=2e3)
 
         self.gamestate.player.character = player_character
+        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player)
+
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
 
     def generate_starfields(self) -> None:

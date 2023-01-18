@@ -47,6 +47,13 @@ def product_name(
     else:
         return util.elipsis(production_chain.product_names[product_id], max_length)
 
+
+class ValidationError(Exception):
+    def __init__(self, message:str):
+        super().__init__(message)
+        self.message = message
+
+
 @dataclass
 class MenuItem:
     label: str

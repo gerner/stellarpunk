@@ -930,9 +930,17 @@ class Interface(AbstractInterface, core.PlayerObserver):
         # only drawn when the window is reinitialized
         assert len(date_string) == 1+4+4+3+9+5+7+1
         self.stdscr.addstr(
-                self.viewscreen_y-1,
-                self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
-                date_string
+            self.viewscreen_y-1,
+            self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
+            date_string
+        )
+
+    def show_cash(self) -> None:
+        balance_string = f' ${self.player.character.balance:.2f} '
+        self.stdscr.addstr(
+            self.viewscreen.y+self.viewscreen.height,
+            self.viewscreen_x+self.viewscreen_width-len(balance_string)-2,
+            balance_string
         )
 
     def handle_input(self, key:int, dt:float) -> None:
@@ -964,6 +972,7 @@ class Interface(AbstractInterface, core.PlayerObserver):
                 if view.active:
                     view.update_display()
             self.show_date()
+            self.show_cash()
             self.show_diagnostics()
             self.stdscr.noutrefresh()
 
