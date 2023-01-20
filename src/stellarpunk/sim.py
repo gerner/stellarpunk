@@ -13,21 +13,23 @@ import heapq
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda
-from stellarpunk.interface import universe as universe_interface
+from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events
+from stellarpunk.interface import manager as interface_manager
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator(core.AbstractGameRuntime):
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[events.AbstractEventManager]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
+        self.event_manager = event_manager or events.AbstractEventManager()
 
         self.pause_on_collision = False
-        self.enable_collisions = False
+        self.notify_on_collision = False
+        self.enable_collisions = True
 
         # time between ticks, this is the framerate
         self.desired_dt = gamestate.desired_dt
@@ -132,8 +134,9 @@ class Simulator(core.AbstractGameRuntime):
                 # for comparison, a typical briefcase bomb is comparable to
                 # 50 pounds of TNT, which is nearly 100M joules
                 self.gamestate.paused = self.pause_on_collision
-                for entity_a, entity_b, impulse, ke in self._collisions:
-                    self.ui.collision_detected(entity_a, entity_b, impulse, ke)
+                if self.notify_on_collision:
+                    for entity_a, entity_b, impulse, ke in self._collisions:
+                        self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
                 # keep _collisions clear for next time
                 self._collisions.clear()
@@ -181,6 +184,8 @@ class Simulator(core.AbstractGameRuntime):
         # let characters act on their (scheduled) agenda items
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
+
+        self.event_manager.tick()
 
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
@@ -273,9 +278,9 @@ class Simulator(core.AbstractGameRuntime):
 
     def _handle_synchronization(self, now:float, next_tick:float) -> None:
         if next_tick - now > self.gamestate.min_tick_sleep:
-            if self.dt > self.desired_dt:
-                self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
-                self.logger.debug(f'dt: {self.dt}')
+            if self.gamestate.dt > self.desired_dt:
+                self.gamestate.dt = max(self.desired_dt, self.gamestate.dt * self.dt_scaledown)
+                self.logger.debug(f'dt: {self.gamestate.dt}')
             time.sleep(next_tick - now)
             self.sleep_count += 1
         else:
@@ -283,21 +288,21 @@ class Simulator(core.AbstractGameRuntime):
             # seems like we should run a tick with a longer dt to make up for
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
-            if now - next_tick > self.dt:
+            if now - next_tick > self.gamestate.dt:
                 self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
                 #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
                 self.gamestate.missed_ticks += 1
-                behind = (now - next_tick)/self.dt
+                behind = (now - next_tick)/self.gamestate.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
                     if not self.ui.decrease_fps():
-                        self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
+                        self.gamestate.dt = min(self.max_dt, self.gamestate.dt * self.dt_scaleup)
                 self.behind_ticks = behind
                 self.behind_length += 1
-                self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
+                self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.gamestate.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
                 if self.behind_length > self.behind_dt_scale_thresthold:
                     self.ui.increase_fps()
-                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
+                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.gamestate.dt:.4f} for {self.behind_length} ticks')
 
                 self.behind_ticks = 0
                 self.behind_length = 0
@@ -307,7 +312,7 @@ class Simulator(core.AbstractGameRuntime):
         self.reference_realtime = time.perf_counter()
         self.reference_gametime = self.gamestate.timestamp
 
-        next_tick = time.perf_counter()+self.dt
+        next_tick = time.perf_counter()+self.gamestate.dt
 
         while self.gamestate.keep_running:
             if self.gamestate.should_raise:
@@ -318,7 +323,7 @@ class Simulator(core.AbstractGameRuntime):
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
-                self.tick(self.dt)
+                self.tick(self.gamestate.dt)
 
             now = time.perf_counter()
 
@@ -326,13 +331,13 @@ class Simulator(core.AbstractGameRuntime):
             if self.fast_mode:
                 next_tick = now
             else:
-                next_tick = next_tick + self.dt / self.time_accel_rate
+                next_tick = next_tick + self.gamestate.dt / self.time_accel_rate
 
             timeout = next_tick - now
             if not self.gamestate.paused:
                 self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
 
-            self.ui.tick(timeout, self.dt)
+            self.ui.tick(timeout, self.gamestate.dt)
 
             now = time.perf_counter()
             ticktime = now - starttime
@@ -362,14 +367,17 @@ def main() -> None:
         gamestate.econ_logger = data_logger
 
         logging.info("generating universe...")
+        generation_start = time.perf_counter()
         generator = generate.UniverseGenerator(gamestate)
+        generator.initialize()
         stellar_punk = generator.generate_universe()
+        generation_stop = time.perf_counter()
+        logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
 
-        ui = context_stack.enter_context(interface.Interface(gamestate, generator))
+        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
 
-        ui.initialize()
-        uv = universe_interface.UniverseView(gamestate, ui)
-        ui.open_view(uv)
+        event_manager = events.EventManager()
+        event_manager.initialize(gamestate)
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
 
@@ -378,7 +386,7 @@ def main() -> None:
 
         stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
-        sim = Simulator(gamestate, ui, max_dt=1/5, economy_log=economy_log)
+        sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
         sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick

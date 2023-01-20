@@ -8,7 +8,7 @@ import bisect
 import logging
 import pdb
 import curses
-from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, overload
+from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -37,6 +37,29 @@ def throttled_log(timestamp:float, throttle:float, logger:logging.Logger, level:
     else:
         return throttle
 
+def peaked_bounded_random(
+        r:np.random.Generator, mu:float, sigma:float,
+        size:Optional[Union[int, Sequence[int]]]=None,
+        lb:float=0., ub:float=1.0) -> Union[float, npt.NDArray[np.float64]]:
+    if mu <= lb or mu >= ub:
+        raise ValueError(f'mu={mu} must be lb<mu<ub')
+    if sigma <= 0.:
+        raise ValueError(f'sigma={sigma} must be > 0.')
+
+    scale = ub-lb
+    mu = (mu-lb)/scale
+    sigma = (sigma-lb)/scale
+    phi = mu * (1-mu)/(sigma**2.)-1.
+    if phi <= 1./mu or phi <= 1./(1.-mu):
+        raise ValueError(f'sigma={sigma} must be s.t. after transforming mu and sigma to 0,1, mu * (1-mu)/(sigma**2.)-1. < 1/mu and < 1/(1-mu)')
+    alpha = mu * phi
+    beta = (1-mu) * phi
+    # make sure alpha/beta > 1, which makes beta unimodal between 0,1
+    assert alpha > 1.
+    assert beta > 1.
+
+    return lb+scale*r.beta(alpha, beta, size=size)
+
 def human_distance(distance_meters:float) -> str:
     """ Human readable approx string for distance_meters.
 
@@ -52,6 +75,27 @@ def human_distance(distance_meters:float) -> str:
         return f'{distance_meters/1e9:.2f}Gm'
     else:
         return f'{distance_meters:.0e}m'
+
+def human_speed(speed_mps:float) -> str:
+    """ Human readable approx string for speed_mps.
+
+    e.g. 322.8389 => "322m/s", 2.80 => "2.80m/s", 13589.89 => "13.5km/s"
+    """
+    abs_speed = abs(speed_mps)
+    if speed_mps == 0.:
+        return "0m/s"
+    elif abs_speed < 0.01:
+        return "0.00m/s"
+    elif abs_speed < 1e2:
+        return f'{speed_mps:.3}m/s'
+    elif abs_speed < 1e4:
+        return f'{speed_mps:.0f}m/s'
+    elif abs_speed < 1e5:
+        return f'{speed_mps/1000.:.3}km/s'
+    elif abs_speed < 1e7:
+        return f'{speed_mps/1000.:.0f}km/s'
+    else:
+        return f'{speed_mps:.e}m/s'
 
 def sector_to_drawille(
         sector_loc_x:float, sector_loc_y:float,
@@ -82,8 +126,8 @@ def screen_to_sector(
         screen_offset_x:int=0, screen_offset_y:int=0) -> Tuple[float, float]:
     """ converts from screen coordinates to sector coordinates. """
     return (
-            (screen_loc_x-screen_offset_x) * meters_per_char_x + ul_x,
-            (screen_loc_y-screen_offset_y) * meters_per_char_y + ul_y
+            (screen_loc_x-screen_offset_x) * meters_per_char_x + (ul_x+meters_per_char_x),
+            (screen_loc_y-screen_offset_y) * meters_per_char_y + (ul_y+meters_per_char_y),
     )
 
 @jit(cache=True, nopython=True, fastmath=True)
@@ -172,7 +216,7 @@ def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tupl
     subsegment = tuple(x for x in [l,r,t,b] if x is not None)
     assert len(subsegment) <= 2
     if len(subsegment) == 2:
-        return tuple(x for p in subsegment for x in p)
+        return tuple(x for p in subsegment for x in p) # type: ignore
     elif len(subsegment) == 1:
         if rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
             return (subsegment[0][0], subsegment[0][1], segment[0], segment[1])
@@ -185,7 +229,7 @@ def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tupl
     else:
         return None
 
-def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple(float, float)]:
+def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple[float, float]]:
     """ returns true iff segments a and b intersect. """
     # inspired by https://stackoverflow.com/a/565282/553580
     # if the segments are represented as p+r and q+s
@@ -313,6 +357,13 @@ def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, a
         else:
             draw_line(y_row, x_row, row, screen, attr=attr, bounds=bounds)
 
+def elipsis(string:str, max_length:int) -> str:
+    if len(string) <= max_length:
+        return string
+    else:
+        #TODO: is using unicode elipsis the right thing to do here?
+        return string[:max_length-1] + "…"
+
 def tab_complete(partial:str, current:str, options:Iterable[str]) -> str:
     """ Tab completion of partial given sorted options. """
 
@@ -339,8 +390,10 @@ def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
 
 def compute_uigrid(
         bbox:Tuple[float, float, float, float],
-        meters_per_char_x:float, meters_per_char_y:float, max_ticks:int=10
-    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, str]:
+        meters_per_char_x:float, meters_per_char_y:float,
+        bounds:Tuple[int, int, int, int],
+        max_ticks:int=10,
+    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, Mapping[Tuple[int, int], str]]:
     """ Materializes a grid, in text, that fits in a bounding box.
 
     returns a tuple of major/minor x/y tics and the grid itself in text. """
@@ -400,14 +453,16 @@ def compute_uigrid(
         minor_ticks_y,
         major_ticks_y,
         minor_ticks_x,
-        text
+        lines_to_dict(text, bounds=bounds)
     )
 
 def compute_uiradar(
         center:Tuple[float, float],
         bbox:Tuple[float, float, float, float],
-        meters_per_char_x:float, meters_per_char_y:float, max_ticks:int=10
-    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, str]:
+        meters_per_char_x:float, meters_per_char_y:float,
+        bounds:Tuple[int, int, int, int],
+        max_ticks:int=10
+    ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, Mapping[Tuple[int, int], str]]:
     """ Materializes a radar in text that fits in bbox. """
 
     # choose ticks based on x size, y is forced to that, but we still want the
@@ -497,7 +552,7 @@ def compute_uiradar(
         minor_ticks_y,
         major_ticks_y,
         minor_ticks_x,
-        text
+        lines_to_dict(text, bounds=bounds)
     )
 
 def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None) -> drawille.Canvas:

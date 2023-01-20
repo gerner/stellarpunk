@@ -11,3 +11,9 @@ build/build_flag: $(SOURCES)
 
 clean:
 	rm -rf build
+
+test:
+	pytest
+
+lint:
+	flake8 src/stellarpunk/ tests/

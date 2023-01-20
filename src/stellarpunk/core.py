@@ -10,7 +10,7 @@ import collections
 import gzip
 import json
 import itertools
-from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection, Generator
+from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection, Generator, Set
 import abc
 import heapq
 import dataclasses
@@ -21,8 +21,9 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 from rtree import index # type: ignore
+import drawille # type: ignore
 
-from stellarpunk import util, task_schedule
+from stellarpunk import util, task_schedule, dialog
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -49,7 +50,7 @@ class ProductionChain:
         self.production_coolingoff_time = 5.
         self.batch_sizes = np.zeros((self.num_products,))
 
-        self.sink_names:Sequence[str] = []
+        self.product_names:Sequence[str] = []
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -57,6 +58,14 @@ class ProductionChain:
 
     def initialize(self) -> None:
         self.num_products = self.shape[0]
+
+        assert sum(self.ranks) == self.num_products
+        assert self.adj_matrix.shape == (self.num_products, self.num_products)
+        assert self.markup.shape == (self.num_products, )
+        assert self.prices.shape == (self.num_products, )
+        assert self.production_times.shape == (self.num_products, )
+        assert self.batch_sizes.shape == (self.num_products, )
+        assert len(self.product_names) == self.num_products
 
     def inputs_of(self, product_id:int) -> npt.NDArray[np.int64]:
         return np.nonzero(self.adj_matrix[:,product_id])[0]
@@ -72,14 +81,7 @@ class ProductionChain:
         g.attr(compound="true", ranksep="1.5")
 
         for s in range(self.num_products):
-
-            sink_start = self.num_products - len(self.sink_names)
-            if s < sink_start:
-                node_name = f'{s}'
-            else:
-                node_name = f'{self.sink_names[s-sink_start]} ({s})'
-
-            g.node(f'{s}', label=f'{node_name}:\n${self.prices[s]:,.0f}')
+            g.node(f'{s}', label=f'{self.product_names[s]} ({s}):\n${self.prices[s]:,.0f}')
             for t in range(self.num_products):
                 if self.adj_matrix[s, t] > 0:
                     g.edge(f'{s}', f'{t}', label=f'{self.adj_matrix[s, t]:.0f}')
@@ -89,10 +91,17 @@ class ProductionChain:
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
-    def __init__(self, name:str, entity_id:Optional[uuid.UUID]=None)->None:
+    def __init__(self, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:4], byteorder='big')
+
+        if name is None:
+            name = f'{self.__class__} {str(self.entity_id)}'
         self.name = name
+
+        self.description = description or name
+
+        self.flags:Dict[str, float] = {}
 
     def short_id(self) -> str:
         """ first 32 bits as hex """
@@ -100,6 +109,9 @@ class Entity(abc.ABC):
 
     def short_id_int(self) -> int:
         return self._entity_id_short_int
+
+    def set_flag(self, flag:str, timestamp:float) -> None:
+        self.flags[flag] = timestamp
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
@@ -145,7 +157,7 @@ class Sector(Entity):
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
             yield hit.body.data
 
-    def spatial_point(self, point:npt.NDArray[np.float64], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
+    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None, mask:Optional[ObjectFlag]=None) -> Iterator[SectorEntity]:
         #TODO: honor mask
         if not max_dist:
             max_dist = np.inf
@@ -280,7 +292,7 @@ class SectorEntity(Entity):
     def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.sector: Optional[Sector] = None
+        self.sector:Optional[Sector] = None
 
         # some physical properties (in SI units)
         self.mass = 0.
@@ -356,12 +368,14 @@ class Station(SectorEntity, Asset):
     id_prefix = "STA"
     object_type = ObjectType.STATION
 
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sprite:Sprite, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource: Optional[int] = None
         self.next_batch_time = 0.
         self.next_production_time = 0.
         self.cargo_capacity = 1e5
+
+        self.sprite = sprite
 
 class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
@@ -396,7 +410,7 @@ class Ship(SectorEntity, Asset):
                 self.entity_id, timestamp,
                 tuple(self.phys.position), self.radius, self.angle,
                 tuple(self.phys.velocity), self.angular_velocity,
-                tuple((self.phys.force["x"], self.phys.force["y"])), self.phys.torque,
+                tuple(self.phys.force), self.phys.torque,
                 order_hist,
         )
 
@@ -434,7 +448,6 @@ class Ship(SectorEntity, Asset):
         return self.default_order_fn(self, gamestate)
 
     def prepend_order(self, order:Order, begin:bool=True) -> None:
-
         co = self.current_order()
         if co is not None:
             #TODO: should we do anything else to suspend the current order?
@@ -450,9 +463,18 @@ class Ship(SectorEntity, Asset):
         if begin:
             order.begin_order()
 
-    def clear_orders(self) -> None:
+    def remove_order(self, order:Order) -> None:
+        if order in self._orders:
+            self._orders.remove(order)
+
+        co = self.current_order()
+        if co is not None and not co.gamestate.is_order_scheduled(co):
+            co.gamestate.schedule_order_immediate(co)
+
+    def clear_orders(self, gamestate:Gamestate) -> None:
         while self._orders:
             self._orders[0].cancel_order()
+        self.prepend_order(self.default_order(gamestate))
 
     def pop_current_order(self) -> None:
         self._orders.popleft()
@@ -535,8 +557,48 @@ class Agendum:
 class Sprite:
     """ A "sprite" from a text file that can be drawn in text """
 
-    def __init__(self, text:Sequence[str]) -> None:
+    @staticmethod
+    def load_sprites(data:str, sprite_size:Tuple[int, int]) -> List[Sprite]:
+        sprites = []
+        sheet = data.split("\n")
+        offset_limit = (len(sheet[0])//sprite_size[0], len(sheet)//sprite_size[1])
+        for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
+            sprites.append(Sprite(
+                [
+                    x[offset_x*sprite_size[0]:offset_x*sprite_size[0]+sprite_size[0]] for x in sheet[offset_y*sprite_size[1]:offset_y*sprite_size[1]+sprite_size[1]]
+                ]
+            ))
+
+        return sprites
+
+    @staticmethod
+    def composite_sprites(sprites:Sequence[Sprite]) -> Sprite:
+        if len(sprites) == 0:
+            raise ValueError("no sprites to composite")
+
+        text = [[" "]*sprites[0].width for _ in range(sprites[0].height)]
+        attr:Dict[Tuple[int,int], Tuple[int, int]] = {}
+
+        for sprite in sprites:
+            for y, row in enumerate(sprite.text):
+                for x, c in enumerate(sprite.text[y]):
+                    if c != " " and c != chr(drawille.braille_char_offset):
+                        text[y][x] = c
+                        if (x,y) in sprite.attr:
+                            attr[x,y] = sprite.attr[x,y]
+                        else:
+                            attr[x,y] = (0,0)
+
+        return Sprite(["".join(t) for t in text], attr)
+
+    def __init__(self, text:Sequence[str], attr:Optional[Dict[Tuple[int,int], Tuple[int, int]]]=None) -> None:
         self.text = text
+        self.attr = attr or {}
+        self.height = len(text)
+        if len(text) > 0:
+            self.width = len(text[0])
+        else:
+            self.width = 0
 
 class Character(Entity):
     id_prefix = "CHR"
@@ -745,13 +807,13 @@ class Order:
         for order in self.child_orders:
             order.cancel_order()
             try:
-                self.ship._orders.remove(order)
+                self.ship.remove_order(order)
             except ValueError:
                 # order might already have been removed from the queue
                 pass
 
         try:
-            self.ship._orders.remove(self)
+            self.ship.remove_order(self)
         except ValueError:
             # order might already have been removed from the queue
             pass
@@ -765,22 +827,6 @@ class Order:
         """ Performs one immediate tick's worth of action for this order """
         pass
 
-T = TypeVar("T")
-class PrioritizedItem(Generic[T]):
-    def __init__(self, priority:float, item:T) -> None:
-        self.priority = priority
-        self.item = item
-
-    def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, PrioritizedItem):
-            return NotImplemented
-        return self.priority == other.priority
-
-    def __lt__(self, other:Any) -> bool:
-        if not isinstance(other, PrioritizedItem):
-            return NotImplemented
-        return self.priority < other.priority
-
 class EconAgent(abc.ABC):
     _next_id = 0
 
@@ -793,14 +839,17 @@ class EconAgent(abc.ABC):
         self.agent_id = EconAgent._next_id
         EconAgent._next_id += 1
 
-    @abc.abstractmethod
-    def get_owner(self) -> Character: ...
+    #@abc.abstractmethod
+    #def get_owner(self) -> Character: ...
+
+    #def get_character(self) -> Character:
+    #    return self.get_owner()
 
     @abc.abstractmethod
-    def buy_resources(self) -> Collection: ...
+    def buy_resources(self) -> Collection[int]: ...
 
     @abc.abstractmethod
-    def sell_resources(self) -> Collection: ...
+    def sell_resources(self) -> Collection[int]: ...
 
     @abc.abstractmethod
     def buy_price(self, resource:int) -> float: ...
@@ -855,6 +904,25 @@ class AbstractGameRuntime:
         """ Request time acceleration. """
         pass
 
+class StarfieldLayer:
+    def __init__(self, bbox:Tuple[float, float, float, float], zoom:float) -> None:
+        self.bbox:Tuple[float, float, float, float] = bbox
+
+        # list of stars: loc=(x,y), size, spectral_class
+        self._star_list:List[Tuple[Tuple[float, float], float, int]] = []
+        self.num_stars = 0
+
+        # density in stars per m^2
+        self.density:float = 0.
+
+        # zoom level in meters per character
+        self.zoom:float = zoom
+
+    def add_star(self, loc:Tuple[float, float], size:float, spectral_class:int) -> None:
+        self._star_list.append((loc, size, spectral_class))
+        self.num_stars += 1
+        self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
+
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
         """generate consecutive automatic numbers starting from zero"""
@@ -889,7 +957,7 @@ class Counters(enum.IntEnum):
 
 class Gamestate:
     def __init__(self) -> None:
-
+        self.logger = logging.getLogger(util.fullname(self))
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
 
         self.random = np.random.default_rng()
@@ -934,6 +1002,7 @@ class Gamestate:
         self.timestamp = 0.
 
         self.desired_dt = 1/30
+        self.dt = self.desired_dt
         self.min_tick_sleep = self.desired_dt/5
         self.ticks = 0
         self.ticktime = 0.
@@ -942,17 +1011,48 @@ class Gamestate:
 
         self.keep_running = True
         self.paused = False
+        self.force_pause_holder:Optional[object] = None
         self.should_raise= False
 
-        self.player = Player()
+        self.player:Player = None # type: ignore[assignment]
 
         self.counters = [0.] * len(Counters)
+
+        self.starfield:Sequence[StarfieldLayer] = []
+        self.sector_starfield:Sequence[StarfieldLayer] = []
+        self.portrait_starfield:Sequence[StarfieldLayer] = []
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()
 
     def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
         self.game_runtime.time_acceleration(accel_rate, fast_mode)
+
+    def _pause(self, paused:Optional[bool]=None) -> None:
+        self.time_acceleration(1.0, False)
+        if paused is None:
+            self.paused = not self.paused
+        else:
+            self.paused = paused
+
+    def pause(self) -> None:
+        if self.force_pause_holder is not None:
+            return
+        self._pause()
+
+    def force_pause(self, requesting_object:object) -> None:
+        if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
+            raise ValueError(f'already paused by {self.force_pause}')
+        else:
+            self._pause(True)
+            self.force_pause_holder = requesting_object
+
+    def force_unpause(self, requesting_object:object) -> None:
+        if self.force_pause_holder != requesting_object:
+            raise ValueError(f'pause requested by {self.force_pause}')
+        else:
+            self.force_pause_holder = None
+            self._pause(False)
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
@@ -1029,6 +1129,7 @@ class Gamestate:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
     def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
+        self.logger.info(f'transaction: {product_id} from {buyer.agent_id} to {seller.agent_id} at ${price} x {amount} = ${price * amount}')
         seller.sell(product_id, price, amount)
         buyer.buy(product_id, price, amount)
         self.econ_logger.transact(0., product_id, buyer.agent_id, seller.agent_id, price, amount, ticks=self.timestamp)
@@ -1091,18 +1192,21 @@ class Gamestate:
         self.sector_ids = sector_ids
         self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
         self.max_edge_length = max(
-            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] > 0
+            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
         )
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits
 
+    def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)
+
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
         # increment the ticks even though we don't process them?
-        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + self.timestamp)
+        return self.timestamp_to_datetime(self.timestamp)
 
     def quit(self) -> None:
         self.keep_running = False
@@ -1136,7 +1240,58 @@ def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextI
     if needs_close:
         fout.close()
 
-class Player:
-    def __init__(self) -> None:
+class Message(Entity):
+    id_prefix = "MSG"
+
+    def __init__(self, message:str, timestamp:float, *args:Any, reply_to:Optional[Character]=None, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.message = message
+        self.timestamp = timestamp
+
+        self.reply_to = reply_to
+        self.reply_dialog = reply_dialog
+        self.replied_at:Optional[float] = None
+
+class PlayerObserver(abc.ABC):
+    def notification_received(self, player:Player, notification:str) -> None:
+        pass
+    def message_received(self, player:Player, message:Message) -> None:
+        pass
+    def flag_set(self, player:Player, flag:str) -> None:
+        pass
+
+class Player(Entity):
+    id_prefix = "PLR"
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.observers:Set[PlayerObserver] = set()
+
         # which character the player controls
         self.character:Character = None # type: ignore[assignment]
+        self.agent:EconAgent = None # type: ignore[assignment]
+
+        self.notifications:List[str] = []
+        self.messages:Dict[uuid.UUID, Message] = {}
+
+    def observe(self, observer:PlayerObserver) -> None:
+        self.observers.add(observer)
+
+    def send_notification(self, notification:str) -> None:
+        self.notifications.append(notification)
+        for observer in self.observers:
+            observer.notification_received(self, notification)
+
+    def send_message(self, message:Message) -> None:
+        self.messages[message.entity_id] = message
+        for observer in self.observers:
+            observer.message_received(self, message)
+
+    def set_flag(self, flag:str, timestamp:float) -> None:
+        super().set_flag(flag, timestamp)
+
+        for observer in self.observers:
+            observer.flag_set(self, flag)
+

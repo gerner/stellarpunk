@@ -14,14 +14,14 @@ import time
 import collections
 import math
 import collections.abc
-import cProfile
-import pstats
 import abc
-from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping
+import textwrap
+import uuid
+from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
 
-from stellarpunk import util, generate, core
+from stellarpunk import util, core, config
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -84,6 +84,10 @@ class Icons:
 
     LOCATION_INDICATOR = "X"
 
+    STAR_LARGE = "🞣"
+    STAR_SMALL = "🞟"
+    STAR_SMALL_ALTS = ["˙", "·", "."]
+
     """
     "△" \u25B3 white up pointing triangle
     "" \u25B7 white right pointing triangle
@@ -122,6 +126,11 @@ class Icons:
     "⌬" benzene ring
     "⬡" white hexagon
     "⬢" black hexagon
+    "🞣" medium greek cross
+    "🞟" medium small lozenge
+    "·" middle dot
+    "˙" dot above
+    "." arabic dot below
     """
 
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
@@ -134,6 +143,10 @@ class Icons:
 
     COLOR_UNIVERSE_SECTOR = 29
     COLOR_UNIVERSE_EDGE = 40
+
+    COLOR_STAR_ALTS = [203, 209, 228, 231, 123, 52, 28]
+    COLOR_STAR_SMALL = 203#245
+    COLOR_STAR_LARGE = 249
 
     @staticmethod
     def angle_to_ship(angle:float) -> str:
@@ -180,19 +193,43 @@ class Icons:
         else:
             return 0
 
-class Canvas:
-    def __init__(self, viewscreen:curses.window, viewscreen_height:int, viewscreen_width:int) -> None:
-        self.viewscreen = viewscreen
-        self.viewscreen_width = viewscreen_width
-        self.viewscreen_height = viewscreen_height
+class BasicCanvas:
+    def __init__(self, height:int, width:int, y:int, x:int, aspect_ratio:float) -> None:
+        self.width = width
+        self.height = height
+        self.x = x
+        self.y = y
+        self.aspect_ratio = aspect_ratio
 
     def erase(self) -> None:
-        self.viewscreen.erase()
+        pass
+    def addstr(self, y:int, x:int, string:str, attr:int=0) -> None:
+        pass
+    def rectangle(self, uly:int, ulx:int, lry:int, lrx:int) -> None:
+        pass
+    def noutrefresh(self, pminrow:int, pmincol:int) -> None:
+        pass
+
+class Canvas(BasicCanvas):
+    def __init__(self, window:curses.window, *args:Any) -> None:
+        super().__init__(*args)
+        self.window = window
+
+    def erase(self) -> None:
+        self.window.erase()
+
+    def noutrefresh(self, pminrow:int, pmincol:int) -> None:
+        self.window.noutrefresh(
+                pminrow, pmincol,
+                self.y, self.x,
+                self.y+self.height-1,
+                self.x+self.width-1
+        )
 
     def addstr(self, y:int, x:int, string:str, attr:int=0) -> None:
         """ Draws a string to the window, clipping as necessary for offscreen. """
 
-        if y < 0 or y >= self.viewscreen_height or x >= self.viewscreen_width:
+        if y < 0 or y >= self.height or x >= self.width:
             #TODO: do we care about embedded newlines? (some lines might be visible)
             return
 
@@ -200,31 +237,195 @@ class Canvas:
             string = string[-x:]
             x = 0
 
-        if x + len(string) > self.viewscreen_width:
-            string = string[:self.viewscreen_width-x]
+        if x + len(string) > self.width:
+            string = string[:self.width-x]
 
-        self.viewscreen.addstr(y, x, string, attr)
+        self.window.addstr(y, x, string, attr)
+
+    def rectangle(self, uly:int, ulx:int, lry:int, lrx:int) -> None:
+        textpad.rectangle(self.window, uly, ulx, lry, lrx)
+
+class PerspectiveObserver(abc.ABC):
+    def perspective_updated(self, perspective:Perspective) -> None: ...
+
+class Perspective:
+    """ Represents a view on space, at some position, at some zoom """
+    def __init__(self, canvas:BasicCanvas, zoom:float, min_zoom:float, max_zoom:float) -> None:
+        self.canvas = canvas
+
+        # expressed in meters per character width
+        self.zoom = zoom
+
+        # most zoomed out (largest value)
+        self.min_zoom = min_zoom
+        # most zoomed in (smallest value)
+        self.max_zoom = max_zoom
+
+        # min x, min y, max x, max y
+        self.bbox = (0., 0., 0., 0.)
+        self.meters_per_char = (0., 0.)
+
+        self._cursor = (0., 0.)
+
+        self.observers:Set[PerspectiveObserver] = set()
+
+    def observe(self, observer:PerspectiveObserver) -> None:
+        self.observers.add(observer)
+
+    def get_cursor(self) -> Tuple[float, float]:
+        return self._cursor
+
+    def set_cursor(self, c:Tuple[float, float]) -> None:
+        self._cursor = c
+        self.update_bbox()
+
+    cursor = property(get_cursor, set_cursor)
+
+    def move_cursor(self, direction:int) -> None:
+        # ~4 characters horzontally or 2 characters vertically
+        stepsize = self.meters_per_char[0]*4.
+
+        x,y = self.cursor
+
+        if direction == ord('w'):
+            y -= stepsize
+        elif direction == ord('a'):
+            x -= stepsize
+        elif direction == ord('s'):
+            y += stepsize
+        elif direction == ord('d'):
+            x += stepsize
+        else:
+            raise ValueError(f'unknown direction {direction}')
+
+        self.cursor = (x,y)
+
+    def zoom_cursor(self, direction:int) -> None:
+        if direction == ord('+'):
+            self.zoom *= 0.9
+            if self.zoom < self.max_zoom:
+                self.zoom = self.max_zoom
+        elif direction == ord('-'):
+            self.zoom *= 1.1
+            if self.zoom > self.min_zoom:
+                self.zoom = self.min_zoom
+        else:
+            raise ValueError(f'unknown direction {direction}')
+
+        self.update_bbox()
+
+    def update_bbox(self) -> None:
+        if self.zoom <= 0.:
+            raise ValueError(f'zoom must be positive {self.zoom=}')
+        self.meters_per_char = (
+                self.zoom,
+                self.zoom * self.canvas.aspect_ratio
+        )
+
+        vsw = self.canvas.width
+        vsh = self.canvas.height
+
+        self.bbox = (
+            self.cursor[0] - (vsw/2 * self.meters_per_char[0]),
+            self.cursor[1] - (vsh/2 * self.meters_per_char[1]),
+            self.cursor[0] + (vsw/2 * self.meters_per_char[0]),
+            self.cursor[1] + (vsh/2 * self.meters_per_char[1]),
+        )
+
+        for o in self.observers:
+            o.perspective_updated(self)
+
+    def screen_to_sector(self, screen_loc_x:int, screen_loc_y:int) -> Tuple[float, float]:
+        return  util.screen_to_sector(
+            screen_loc_x, screen_loc_y,
+            self.bbox[0], self.bbox[1],
+            self.meters_per_char[0], self.meters_per_char[1],
+            self.canvas.x, self.canvas.y
+        )
+
+    def sector_to_screen(self, sector_loc_x:float, sector_loc_y:float) -> Tuple[int, int]:
+        return util.sector_to_screen(
+            sector_loc_x, sector_loc_y,
+            self.bbox[0], self.bbox[1],
+            self.meters_per_char[0], self.meters_per_char[1]
+        )
+
+CommandSig = Union[
+        Callable[[Sequence[str]], None],
+        Tuple[
+            Callable[[Sequence[str]], None],
+            Callable[[str, str], str]]
+]
+
+class CommandBinding:
+    def __init__(self, command:str, f:Callable[[Sequence[str]], None], h:str, tab_completer:Optional[Callable[[str, str], str]]=None, help_key:Optional[str]=None) -> None:
+        self.command = command
+        self.f = f
+        self.help = h
+        self.tab_completer = tab_completer
+        if help_key is None:
+            help_key = str(uuid.uuid4())
+        self.help_key = help_key
+
+    def __call__(self, args:Sequence[str]) -> None:
+        self.f(args)
+
+    def complete(self, partial:str, command:str) -> str:
+        if self.tab_completer:
+            return self.tab_completer(partial, command) or " "
+        else:
+            return self.command
+
+class KeyBinding:
+    def __init__(self, key:int, f:Callable[[], Any], h:Optional[str], help_key:Optional[str]=None) -> None:
+        self.key = key
+        self.f = f
+        self.help = h
+        if help_key is None:
+            help_key = str(uuid.uuid4())
+        self.help_key = help_key
+
+    def __call__(self) -> None:
+        self.f()
 
 class View(abc.ABC):
-    def __init__(self, interface: Interface) -> None:
-
+    def __init__(self, interface: AbstractInterface) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.has_focus = False
         self.active = True
         self.fast_render = False
         self.interface = interface
+        self.gamestate = interface.gamestate
 
     @property
-    def viewscreen(self) -> Canvas:
+    def viewscreen(self) -> BasicCanvas:
         return self.interface.viewscreen
 
     @property
     def viewscreen_dimensions(self) -> Tuple[int, int]:
-        return (self.interface.viewscreen_width, self.interface.viewscreen_height)
+        return (self.interface.viewscreen.width, self.interface.viewscreen.height)
 
     @property
     def viewscreen_bounds(self) -> Tuple[int, int, int, int]:
-        return self.interface.viewscreen_bounds
+        return (0, 0, self.interface.viewscreen.width, self.interface.viewscreen.height)
+
+    def bind_key(self, k:int, f:Callable[[], Any], help_key:Optional[str]=None) -> KeyBinding:
+        h = config.get_key_help(self, help_key or chr(k))
+        return KeyBinding(k, f, h, help_key=help_key)
+
+    def bind_aliases(self, keys: Collection[int], f: Callable[[], Any], help_key:Optional[str]=None) -> Collection[KeyBinding]:
+        bindings = []
+        for k in keys:
+            bindings.append(self.bind_key(k, f, help_key))
+
+        return bindings
+
+    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> CommandBinding:
+        try:
+            h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).commands, command)
+        except AttributeError:
+            h = "NO HELP"
+        return CommandBinding(command, f, h, tab_completer)
 
     def initialize(self) -> None:
         pass
@@ -243,38 +444,25 @@ class View(abc.ABC):
         pass
 
     def handle_input(self, key:int, dt:float) -> bool:
-        return True
+        key_list = {x.key: x for x in self.key_list()}
+        if key in key_list:
+            key_list[key]()
+            return True
+        else:
+            return False
 
-class ColorDemo(View):
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+    def command_list(self) -> Collection[CommandBinding]:
+        return []
 
-    def update_display(self) -> None:
-        self.interface.viewscreen.erase()
-        self.interface.viewscreen.addstr(0, 35, "COLOR DEMO");
-
-        for c in range(256):
-            self.interface.viewscreen.addstr(int(c/8)+1, c%8*9,f'...{c:03}...', curses.color_pair(c));
-        self.interface.viewscreen.addstr(34, 1, "Press any key to continue")
-        self.interface.refresh_viewscreen()
-
-    def handle_input(self, key:int, dt:float) -> bool:
-        return key == -1
-
-class GenerationUI(generate.GenerationListener):
-    """ Handles the UI during universe generation. """
-
-    def __init__(self, ui:Interface) -> None:
-        self.ui = ui
-
-    def production_chain_complete(self, production_chain:core.ProductionChain) -> None:
-        pass
-
-    def sectors_complete(self, sectors:Mapping[Tuple[int,int], core.Sector]) -> None:
-        #self.ui.universe_mode()
-        pass
+    def key_list(self) -> Collection[KeyBinding]:
+        return []
 
 class AbstractInterface(abc.ABC):
+    def __init__(self, gamestate:core.Gamestate) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
+        self.gamestate = gamestate
+        self.views:List[View] = []
+
     def decrease_fps(self) -> bool:
         return False
 
@@ -290,6 +478,72 @@ class AbstractInterface(abc.ABC):
     @abc.abstractmethod
     def tick(self, timeout:float, dt:float) -> None:
         pass
+
+    def reinitialize_screen(self, name:str="Main Viewscreen") -> None:
+        pass
+
+    def refresh_viewscreen(self) -> None:
+        pass
+
+    def handle_input(self, key:int, dt:float) -> bool:
+        self.status_message()
+        v = self.views[-1]
+        if v.handle_input(key, dt):
+            return True
+        return False
+
+    def open_view(self, view:View, deactivate_views:bool=False) -> None:
+        self.logger.debug(f'opening view {view}')
+        if len(self.views):
+            self.views[-1].unfocus()
+            if deactivate_views:
+                for v in self.views:
+                    v.active = False
+        view.initialize()
+        view.focus()
+        self.views.append(view)
+
+    def close_view(self, view:View) -> None:
+        self.logger.debug(f'closing view {view}')
+        assert view in self.views
+        self.views.remove(view)
+        view.terminate()
+        if len(self.views) > 0:
+            self.views[-1].focus()
+
+    def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
+        if old_view is not None:
+            self.close_view(old_view)
+        self.open_view(new_view)
+
+    def log_message(self, message:str) -> None:
+        pass
+
+    def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:
+        pass
+
+    def get_color(self, color:Color) -> int:
+        return 0
+
+    @property
+    @abc.abstractmethod
+    def player(self) -> core.Player: ...
+
+    @abc.abstractmethod
+    def newpad(
+        self,
+        pad_lines:int, pad_cols:int,
+        height:int, width:int,
+        y:int, x:int,
+        aspect_ratio:float) -> BasicCanvas: ...
+
+    @property
+    @abc.abstractmethod
+    def viewscreen(self) -> BasicCanvas: ...
+
+    @property
+    @abc.abstractmethod
+    def aspect_ratio(self) -> float: ...
 
 class FPSCounter:
     """ Measures FPS by keeping track of frame render times. """
@@ -314,10 +568,10 @@ class FPSCounter:
     def fps(self) -> float:
         return self.current_fps
 
-class Interface(AbstractInterface):
-    def __init__(self, gamestate: core.Gamestate, generator: generate.UniverseGenerator):
+class Interface(AbstractInterface, core.PlayerObserver):
+    def __init__(self, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
         self.stdscr:curses.window = None # type: ignore[assignment]
-        self.logger = logging.getLogger(util.fullname(self))
 
         self.desired_fps = Settings.MAX_FPS
         self.max_fps = self.desired_fps
@@ -337,7 +591,7 @@ class Interface(AbstractInterface):
 
         # viewport sizes and positions in the global screen
         # this is what's visible
-        self.viewscreen:Canvas = None # type: ignore[assignment]
+        self._viewscreen:Canvas = None # type: ignore[assignment]
         self.viewscreen_width = 0
         self.viewscreen_height = 0
         self.viewscreen_x = 0
@@ -349,13 +603,11 @@ class Interface(AbstractInterface):
         self.logscreen_height = 0
         self.logscreen_x = 0
         self.logscreen_y = 0
-
-        self.gamestate = gamestate
+        self.logscreen_padding = 1
+        self.logscreen_buffer:Deque[str] = collections.deque(maxlen=100)
 
         # keep track of collisions we've seen
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
-
-        self.generator = generator
 
         # last view has focus for input handling
         self.views:List[View] = []
@@ -364,10 +616,23 @@ class Interface(AbstractInterface):
 
         self.one_time_step = False
 
-        self.profiler:Optional[cProfile.Profile] = None
 
         self.status_message_lifetime:float = 7.
         self.status_message_clear_time:float = np.inf
+
+        self.key_list:Dict[int, KeyBinding] = {}
+
+    @property
+    def player(self) -> core.Player:
+        return self.gamestate.player
+
+    @property
+    def viewscreen(self) -> BasicCanvas:
+        return self._viewscreen
+
+    @property
+    def aspect_ratio(self) -> float:
+        return self.font_height/self.font_width
 
     def __enter__(self) -> Interface:
         """ Does most simple interface initialization.
@@ -416,6 +681,12 @@ class Interface(AbstractInterface):
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
+
+    def notification_received(self, player:core.Player, notification:str) -> None:
+        self.log_message(notification)
+
+    def message_received(self, player:core.Player, message:core.Message) -> None:
+        self.log_message(f'Message {message.short_id()} received at {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
 
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
@@ -534,11 +805,13 @@ class Interface(AbstractInterface):
         )
         self.stdscr.addstr(self.logscreen_y-1, self.logscreen_x+1, " Message Log ")
 
-        #self.viewscreen = curses.newpad(Settings.VIEWSCREEN_BUFFER_HEIGHT, Settings.VIEWSCREEN_BUFFER_WIDTH)
-        # make the viewscreen 1 extra row to avoid curses error when writing to the bottom right character
-        self.viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width)
+        # make the viewscreen 1 extra row to avoid curses error when writing to
+        # the bottom right character
+        self._viewscreen = Canvas(curses.newpad(self.viewscreen_height+1, self.viewscreen_width), self.viewscreen_height, self.viewscreen_width, self.viewscreen_y, self.viewscreen_x, self.aspect_ratio)
         self.logscreen = curses.newpad(self.logscreen_height+1, self.logscreen_width)
         self.logscreen.scrollok(True)
+        for message in self.logscreen_buffer:
+            self.draw_log_message(message)
 
         self.stdscr.noutrefresh()
         self.refresh_viewscreen()
@@ -554,8 +827,11 @@ class Interface(AbstractInterface):
         self.stdscr.timeout(0)
 
         curses.nonl()
+        curses.curs_set(0)
 
         self.reinitialize_screen()
+
+        self.gamestate.player.observe(self)
 
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:
@@ -563,13 +839,22 @@ class Interface(AbstractInterface):
         else:
             raise ValueError(f'unknown color {color}')
 
+    def newpad(
+            self,
+            pad_lines:int, pad_cols:int,
+            height:int, width:int,
+            y:int, x:int,
+            aspect_ratio:float
+    ) -> BasicCanvas:
+        return Canvas(
+                curses.newpad(pad_lines, pad_cols),
+                height, width,
+                y, x,
+                aspect_ratio,
+            )
+
     def refresh_viewscreen(self) -> None:
-        self.viewscreen.viewscreen.noutrefresh(
-                0, 0,
-                self.viewscreen_y, self.viewscreen_x,
-                self.viewscreen_y+self.viewscreen_height-1,
-                self.viewscreen_x+self.viewscreen_width-1
-        )
+        self._viewscreen.noutrefresh(0, 0)
 
     def refresh_logscreen(self) -> None:
         self.logscreen.noutrefresh(
@@ -592,9 +877,20 @@ class Interface(AbstractInterface):
                 attr=self.get_color(Color.ERROR)
         )
 
+    def draw_log_message(self, message:str) -> None:
+        for message_line in message.split("\n"):
+            if message_line == "":
+                self.logscreen.addstr(self.logscreen_height, self.logscreen_padding, "\n")
+            else:
+                lines = textwrap.wrap(message_line, width=self.logscreen_width-self.logscreen_padding*2, subsequent_indent="  ")
+                for line in lines:
+                    self.logscreen.addstr(self.logscreen_height,self.logscreen_padding, line+"\n")
+        self.logscreen.addstr(self.logscreen_height,self.logscreen_padding, "\n")
+
     def log_message(self, message:str) -> None:
         """ Adds a message to the log, scrolling everything else up. """
-        self.logscreen.addstr(self.logscreen_height,0, message+"\n")
+        self.logscreen_buffer.append(message)
+        self.draw_log_message(message)
         self.refresh_logscreen()
 
     def status_message(self, message:str="", attr:int=0, cursor:bool=False) -> None:
@@ -641,83 +937,27 @@ class Interface(AbstractInterface):
         # only drawn when the window is reinitialized
         assert len(date_string) == 1+4+4+3+9+5+7+1
         self.stdscr.addstr(
-                self.viewscreen_y-1,
-                self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
-                date_string
+            self.viewscreen_y-1,
+            self.viewscreen_x+self.viewscreen_width-len(date_string)-2,
+            date_string
         )
 
-    def generation_listener(self) -> generate.GenerationListener:
-        return GenerationUI(self)
+    def show_cash(self) -> None:
+        balance_string = f' ${self.player.character.balance:.2f} '
+        self.stdscr.addstr(
+            self.viewscreen.y+self.viewscreen.height,
+            self.viewscreen_x+self.viewscreen_width-len(balance_string)-2,
+            balance_string
+        )
 
-    def open_view(self, view:View) -> None:
-        self.logger.debug(f'opening view {view}')
-        if len(self.views):
-            self.views[-1].unfocus()
-        view.initialize()
-        view.focus()
-        self.views.append(view)
-
-    def close_view(self, view:View) -> None:
-        self.logger.debug(f'closing view {view}')
-        view.terminate()
-        self.views.remove(view)
-        self.views[-1].focus()
-
-    def c_pause(self, args:Sequence[str]) -> None:
-        self.gamestate.time_acceleration(1.0, False)
-        self.gamestate.paused = not self.gamestate.paused
-
-    def c_time_accel(self, args:Sequence[str]) -> None:
-        old_accel_rate, _ = self.gamestate.get_time_acceleration()
-        new_accel_rate = old_accel_rate * 1.25
-        if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
-            new_accel_rate = 1.0
-        if new_accel_rate >= Settings.MAX_TIME_ACCEL:
-            new_accel_rate = Settings.MAX_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate, False)
-
-    def c_time_decel(self, args:Sequence[str]) -> None:
-        old_accel_rate, _ = self.gamestate.get_time_acceleration()
-        new_accel_rate = old_accel_rate / 1.25
-        if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
-            new_accel_rate = 1.0
-        if new_accel_rate <= Settings.MIN_TIME_ACCEL:
-            new_accel_rate = Settings.MIN_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate, False)
-
-    def command_list(self) -> Mapping[str, Callable[[Sequence[str]], None]]:
-        def fps(args:Sequence[str]) -> None: self.show_fps = not self.show_fps
-        def quit(args:Sequence[str]) -> None: self.gamestate.quit()
-        def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
-        def colordemo(args:Sequence[str]) -> None: self.open_view(ColorDemo(self))
-        def profile(args:Sequence[str]) -> None:
-            if self.profiler:
-                self.profiler.disable()
-                pstats.Stats(self.profiler).dump_stats("/tmp/profile.prof")
-            else:
-                self.profiler = cProfile.Profile()
-                self.profiler.enable()
-
-        def fast(args:Sequence[str]) -> None:
-            _, fast_mode = self.gamestate.get_time_acceleration()
-            self.gamestate.time_acceleration(1.0, fast_mode=not fast_mode)
-
-        def decrease_fps(args:Sequence[str]) -> None: self.decrease_fps()
-        def increase_fps(args:Sequence[str]) -> None: self.increase_fps()
-
-        return {
-                "pause": self.c_pause,
-                "t_accel" : self.c_time_accel,
-                "t_decel" : self.c_time_decel,
-                "fps": fps,
-                "quit": quit,
-                "raise": raise_exception,
-                "colordemo": colordemo,
-                "profile": profile,
-                "fast": fast,
-                "decrease_fps": decrease_fps,
-                "increase_fps": increase_fps,
-        }
+    def handle_input(self, key:int, dt:float) -> bool:
+        if super().handle_input(key, dt):
+            return True
+        elif key in self.key_list:
+            self.key_list[key]()
+            return True
+        else:
+            return False
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()
@@ -739,6 +979,7 @@ class Interface(AbstractInterface):
                 if view.active:
                     view.update_display()
             self.show_date()
+            self.show_cash()
             self.show_diagnostics()
             self.stdscr.noutrefresh()
 
@@ -762,27 +1003,17 @@ class Interface(AbstractInterface):
         # process input according to what has focus (i.e. umap, smap, pilot, command)
         #self.stdscr.timeout(int(timeout*100))
 
-        # clear out any buffered keys
         key = self.stdscr.getch()
-        while self.stdscr.getch() != -1:
-            pass
+        # clear out any buffered keys
+        #while self.stdscr.getch() != -1:
+        #    pass
 
-        if key == -1:
+        if key < 0:
             return
         elif key == curses.KEY_RESIZE:
             for view in self.views:
                 view.initialize()
-        elif key == ord(" "):
-            self.c_pause(())
-        elif key == ord("."):
-            self.c_pause(())
-            self.one_time_step = True
-        elif key == ord(">"):
-            self.c_time_accel(())
-        elif key == ord("<"):
-            self.c_time_decel(())
-        elif key >= 0:
-            self.status_message()
-            v = self.views[-1]
-            if not v.handle_input(key, dt):
-                self.close_view(v)
+            return
+
+        self.logger.debug(f'keypress {key}')
+        self.handle_input(key, dt)

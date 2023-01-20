@@ -1,0 +1,30 @@
+# Events
+
+[event.start_game_help]
+criteria="!p.start_game_help & CMP(NOW > 1)"
+notification="press \"?\" or type \":\" then \"help\" and <ENTER> for help.\ntype \":\" then \"quit\" and <ENTER> to quit."
+
+[contact.contact_demo]
+criteria="p.event_demo"
+notification="awesome sauce"
+
+#[event.tutorial_chain_intro]
+#criteria="!p.tutorial_chain_intro & CMP(NOW > 1)"
+#
+#    [event.tutorial_chain_intro.context]
+#    tutorial_guy="character:tutorial_guy.tutorial_chain"
+#    tutorial_station="station:tutorial_station.tutorial_chain"
+#
+#    [event.tutoral_chain_intro.message]
+#    from="tutorial_guy"
+#    subject="Time to get started"
+#    body="Come and talk to me on {tutorial_station.short_id()} so we can get you started working. Just look me up in the station directory."
+#
+#[contact.tutorial_chain_start]
+#criteria="p.tutorial_chain_intro & !p.tutorial_chain_start"
+#dialog="tutorial_chain_start"
+#    [contact.tutorial_chain_start.context]
+#    tutorial_station="station:tutorial_station.tutorial_chain"
+#
+#[event.tutorial_chain_mined]
+#criteria="p.tutorial_chain_start & !p.tutorial_chain_asteroid & ship_has_enough_of_TBD_target_resource"

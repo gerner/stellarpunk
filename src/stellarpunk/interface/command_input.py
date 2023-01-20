@@ -8,6 +8,7 @@ class CommandHistory:
 
     Model is that you've got a history of commands, you are editing an entry in it.
     The last entry is replaced by the command you enter. """
+
     def __init__(self) -> None:
         self._history:List[str] = [""]
         self._history_index = 0
@@ -50,33 +51,21 @@ class CommandHistory:
             self._history_index = len(self._history)-1
         return self._history[self._history_index]
 
+shared_history = CommandHistory()
+
+class UserError(Exception):
+    pass
+
 class CommandInput(interface.View):
     """ Command mode: typing in a command to execute. """
 
-    CommandSig = Union[
-            Callable[[Sequence[str]], None],
-            Tuple[
-                Callable[[Sequence[str]], None],
-                Callable[[str, str], str]]
-    ]
-
-    class UserError(Exception):
-        pass
-
-    def __init__(self, *args:Any, commands:Mapping[str, CommandSig]={}, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, commands:Mapping[str, interface.CommandBinding]={}, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.commands:MutableMapping[str, Callable[[Sequence[str]], None]] = {}
-        self.completers:MutableMapping[str, Callable[[str, str], str]] = {}
-        for c, carg in commands.items():
-            if isinstance(carg, tuple):
-                self.commands[c] = carg[0]
-                self.completers[c] = carg[1]
-            else:
-                self.commands[c] = carg
+        self.commands = commands
 
         self.partial = ""
-        self._command_history = CommandHistory()
+        self._command_history = shared_history
 
         self.fast_render = True
 
@@ -96,9 +85,6 @@ class CommandInput(interface.View):
         return self.command.strip().split()[1:]
 
     def initialize(self) -> None:
-        for c, f in self.interface.command_list().items():
-            if c not in self.commands:
-                self.commands[c] = f
         self.logger.info("entering command mode")
 
     def focus(self) -> None:
@@ -118,13 +104,14 @@ class CommandInput(interface.View):
                 self.logger.info(f'executing {self.command}')
                 try:
                     self.commands[command_name](self._command_args())
-                except CommandInput.UserError as e:
+                except UserError as e:
                     self.logger.info(f'user error executing {self.command}: {e}')
                     self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
+                finally:
+                    self._command_history.enter_command()
             else:
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
-            self._command_history.enter_command()
-            return False
+            self.interface.close_view(self)
         elif key == curses.KEY_UP:
             self._command_history.prev_command()
         elif key == curses.KEY_DOWN:
@@ -138,10 +125,14 @@ class CommandInput(interface.View):
         elif key == curses.ascii.TAB:
             if " " not in self.command:
                 self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial
-            elif self._command_name() in self.completers:
-                self.command = self.completers[self._command_name()](self.partial, self.command) or ""
+            elif self._command_name() in self.commands:
+                c = self.commands[self._command_name()].complete(self.partial, self.command)
+                self.command = self.commands[self._command_name()].complete(self.partial, self.command)
+                self.logger.debug(f'set {c} to {self.command}')
         elif key == curses.ascii.ESC:
             self.interface.status_message()
+            self.interface.close_view(self)
+        else:
             return False
 
         return True

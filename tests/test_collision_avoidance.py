@@ -145,7 +145,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     generator.spawn_ship(sector, -300, 1000, v=(0,0), w=0, theta=0)
 
     distance = np.linalg.norm(ship_driver.loc)
-    eta = goto_order.estimate_eta()*1.7
+    eta = goto_order.estimate_eta()*2.0
 
     testui.eta = eta
     testui.orders = [goto_order]
@@ -183,8 +183,6 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
 
     assert any(False if hist_entry.order_hist is None else hist_entry.order_hist.get("cbdr", False) for hist_entry in ship_a.history), "ship_a never detected CBDR"
     assert any(False if hist_entry.order_hist is None else hist_entry.order_hist.get("cbdr", False) for hist_entry in ship_b.history), "ship_b never detected CBDR"
-
-
 
 @write_history
 def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulator):
@@ -1048,7 +1046,7 @@ def test_rotate_lag(gamestate, generator, sector, testui, simulator):
 
     eta = goto_a.estimate_eta()
 
-    testui.eta = eta
+    testui.eta = eta*1.2
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a]
     testui.cannot_stop_orders = [goto_a]

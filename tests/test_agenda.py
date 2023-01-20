@@ -24,7 +24,7 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
 
     station_owner = generator.spawn_character(station)
     station_owner.take_ownership(station)
-    station_agent = econ.StationAgent.create_station_agent(station, gamestate.production_chain)
+    station_agent = econ.StationAgent.create_station_agent(station_owner, station, gamestate.production_chain)
     station_agent._buy_price[0] = 10.
     station_agent._budget[0] = 10. * 5e2 * 3
     gamestate.representing_agent(station.entity_id, station_agent)
@@ -88,7 +88,7 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
 
     station_owner = generator.spawn_character(station, balance=1.5 * 5e2 * price + price/2)
     station_owner.take_ownership(station)
-    station_agent = econ.StationAgent.create_station_agent(station, gamestate.production_chain)
+    station_agent = econ.StationAgent.create_station_agent(station_owner, station, gamestate.production_chain)
     station_agent._buy_price[0] = price
     station_agent._budget[0] = price * 5e2 * 3
     gamestate.representing_agent(station.entity_id, station_agent)

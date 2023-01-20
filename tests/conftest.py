@@ -10,14 +10,21 @@ from . import MonitoringUI, MonitoringEconDataLogger
 def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
+    gamestate.player = core.Player()
     return gamestate
 
 @pytest.fixture
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
+    ug.initialize(starfield_composite=False)
     gamestate.random = ug.r
-    gamestate.production_chain = ug.generate_chain()
-    #        n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
+    gamestate.production_chain = ug.generate_chain(
+            max_fraction_one_to_one=1.,
+            max_fraction_single_input=1.,
+            max_fraction_single_output=1.,
+            assign_names=False,
+            #n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
+    )
     return ug
 
 @pytest.fixture
@@ -31,8 +38,18 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     return sector
 
 @pytest.fixture
+def ship(gamestate: core.Gamestate, generator: generate.UniverseGenerator, sector: core.Sector) -> core.Ship:
+    return generator.spawn_ship(sector, 0, 2400, v=np.array((0,0)), w=0, theta=0)
+
+@pytest.fixture
+def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, ship:core.Ship) -> core.Player:
+    player = generator.spawn_player(ship, balance=2.5e3)
+    gamestate.player = player
+    return player
+
+@pytest.fixture
 def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(gamestate, sector)
+    return MonitoringUI(sector, gamestate)
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:

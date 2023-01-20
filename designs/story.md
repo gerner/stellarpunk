@@ -1,5 +1,15 @@
 # Ideas
 
+## Modempunk
+
+Retro, lo-fi computing and connectivity. No instant information across the
+universe becase they use super low bitrate communication, so it's extremely
+expensive to transmit information over long distances. Maybe some super
+wealthy/powerful folks can do it, but most people rely on lo-fi communication
+that might be very out of date.
+
+This helps to explain why getting price information is so tricky.
+
 ## "The Lead", Investigative Reporter
 
 While docked at a station you get a message from the manager of a different
@@ -42,6 +52,63 @@ giver type.
 
 Following up on the investigation might be rewarding from a story perspective.
 Likely the conclusion will be more status quo than reveletory for the sector.
+
+## New Hab Miner Start
+
+Player starts as a new miner. They don't own anything, work for a refinery
+station manager who works for a hab. They're on a mining ship and get direct
+instructions from the station manager. This is like a tutorial.
+
+They get instructions to set up their agenda for mining and to mine some
+resources. There's more tutorial stuff to follow. This leads to a path that
+gets them free of direct, explicit supervision, but maybe the player can short
+circuit that.
+
+* Set up Mining Agendum (only allowed to mine given resource, sell to refinery)
+* Mine a full load of resources
+* Deliver to station
+* Set up Trading Agendum (only allowed to buy refined good from refinery, sell to any station)
+* Pick up refined goods from same station
+* Sell to different station (not owned by the hab)
+* Repeat this process until something happens (level up agenda?)
+
+Intro comms from the refinery agent (simiarly working for the hab):
+
+So you're the new miner fresh from the hab. Whatever your story, a criminal or
+one of those "idealistic" types, I don't want to know. Let's try not to get you
+killed before you've recouped the cost of pilot placement.
+
+Your job is to mine ore and ferry refined materials for this station. If it
+wasn't obvious this is what's keeping the hab habitable, so try not to frack it
+up. I'm your boss, just like the admin at the hab is my boss. We've both got
+quotas to meet, so follow orders, and let's get going.
+
+Can you handle some mining in this vessel they've got you in, or do you need
+some hand holding? (Y/N to enter basic manuevering and mining tutorial)
+
+...Tutorial goes here (manual piloting controls, docking with the station, zoom
+controls, navigating to the asteroid, mining the asteroid)...
+
+Alright, go grab a full load of RESOURCE and dock back here at STATION to drop
+it off.
+
+...MANAGER sends comms after some period of time if they don't return fast enough...
+
+...Player returns with the goods...
+
+Get that ore unloaded and we can get started on the second half of your job: transporting refined materials between stations.
+
+You got this one covered or should I walk you through it? (Y/N to enter trading tutorial)
+
+...Tutorial goes here (finding 
+
+# Worldgen
+
+## Production Chain
+
+Depending on how many tries it takes, we could tell a story about trying to scrape together a way to survive using equipment and technology left over from the expansion. Very few tries => it was easy to become self sufficient. Many tries => lots of failed attempts to design and build production systems.
+
+Potentially use information about the resulting production chain to describe the products. E.g. if a high-tech resource only uses only a single base resource. E.g. a product that is used in all or nearly all products in the next rank is a critical lynch-pin.
 
 # Tidbits
 

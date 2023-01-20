@@ -463,7 +463,7 @@ class DockingOrder(core.OrderObserver, core.Order):
     def compute_eta(ship:core.Ship, target:core.SectorEntity) -> float:
         return GoToLocation.compute_eta(ship, target.loc) + 15
 
-    def __init__(self, target:core.SectorEntity, *args:Any, surface_distance:float=2e3, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> None:
+    def __init__(self, target:core.SectorEntity, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         if approach_distance <= surface_distance:
             raise ValueError(f'{approach_distance=} must be greater than {surface_distance=}')
