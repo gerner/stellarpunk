@@ -12,18 +12,18 @@ class EventMock(events.Event):
     def __init__(self) -> None:
         super().__init__("test_event")
 
-    def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool:
-        return self.event_id not in player.flags
+    def is_relevant(self, context:events.EventContext) -> bool:
+        return self.event_id not in context.player.flags
 
-    def act(self, gamestate:core.Gamestate, player:core.Player) -> None:
-        player.send_message(core.Message(
+    def act(self, context:events.EventContext) -> None:
+        context.player.send_message(core.Message(
             "what's up? "*20,
-            gamestate.timestamp,
-            reply_to=player.character,
+            context.gamestate.timestamp,
+            reply_to=context.player.character,
             reply_dialog=dialog.load_dialog("dialog_demo"),
             entity_id=EventMock.message_entity_id,
         ))
-        player.set_flag(self.event_id, gamestate.timestamp)
+        context.player.set_flag(self.event_id, context.gamestate.timestamp)
 
 def test_event_tick(gamestate, player):
     event_manager = events.EventManager()
@@ -66,68 +66,68 @@ def test_dialog_manager(gamestate, player):
         dialog_manager.choose(choice)
 
 def test_load_criteria_good():
-    criteria1 = events.load_criteria("foo")
+    criteria1 = events.load_criteria("p.foo")
     assert isinstance(criteria1, events.FlagCriteria)
-    assert criteria1.flag == "foo"
+    assert criteria1.flag == "p.foo"
 
-    criteria1 = events.load_criteria("(foo)")
+    criteria1 = events.load_criteria("(p.foo)")
     assert isinstance(criteria1, events.FlagCriteria)
-    assert criteria1.flag == "foo"
+    assert criteria1.flag == "p.foo"
 
-    criteria2 = events.load_criteria("!foo")
+    criteria2 = events.load_criteria("!p.foo")
     assert isinstance(criteria2, predicates.Negation)
     assert isinstance(criteria2.inner, events.FlagCriteria)
 
-    criteria3 = events.load_criteria("foo | bar")
+    criteria3 = events.load_criteria("p.foo | p.bar")
     assert isinstance(criteria3, predicates.Disjunction)
     assert isinstance(criteria3.a, events.FlagCriteria)
-    assert criteria3.a.flag == "foo"
+    assert criteria3.a.flag == "p.foo"
     assert isinstance(criteria3.b, events.FlagCriteria)
-    assert criteria3.b.flag == "bar"
+    assert criteria3.b.flag == "p.bar"
 
-    criteria4 = events.load_criteria("foo & bar")
+    criteria4 = events.load_criteria("p.foo & p.bar")
     assert isinstance(criteria4, predicates.Conjunction)
     assert isinstance(criteria4.a, events.FlagCriteria)
-    assert criteria4.a.flag == "foo"
+    assert criteria4.a.flag == "p.foo"
     assert isinstance(criteria4.b, events.FlagCriteria)
-    assert criteria4.b.flag == "bar"
+    assert criteria4.b.flag == "p.bar"
 
-    criteria5= events.load_criteria("(foo & bar) | !blerf")
+    criteria5= events.load_criteria("(p.foo & p.bar) | !p.blerf")
     assert isinstance(criteria5, predicates.Disjunction)
     assert isinstance(criteria5.a, predicates.Conjunction)
     assert isinstance(criteria5.a.a, events.FlagCriteria)
-    assert criteria5.a.a.flag == "foo"
+    assert criteria5.a.a.flag == "p.foo"
     assert isinstance(criteria5.a.b, events.FlagCriteria)
-    assert criteria5.a.b.flag == "bar"
+    assert criteria5.a.b.flag == "p.bar"
     assert isinstance(criteria5.b, predicates.Negation)
     assert isinstance(criteria5.b.inner, events.FlagCriteria)
-    assert criteria5.b.inner.flag == "blerf"
+    assert criteria5.b.inner.flag == "p.blerf"
 
     # equiv to foo & (bar | !blerf)
-    criteria6 = events.load_criteria("foo & bar | !blerf")
+    criteria6 = events.load_criteria("p.foo & p.bar | !p.blerf")
     assert isinstance(criteria6, predicates.Conjunction)
     assert isinstance(criteria6.a, events.FlagCriteria)
-    assert criteria6.a.flag == "foo"
+    assert criteria6.a.flag == "p.foo"
     assert isinstance(criteria6.b, predicates.Disjunction)
     assert isinstance(criteria6.b.a, events.FlagCriteria)
-    assert criteria6.b.a.flag == "bar"
+    assert criteria6.b.a.flag == "p.bar"
     assert isinstance(criteria6.b.b, predicates.Negation)
     assert isinstance(criteria6.b.b.inner, events.FlagCriteria)
-    assert criteria6.b.b.inner.flag == "blerf"
+    assert criteria6.b.b.inner.flag == "p.blerf"
 
-    criteria7 = events.load_criteria("foo & (bar | !blerf)")
+    criteria7 = events.load_criteria("p.foo & (p.bar | !p.blerf)")
     assert isinstance(criteria7, predicates.Conjunction)
     assert isinstance(criteria7.a, events.FlagCriteria)
-    assert criteria7.a.flag == "foo"
+    assert criteria7.a.flag == "p.foo"
     assert isinstance(criteria7.b, predicates.Disjunction)
     assert isinstance(criteria7.b.a, events.FlagCriteria)
-    assert criteria7.b.a.flag == "bar"
+    assert criteria7.b.a.flag == "p.bar"
     assert isinstance(criteria7.b.b, predicates.Negation)
     assert isinstance(criteria7.b.b.inner, events.FlagCriteria)
-    assert criteria7.b.b.inner.flag == "blerf"
+    assert criteria7.b.b.inner.flag == "p.blerf"
 
     # make sure that negation doesn't grab junctions
-    criteria8 = events.load_criteria("!foo & (blerf | bar)")
+    criteria8 = events.load_criteria("!p.foo & (p.blerf | p.bar)")
     assert isinstance(criteria8, predicates.Conjunction)
     assert isinstance(criteria8.a, predicates.Negation)
     assert isinstance(criteria8.b, predicates.Disjunction)
@@ -142,13 +142,13 @@ def test_load_criteria_cmp():
 
 def test_load_criteria_bad():
     with pytest.raises(ValueError):
-        events.load_criteria("foo & bar blerf")
+        events.load_criteria("p.foo & p.bar p.blerf")
 
     with pytest.raises(ValueError):
-        events.load_criteria("(foo & bar")
+        events.load_criteria("(p.foo & p.bar")
 
     with pytest.raises(ValueError):
         events.load_criteria("!")
 
     with pytest.raises(ValueError):
-        events.load_criteria("foo)")
+        events.load_criteria("p.foo)")

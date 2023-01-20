@@ -101,12 +101,17 @@ class Entity(abc.ABC):
 
         self.description = description or name
 
+        self.flags:Dict[str, float] = {}
+
     def short_id(self) -> str:
         """ first 32 bits as hex """
         return f'{self.id_prefix}-{self.entity_id.hex[:8]}'
 
     def short_id_int(self) -> int:
         return self._entity_id_short_int
+
+    def set_flag(self, flag:str, timestamp:float) -> None:
+        self.flags[flag] = timestamp
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
@@ -1271,8 +1276,6 @@ class Player(Entity):
         self.notifications:List[str] = []
         self.messages:Dict[uuid.UUID, Message] = {}
 
-        self.flags:Dict[str, float] = {}
-
     def observe(self, observer:PlayerObserver) -> None:
         self.observers.add(observer)
 
@@ -1287,7 +1290,7 @@ class Player(Entity):
             observer.message_received(self, message)
 
     def set_flag(self, flag:str, timestamp:float) -> None:
-        self.flags[flag] = timestamp
+        super().set_flag(flag, timestamp)
 
         for observer in self.observers:
             observer.flag_set(self, flag)

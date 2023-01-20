@@ -4,21 +4,44 @@ import abc
 import logging
 import re
 from typing import List, Any, Sequence, Dict, Tuple, Optional
+from dataclasses import dataclass
 
 from stellarpunk import core, util, dialog, predicates, config
 
-class Event(abc.ABC):
-    def __init__(self, event_id:str) -> None:
-        self.event_id = event_id
 
-    def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool: ...
-    def act(self, gamestate:core.Gamestate, player:core.Player) -> None: ...
+@dataclass
+class EventContext:
+    gamestate: core.Gamestate
+    player: core.Player
+    context: Dict[str, core.Entity]
+
+    def flag(self, flag: str) -> Optional[float]:
+        flag_type, _, flag_name = flag.partition(".")
+        if flag_name is None:
+            raise ValueError(f'malformed flag identifier {flag}, expected flag_key DOT flag_name')
+        if flag_type in self.context:
+            return self.context[flag_type].flags.get(flag_name, None)
+        else:
+            return None
+
+
+class Event(abc.ABC):
+    def __init__(self, event_id:str, priority:Optional[int]=None) -> None:
+        self.event_id = event_id
+        if priority is None:
+            priority = 0
+        self.priority = priority
+
+    def is_relevant(self, context:EventContext) -> bool: ...
+    def act(self, context:EventContext) -> None: ...
 
 class DemoEvent(Event):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__("demo_event", *args, **kwargs)
 
-    def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool:
+    def is_relevant(self, context:EventContext) -> bool:
+        gamestate = context.gamestate
+        player = context.player
         return (
             (gamestate.timestamp > 5. and self.event_id not in player.flags) or
             (
@@ -28,7 +51,9 @@ class DemoEvent(Event):
             )
         )
 
-    def act(self, gamestate:core.Gamestate, player:core.Player) -> None:
+    def act(self, context:EventContext) -> None:
+        gamestate = context.gamestate
+        player = context.player
         if self.event_id not in player.flags:
             player.send_message(core.Message(
                 "what's up? "*20,
@@ -46,14 +71,14 @@ class DemoEvent(Event):
             ))
             player.set_flag(self.event_id, gamestate.timestamp)
 
-EventCriteria = predicates.Criteria[Tuple[core.Gamestate, core.Player]]
+
+EventCriteria = predicates.Criteria[EventContext]
 class FlagCriteria(EventCriteria):
     def __init__(self, flag:str) -> None:
         self.flag = flag
 
-    def evaluate(self, universe:Tuple[core.Gamestate, core.Player]) -> bool:
-        gamestate, player = universe
-        return self.flag in player.flags
+    def evaluate(self, context:EventContext) -> bool:
+        return context.flag(self.flag) is not None
 
 class CompareCriteria(EventCriteria):
     def __init__(self, left:str, op:str, relative:bool, right:float) -> None:
@@ -62,17 +87,18 @@ class CompareCriteria(EventCriteria):
         self.relative = relative
         self.right = right
 
-    def evaluate(self, universe:Tuple[core.Gamestate, core.Player]) -> bool:
-        gamestate, player = universe
+    def evaluate(self, context:EventContext) -> bool:
+        leftv:Optional[float]
         if self.left == "NOW":
-            leftv = gamestate.timestamp
-        elif self.left not in player.flags:
-            return False
+            leftv = context.gamestate.timestamp
         else:
-            leftv = player.flags[self.left]
+            leftv = context.flag(self.left)
+
+        if leftv is None:
+            return False
 
         if self.relative:
-            rightv = self.right + gamestate.timestamp
+            rightv = self.right + context.gamestate.timestamp
         else:
             rightv = self.right
 
@@ -83,7 +109,7 @@ class CompareCriteria(EventCriteria):
         else:
             raise Exception(f'unknown operator {self.op}')
 
-FLAG_RE = re.compile(r'[ \t]*([a-zA-Z0-9_.]+)[ \t]*')
+FLAG_RE = re.compile(r'[ \t]*((p|pc|c)([.][a-zA-Z0-9_.]+)?)[ \t]*')
 JUNCTION_RE = re.compile(r'[ \t]*([|&])[ \t]*')
 OP_RE = re.compile(r'[ \t]*(CMP)[(]([^)]*)[)][ \t]*')
 CMP_ARGS_RE = re.compile(r'[ \t]*([a-zA-Z0-9_.]+)[ \t]*(<|>)[ \t]*(r?)([0-9]+[.]?[0-9]*)[ \t]*')
@@ -177,43 +203,102 @@ class ScriptedEvent(Event):
     def load_from_config(event_id:str, data:Dict[str, Any]) -> "ScriptedEvent":
         criteria = load_criteria(data["criteria"])
 
-        return ScriptedEvent(event_id, criteria, notification=data.get("notification"))
+        return ScriptedEvent(
+            event_id,
+            criteria,
+            notification=data.get("notification"),
+            priority=data.get("priority")
+        )
 
     def __init__(self,
-            event_id:str,
-            criteria:EventCriteria,
-            *args:Any,
-            notification:Optional[str]=None,
-            **kwargs:Any) -> None:
+        event_id:str,
+        criteria:EventCriteria,
+        *args:Any,
+        notification:Optional[str]=None,
+        **kwargs:Any
+    ) -> None:
         super().__init__(event_id, *args, **kwargs)
         self.criteria = criteria
         self.notification = notification
 
-    def is_relevant(self, gamestate:core.Gamestate, player:core.Player) -> bool:
-        return self.criteria.evaluate((gamestate, player))
+    def is_relevant(self, context:EventContext) -> bool:
+        return self.criteria.evaluate(context)
 
-    def act(self, gamestate:core.Gamestate, player:core.Player) -> None:
-        player.set_flag(self.event_id, gamestate.timestamp)
+    def act(self, context:EventContext) -> None:
+        context.player.set_flag(self.event_id, context.gamestate.timestamp)
         if self.notification is not None:
-            player.send_notification(self.notification)
+            context.player.send_notification(self.notification)
 
-class EventManager:
+    def _augment_context(self, context:EventContext) -> None:
+        for augment_key, augmentation in self.augments.items():
+            # find the first relevant entity matching the criteria
+            augmentation
+
+
+class AbstractEventManager:
+    def player_contact(self, contact: core.Character) -> None:
+        pass
+    def tick(self) -> None:
+        pass
+
+
+class EventManager(AbstractEventManager):
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate:core.Gamestate = None # type: ignore[assignment]
         self.events:List[Event] = []
+        self.contact_events:List[Event] = []
 
     def initialize(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate
-        for event_id, event_data in config.Events.items():
+        for event_id, event_data in config.Events["event"].items():
             self.events.append(ScriptedEvent.load_from_config(event_id, event_data))
+        for event_id, event_data in config.Events["contact"].items():
+            self.contact_events.append(ScriptedEvent.load_from_config(event_id, event_data))
+
+    def player_contact(self, contact:core.Character) -> None:
+        """ The player is initiating contact with the given character """
+        context = EventContext(
+            self.gamestate,
+            self.gamestate.player,
+            {
+                "p": self.gamestate.player,
+                "pc": self.gamestate.player.character,
+                "c": contact,
+            }
+        )
+        event = self.choose_event(self.contact_events, context)
+        if event is not None:
+            self.logger.debug(f'starting contact event {event.event_id}')
+            event.act(context)
 
     def tick(self) -> None:
         # check for relevant events and process them
+        context = EventContext(
+            self.gamestate,
+            self.gamestate.player,
+            {
+                "p": self.gamestate.player,
+                "pc": self.gamestate.player.character,
+            }
+        )
+        event = self.choose_event(self.events, context)
+        if event is not None:
+            self.logger.debug(f'starting tick event {event.event_id}')
+            event.act(context)
+
+    def choose_event(self, events:List[Event], context:EventContext) -> Optional[Event]:
+        matching_events: List[Event] = []
         for event in self.events:
-            if event.is_relevant(self.gamestate, self.gamestate.player):
-                self.logger.debug(f'starting event {event.event_id}')
-                event.act(self.gamestate, self.gamestate.player)
+            if event.is_relevant(context):
+                matching_events.append(event)
+
+        if len(matching_events) == 0:
+            return None
+
+        matching_events.sort(key=lambda x: -x.priority)
+        return matching_events[0]
+
 
 class DialogManager:
     def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, player:core.Player) -> None:
