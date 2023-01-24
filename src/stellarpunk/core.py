@@ -13,7 +13,7 @@ import itertools
 from typing import Optional, Deque, Callable, Iterable, Dict, List, Any, Union, TextIO, Tuple, Iterator, Mapping, Sequence, TypeAlias, Iterator, MutableSequence, MutableMapping, TypeVar, Generic, Set, Collection, Generator, Set
 import abc
 import heapq
-import dataclasses
+from dataclasses import dataclass
 import abc
 
 import graphviz # type: ignore
@@ -101,7 +101,7 @@ class Entity(abc.ABC):
 
         self.description = description or name
 
-        self.flags:Dict[str, float] = {}
+        self.flags:Dict[int, int] = {}
 
     def short_id(self) -> str:
         """ first 32 bits as hex """
@@ -110,8 +110,11 @@ class Entity(abc.ABC):
     def short_id_int(self) -> int:
         return self._entity_id_short_int
 
-    def set_flag(self, flag:str, timestamp:float) -> None:
-        self.flags[flag] = timestamp
+    def set_flag(self, flag:int, value:int) -> None:
+        self.flags[flag] = value
+
+    def to_context(self) -> Dict[int, int]:
+        return self.flags
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
@@ -311,6 +314,9 @@ class SectorEntity(Entity):
         self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
+
+        # who is responsible for this entity?
+        self.captain: Optional[Character] = None
 
     @property
     def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
@@ -518,7 +524,7 @@ class AgendumLoggerAdapter(logging.LoggerAdapter):
         self.character = character
 
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
-        return f'{self.character.short_id()}:{self.character.location.address_str()} {msg}', kwargs
+        return f'{self.character.address_str()} {msg}', kwargs
 
 class Agendum:
     """ Represents an activity a Character is engaged in and how they can
@@ -619,6 +625,9 @@ class Character(Entity):
         self.assets:MutableSequence[Asset] = []
         # activites this character is enaged in (how they interact)
         self.agenda:MutableSequence[Agendum] = []
+
+    def address_str(self) -> str:
+        return f'{self.short_id()}:{self.location.address_str()}'
 
     def take_ownership(self, asset:Asset) -> None:
         self.assets.append(asset)
@@ -955,6 +964,34 @@ class Counters(enum.IntEnum):
     COLLISIONS = enum.auto()
     BEHIND_TICKS = enum.auto()
 
+
+class EventType(enum.IntEnum):
+    BROADCAST = enum.auto()
+    APPROACH_DESTINATION = enum.auto()
+
+
+class ContextKey(enum.IntEnum):
+    IS_PLAYER = enum.auto()
+    SHIP = enum.auto()
+    DESTINATION = enum.auto()
+    ENTITY_SHORT_ID_INT = enum.auto()
+    MESSAGE_SENDER = enum.auto()
+    MESSAGE_ID = enum.auto()
+
+
+@dataclass
+class Event:
+    character: Character
+    event_type: EventType
+    context: Dict[int, int]
+    entity_context: Dict[int, Dict[int, int]]
+    entities: Dict[int, Entity]
+    args: Dict[str, Any]
+
+    def get_entity(self, key: int) -> Entity:
+        return self.entities[self.context[key]]
+
+
 class Gamestate:
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
@@ -1021,6 +1058,8 @@ class Gamestate:
         self.starfield:Sequence[StarfieldLayer] = []
         self.sector_starfield:Sequence[StarfieldLayer] = []
         self.portrait_starfield:Sequence[StarfieldLayer] = []
+
+        self.events: Deque[Event] = collections.deque()
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()
@@ -1201,7 +1240,6 @@ class Gamestate:
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)
-
     def current_time(self) -> datetime.datetime:
         #TODO: probably want to decouple telling time from ticks processed
         # we want missed ticks to slow time, but if we skip time will we
@@ -1210,6 +1248,16 @@ class Gamestate:
 
     def quit(self) -> None:
         self.keep_running = False
+
+    def trigger_event(self, character: Character, event_type: EventType, context: Dict[int, int], *entities: Entity, **kwargs: Any) -> None:
+        entity_context: Dict[int, Dict[int, int]] = {}
+        entity_dict: Dict[int, Entity] = {}
+        for entity in entities:
+            entity_context[entity.short_id_int()] = entity.to_context()
+            entity_dict[entity.short_id_int()] = entity
+
+        self.events.append(Event(character, event_type, context, entity_context, entity_dict, kwargs))
+
 
 def write_history_to_file(entity:Union[Sector, SectorEntity], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
     fout:TextIO
@@ -1258,7 +1306,7 @@ class PlayerObserver(abc.ABC):
         pass
     def message_received(self, player:Player, message:Message) -> None:
         pass
-    def flag_set(self, player:Player, flag:str) -> None:
+    def flag_set(self, player:Player, flag:int) -> None:
         pass
 
 class Player(Entity):
@@ -1289,8 +1337,8 @@ class Player(Entity):
         for observer in self.observers:
             observer.message_received(self, message)
 
-    def set_flag(self, flag:str, timestamp:float) -> None:
-        super().set_flag(flag, timestamp)
+    def set_flag(self, flag: int, value: int) -> None:
+        super().set_flag(flag, value)
 
         for observer in self.observers:
             observer.flag_set(self, flag)

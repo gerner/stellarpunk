@@ -478,6 +478,19 @@ class DockingOrder(core.OrderObserver, core.Order):
         # need to get roughly to the target and then time for final approach
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
 
+    def _complete(self) -> None:
+        if self.ship.captain is not None:
+            self.gamestate.trigger_event(
+                self.ship.captain,
+                core.EventType.APPROACH_DESTINATION,
+                {
+                    core.ContextKey.DESTINATION: self.target.short_id_int(),
+                    core.ContextKey.SHIP: self.ship.short_id_int(),
+                },
+                self.target,
+                self.ship,
+            )
+
     def order_complete(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)
 

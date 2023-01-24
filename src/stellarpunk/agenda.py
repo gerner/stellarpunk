@@ -178,7 +178,20 @@ def choose_station_to_sell_to(
 MINING_SLEEP_TIME = 60.
 TRADING_SLEEP_TIME = 60.
 
-class MiningAgendum(core.Agendum, core.OrderObserver):
+class CaptainAgendum(core.Agendum):
+    def __init__(self, craft: core.SectorEntity, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.craft = craft
+
+    def _start(self) -> None:
+        if self.character.location != self.craft:
+            raise ValueError(f'{self.character.short_id()} tried to be captain of {self.craft.short_id()} but they are on {self.character.location.short_id()}')
+        self.craft.captain = self.character
+
+    def _stop(self) -> None:
+        self.craft.captain = None
+
+class MiningAgendum(CaptainAgendum, core.OrderObserver):
     """ Managing a ship for mining.
 
     Operates as a state machine as we mine asteroids and sell the resources to
@@ -190,8 +203,15 @@ class MiningAgendum(core.Agendum, core.OrderObserver):
         TRADING = enum.auto()
         COMPLETE = enum.auto()
 
-    def __init__(self, ship:core.Ship, *args:Any, allowed_resources:Optional[List[int]]=None, allowed_stations:Optional[List[core.SectorEntity]]=None, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        ship:core.Ship,
+        *args: Any,
+        allowed_resources: Optional[List[int]] = None,
+        allowed_stations: Optional[List[core.SectorEntity]] = None,
+        **kwargs: Any
+    ) -> None:
+        super().__init__(ship, *args, **kwargs)
 
         self.ship = ship
         self.agent = econ.ShipTraderAgent(ship, self.character)
@@ -279,10 +299,12 @@ class MiningAgendum(core.Agendum, core.OrderObserver):
         return target
 
     def _start(self) -> None:
+        super()._start()
         assert self.state == MiningAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
     def _stop(self) -> None:
+        super()._stop()
         if self.state == MiningAgendum.State.MINING:
             assert self.mining_order is not None
             self.mining_order.cancel_order()
@@ -345,7 +367,7 @@ class MiningAgendum(core.Agendum, core.OrderObserver):
             self.mining_order.observe(self)
             self.ship.prepend_order(self.mining_order)
 
-class TradingAgendum(core.Agendum, core.OrderObserver):
+class TradingAgendum(CaptainAgendum, core.OrderObserver):
 
     class State(enum.Enum):
         IDLE = enum.auto()
@@ -356,12 +378,14 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         SLEEP_NO_SALES = enum.auto()
 
     def __init__(self,
-            ship:core.Ship, *args:Any,
-            allowed_goods:Optional[List[int]]=None,
-            buy_from_stations:Optional[List[core.SectorEntity]]=None,
-            sell_to_stations:Optional[List[core.SectorEntity]]=None,
-            **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+        ship: core.Ship,
+        *args: Any,
+        allowed_goods: Optional[List[int]] = None,
+        buy_from_stations: Optional[List[core.SectorEntity]] = None,
+        sell_to_stations: Optional[List[core.SectorEntity]] = None,
+        **kwargs:Any
+    ) -> None:
+        super().__init__(ship, *args, **kwargs)
         self.ship = ship
         self.agent = econ.ShipTraderAgent(ship, self.character)
         self.state = TradingAgendum.State.IDLE
@@ -414,10 +438,12 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         self.gamestate.schedule_agendum_immediate(self)
 
     def _start(self) -> None:
+        super()._start()
         assert self.state == TradingAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
     def _stop(self) -> None:
+        super()._stop()
         if self.state == TradingAgendum.State.BUYING:
             assert self.buy_order is not None
             self.buy_order.cancel_order()
@@ -507,7 +533,7 @@ class TradingAgendum(core.Agendum, core.OrderObserver):
         else:
             self._buy_goods()
 
-class StationManager(core.Agendum):
+class StationManager(CaptainAgendum):
     """ Manage production and trading for a station.
 
     Responsible for actually driving the production at the station as well as
@@ -515,7 +541,7 @@ class StationManager(core.Agendum):
     """
 
     def __init__(self, station:core.Station, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(station, *args, **kwargs)
 
         self.station = station
         self.agent = econ.StationAgent.create_station_agent(
@@ -529,9 +555,11 @@ class StationManager(core.Agendum):
         self.gamestate.representing_agent(station.entity_id, self.agent)
 
     def _start(self) -> None:
+        super()._start()
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
+        super()._stop()
         agent = self.gamestate.withdraw_agent(self.station.entity_id)
         assert agent == self.agent
 
@@ -587,11 +615,11 @@ class StationManager(core.Agendum):
 
         self.gamestate.schedule_agendum(next_production_ts, self, jitter=1.0)
 
-class PlanetManager(core.Agendum):
+class PlanetManager(CaptainAgendum):
     """ Manage consumption and trading for planet/hab. """
 
     def __init__(self, planet:core.Planet, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(planet, *args, **kwargs)
 
         self.planet = planet
         self.agent = econ.StationAgent.create_planet_agent(self.character, planet, self.gamestate.production_chain)
@@ -600,9 +628,11 @@ class PlanetManager(core.Agendum):
         self.gamestate.representing_agent(planet.entity_id, self.agent)
 
     def _start(self) -> None:
+        super()._start()
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
+        super()._start()
         agent = self.gamestate.withdraw_agent(self.planet.entity_id)
         assert agent == self.agent
 
@@ -610,4 +640,3 @@ class PlanetManager(core.Agendum):
         assert self.gamestate.econ_agents[self.planet.entity_id] == self.agent
         # price and budget setting stuff goes here and should run periodically
         pass
-

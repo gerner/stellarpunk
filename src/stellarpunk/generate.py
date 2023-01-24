@@ -2,12 +2,13 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection
 import importlib.resources
 import itertools
 import enum
 import collections
 import heapq
+import time
 
 import numpy as np
 import numpy.typing as npt
@@ -651,11 +652,50 @@ class UniverseGenerator:
 
     def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
         player_character = self.spawn_character(location, balance=balance)
+        player_character.set_flag(core.ContextKey.IS_PLAYER, 1)
         player = core.Player()
         player.character = player_character
         player.agent = econ.PlayerAgent(player)
 
         return player
+
+    def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
+        if isinstance(asset, core.Ship):
+            if asset in mining_ships:
+                character.add_agendum(agenda.MiningAgendum(
+                    ship=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
+            elif asset in trading_ships:
+                character.add_agendum(agenda.TradingAgendum(
+                    ship=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
+                character.balance += 5e3
+            else:
+                raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
+        elif isinstance(asset, core.Station):
+            character.add_agendum(agenda.StationManager(
+                station=asset,
+                character=character,
+                gamestate=self.gamestate
+            ))
+            # give enough money to buy several batches worth of goods
+            resource_price:float = self.gamestate.production_chain.prices[asset.resource] # type: ignore
+            batch_size:float = self.gamestate.production_chain.batch_sizes[asset.resource] # type: ignore
+            character.balance += resource_price * batch_size * 5
+        elif isinstance(asset, core.Planet):
+            character.add_agendum(agenda.PlanetManager(
+                planet=asset,
+                character=character,
+                gamestate=self.gamestate
+            ))
+            # give enough money to buy some of all the final goods
+            character.balance += self.gamestate.production_chain.prices[-self.gamestate.production_chain.ranks[-1]:].max() * 5
+        else:
+            raise ValueError(f'got an asset of unknown type {asset}')
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
         pchain = self.gamestate.production_chain
@@ -805,26 +845,14 @@ class UniverseGenerator:
 
             for asset in map(lambda j: assets[j], owned_asset_ids):
                 character.take_ownership(asset)
-                if isinstance(asset, core.Ship):
-                    if asset in mining_ships:
-                        character.add_agendum(agenda.MiningAgendum(ship=asset, character=character, gamestate=self.gamestate))
-                    elif asset in trading_ships:
-                        character.add_agendum(agenda.TradingAgendum(ship=asset, character=character, gamestate=self.gamestate))
-                        character.balance += 5e3
-                    else:
-                        raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
-                elif isinstance(asset, core.Station):
-                    character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
-                    # give enough money to buy several batches worth of goods
-                    resource_price:float = self.gamestate.production_chain.prices[asset.resource] # type: ignore
-                    batch_size:float = self.gamestate.production_chain.batch_sizes[asset.resource] # type: ignore
-                    character.balance += resource_price * batch_size * 5
-                elif isinstance(asset, core.Planet):
-                    character.add_agendum(agenda.PlanetManager(planet=asset, character=character, gamestate=self.gamestate))
-                    # give enough money to buy some of all the final goods
-                    character.balance += self.gamestate.production_chain.prices[-self.gamestate.production_chain.ranks[-1]:].max() * 5
+                if character.location == asset:
+                    captain = character
                 else:
-                    raise ValueError(f'got an asset of unknown type {asset}')
+                    captain = self.spawn_character(asset)
+                self.setup_captain(captain, asset, mining_ships, trading_ships)
+
+        for asset in assets:
+            assert asset.captain.location == asset
 
         self.gamestate.add_sector(sector, sector_idx)
 
@@ -1407,6 +1435,8 @@ class UniverseGenerator:
         self.gamestate.player.character = player_character
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player)
 
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate))
+
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
 
     def generate_starfields(self) -> None:
@@ -1434,6 +1464,8 @@ class UniverseGenerator:
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
     def generate_universe(self) -> core.Gamestate:
+        self.logger.info(f'generating a universe...')
+        generation_start = time.perf_counter()
         self.gamestate.random = self.r
 
         # generate a production chain
@@ -1456,6 +1488,14 @@ class UniverseGenerator:
 
         # generate pretty starfields for the background
         self.generate_starfields()
+
+        self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
+        self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
+        self.logger.info(f'characters: {len(self.gamestate.characters)}')
+        self.logger.info(f'econ_agents: {len(self.gamestate.econ_agents)}')
+
+        generation_stop = time.perf_counter()
+        logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
 
         return self.gamestate
 

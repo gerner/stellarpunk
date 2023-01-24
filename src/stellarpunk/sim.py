@@ -366,17 +366,13 @@ def main() -> None:
         data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=gamestate))
         gamestate.econ_logger = data_logger
 
-        logging.info("generating universe...")
-        generation_start = time.perf_counter()
         generator = generate.UniverseGenerator(gamestate)
         generator.initialize()
         stellar_punk = generator.generate_universe()
-        generation_stop = time.perf_counter()
-        logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
 
         ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
 
-        event_manager = events.EventManager()
+        event_manager = events.EventManager(ui.player_event_handler)
         event_manager.initialize(gamestate)
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
