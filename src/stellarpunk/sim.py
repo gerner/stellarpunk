@@ -110,43 +110,37 @@ class Simulator(core.AbstractGameRuntime):
         for sector in self.gamestate.sectors.values():
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
 
-    def tick(self, dt: float) -> None:
-        """ Do stuff to update the universe """
-
+    def _tick_space(self, dt: float) -> None:
         # update physics simulations
         # do this for all sectors
         for sector in self.gamestate.sectors.values():
             sector.space.step(dt)
 
-            # keep track of this tick collisions (if any) so we can ignore
-            # collisions that last over several consecutive ticks
-            self._last_colliders = self._colliders
-            self._colliders = set()
+    def _tick_collisions(self, dt:float) -> None:
+        # keep track of this tick collisions (if any) so we can ignore
+        # collisions that last over several consecutive ticks
+        self._last_colliders = self._colliders
+        self._colliders = set()
 
-            if self._collisions:
-                self.gamestate.counters[core.Counters.COLLISIONS] += len(self._collisions)
-                #TODO: use kinetic energy from the collision to cause damage
-                # metals have an impact strength between 0.34e3 and 145e3
-                # joules / meter^2
-                # so an impact of 17M joules spread over an area of 1000 m^2
-                # would be a lot, but not catastrophic
-                # spread over 100m^2 would be
-                # for comparison, a typical briefcase bomb is comparable to
-                # 50 pounds of TNT, which is nearly 100M joules
-                self.gamestate.paused = self.pause_on_collision
-                if self.notify_on_collision:
-                    for entity_a, entity_b, impulse, ke in self._collisions:
-                        self.ui.collision_detected(entity_a, entity_b, impulse, ke)
+        if self._collisions:
+            self.gamestate.counters[core.Counters.COLLISIONS] += len(self._collisions)
+            #TODO: use kinetic energy from the collision to cause damage
+            # metals have an impact strength between 0.34e3 and 145e3
+            # joules / meter^2
+            # so an impact of 17M joules spread over an area of 1000 m^2
+            # would be a lot, but not catastrophic
+            # spread over 100m^2 would be
+            # for comparison, a typical briefcase bomb is comparable to
+            # 50 pounds of TNT, which is nearly 100M joules
+            self.gamestate.paused = self.pause_on_collision
+            if self.notify_on_collision:
+                for entity_a, entity_b, impulse, ke in self._collisions:
+                    self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
-                # keep _collisions clear for next time
-                self._collisions.clear()
+            # keep _collisions clear for next time
+            self._collisions.clear()
 
-        # at this point all physics sim is done for the tick and the gamestate
-        # is up to date across the universe
-
-        # do AI stuff, e.g. let ships take action (but don't actually have the
-        # actions take effect yet!)
-
+    def _tick_orders(self, dt: float) -> None:
         orders_processed = 0
         for order in self.gamestate.pop_current_orders():
             if order == order.ship.current_order():
@@ -177,19 +171,17 @@ class Simulator(core.AbstractGameRuntime):
 
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
+    def _tick_effects(self, dt: float) -> None:
         # process effects
         for effect in self.gamestate.pop_current_effects():
             effect.act(dt)
 
+    def _tick_agenda(self, dt: float) -> None:
         # let characters act on their (scheduled) agenda items
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
 
-        self.event_manager.tick()
-
-        self.gamestate.ticks += 1
-        self.gamestate.timestamp += dt
-
+    def _tick_record(self, dt: float) -> None:
         # record some state about the final state of this tick
         if self.ticks_per_hist_sample > 0:
             for sector in self.gamestate.sectors.values():
@@ -252,6 +244,30 @@ class Simulator(core.AbstractGameRuntime):
             self.gamestate.log_econ()
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
+
+    def tick(self, dt: float) -> None:
+        """ Do stuff to update the universe """
+
+        self._tick_space(dt)
+        self._tick_collisions(dt)
+
+        # at this point all physics sim is done for the tick and the gamestate
+        # is up to date across the universe
+
+        # do AI stuff, e.g. let ships take action (but don't actually have the
+        # actions take effect yet!)
+
+        self._tick_orders(dt)
+        self._tick_effects(dt)
+
+        self._tick_agenda(dt)
+
+        self.event_manager.tick()
+
+        self.gamestate.ticks += 1
+        self.gamestate.timestamp += dt
+
+        self._tick_record(dt)
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.time_accel_rate, self.fast_mode

@@ -206,9 +206,9 @@ class StationAgent(core.EconAgent):
         station_agent = StationAgent(planet, planet.owner, character, production_chain)
 
         end_product_ids = production_chain.final_product_ids()[[
-            core.RESOURCE_REL_CONSUMER,
-            core.RESOURCE_REL_SHIP,
-            core.RESOURCE_REL_STATION,
+            core.production_chain.RESOURCE_REL_CONSUMER,
+            core.production_chain.RESOURCE_REL_SHIP,
+            core.production_chain.RESOURCE_REL_STATION,
         ]]
         station_agent._buy_resources = tuple(end_product_ids) # type: ignore
 

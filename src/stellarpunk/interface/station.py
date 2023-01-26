@@ -135,7 +135,7 @@ class StationView(interface.View):
         perspective.cursor = util.polar_to_cartesian(dist, -math.pi/4.)
 
         starfield_sprite = sf.draw_starfield_to_sprite(self.station.sprite.width, self.station.sprite.height)
-        self.station_sprite = core.Sprite.composite_sprites([starfield_sprite, self.station.sprite])
+        self.station_sprite = ui_util.composite_sprites([starfield_sprite, self.station.sprite])
         return True
 
     def _draw_station_info(self) -> None:

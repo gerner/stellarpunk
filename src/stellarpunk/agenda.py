@@ -24,7 +24,7 @@ def possible_buys(
     buys:DefaultDict[int, List[Tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
     buy_hits:Iterable[core.SectorEntity]
     if buy_from_stations is None:
-        buy_hits = ship.sector.spatial_point(ship.loc, mask=core.ObjectFlag.STATION)
+        buy_hits = ship.sector.spatial_point(ship.loc)
     else:
         buy_hits = buy_from_stations
     for hit in buy_hits:
@@ -59,7 +59,7 @@ def possible_sales(
     sales:DefaultDict[int, List[Tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
     sale_hits:Iterable[core.SectorEntity]
     if allowed_stations is None:
-        sale_hits = ship.sector.spatial_point(ship.loc, mask=core.ObjectFlag.STATION)
+        sale_hits = ship.sector.spatial_point(ship.loc)
     else:
         sale_hits = allowed_stations
     for hit in sale_hits:
@@ -274,7 +274,7 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver):
         nearest_dist = np.inf
         distances = []
         candidates = []
-        for hit in self.ship.sector.spatial_point(self.ship.loc, mask=core.ObjectFlag.ASTEROID):
+        for hit in self.ship.sector.spatial_point(self.ship.loc):
             if not isinstance(hit, core.Asteroid):
                 continue
             if hit.resource not in self.allowed_resources:

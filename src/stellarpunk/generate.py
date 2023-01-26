@@ -430,7 +430,7 @@ class UniverseGenerator:
             body = cymunk.Body(mass, moment)
         return body
 
-    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, obj_flag:core.ObjectFlag, radius:float) -> cymunk.Shape:
+    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
         shape.collision_type = entity.object_type
@@ -505,7 +505,7 @@ class UniverseGenerator:
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
         assert station.cargo.sum() <= station.cargo_capacity
 
-        self._phys_shape(station_body, station, core.ObjectFlag.STATION, station_radius)
+        self._phys_shape(station_body, station, station_radius)
 
         sector.add_entity(station)
 
@@ -519,7 +519,7 @@ class UniverseGenerator:
         planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
-        self._phys_shape(planet_body, planet, core.ObjectFlag.PLANET, planet_radius)
+        self._phys_shape(planet_body, planet, planet_radius)
 
         sector.add_entity(planet)
 
@@ -536,7 +536,7 @@ class UniverseGenerator:
         ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
 
-        self._phys_shape(ship_body, ship, core.ObjectFlag.SHIP, ship_radius)
+        self._phys_shape(ship_body, ship, ship_radius)
 
         ship.mass = ship_mass
         ship.moment = ship_body.moment
@@ -590,7 +590,7 @@ class UniverseGenerator:
         body = self._phys_body()
         gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination), entity_id=entity_id)
 
-        self._phys_shape(body, gate, core.ObjectFlag.GATE, gate_radius)
+        self._phys_shape(body, gate, gate_radius)
 
         sector.add_entity(gate)
 
@@ -604,7 +604,7 @@ class UniverseGenerator:
         body = self._phys_body()
         asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
 
-        self._phys_shape(body, asteroid, core.ObjectFlag.ASTEROID, asteroid_radius)
+        self._phys_shape(body, asteroid, asteroid_radius)
 
         sector.add_entity(asteroid)
 

@@ -2,11 +2,32 @@
 
 import curses
 import math
-from typing import List, Callable, Any, Collection, Optional
+from typing import List, Callable, Any, Collection, Optional, Sequence, Dict, Tuple
 from dataclasses import dataclass
+
+import drawille # type: ignore
 
 from stellarpunk import core, interface, config, util
 
+
+def composite_sprites(sprites:Sequence[core.Sprite]) -> core.Sprite:
+    if len(sprites) == 0:
+        raise ValueError("no sprites to composite")
+
+    text = [[" "]*sprites[0].width for _ in range(sprites[0].height)]
+    attr:Dict[Tuple[int,int], Tuple[int, int]] = {}
+
+    for sprite in sprites:
+        for y, row in enumerate(sprite.text):
+            for x, c in enumerate(sprite.text[y]):
+                if c != " " and c != chr(drawille.braille_char_offset):
+                    text[y][x] = c
+                    if (x,y) in sprite.attr:
+                        attr[x,y] = sprite.attr[x,y]
+                    else:
+                        attr[x,y] = (0,0)
+
+    return core.Sprite(["".join(t) for t in text], attr)
 
 def draw_sprite(
         sprite: core.Sprite, canvas: interface.BasicCanvas, y: int, x: int) -> None:

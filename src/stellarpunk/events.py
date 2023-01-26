@@ -87,8 +87,10 @@ class EventManager(AbstractEventManager):
 
     def tick(self) -> None:
         # check for relevant events and process them
+        events_processed = 0
         while len(self.gamestate.events) > 0:
             event = self.gamestate.events.popleft()
+            events_processed += 1
 
             self.logger.debug(f'event {str(core.EventType(event.event_type))} received by {event.character.short_id()}')
 
@@ -134,8 +136,14 @@ class EventManager(AbstractEventManager):
                         )
                     )
 
+        self.gamestate.counters[core.Counters.EVENTS_PROCESSED] += events_processed
+
+        actions_processed = 0
         for action in self.action_schedule.pop_current_tasks(self.gamestate.timestamp):
+            actions_processed += 1
             action.act()
+
+        self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED] += actions_processed
 
 
 class DialogManager:
