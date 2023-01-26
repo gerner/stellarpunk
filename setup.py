@@ -17,6 +17,10 @@ ext_modules=[
         runtime_library_dirs=cymunk.get_includes(),
         language="c++"
     ),
+    Extension("stellarpunk.narrative.director",
+        sources=["src/stellarpunk/narrative/director.pyx"],
+        language="c++"
+    ),
     Extension("stellarpunk.task_schedule",
         sources=["src/stellarpunk/task_schedule.pyx"],
         language="c++"
