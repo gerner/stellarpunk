@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import util, core, effects, econ
+from stellarpunk.narrative import director
 
 from .movement import GoToLocation, RotateOrder
 from .steering import ZERO_VECTOR
@@ -483,10 +484,10 @@ class DockingOrder(core.OrderObserver, core.Order):
             self.gamestate.trigger_event(
                 self.ship.captain,
                 core.EventType.APPROACH_DESTINATION,
-                {
+                director.context({
                     core.ContextKey.DESTINATION: self.target.short_id_int(),
                     core.ContextKey.SHIP: self.ship.short_id_int(),
-                },
+                }),
                 self.target,
                 self.ship,
             )

@@ -137,7 +137,7 @@ class PlayerEventHandler(events.AbstractPlayerEventHandler):
     def handle_event(self, event: core.Event) -> None:
         self.logger.debug(f'event {str(core.EventType(event.event_type))} received by {event.character.short_id()} (player character)')
         if event.event_type == core.EventType.BROADCAST:
-            sender = event.entities[event.context[core.ContextKey.MESSAGE_SENDER]]
+            sender = event.entities[event.context.get_flag(core.ContextKey.MESSAGE_SENDER)]
             assert isinstance(sender, core.Character)
             distance = util.distance(self.player.character.location.loc, sender.location.loc)
             self.interface.log_message(f'Bcast from {sender.address_str()} at {distance:.0f}m:\n{event.args["message"]}')

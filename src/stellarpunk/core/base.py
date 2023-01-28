@@ -12,6 +12,8 @@ from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union
 import numpy as np
 import numpy.typing as npt
 
+from stellarpunk.narrative import director
+
 if TYPE_CHECKING:
     from .character import Character
 
@@ -37,7 +39,7 @@ class Entity(abc.ABC):
 
         self.description = description or name
 
-        self.flags:Dict[ContextKey, int] = {}
+        self.context = director.EventContext()
 
     def short_id(self) -> str:
         """ first 32 bits as hex """
@@ -45,12 +47,6 @@ class Entity(abc.ABC):
 
     def short_id_int(self) -> int:
         return self._entity_id_short_int
-
-    def set_flag(self, flag:ContextKey, value:int) -> None:
-        self.flags[flag] = value
-
-    def to_context(self) -> Dict[ContextKey, int]:
-        return self.flags
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
@@ -177,16 +173,3 @@ class StarfieldLayer:
         self._star_list.append((loc, size, spectral_class))
         self.num_stars += 1
         self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
-
-
-class AbstractGameRuntime:
-    """ The game runtime that actually runs the simulation. """
-
-    def get_time_acceleration(self) -> Tuple[float, bool]:
-        """ Get time acceleration parameters. """
-        return (1.0, False)
-
-    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
-        """ Request time acceleration. """
-        pass
-

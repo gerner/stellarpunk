@@ -652,7 +652,7 @@ class UniverseGenerator:
 
     def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
         player_character = self.spawn_character(location, balance=balance)
-        player_character.set_flag(core.ContextKey.IS_PLAYER, 1)
+        player_character.context.set_flag(core.ContextKey.IS_PLAYER, 1)
         player = core.Player()
         player.character = player_character
         player.agent = econ.PlayerAgent(player)

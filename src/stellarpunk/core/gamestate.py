@@ -7,14 +7,15 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Sequence, MutableSequence, Deque, Tuple, Iterator
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List
 
 import numpy as np
 import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule
-from .base import Entity, AbstractGameRuntime, EconAgent, AbstractEconDataLogger, StarfieldLayer, ContextKey
+from stellarpunk.narrative import director
+from .base import Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, ContextKey
 from .production_chain import ProductionChain
 from .sector import Sector
 from .sector_entity import SectorEntity
@@ -66,13 +67,25 @@ class EventType(enum.IntEnum):
 class Event:
     character: Character
     event_type: EventType
-    context: Dict[ContextKey, int]
-    entity_context: Dict[int, Dict[ContextKey, int]]
+    context: director.EventContext
+    entity_context: Dict[int, director.EventContext]
     entities: Dict[int, Entity]
     args: Dict[str, Any]
 
     def get_entity(self, key: ContextKey) -> Entity:
-        return self.entities[self.context[key]]
+        return self.entities[self.context.get_flag(key)]
+
+
+class AbstractGameRuntime:
+    """ The game runtime that actually runs the simulation. """
+
+    def get_time_acceleration(self) -> Tuple[float, bool]:
+        """ Get time acceleration parameters. """
+        return (1.0, False)
+
+    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
+        """ Request time acceleration. """
+        pass
 
 
 class Gamestate:
@@ -332,11 +345,13 @@ class Gamestate:
     def quit(self) -> None:
         self.keep_running = False
 
-    def trigger_event(self, character: Character, event_type: EventType, context: Dict[ContextKey, int], *entities: Entity, **kwargs: Any) -> None:
-        entity_context: Dict[int, Dict[ContextKey, int]] = {}
+    def trigger_event(self, character: Union[Character, List[Character]], event_type: EventType, context: director.EventContext, *entities: Entity, **kwargs: Any) -> None:
+        #TODO: refactor how we handle triggering events
+        assert isinstance(character, Character)
+        entity_context: Dict[int, director.EventContext] = {}
         entity_dict: Dict[int, Entity] = {}
         for entity in entities:
-            entity_context[entity.short_id_int()] = entity.to_context()
+            entity_context[entity.short_id_int()] = entity.context
             entity_dict[entity.short_id_int()] = entity
 
         self.events.append(Event(character, event_type, context, entity_context, entity_dict, kwargs))

@@ -15,15 +15,15 @@ ext_modules=[
         libraries=[":cymunk.cpython-310-x86_64-linux-gnu.so"],
         library_dirs=cymunk.get_includes(),
         runtime_library_dirs=cymunk.get_includes(),
-        language="c++"
+        language="c++",
     ),
     Extension("stellarpunk.narrative.director",
         sources=["src/stellarpunk/narrative/director.pyx"],
-        language="c++"
+        language="c++",
     ),
     Extension("stellarpunk.task_schedule",
         sources=["src/stellarpunk/task_schedule.pyx"],
-        language="c++"
+        language="c++",
     )
 ]
 

@@ -1,6 +1,6 @@
 """ Stellarpunk core data model """
 
-from .base import Entity, Asset, Sprite, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractGameRuntime
+from .base import Entity, Asset, Sprite, EconAgent, AbstractEconDataLogger, StarfieldLayer
 from .production_chain import ProductionChain
 from .sector import Sector
 from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate, write_history_to_file
@@ -11,4 +11,4 @@ from .gamestate import Gamestate, Counters
 
 # drop these after refactor
 from .base import ContextKey
-from .gamestate import Event, EventType
+from .gamestate import Event, EventType, AbstractGameRuntime

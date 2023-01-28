@@ -109,8 +109,6 @@ class PlayerObserver(abc.ABC):
         pass
     def message_received(self, player:"Player", message:Message) -> None:
         pass
-    def flag_set(self, player:"Player", flag:ContextKey) -> None:
-        pass
 
 
 class Player(Entity):
@@ -140,10 +138,3 @@ class Player(Entity):
         self.messages[message.entity_id] = message
         for observer in self.observers:
             observer.message_received(self, message)
-
-    def set_flag(self, flag: ContextKey, value: int) -> None:
-        super().set_flag(flag, value)
-
-        for observer in self.observers:
-            observer.flag_set(self, flag)
-

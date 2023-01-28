@@ -7,6 +7,7 @@ from typing import List, Any, Sequence, Dict, Tuple, Optional
 from dataclasses import dataclass
 
 from stellarpunk import core, util, dialog, predicates, config, task_schedule
+from stellarpunk.narrative import director
 
 
 class AbstractPlayerEventHandler:
@@ -59,12 +60,12 @@ class BroadcastAction(Action):
             self.gamestate.trigger_event(
                 receiver,
                 core.EventType.BROADCAST,
-                {
+                director.context({
                     core.ContextKey.MESSAGE_SENDER: self.character.short_id_int(),
                     core.ContextKey.MESSAGE_ID: self.message_id,
-                    core.ContextKey.DESTINATION: self.event.context[core.ContextKey.DESTINATION],
-                    core.ContextKey.SHIP: self.event.context[core.ContextKey.SHIP],
-                },
+                    core.ContextKey.DESTINATION: self.event.context.get_flag(core.ContextKey.DESTINATION),
+                    core.ContextKey.SHIP: self.event.context.get_flag(core.ContextKey.SHIP),
+                }),
                 self.character,
                 self.event.get_entity(core.ContextKey.DESTINATION),
                 self.event.get_entity(core.ContextKey.SHIP),
@@ -94,7 +95,7 @@ class EventManager(AbstractEventManager):
 
             self.logger.debug(f'event {str(core.EventType(event.event_type))} received by {event.character.short_id()}')
 
-            if event.character.to_context().get(core.ContextKey.IS_PLAYER, 0) == 1:
+            if event.character.context.get_flag(core.ContextKey.IS_PLAYER) == 1:
                 # player events get handled separately
                 self.player_event_handler.handle_event(event)
                 continue
@@ -119,7 +120,7 @@ class EventManager(AbstractEventManager):
                     )
                 )
             elif event.event_type == core.EventType.BROADCAST:
-                if event.context[core.ContextKey.MESSAGE_ID] == 0:
+                if event.context.get_flag(core.ContextKey.MESSAGE_ID) == 0:
                     destination = event.get_entity(core.ContextKey.DESTINATION)
                     assert isinstance(destination, core.Station)
                     assert destination.sector is not None
