@@ -1,5 +1,6 @@
 from typing import Mapping, List, Iterable, Any
 
+
 class EventContext:
     def __init__(self) -> None: ...
     def set_flag(self, flag: int, value: int) -> None: ...
@@ -19,6 +20,7 @@ class FlagCriteria:
     @property
     def high(self) -> int: ...
 
+
 class EntityCriteria:
     def __init__(self, ef: int, sf: int, l: int, h: int) -> None: ...
 
@@ -30,6 +32,7 @@ class EntityCriteria:
     def low(self) -> int: ...
     @property
     def high(self) -> int: ...
+
 
 class ActionTemplate:
     def __init__(self, action_id: int, args: Any) -> None: ...
@@ -47,6 +50,11 @@ class Rule:
 
 
 class Event:
+    event_type: int
+    event_context: EventContext
+    entity_context: Mapping[int, EventContext]
+    args: Any
+
     def __init__(
         self,
         event_type: int,
@@ -74,6 +82,7 @@ class Action:
         character_candidate: CharacterCandidate,
         args: Any,
     ) -> None: ...
+
 
 class Director:
     def __init__(self, rules: Mapping[int, Iterable[Rule]]) -> None: ...

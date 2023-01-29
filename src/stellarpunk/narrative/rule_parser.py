@@ -1,5 +1,6 @@
 """ Narrative Event Rule Parsing """
 
+import sys
 import re
 import collections
 from typing import Dict, List, Union, Any
@@ -81,9 +82,63 @@ def parse_criteria(cri: str, context_keys: Dict[str, int]) -> Union[director.Fla
         return director.FlagCriteria(flag_id, low, high)
 
 
-def loads(data: str, event_types: Dict[str, int], context_keys: Dict[str, int], action_ids: Dict[str, int]) -> director.Director:
+def loads(
+    data: str,
+    event_types: Dict[str, int],
+    context_keys: Dict[str, int],
+    action_ids: Dict[str, int],
+) -> director.Director:
+    """
+    Loads rules from a toml string into a narrative director.
+
+    Parameters
+    ----------
+    data : str
+        toml encoded rule data
+    event_types : dict of str to int
+        mapping from string event names to event int identifiers
+    context_keys : dict of str to int
+        mapping from string context key names to int identifiers
+    acction_ids : dict of str to int
+        mapping from string action names to int identifiers
+
+    Returns
+    -------
+    out : narrative.director
+        a director instance loaded with rules as parsed from the input
+    """
+
     # load data as toml
     rule_data = toml.loads(data)
+    return loadd(rule_data, event_types, context_keys, action_ids)
+
+
+def loadd(
+    rule_data: Dict[str, Any],
+    event_types: Dict[str, int],
+    context_keys: Dict[str, int],
+    action_ids: Dict[str, int],
+) -> director.Director:
+    """
+    Loads rules from a rule data dict into a narrative director.
+
+    Parameters
+    ----------
+    rule_data : dict
+        dictionary of rules. Keys are rule ids. Values are the rule data to
+        decode.
+    event_types : dict of str to int
+        mapping from string event names to event int identifiers
+    context_keys : dict of str to int
+        mapping from string context key names to int identifiers
+    acction_ids : dict of str to int
+        mapping from string action names to int identifiers
+
+    Returns
+    -------
+    out : narrative.director
+        a director instance loaded with rules as parsed from the input
+    """
     rules = collections.defaultdict(list)
     for rule_id, rule in rule_data.items():
         # get event type this rule subscribes to
@@ -142,7 +197,8 @@ def loads(data: str, event_types: Dict[str, int], context_keys: Dict[str, int], 
             action_name = act["_action"]
             if action_name not in action_ids:
                 raise ValueError(f'rule {rule_id} had unknown action {action_name}')
-            actions.append(director.ActionTemplate(action_ids[action_name], act))
+            action_template = director.ActionTemplate(action_ids[action_name], act)
+            actions.append(action_template)
 
         # create a rule record
         rules[event_type_id].append(director.Rule(event_type_id, priority, criteria, entity_criteria, actions))

@@ -8,6 +8,7 @@ import bisect
 import logging
 import pdb
 import curses
+import re
 from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload
 
 import numpy as np
@@ -36,6 +37,12 @@ def throttled_log(timestamp:float, throttle:float, logger:logging.Logger, level:
         return timestamp + limit
     else:
         return throttle
+
+RE_CAMEL_TO_SNAKE_PHASE_1 = re.compile(r'(.)([A-Z][a-z]+)')
+RE_CAMEL_TO_SNAKE_PHASE_2 = re.compile(r'([a-z0-9])([A-Z])')
+def camel_to_snake(name: str) -> str:
+    name = RE_CAMEL_TO_SNAKE_PHASE_1.sub(r'\1_\2', name)
+    return RE_CAMEL_TO_SNAKE_PHASE_2.sub(r'\1_\2', name).lower()
 
 def peaked_bounded_random(
         r:np.random.Generator, mu:float, sigma:float,

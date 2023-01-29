@@ -59,6 +59,7 @@ def test_parse_eval():
     """
 
     d = rule_parser.loads(test_config, {x.name: x.value for x in ET}, {x.name: x.value for x in CK}, {x.name: x.value for x in A})
+    #d.check_refcounts()
 
     event_context = director.context({CK.foo: 100, CK.bar: 200})
     entity_context = {

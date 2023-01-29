@@ -1,13 +1,14 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True, infer_types=False, nonecheck=False
 
+import sys
+from typing import Tuple, Dict, Any, Iterable, List
+
 from libc.stdint cimport uint64_t
 from libcpp cimport bool
 from libcpp.unordered_map  cimport unordered_map
 from libcpp.vector  cimport vector
 from cpython.ref cimport PyObject
 from cython.operator cimport dereference, preincrement
-
-from typing import Tuple, Dict, Any, Iterable, List
 
 
 cdef extern from "director.hpp":
@@ -141,6 +142,9 @@ cdef class ActionTemplate:
         # we hang on to a reference of the arguments to keep them alive
         self.args = args
 
+    def check_refcounts(self):
+        print(f'actiontemplate.args: {sys.getrefcount(self.args)}')
+
 
 cdef class Rule:
     cdef cRule rule
@@ -165,9 +169,18 @@ cdef class Rule:
         # we hang on to action templates to keep them alive
         self.actions = list(actions)
 
+    def check_refcounts(self):
+        print(f'rule.actions {sys.getrefcount(self.actions)}')
+        for action in self.actions:
+            print(f'rule.actions[i] {sys.getrefcount(action)}')
+            action.check_refcounts()
+
 
 cdef class Event:
     cdef cEvent event
+    cdef object event_type
+    cdef object event_context
+    cdef object entity_context
     cdef object args
 
     def __cinit__(self, event_type: int, event_context: EventContext, entity_context: Dict[int, EventContext], args: Any):
@@ -179,7 +192,10 @@ cdef class Event:
 
         self.event = cEvent(event_type, &((<EventContext?>event_context).event_context), c_entity_context, c_args)
 
-        # we hang on to event args to keep them alive
+        # we hang on to several items
+        self.event_type = event_type
+        self.event_context = event_context
+        self.entity_context = entity_context
         self.args = args
 
 
@@ -213,7 +229,15 @@ cdef class Director:
         self.director = cDirector(c_rules)
 
         # we hang on to the python wrapper for the rules to keep them alive
-        self.rules = list(rules)
+        self.rules = rules
+
+    def check_refcounts(self):
+        print(f'director.rules: {sys.getrefcount(self.rules)}')
+        for k, v in self.rules.items():
+            print(f'director.rules[k] {sys.getrefcount(v)}')
+            for r in v:
+                print(f'director.rules[k][i] {sys.getrefcount(r)}')
+                r.check_refcounts()
 
     def evaluate(self, event:Event, character_candidates:Iterable[CharacterCandidate]) -> List[Action]:
         cdef vector[cCharacterCandidate] c_candidates
@@ -225,11 +249,15 @@ cdef class Director:
             ))
 
         cdef vector[cAction] c_actions = self.director.evaluate(&((<Event?>event).event), c_candidates)
-        #TODO: construct Action instances from actions
         actions = []
-        cdef vector[cAction].iterator ptr = c_actions.begin()
-        while ptr != c_actions.end():
-            action = Action(dereference(ptr).action_id, <object>dereference(ptr).character_candidate.data, <object>dereference(ptr).args)
-            actions.append(action)
-            preincrement(ptr)
+        cdef size_t i = 0
+        while i < c_actions.size():
+            character = <object>c_actions[i].character_candidate.data
+            args = <object>c_actions[i].args
+            actions.append(Action(
+                c_actions[i].action_id,
+                character,
+                args
+            ))
+            i += 1
         return actions

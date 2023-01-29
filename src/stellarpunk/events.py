@@ -1,35 +1,55 @@
-""" Manages Events """
+""" Bridges between Stellarpunk and narrative director library.
 
-import abc
+Responsible for:
+ * packaging Stellarpunk inferface for events as narrative events
+ * queuing events for processing
+ * passing into director for evaluation
+ * recognizing action identifiers that come back from rule eval
+ * running actions
+"""
+
+import enum
 import logging
-import re
-from typing import List, Any, Sequence, Dict, Tuple, Optional
-from dataclasses import dataclass
+import collections
+from typing import Iterable, Any, Sequence, Mapping, Dict, Tuple, Optional, Union, Deque
 
 from stellarpunk import core, util, dialog, predicates, config, task_schedule
-from stellarpunk.narrative import director
-
-
-class AbstractPlayerEventHandler:
-    def handle_event(self, event: core.Event) -> None:
-        pass
+from stellarpunk import narrative
 
 
 class AbstractEventManager:
+    def trigger_event(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: narrative.EventContext,
+        *entities: core.Entity,
+        **kwargs: Any,
+    ) -> None:
+        pass
+
     def tick(self) -> None:
         pass
 
 
 class Action:
-    def __init__(self, character: core.Character, event: core.Event, gamestate: core.Gamestate):
-        self.character = character
-        self.event = event
-        self.gamestate = gamestate
-
-    def act(self) -> None:
+    def __init__(self) -> None:
         pass
 
-class BroadcastAction(Action):
+    def act(
+        self,
+        character: core.Character,
+        event_type: int,
+        event_context: narrative.EventContext,
+        entity_context: Mapping[int, narrative.EventContext],
+        event_args: Mapping[str, Any],
+        action_args: Mapping[str, Any]
+    ) -> None:
+        pass
+
+
+"""
+class BroadcastAction:
     def __init__(
         self,
         sector: core.Sector,
@@ -60,7 +80,7 @@ class BroadcastAction(Action):
             self.gamestate.trigger_event(
                 receiver,
                 core.EventType.BROADCAST,
-                director.context({
+                narrative.context({
                     core.ContextKey.MESSAGE_SENDER: self.character.short_id_int(),
                     core.ContextKey.MESSAGE_ID: self.message_id,
                     core.ContextKey.DESTINATION: self.event.context.get_flag(core.ContextKey.DESTINATION),
@@ -71,80 +91,138 @@ class BroadcastAction(Action):
                 self.event.get_entity(core.ContextKey.SHIP),
                 message=self.message,
             )
+"""
 
+
+RegisteredEventSpaces: Dict[enum.EnumMeta, int] = {}
+RegisteredContextSpaces: Dict[enum.EnumMeta, int] = {}
+RegisteredActions: Dict[Action, str] = {}
+
+
+def e(event_id: enum.IntEnum) -> int:
+    return event_id + RegisteredEventSpaces[event_id.__class__]
+
+
+def ck(context_key: enum.IntEnum) -> int:
+    return context_key + RegisteredContextSpaces[context_key.__class__]
+
+
+def register_events(events: enum.EnumMeta) -> None:
+    RegisteredEventSpaces[events] = -1
+
+
+def register_context_keys(context_keys: enum.EnumMeta) -> None:
+    RegisteredContextSpaces[context_keys] = -1
+
+
+def register_action(action: Action, name: Optional[str] = None) -> None:
+    if name is None:
+        name = util.camel_to_snake(action.__class__.__name__)
+    RegisteredActions[action] = name
+
+
+"""
+events.register_events(MyEvents)
+events.register_context_keys(MyContextKeys)
+
+events.register_action(A()) for A in [Action1, Action2, Action3]
+
+trigger_event([dude], events.e(MyEvents.coolio), narrative.context({events.ck(MyContextKeys.foo): 27}), bob, billy, stuff="yes", other_stuff=42)
+"""
 
 class EventManager(AbstractEventManager):
     def __init__(
         self,
-        player_event_handler: Optional[AbstractPlayerEventHandler] = None
     ) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.gamestate:core.Gamestate = None # type: ignore[assignment]
-        self.action_schedule:task_schedule.TaskSchedule[Action] = task_schedule.TaskSchedule()
-        self.player_event_handler = player_event_handler or AbstractPlayerEventHandler()
+        self.gamestate: core.Gamestate = None # type: ignore[assignment]
+        self.director: narrative.Director = None # type: ignore[assignment]
+        self.event_queue: Deque[Tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
+        self.actions:Mapping[int, Action] = {}
 
     def initialize(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate
 
+
+        # assign integer ids for events, contexts, actions
+        event_types: Dict[str, int] = {}
+        context_keys: Dict[str, int] = {}
+        action_ids: Dict[str, int] = {}
+        actions: Dict[int, Action] = {}
+
+        event_offset = 0
+        for event_enum in RegisteredEventSpaces:
+            RegisteredEventSpaces[event_enum] = event_offset
+            for event_key in event_enum: # type: ignore[var-annotated]
+                event_types[event_key.name] = event_key + event_offset
+            event_offset += max(event_enum)+1
+
+        context_key_offset = 0
+        for context_enum in RegisteredContextSpaces:
+            RegisteredContextSpaces[context_enum] = context_key_offset
+            for context_key in context_enum: # type: ignore[var-annotated]
+                context_keys[context_key.name] = context_key.value + context_key_offset
+            context_key_offset += max(context_enum)+1
+
+        action_count = 0
+        for action, action_name in RegisteredActions.items():
+            action_ids[action_name] = action_count
+            actions[action_count] = action
+            action_count += 1
+
+        self.director = narrative.loadd(config.Events, event_types, context_keys, action_ids)
+        self.actions = actions
+
+    def trigger_event(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: narrative.EventContext,
+        *entities: core.Entity,
+        **kwargs: Any,
+    ) -> None:
+        entity_context: Dict[int, narrative.EventContext] = {}
+        entity_dict: Dict[int, core.Entity] = {}
+        for entity in entities:
+            entity_context[entity.short_id_int()] = entity.context
+            entity_dict[entity.short_id_int()] = entity
+        self.event_queue.append((
+            narrative.Event(
+                event_type,
+                context,
+                entity_context,
+                (entity_dict, kwargs)
+            ),
+            [narrative.CharacterCandidate(c.context, c) for c in characters]
+        ))
+
     def tick(self) -> None:
         # check for relevant events and process them
         events_processed = 0
-        while len(self.gamestate.events) > 0:
-            event = self.gamestate.events.popleft()
+        actions_processed = 0
+        while len(self.event_queue) > 0:
+            event, candidates = self.event_queue.popleft()
+
+            for action in self.director.evaluate(event, candidates):
+                delay = action.args.get("_delay", 0)
+                self._do_action(event, action)
+                actions_processed += 1
+
             events_processed += 1
 
-            self.logger.debug(f'event {str(core.EventType(event.event_type))} received by {event.character.short_id()}')
-
-            if event.character.context.get_flag(core.ContextKey.IS_PLAYER) == 1:
-                # player events get handled separately
-                self.player_event_handler.handle_event(event)
-                continue
-
-            # HACK: just to get event model POC for comms chatter
-            if event.event_type == core.EventType.APPROACH_DESTINATION:
-                destination = event.get_entity(core.ContextKey.DESTINATION)
-                if not isinstance(destination, core.Station):
-                    continue
-                assert destination.sector is not None
-                ship = event.get_entity(core.ContextKey.SHIP)
-                assert isinstance(ship, core.Ship)
-                assert ship.sector is not None
-
-                self.action_schedule.push_task(
-                    self.gamestate.timestamp+0.5,
-                    BroadcastAction(
-                        ship.sector, (ship.loc[0], ship.loc[1]),
-                        0,
-                        f'Anyone at {destination.short_id()}, this is {event.character.name} of {ship.short_id()}. I\'m headed in, who want to grab a drink?',
-                        event.character, event, self.gamestate
-                    )
-                )
-            elif event.event_type == core.EventType.BROADCAST:
-                if event.context.get_flag(core.ContextKey.MESSAGE_ID) == 0:
-                    destination = event.get_entity(core.ContextKey.DESTINATION)
-                    assert isinstance(destination, core.Station)
-                    assert destination.sector is not None
-                    ship = event.get_entity(core.ContextKey.SHIP)
-                    assert isinstance(ship, core.Ship)
-
-                    self.action_schedule.push_task(
-                        self.gamestate.timestamp+0.5,
-                        BroadcastAction(
-                            destination.sector, (destination.loc[0], destination.loc[1]),
-                            1,
-                            f'{ship.short_id()} this is {event.character.name} of {event.character.location.short_id()} if you\'re buying, I\'m in.',
-                            event.character, event, self.gamestate
-                        )
-                    )
-
         self.gamestate.counters[core.Counters.EVENTS_PROCESSED] += events_processed
-
-        actions_processed = 0
-        for action in self.action_schedule.pop_current_tasks(self.gamestate.timestamp):
-            actions_processed += 1
-            action.act()
-
         self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED] += actions_processed
+
+    def _do_action(self, event: narrative.Event, action: narrative.Action) -> None:
+        s_action = self.actions[action.action_id]
+        s_action.act(
+            action.character_candidate.data,
+            event.event_type,
+            event.event_context,
+            event.entity_context,
+            event.args,
+            action.args
+        )
 
 
 class DialogManager:

@@ -7,14 +7,13 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List
 
 import numpy as np
 import numpy.typing as npt
 import rtree.index # type: ignore
 
-from stellarpunk import util, task_schedule
-from stellarpunk.narrative import director
+from stellarpunk import util, task_schedule, narrative
 from .base import Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, ContextKey
 from .production_chain import ProductionChain
 from .sector import Sector
@@ -67,8 +66,8 @@ class EventType(enum.IntEnum):
 class Event:
     character: Character
     event_type: EventType
-    context: director.EventContext
-    entity_context: Dict[int, director.EventContext]
+    context: narrative.EventContext
+    entity_context: Dict[int, narrative.EventContext]
     entities: Dict[int, Entity]
     args: Dict[str, Any]
 
@@ -85,6 +84,16 @@ class AbstractGameRuntime:
 
     def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
         """ Request time acceleration. """
+        pass
+
+    def trigger_event(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: narrative.EventContext,
+        *entities: Entity,
+        **kwargs: Any,
+    ) -> None:
         pass
 
 
@@ -345,13 +354,12 @@ class Gamestate:
     def quit(self) -> None:
         self.keep_running = False
 
-    def trigger_event(self, character: Union[Character, List[Character]], event_type: EventType, context: director.EventContext, *entities: Entity, **kwargs: Any) -> None:
-        #TODO: refactor how we handle triggering events
-        assert isinstance(character, Character)
-        entity_context: Dict[int, director.EventContext] = {}
-        entity_dict: Dict[int, Entity] = {}
-        for entity in entities:
-            entity_context[entity.short_id_int()] = entity.context
-            entity_dict[entity.short_id_int()] = entity
-
-        self.events.append(Event(character, event_type, context, entity_context, entity_dict, kwargs))
+    def trigger_event(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: narrative.EventContext,
+        *entities: Entity,
+        **kwargs: Any,
+    ) -> None:
+        self.game_runtime.trigger_event(characters, event_type, context, *entities, **kwargs)

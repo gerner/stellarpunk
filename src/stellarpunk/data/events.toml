@@ -1,25 +1,25 @@
 # Events
 
-[start_game_help]
-type = "start_game"
-criteria = ["is_player", "5 <= stuff <= 10", "4 <= $foo.bar <= 15", "$bar.baz = 21"]
-[[start_game_help.actions]]
-_action = "broadcast"
-message = "what up gang?"
-delay = 500
-[[start_game_help.actions]]
-_action = "message"
-message = "{recipient} how ya doin?"
-recipient = "PLAYER"
-sender = "CHARACTER"
+#[start_game_help]
+#type = "start_game"
+#criteria = ["is_player", "5 <= stuff <= 10", "4 <= $foo.bar <= 15", "$bar.baz = 21"]
+#[[start_game_help.actions]]
+#_action = "broadcast"
+#message = "what up gang?"
+#delay = 500
+#[[start_game_help.actions]]
+#_action = "message"
+#message = "{recipient} how ya doin?"
+#recipient = "PLAYER"
+#sender = "CHARACTER"
 
-[event.start_game_help]
-criteria="!p.start_game_help & CMP(NOW > 1)"
-notification="press \"?\" or type \":\" then \"help\" and <ENTER> for help.\ntype \":\" then \"quit\" and <ENTER> to quit."
+#[event.start_game_help]
+#criteria="!p.start_game_help & CMP(NOW > 1)"
+#notification="press \"?\" or type \":\" then \"help\" and <ENTER> for help.\ntype \":\" then \"quit\" and <ENTER> to quit."
 
-[contact.contact_demo]
-criteria="p.event_demo"
-notification="awesome sauce"
+#[contact.contact_demo]
+#criteria="p.event_demo"
+#notification="awesome sauce"
 
 #[event.tutorial_chain_intro]
 #criteria="!p.tutorial_chain_intro & CMP(NOW > 1)"

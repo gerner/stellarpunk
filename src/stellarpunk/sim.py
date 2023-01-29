@@ -6,14 +6,14 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO, Set
 import collections
 import heapq
+from typing import Iterable, List, Optional, Mapping, Any, Tuple, Deque, TextIO, Set
 
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events
+from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
 from stellarpunk.interface import manager as interface_manager
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -280,6 +280,16 @@ class Simulator(core.AbstractGameRuntime):
         self.time_accel_rate = accel_rate
         self.fast_mode = fast_mode
 
+    def trigger_event(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: narrative.EventContext,
+        *entities: core.Entity,
+        **kwargs: Any,
+    ) -> None:
+        self.event_manager.trigger_event(characters, event_type, context, *entities, **kwargs)
+
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()
         real_span = now - self.reference_realtime
@@ -388,7 +398,7 @@ def main() -> None:
 
         ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
 
-        event_manager = events.EventManager(ui.player_event_handler)
+        event_manager = events.EventManager()
         event_manager.initialize(gamestate)
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))

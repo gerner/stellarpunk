@@ -480,17 +480,18 @@ class DockingOrder(core.OrderObserver, core.Order):
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
 
     def _complete(self) -> None:
-        if self.ship.captain is not None:
-            self.gamestate.trigger_event(
-                self.ship.captain,
-                core.EventType.APPROACH_DESTINATION,
-                director.context({
-                    core.ContextKey.DESTINATION: self.target.short_id_int(),
-                    core.ContextKey.SHIP: self.ship.short_id_int(),
-                }),
-                self.target,
-                self.ship,
-            )
+        pass
+        #if self.ship.captain is not None:
+        #    self.gamestate.trigger_event(
+        #        [self.ship.captain],
+        #        core.EventType.APPROACH_DESTINATION,
+        #        director.context({
+        #            core.ContextKey.DESTINATION: self.target.short_id_int(),
+        #            core.ContextKey.SHIP: self.ship.short_id_int(),
+        #        }),
+        #        self.target,
+        #        self.ship,
+        #    )
 
     def order_complete(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)

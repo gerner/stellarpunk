@@ -128,7 +128,7 @@ class KeyDemo(interface.View):
         return True
 
 
-class PlayerEventHandler(events.AbstractPlayerEventHandler):
+class PlayerEventHandler:#(events.AbstractPlayerEventHandler):
     def __init__(self, player: core.Player, interface: interface.Interface) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.player = player
