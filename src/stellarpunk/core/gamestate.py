@@ -14,7 +14,7 @@ import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule, narrative
-from .base import Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer
+from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer
 from .production_chain import ProductionChain
 from .sector import Sector
 from .sector_entity import SectorEntity
@@ -79,12 +79,15 @@ class AbstractGameRuntime:
         pass
 
 
-class Gamestate:
+class Gamestate(EntityRegistry):
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
 
         self.random = np.random.default_rng()
+
+        self.entities: Dict[uuid.UUID, Entity] = {}
+        self.entities_short: Dict[int, Entity] = {}
 
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
@@ -145,6 +148,19 @@ class Gamestate:
         self.starfield:Sequence[StarfieldLayer] = []
         self.sector_starfield:Sequence[StarfieldLayer] = []
         self.portrait_starfield:Sequence[StarfieldLayer] = []
+
+    def register_entity(self, entity: Entity) -> None:
+        if entity.entity_id in self.entities:
+            raise ValueError(f'entity {entity.entity_id} already registered!')
+        if entity.short_id_int() in self.entities_short:
+            raise ValueError(f'entity short id collision {entity} and {self.entities_short[entity.short_id_int()]}!')
+
+        self.entities[entity.entity_id] = entity
+        self.entities_short[entity.short_id_int()] = entity
+
+    def unregister_entity(self, entity: Entity) -> None:
+        del self.entities[entity.entity_id]
+        del self.entities_short[entity.short_id_int()]
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()

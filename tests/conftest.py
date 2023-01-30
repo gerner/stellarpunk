@@ -10,7 +10,7 @@ from . import MonitoringUI, MonitoringEconDataLogger
 def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
-    gamestate.player = core.Player()
+    gamestate.player = core.Player(gamestate)
     return gamestate
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
     sector_name = "Sector"
 
-    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), sector_name)
+    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name)
     gamestate.sectors[sector.entity_id] = sector
 
     return sector

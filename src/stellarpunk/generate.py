@@ -493,13 +493,15 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
         station = core.Station(
-                self._choose_station_sprite(),
-                np.array((x, y), dtype=np.float64),
-                station_body,
-                self.gamestate.production_chain.shape[0],
-                self._gen_station_name(),
-                entity_id=entity_id,
-                description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit.")
+            self._choose_station_sprite(),
+            np.array((x, y), dtype=np.float64),
+            station_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_station_name(),
+            entity_id=entity_id,
+            description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
+        )
         station.resource = resource
 
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
@@ -516,7 +518,14 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         planet_body = self._phys_body()
-        planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
+        planet = core.Planet(
+            np.array((x, y), dtype=np.float64),
+            planet_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_planet_name(),
+            entity_id=entity_id
+        )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
         self._phys_shape(planet_body, planet, planet_radius)
@@ -534,7 +543,14 @@ class UniverseGenerator:
         max_torque = config.Settings.generate.SectorEntities.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
-        ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
+        ship = core.Ship(
+            np.array((ship_x, ship_y), dtype=np.float64),
+            ship_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_ship_name(),
+            entity_id=entity_id
+        )
 
         self._phys_shape(ship_body, ship, ship_radius)
 
@@ -588,7 +604,16 @@ class UniverseGenerator:
         x,y = util.polar_to_cartesian(r, theta)
 
         body = self._phys_body()
-        gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination), entity_id=entity_id)
+        gate = core.TravelGate(
+            destination,
+            direction,
+            np.array((x,y), dtype=np.float64),
+            body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_gate_name(destination),
+            entity_id=entity_id
+        )
 
         self._phys_shape(body, gate, gate_radius)
 
@@ -602,7 +627,16 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         body = self._phys_body()
-        asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
+        asteroid = core.Asteroid(
+            resource,
+            amount,
+            np.array((x,y), dtype=np.float64),
+            body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_asteroid_name(),
+            entity_id=entity_id
+        )
 
         self._phys_shape(body, asteroid, asteroid_radius)
 
@@ -645,7 +679,12 @@ class UniverseGenerator:
         return asteroids
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
-        character = core.Character(self._choose_portrait(), location, name=self._gen_character_name())
+        character = core.Character(
+            self._choose_portrait(),
+            location,
+            self.gamestate,
+            name=self._gen_character_name()
+        )
         character.balance = balance
         self.gamestate.add_character(character)
         return character
@@ -653,7 +692,7 @@ class UniverseGenerator:
     def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
         player_character = self.spawn_character(location, balance=balance)
         player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
-        player = core.Player()
+        player = core.Player(self.gamestate)
         player.character = player_character
         player.agent = econ.PlayerAgent(player)
 
@@ -707,7 +746,14 @@ class UniverseGenerator:
         for i in range(1, len(slices)-1):
             raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
 
-        sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+        sector = core.Sector(
+            np.array([x, y]),
+            radius,
+            cymunk.Space(),
+            self.gamestate,
+            self._gen_sector_name(),
+            entity_id=entity_id
+        )
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
         # habitable planet
         # plenty of resources
@@ -1317,7 +1363,14 @@ class UniverseGenerator:
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
-            sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+            sector = core.Sector(
+                np.array([x, y]),
+                radius,
+                cymunk.Space(),
+                self.gamestate,
+                self._gen_sector_name(),
+                entity_id=entity_id
+            )
 
             # mypy thinks idx is an int
             self.gamestate.add_sector(sector, idx[0]) # type: ignore

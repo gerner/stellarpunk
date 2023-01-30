@@ -5,7 +5,7 @@ import numbers
 from typing import TYPE_CHECKING, Mapping, Any, Tuple
 
 from . import core as ecore
-from stellarpunk import narrative, core
+from stellarpunk import narrative, core, dialog
 
 
 class Events(enum.IntEnum):
@@ -14,16 +14,14 @@ class Events(enum.IntEnum):
     BROADCAST = enum.auto()
 
 
-
-
 class ContextKeys(enum.IntEnum):
+    PLAYER = enum.auto()
     IS_PLAYER = enum.auto()
     SHIP = enum.auto()
     MESSAGE_SENDER = enum.auto()
     MESSAGE_ID = enum.auto()
     TUTORIAL_GUY = enum.auto()
-
-
+    TUTORIAL = enum.auto()
 
 
 class BroadcastEffect(core.Effect):
@@ -111,7 +109,9 @@ class BroadcastAction(ecore.Action):
         loc = character.location.loc
         radius = action_args["radius"]
         message_id = action_args["message_id"]
-        message = action_args["message"].format(**event_args)
+        format_args = dict(event_args)
+        format_args["_character"] = character
+        message = action_args["message"].format(format_args)
         expiration = self.gamestate.timestamp + action_args["delay"]
 
         sector.add_effect(BroadcastEffect(
@@ -123,6 +123,56 @@ class BroadcastAction(ecore.Action):
             sector,
             self.gamestate,
         ))
+
+
+class MessageAction(ecore.Action):
+    def validate(self, action_args: Mapping[str, Any]) -> bool:
+        if not all(
+            k in action_args and isinstance(action_args[k], t) for k,t in [
+                ("message_id", numbers.Real),
+                ("subject", str),
+                ("message", str),
+                ("recipient", str),
+            ]
+        ):
+            return False
+
+        if action_args["recipient"] != "player":
+            return False
+
+        return True
+
+    def act(
+        self,
+        character: "core.Character",
+        event_type: int,
+        event_context: narrative.EventContext,
+        entities: Mapping[int, "core.Entity"],
+        event_args: Mapping[str, Any],
+        action_args: Mapping[str, Any]
+    ) -> None:
+
+        sector = character.location.sector
+        assert sector is not None
+        message_id = action_args["message_id"]
+        format_args = dict(event_args)
+        format_args["_character"] = character
+        subject_str = action_args["subject"].format(format_args)
+        message_str = action_args["message"].format(**format_args)
+
+        if "dialog" in action_args:
+            reply_dialog = dialog.load_dialog(action_args["dialog"])
+        else:
+            reply_dialog = None
+
+        if action_args["recipient"] == "player":
+            recipient = self.gamestate.player.character
+        else:
+            raise ValueError(f'unknown recipient type {action_args["recipient"]}')
+
+        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, self.gamestate, reply_to=character, reply_dialog=reply_dialog)
+
+        recipient.send_message(message)
 
 
 def register_events() -> None:

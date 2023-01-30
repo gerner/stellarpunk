@@ -119,43 +119,40 @@ class EventManager(AbstractEventManager):
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
         self.director: narrative.Director = None # type: ignore[assignment]
         self.event_queue: Deque[Tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
-        self.actions:Mapping[int, Action] = {}
+        self.actions: Dict[int, Action] = {}
+        self.event_types: Dict[str, int] = {}
+        self.context_keys: Dict[str, int] = {}
+        self.action_ids: Dict[str, int] = {}
 
     def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
         self.gamestate = gamestate
 
-
         # assign integer ids for events, contexts, actions
-        event_types: Dict[str, int] = {}
-        context_keys: Dict[str, int] = {}
-        action_ids: Dict[str, int] = {}
-        actions: Dict[int, Action] = {}
         action_validators: Dict[int, Callable[[Mapping], bool]] = {}
 
         event_offset = 0
         for event_enum in RegisteredEventSpaces:
             RegisteredEventSpaces[event_enum] = event_offset
             for event_key in event_enum: # type: ignore[var-annotated]
-                event_types[util.camel_to_snake(event_key.name)] = event_key + event_offset
+                self.event_types[util.camel_to_snake(event_key.name)] = event_key + event_offset
             event_offset += max(event_enum)+1
 
         context_key_offset = 0
         for context_enum in RegisteredContextSpaces:
             RegisteredContextSpaces[context_enum] = context_key_offset
             for context_key in context_enum: # type: ignore[var-annotated]
-                context_keys[util.camel_to_snake(context_key.name)] = context_key.value + context_key_offset
+                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + context_key_offset
             context_key_offset += max(context_enum)+1
 
         action_count = 0
         for action, action_name in RegisteredActions.items():
             action.initialize(self.gamestate)
-            action_ids[action_name] = action_count
-            actions[action_count] = action
+            self.action_ids[action_name] = action_count
+            self.actions[action_count] = action
             action_validators[action_count] = action.validate
             action_count += 1
 
-        self.director = narrative.loadd(events, event_types, context_keys, action_ids, action_validators)
-        self.actions = actions
+        self.director = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
 
     def trigger_event(
         self,

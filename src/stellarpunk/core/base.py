@@ -17,10 +17,17 @@ from stellarpunk.narrative import director
 if TYPE_CHECKING:
     from .character import Character
 
+class EntityRegistry(abc.ABC):
+    @abc.abstractmethod
+    def register_entity(self, entity: "Entity") -> None: ...
+
+    @abc.abstractmethod
+    def unregister_entity(self, entity: "Entity") -> None: ...
+
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
-    def __init__(self, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
+    def __init__(self, entity_registry: EntityRegistry, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:8], byteorder='big')
 
@@ -31,6 +38,12 @@ class Entity(abc.ABC):
         self.description = description or name
 
         self.context = director.EventContext()
+
+        self.entity_registry = entity_registry
+        self.entity_registry.register_entity(self)
+
+    def __del__(self) -> None:
+        self.entity_registry.unregister_entity(self)
 
     def short_id(self) -> str:
         """ first 32 bits as hex """

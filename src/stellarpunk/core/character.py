@@ -57,6 +57,11 @@ class Agendum:
         pass
 
 
+class CharacterObserver(abc.ABC):
+    def message_received(self, character: "Character", message: "Message") -> None:
+        pass
+
+
 class Character(Entity):
     id_prefix = "CHR"
     def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, **kwargs:Any) -> None:
@@ -77,6 +82,14 @@ class Character(Entity):
         # activites this character is enaged in (how they interact)
         self.agenda:MutableSequence[Agendum] = []
 
+        self.observers:Set[CharacterObserver] = set()
+
+    def observe(self, observer:CharacterObserver) -> None:
+        self.observers.add(observer)
+
+    def unobserve(self, observer:CharacterObserver) -> None:
+        self.observers.remove(observer)
+
     def address_str(self) -> str:
         return f'{self.short_id()}:{self.location.address_str()}'
 
@@ -89,13 +102,19 @@ class Character(Entity):
         if start:
             agendum.start()
 
+    def send_message(self, message: "Message") -> None:
+        for observer in self.observers:
+            observer.message_received(self, message)
+
 
 class Message(Entity):
     id_prefix = "MSG"
 
-    def __init__(self, message:str, timestamp:float, *args:Any, reply_to:Optional["Character"]=None, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
+    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, *args:Any, reply_to:Optional["Character"]=None, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
+        self.message_id = message_id
+        self.subject = subject
         self.message = message
         self.timestamp = timestamp
 
@@ -111,7 +130,7 @@ class PlayerObserver(abc.ABC):
         pass
 
 
-class Player(Entity):
+class Player(Entity, CharacterObserver):
     id_prefix = "PLR"
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -120,21 +139,36 @@ class Player(Entity):
         self.observers:Set[PlayerObserver] = set()
 
         # which character the player controls
-        self.character:Character = None # type: ignore[assignment]
+        self._character:Character = None # type: ignore[assignment]
         self.agent:EconAgent = None # type: ignore[assignment]
 
         self.notifications:List[str] = []
         self.messages:Dict[uuid.UUID, Message] = {}
 
+    def get_character(self) -> Character:
+        return self._character
+
+    def set_character(self, character:Character) -> None:
+        if self._character:
+            self._character.unobserve(self)
+
+        self._character = character
+        self._character.observe(self)
+
+    character = property(get_character, set_character, doc="which character this player plays as")
+
     def observe(self, observer:PlayerObserver) -> None:
         self.observers.add(observer)
+
+    def unobserve(self, observer:PlayerObserver) -> None:
+        self.observers.remove(observer)
 
     def send_notification(self, notification:str) -> None:
         self.notifications.append(notification)
         for observer in self.observers:
             observer.notification_received(self, notification)
 
-    def send_message(self, message:Message) -> None:
+    def message_received(self, character:Character, message:Message) -> None:
         self.messages[message.entity_id] = message
         for observer in self.observers:
             observer.message_received(self, message)
