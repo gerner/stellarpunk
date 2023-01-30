@@ -166,7 +166,7 @@ class WarpOutEffect(core.Effect):
         return (ll[0], ll[1], ur[0], ur[1])
 
     def is_complete(self) -> bool:
-        return self.gamestate.timestamp > self.expiration_time
+        return self.gamestate.timestamp >= self.expiration_time
 
 class WarpInEffect(core.Effect):
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
@@ -186,5 +186,5 @@ class WarpInEffect(core.Effect):
         return (ll[0], ll[1], ur[0], ur[1])
 
     def is_complete(self) -> bool:
-        return self.gamestate.timestamp > self.expiration_time
+        return self.gamestate.timestamp >= self.expiration_time
 

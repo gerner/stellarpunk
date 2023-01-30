@@ -14,7 +14,7 @@ import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule, narrative
-from .base import Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, ContextKey
+from .base import Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer
 from .production_chain import ProductionChain
 from .sector import Sector
 from .sector_entity import SectorEntity
@@ -55,24 +55,6 @@ class Counters(enum.IntEnum):
     BEHIND_TICKS = enum.auto()
     EVENTS_PROCESSED = enum.auto()
     EVENT_ACTIONS_PROCESSED = enum.auto()
-
-
-class EventType(enum.IntEnum):
-    BROADCAST = enum.auto()
-    APPROACH_DESTINATION = enum.auto()
-
-
-@dataclass
-class Event:
-    character: Character
-    event_type: EventType
-    context: narrative.EventContext
-    entity_context: Dict[int, narrative.EventContext]
-    entities: Dict[int, Entity]
-    args: Dict[str, Any]
-
-    def get_entity(self, key: ContextKey) -> Entity:
-        return self.entities[self.context.get_flag(key)]
 
 
 class AbstractGameRuntime:
@@ -163,8 +145,6 @@ class Gamestate:
         self.starfield:Sequence[StarfieldLayer] = []
         self.sector_starfield:Sequence[StarfieldLayer] = []
         self.portrait_starfield:Sequence[StarfieldLayer] = []
-
-        self.events: Deque[Event] = collections.deque()
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.game_runtime.get_time_acceleration()

@@ -6,7 +6,7 @@ import uuid
 from typing import Optional, Any, MutableSequence, Set, List, Dict, TYPE_CHECKING
 
 from stellarpunk import util, dialog
-from .base import Entity, Sprite, EconAgent, ContextKey, Asset
+from .base import Entity, Sprite, EconAgent, Asset
 from .sector_entity import SectorEntity
 
 if TYPE_CHECKING:

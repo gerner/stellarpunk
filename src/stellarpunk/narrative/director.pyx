@@ -178,10 +178,10 @@ cdef class Rule:
 
 cdef class Event:
     cdef cEvent event
-    cdef object event_type
-    cdef object event_context
-    cdef object entity_context
-    cdef object args
+    cdef public object event_type
+    cdef public object event_context
+    cdef public object entity_context
+    cdef public object args
 
     def __cinit__(self, event_type: int, event_context: EventContext, entity_context: Dict[int, EventContext], args: Any):
         cdef unordered_map[uint64_t, cEventContext*] c_entity_context
@@ -197,6 +197,12 @@ cdef class Event:
         self.event_context = event_context
         self.entity_context = entity_context
         self.args = args
+
+    #@property
+    #def event_type(self) -> int:
+    #    return self._event_type
+
+
 
 
 class CharacterCandidate:

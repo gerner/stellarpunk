@@ -1,5 +1,25 @@
 # Events
 
+[tutorial_test]
+type = "start_game"
+priority = 0
+criteria = ["1 <= tutorial_guy <= 1"]
+[[tutorial_test.actions]]
+_action = "broadcast"
+radius = 2000
+message_id = 0
+delay = 0.5
+message = "is this thing on?"
+
+# Player event handlers
+
+[player_receive_broadcast]
+type = "broadcast"
+priority = 0
+criteria = ["1 <= is_player <= 1"]
+[[player_receive_broadcast.actions]]
+_action = "player_receive_broadcast"
+
 #[start_game_help]
 #type = "start_game"
 #criteria = ["is_player", "5 <= stuff <= 10", "4 <= $foo.bar <= 15", "$bar.baz = 21"]

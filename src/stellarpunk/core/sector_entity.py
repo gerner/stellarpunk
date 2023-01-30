@@ -219,10 +219,10 @@ def write_history_to_file(entity:Union["sector.Sector", SectorEntity], f:Union[s
         fout = f
 
     entities:Iterable[SectorEntity]
-    if isinstance(entity, sector.Sector):
-        entities = entity.entities.values()
-    else:
+    if isinstance(entity, SectorEntity):
         entities = [entity]
+    else:
+        entities = entity.entities.values()
 
     for ent in entities:
         history = ent.get_history()

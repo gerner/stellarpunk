@@ -46,12 +46,18 @@ class Effect(abc.ABC):
         self.observers.append(observer)
 
     def _begin(self) -> None:
+        """ Called when the effect starts.
+
+        This is a great place to schedule the effect for processing.
+        """
         pass
 
     def _complete(self) -> None:
+        """ Called when the effect is done and cleaning up. """
         pass
 
     def _cancel(self) -> None:
+        """ Called when the effect is cancelled and cleaning up. """
         pass
 
     @abc.abstractmethod
@@ -63,6 +69,11 @@ class Effect(abc.ABC):
         return True
 
     def begin_effect(self) -> None:
+        """ Triggers the event to start working.
+
+        Called by the sector when the effect is added to it
+        """
+
         self.started_at = self.gamestate.timestamp
         self._begin()
 
@@ -70,6 +81,14 @@ class Effect(abc.ABC):
             observer.effect_begin(self)
 
     def complete_effect(self) -> None:
+        """ Triggers the event to complete and get cleaned up.
+
+        We assume the effect is not scheduled at this point.
+
+        The effect (or whoever owns the effect) must call this when the
+        effect is done. The default act will call this if is_complete.
+        """
+
         self.completed_at = self.gamestate.timestamp
         self._complete()
 
@@ -81,6 +100,13 @@ class Effect(abc.ABC):
         self.sector.remove_effect(self)
 
     def cancel_effect(self) -> None:
+        """ Triggers the event to cancel and get cleaned up.
+
+        The effect might be scheduled at this point.
+
+        Anyone can call this.
+        """
+
         self.gamestate.unschedule_effect(self)
         try:
             self.sector.remove_effect(self)

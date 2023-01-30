@@ -18,7 +18,7 @@ from rtree import index # type: ignore
 import graphviz # type: ignore
 
 #TODO: we should not import interface here. we just do it to get interface.starfield, which could not import interface, but does
-from stellarpunk import util, core, orders, agenda, econ, config, interface
+from stellarpunk import util, core, orders, agenda, econ, config, interface, events
 from stellarpunk.interface import starfield
 
 RESOURCE_REL_SHIP = 0
@@ -652,7 +652,7 @@ class UniverseGenerator:
 
     def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
         player_character = self.spawn_character(location, balance=balance)
-        player_character.context.set_flag(core.ContextKey.IS_PLAYER, 1)
+        player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
         player = core.Player()
         player.character = player_character
         player.agent = econ.PlayerAgent(player)
@@ -1423,6 +1423,8 @@ class UniverseGenerator:
         refinery.cargo[refinery.resource] += math.floor((refinery.cargo_capacity - np.sum(refinery.cargo))*0.2)
 
         assert refinery.sector
+        assert refinery.captain
+        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), 1)
 
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:

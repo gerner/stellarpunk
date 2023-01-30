@@ -7,8 +7,4 @@ from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate, 
 from .ship import Ship
 from .order import Order, OrderObserver, Effect, EffectObserver
 from .character import Character, Player, Agendum, PlayerObserver, Message
-from .gamestate import Gamestate, Counters
-
-# drop these after refactor
-from .base import ContextKey
-from .gamestate import Event, EventType, AbstractGameRuntime
+from .gamestate import Gamestate, Counters, AbstractGameRuntime

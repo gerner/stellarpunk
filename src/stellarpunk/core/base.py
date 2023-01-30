@@ -17,15 +17,6 @@ from stellarpunk.narrative import director
 if TYPE_CHECKING:
     from .character import Character
 
-class ContextKey(enum.IntEnum):
-    IS_PLAYER = enum.auto()
-    SHIP = enum.auto()
-    DESTINATION = enum.auto()
-    ENTITY_SHORT_ID_INT = enum.auto()
-    MESSAGE_SENDER = enum.auto()
-    MESSAGE_ID = enum.auto()
-
-
 class Entity(abc.ABC):
     id_prefix = "ENT"
 

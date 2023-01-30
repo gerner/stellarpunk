@@ -3,7 +3,7 @@
 import sys
 import re
 import collections
-from typing import Dict, List, Union, Any
+from typing import Dict, Mapping, List, Union, Any, Callable
 
 import toml # type: ignore
 
@@ -12,7 +12,11 @@ from . import director
 INT_RE = re.compile("[0-9]+")
 FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
 
-def parse_criteria(cri: str, context_keys: Dict[str, int]) -> Union[director.FlagCriteria, director.EntityCriteria]:
+def parse_criteria(cri: str, context_keys: Mapping[str, int]) -> Union[director.FlagCriteria, director.EntityCriteria]:
+
+    if not isinstance(cri, str):
+        raise ValueError("criteria must be a string, got {cri}")
+
     # CRITERIA := RANGE_CRITERIA
     # RANGE_CRITERIA := int "<=" REF "<=" int
     # REF := FLAG_REF | ENTITY_REF
@@ -82,11 +86,33 @@ def parse_criteria(cri: str, context_keys: Dict[str, int]) -> Union[director.Fla
         return director.FlagCriteria(flag_id, low, high)
 
 
+def parse_action(
+    rule_id: str,
+    act: Mapping[str, Any],
+    action_ids: Mapping[str, int],
+    action_validators: Mapping[int, Callable[[Mapping], bool]],
+) -> director.ActionTemplate:
+    if not isinstance(act, Dict):
+        raise ValueError(f'actions for {rule_id} must be a list of tables')
+    if "_action" not in act:
+        raise ValueError(f'actions for {rule_id} must all have _action field')
+    action_name = act["_action"]
+    if action_name not in action_ids:
+        raise ValueError(f'rule {rule_id} had unknown action {action_name}')
+    action_id = action_ids[action_name]
+    if action_id in action_validators and not action_validators[action_id](act):
+        raise ValueError(f'rule {rule_id} had invalid action args for action {action_name}')
+
+    action_template = director.ActionTemplate(action_id, act)
+    return action_template
+
+
 def loads(
     data: str,
-    event_types: Dict[str, int],
-    context_keys: Dict[str, int],
-    action_ids: Dict[str, int],
+    event_types: Mapping[str, int],
+    context_keys: Mapping[str, int],
+    action_ids: Mapping[str, int],
+    action_validators: Mapping[int, Callable[[Mapping], bool]] = {},
 ) -> director.Director:
     """
     Loads rules from a toml string into a narrative director.
@@ -110,14 +136,15 @@ def loads(
 
     # load data as toml
     rule_data = toml.loads(data)
-    return loadd(rule_data, event_types, context_keys, action_ids)
+    return loadd(rule_data, event_types, context_keys, action_ids, action_validators)
 
 
 def loadd(
-    rule_data: Dict[str, Any],
-    event_types: Dict[str, int],
-    context_keys: Dict[str, int],
-    action_ids: Dict[str, int],
+    rule_data: Mapping[str, Any],
+    event_types: Mapping[str, int],
+    context_keys: Mapping[str, int],
+    action_ids: Mapping[str, int],
+    action_validators: Mapping[int, Callable[[Mapping], bool]] = {},
 ) -> director.Director:
     """
     Loads rules from a rule data dict into a narrative director.
@@ -190,15 +217,7 @@ def loadd(
         actions: List[director.ActionTemplate] = []
 
         for act in action_data:
-            if not isinstance(act, Dict):
-                raise ValueError(f'actions for {rule_id} must be a list of tables')
-            if "_action" not in act:
-                raise ValueError(f'actions for {rule_id} must all have _action field')
-            action_name = act["_action"]
-            if action_name not in action_ids:
-                raise ValueError(f'rule {rule_id} had unknown action {action_name}')
-            action_template = director.ActionTemplate(action_ids[action_name], act)
-            actions.append(action_template)
+            actions.append(parse_action(rule_id, act, action_ids, action_validators))
 
         # create a rule record
         rules[event_type_id].append(director.Rule(event_type_id, priority, criteria, entity_criteria, actions))

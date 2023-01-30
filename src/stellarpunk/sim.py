@@ -15,6 +15,7 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
 from stellarpunk.interface import manager as interface_manager
+import stellarpunk.events.events
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
@@ -340,6 +341,12 @@ class Simulator(core.AbstractGameRuntime):
 
         next_tick = time.perf_counter()+self.gamestate.dt
 
+        self.gamestate.trigger_event(
+            self.gamestate.characters.values(),
+            events.e(events.Events.START_GAME),
+            narrative.context({}),
+        )
+
         while self.gamestate.keep_running:
             if self.gamestate.should_raise:
                 raise Exception()
@@ -386,6 +393,10 @@ def main() -> None:
         # turn warnings into exceptions
         warnings.filterwarnings("error")
 
+        # Note: the construction/initialization order here is a little fragile
+        # there are some circular dependencies which we resolve through
+        # interleaving construction and initialization
+
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
 
@@ -393,23 +404,20 @@ def main() -> None:
         gamestate.econ_logger = data_logger
 
         generator = generate.UniverseGenerator(gamestate)
-        generator.initialize()
-        stellar_punk = generator.generate_universe()
-
         ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
+        generator.initialize()
 
+        # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
         event_manager = events.EventManager()
-        event_manager.initialize(gamestate)
+        event_manager.initialize(gamestate, config.Events)
+
+        generator.generate_universe()
+        gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
-
-        #logging.info("running simulation...")
-        #stellar_punk.run()
-
-        stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
-
         sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
         sim.initialize()
+        ui.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
         # this helps a lot because there's lots of short lived objects during a

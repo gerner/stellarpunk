@@ -11,9 +11,9 @@ Responsible for:
 import enum
 import logging
 import collections
-from typing import Iterable, Any, Sequence, Mapping, Dict, Tuple, Optional, Union, Deque
+from typing import Iterable, Any, Sequence, Mapping, Dict, Tuple, Optional, Union, Deque, Callable
 
-from stellarpunk import core, util, dialog, predicates, config, task_schedule
+from stellarpunk import core, util, dialog, predicates, task_schedule
 from stellarpunk import narrative
 
 
@@ -34,64 +34,29 @@ class AbstractEventManager:
 
 class Action:
     def __init__(self) -> None:
-        pass
+        self.gamestate: core.Gamestate = None # type: ignore[assignment]
+
+    def validate(self, action_args: Mapping[str, Any]) -> bool:
+        """ Validate a set of action_args associated with a configured instance
+        of the action.
+
+        This is useful to help catch event configuration errors (e.g. missing
+        or malformed required params). """
+        return True
+
+    def initialize(self, gamestate: core.Gamestate) -> None:
+        self.gamestate = gamestate
 
     def act(
         self,
         character: core.Character,
         event_type: int,
         event_context: narrative.EventContext,
-        entity_context: Mapping[int, narrative.EventContext],
+        entities: Mapping[int, core.Entity],
         event_args: Mapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
         pass
-
-
-"""
-class BroadcastAction:
-    def __init__(
-        self,
-        sector: core.Sector,
-        loc: Tuple[float, float],
-        message_id: int,
-        message: str,
-        *args: Any,
-        radius: float = 5e3,
-        **kwargs: Any
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self.sector = sector
-        self.loc = loc
-        self.radius = radius
-        self.message_id = message_id
-        self.message = message
-
-    def act(self) -> None:
-        nearby_characters = list(
-            x.captain for x in self.sector.spatial_point(self.loc, self.radius) if x.captain is not None and x.captain != self.character
-        )
-
-        # TODO: this triggers many events, one for each character in range.
-        # maybe we actually want to trigger a single event, but associate it
-        # somehow with all of these potential characters.
-        for receiver in nearby_characters:
-            destination = self.event.get_entity(core.ContextKey.DESTINATION)
-            self.gamestate.trigger_event(
-                receiver,
-                core.EventType.BROADCAST,
-                narrative.context({
-                    core.ContextKey.MESSAGE_SENDER: self.character.short_id_int(),
-                    core.ContextKey.MESSAGE_ID: self.message_id,
-                    core.ContextKey.DESTINATION: self.event.context.get_flag(core.ContextKey.DESTINATION),
-                    core.ContextKey.SHIP: self.event.context.get_flag(core.ContextKey.SHIP),
-                }),
-                self.character,
-                self.event.get_entity(core.ContextKey.DESTINATION),
-                self.event.get_entity(core.ContextKey.SHIP),
-                message=self.message,
-            )
-"""
 
 
 RegisteredEventSpaces: Dict[enum.EnumMeta, int] = {}
@@ -108,16 +73,32 @@ def ck(context_key: enum.IntEnum) -> int:
 
 
 def register_events(events: enum.EnumMeta) -> None:
+    if len(events) > 0:
+        if not all(isinstance(x, int) for x in events): # type: ignore[var-annotated]
+            raise ValueError("members of events must all be int-like")
+        if min(events) not in [0, 1]:
+            raise ValueError("events must start at 0 or 1")
+        if max(events) > len(events):
+            raise ValueError("events must be continuous")
     RegisteredEventSpaces[events] = -1
 
 
 def register_context_keys(context_keys: enum.EnumMeta) -> None:
+    if len(context_keys) > 0:
+        if not all(isinstance(x, int) for x in context_keys): # type: ignore[var-annotated]
+            raise ValueError("members of context keys must all be int-like")
+        if min(context_keys) not in [0, 1]:
+            raise ValueError("context keys must start at 0 or 1")
+        if max(context_keys) > len(context_keys):
+            raise ValueError("context keys must be continuous")
     RegisteredContextSpaces[context_keys] = -1
 
 
 def register_action(action: Action, name: Optional[str] = None) -> None:
     if name is None:
         name = util.camel_to_snake(action.__class__.__name__)
+        if name.endswith("_action"):
+            name = name[:-len("_action")]
     RegisteredActions[action] = name
 
 
@@ -140,7 +121,7 @@ class EventManager(AbstractEventManager):
         self.event_queue: Deque[Tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
         self.actions:Mapping[int, Action] = {}
 
-    def initialize(self, gamestate:core.Gamestate) -> None:
+    def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
         self.gamestate = gamestate
 
 
@@ -149,28 +130,31 @@ class EventManager(AbstractEventManager):
         context_keys: Dict[str, int] = {}
         action_ids: Dict[str, int] = {}
         actions: Dict[int, Action] = {}
+        action_validators: Dict[int, Callable[[Mapping], bool]] = {}
 
         event_offset = 0
         for event_enum in RegisteredEventSpaces:
             RegisteredEventSpaces[event_enum] = event_offset
             for event_key in event_enum: # type: ignore[var-annotated]
-                event_types[event_key.name] = event_key + event_offset
+                event_types[util.camel_to_snake(event_key.name)] = event_key + event_offset
             event_offset += max(event_enum)+1
 
         context_key_offset = 0
         for context_enum in RegisteredContextSpaces:
             RegisteredContextSpaces[context_enum] = context_key_offset
             for context_key in context_enum: # type: ignore[var-annotated]
-                context_keys[context_key.name] = context_key.value + context_key_offset
+                context_keys[util.camel_to_snake(context_key.name)] = context_key.value + context_key_offset
             context_key_offset += max(context_enum)+1
 
         action_count = 0
         for action, action_name in RegisteredActions.items():
+            action.initialize(self.gamestate)
             action_ids[action_name] = action_count
             actions[action_count] = action
+            action_validators[action_count] = action.validate
             action_count += 1
 
-        self.director = narrative.loadd(config.Events, event_types, context_keys, action_ids)
+        self.director = narrative.loadd(events, event_types, context_keys, action_ids, action_validators)
         self.actions = actions
 
     def trigger_event(
@@ -204,6 +188,7 @@ class EventManager(AbstractEventManager):
             event, candidates = self.event_queue.popleft()
 
             for action in self.director.evaluate(event, candidates):
+                self.logger.debug(f'processing action {action.action_id}')
                 delay = action.args.get("_delay", 0)
                 self._do_action(event, action)
                 actions_processed += 1
@@ -219,8 +204,8 @@ class EventManager(AbstractEventManager):
             action.character_candidate.data,
             event.event_type,
             event.event_context,
-            event.entity_context,
-            event.args,
+            event.args[0],
+            event.args[1],
             action.args
         )
 

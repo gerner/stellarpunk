@@ -1,14 +1,14 @@
 """ Interface Manager gluing together the interface elements """
 
-from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List
 import cProfile
 import pstats
 import curses
 import uuid
 import collections
 import logging
+from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
-from stellarpunk import core, interface, generate, util, config, events
+from stellarpunk import core, interface, generate, util, config, events, narrative
 from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station
 
 
@@ -128,24 +128,42 @@ class KeyDemo(interface.View):
         return True
 
 
-class PlayerEventHandler:#(events.AbstractPlayerEventHandler):
-    def __init__(self, player: core.Player, interface: interface.Interface) -> None:
-        self.logger = logging.getLogger(util.fullname(self))
-        self.player = player
+#class PlayerEventHandler:#(events.AbstractPlayerEventHandler):
+#    def __init__(self, player: core.Player, interface: interface.Interface) -> None:
+#        self.logger = logging.getLogger(util.fullname(self))
+#        self.player = player
+#        self.interface = interface
+#
+#    def handle_event(self, event: core.Event) -> None:
+#        self.logger.debug(f'event {str(core.EventType(event.event_type))} received by {event.character.short_id()} (player character)')
+#        if event.event_type == core.EventType.BROADCAST:
+#            sender = event.entities[event.context.get_flag(core.ContextKey.MESSAGE_SENDER)]
+#            assert isinstance(sender, core.Character)
+#            distance = util.distance(self.player.character.location.loc, sender.location.loc)
+#            self.interface.log_message(f'Bcast from {sender.address_str()} at {distance:.0f}m:\n{event.args["message"]}')
+
+
+class PlayerReceiveBroadcast(events.Action):
+    def __init__(self, interface: interface.Interface) -> None:
         self.interface = interface
 
-    def handle_event(self, event: core.Event) -> None:
-        self.logger.debug(f'event {str(core.EventType(event.event_type))} received by {event.character.short_id()} (player character)')
-        if event.event_type == core.EventType.BROADCAST:
-            sender = event.entities[event.context.get_flag(core.ContextKey.MESSAGE_SENDER)]
-            assert isinstance(sender, core.Character)
-            distance = util.distance(self.player.character.location.loc, sender.location.loc)
-            self.interface.log_message(f'Bcast from {sender.address_str()} at {distance:.0f}m:\n{event.args["message"]}')
+    def act(
+        self,
+        character: core.Character,
+        event_type: int,
+        event_context: narrative.EventContext,
+        entities: Mapping[int, core.Entity],
+        event_args: Mapping[str, Any],
+        action_args: Mapping[str, Any]
+    ) -> None:
+        sender = entities[event_context.get_flag(events.ck(events.ContextKeys.MESSAGE_SENDER))]
+        assert isinstance(sender, core.Character)
+        distance = util.distance(character.location.loc, sender.location.loc)
+        self.interface.log_message(f'Bcast from {sender.address_str()} at {distance:.0f}m:\n{event_args["message"]}')
 
 
 class InterfaceManager:
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator) -> None:
-        self.player_event_handler: PlayerEventHandler = None # type: ignore[assignment]
         self.interface = interface.Interface(gamestate)
         self.gamestate = gamestate
         self.generator = generator
@@ -156,18 +174,21 @@ class InterfaceManager:
     def __enter__(self) -> "InterfaceManager":
         self.interface.key_list = {x.key:x for x in self.key_list()}
         self.interface.__enter__()
+        self.register_events()
+        return self
 
+    def __exit__(self, *args:Any) -> None:
+        self.interface.__exit__(*args)
+
+    def initialize(self) -> None:
         self.interface.initialize()
         assert isinstance(self.gamestate.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
         self.interface.open_view(pilot_view)
 
-        self.player_event_handler = PlayerEventHandler(self.gamestate.player, self.interface)
-
-        return self
-
-    def __exit__(self, *args:Any) -> None:
-        self.interface.__exit__(*args)
+    def register_events(self) -> None:
+        prb = PlayerReceiveBroadcast(self.interface)
+        events.register_action(prb)
 
     def focused_view(self) -> Optional[interface.View]:
         """ Get the topmost view that's not the topmost CommandInput """
