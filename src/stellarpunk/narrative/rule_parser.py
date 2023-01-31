@@ -3,6 +3,7 @@
 import sys
 import re
 import collections
+import logging
 from typing import Dict, Mapping, List, Union, Any, Callable
 
 import toml # type: ignore
@@ -12,30 +13,32 @@ from . import director
 INT_RE = re.compile("[0-9]+")
 FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
 
+POS_INF = (1<<64)-1
+
 def parse_criteria(cri: str, context_keys: Mapping[str, int]) -> Union[director.FlagCriteria, director.EntityCriteria]:
 
     if not isinstance(cri, str):
         raise ValueError("criteria must be a string, got {cri}")
 
-    # CRITERIA := RANGE_CRITERIA
-    # RANGE_CRITERIA := int "<=" REF "<=" int
+    # CRITERIA := [int "<="] REF ["<=" int]
     # REF := FLAG_REF | ENTITY_REF
     # FLAG_REF := [a-zA-Z_][a-zA-Z0-9_]*
     # ENTITY_REF := $ FLAG_REF "." FLAG_REF
 
-    data = cri
+    data = cri.lstrip()
 
     # lower bound value
     m = INT_RE.match(data)
     if not m:
-        raise ValueError("bad low value")
-    low = int(m.group(0))
-    data = data[m.end():].lstrip()
+        low = None
+    else:
+        low = int(m.group(0))
+        data = data[m.end():].lstrip()
 
-    # lower bound indicator
-    if data[0:2] != "<=":
-        raise ValueError(f'epected lower bound as "<=" in "{data}"')
-    data = data[2:].strip()
+        # lower bound indicator
+        if data[0:2] != "<=":
+            raise ValueError(f'epected lower bound as "<=" in "{data}"')
+        data = data[2:].strip()
 
     # flag or entity flag
     entity_name = None
@@ -63,19 +66,34 @@ def parse_criteria(cri: str, context_keys: Mapping[str, int]) -> Union[director.
 
     # upper bound indicator
     if data[0:2] != "<=":
-        raise ValueError(f'epected upper bound as "<=" in "{data}"')
-    data = data[2:].strip()
+        high = None
+    else:
+        data = data[2:].strip()
 
-    # upper bound value
-    m = INT_RE.match(data)
-    if not m:
-        raise ValueError("bad high value")
-    high = int(m.group(0))
-    data = data[m.end():].strip()
+        # upper bound value
+        m = INT_RE.match(data)
+        if not m:
+            raise ValueError("bad high value")
+        high = int(m.group(0))
+        data = data[m.end():].strip()
 
     # nothing else left
     if data != "":
         raise ValueError(f'had left-over string in criteria {data}')
+
+    if low is None and high is None:
+        # no bounds => non-zero (is present)
+        low = 1
+        high = POS_INF
+    elif low is None:
+        # high bound, but no low bound => less than high
+        low = 0
+    elif high is None:
+        # low bound, but no high bound => greater than low
+        high = POS_INF
+
+    assert low is not None
+    assert high is not None
 
     if entity_name:
         entity_id = context_keys[entity_name]
@@ -91,6 +109,7 @@ def parse_action(
     act: Mapping[str, Any],
     action_ids: Mapping[str, int],
     action_validators: Mapping[int, Callable[[Mapping], bool]],
+    context_keys: Mapping[str, int],
 ) -> director.ActionTemplate:
     if not isinstance(act, Dict):
         raise ValueError(f'actions for {rule_id} must be a list of tables')
@@ -102,6 +121,14 @@ def parse_action(
     action_id = action_ids[action_name]
     if action_id in action_validators and not action_validators[action_id](act):
         raise ValueError(f'rule {rule_id} had invalid action args for action {action_name}')
+
+    # translate "ref:" type arguments to their integer context key id
+    for k, v in act.items():
+        if isinstance(v, str) and v.startswith("_ref:"):
+            ref_key = v[len("_ref:"):]
+            if ref_key not in context_keys:
+                raise ValueError(f'an action arg for {rule_id} had context key ref "{v}" that was not found in context keys')
+            act[k] = context_keys[ref_key]
 
     action_template = director.ActionTemplate(action_id, act)
     return action_template
@@ -217,7 +244,7 @@ def loadd(
         actions: List[director.ActionTemplate] = []
 
         for act in action_data:
-            actions.append(parse_action(rule_id, act, action_ids, action_validators))
+            actions.append(parse_action(rule_id, act, action_ids, action_validators, context_keys))
 
         # create a rule record
         rules[event_type_id].append(director.Rule(event_type_id, priority, criteria, entity_criteria, actions))

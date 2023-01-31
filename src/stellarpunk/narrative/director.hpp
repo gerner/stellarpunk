@@ -7,14 +7,14 @@ typedef std::unordered_map<std::uint64_t, std::uint64_t> cEventContext;
 
 struct cEvent {
     std::uint64_t event_type;
-    cEventContext* event_context;
-    std::unordered_map<std::uint64_t, cEventContext*> entity_context;
+    cEventContext event_context;
+    std::unordered_map<std::uint64_t, cEventContext>* entity_context;
     void* data;
 
     cEvent() {
     }
 
-    cEvent(std::uint64_t et, cEventContext* ec, std::unordered_map<std::uint64_t, cEventContext*> ent_c, void* d) {
+    cEvent(std::uint64_t et, cEventContext ec, std::unordered_map<std::uint64_t, cEventContext>* ent_c, void* d) {
         event_type = et;
         event_context = ec;
         entity_context = ent_c;
@@ -34,8 +34,8 @@ struct cFlagRef {
 
     std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
         //printf("resolving %lu\n", fact);
-        auto itr = event->event_context->find(fact);
-        if(itr != event->event_context->end()) {
+        auto itr = event->event_context.find(fact);
+        if(itr != event->event_context.end()) {
             //printf("found %lu in event context: %lu\n", fact, itr->second);
             return itr->second;
         }
@@ -64,8 +64,8 @@ struct cEntityRef {
     std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
         //printf("resolving $%lu.%lu\n", entity_fact, sub_fact);
         std::uint64_t entity_id;
-        auto itr = event->event_context->find(entity_fact);
-        if(itr != event->event_context->end()) {
+        auto itr = event->event_context.find(entity_fact);
+        if(itr != event->event_context.end()) {
             //printf("found $%lu in event context: %lu\n", entity_fact, itr->second);
             entity_id = itr->second;
         } else if((itr = character_context->find(entity_fact)) != character_context->end()) {
@@ -76,13 +76,13 @@ struct cEntityRef {
         }
 
         // then apply criteria on the fact within that entity
-        auto eitr = event->entity_context.find(entity_id);
-        if(eitr == event->entity_context.end()) {
+        const auto &eitr = event->entity_context->find(entity_id);
+        if(eitr == event->entity_context->end()) {
             return 0;
         }
-        cEventContext *entity_context = eitr->second;
-        auto sfitr = entity_context->find(sub_fact);
-        if(sfitr != entity_context->end()) {
+        cEventContext &entity_context = eitr->second;
+        const auto &sfitr = entity_context.find(sub_fact);
+        if(sfitr != entity_context.end()) {
             //printf("found $%lu.%lu in entity context: %lu\n", entity_fact, sub_fact, sfitr->second);
             return sfitr->second;
         }

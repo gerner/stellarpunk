@@ -282,7 +282,6 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             dock_station = self.selected_entity
 
             def complete_docking(order: core.Order) -> None:
-                self.interface.player.send_notification(f'{self.ship.short_id()}, {dock_station.short_id()}. Our tugs have you. Welcome aboard.')
                 self.open_station_view(dock_station)
 
             order.observe(LambdaOrderObserver(complete=complete_docking))

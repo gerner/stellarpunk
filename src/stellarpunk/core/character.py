@@ -110,7 +110,7 @@ class Character(Entity):
 class Message(Entity):
     id_prefix = "MSG"
 
-    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, *args:Any, reply_to:Optional["Character"]=None, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
+    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:"Character", *args:Any, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.message_id = message_id
@@ -123,26 +123,16 @@ class Message(Entity):
         self.replied_at:Optional[float] = None
 
 
-class PlayerObserver(abc.ABC):
-    def notification_received(self, player:"Player", notification:str) -> None:
-        pass
-    def message_received(self, player:"Player", message:Message) -> None:
-        pass
-
-
 class Player(Entity, CharacterObserver):
     id_prefix = "PLR"
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.observers:Set[PlayerObserver] = set()
-
         # which character the player controls
         self._character:Character = None # type: ignore[assignment]
         self.agent:EconAgent = None # type: ignore[assignment]
 
-        self.notifications:List[str] = []
         self.messages:Dict[uuid.UUID, Message] = {}
 
     def get_character(self) -> Character:
@@ -157,18 +147,5 @@ class Player(Entity, CharacterObserver):
 
     character = property(get_character, set_character, doc="which character this player plays as")
 
-    def observe(self, observer:PlayerObserver) -> None:
-        self.observers.add(observer)
-
-    def unobserve(self, observer:PlayerObserver) -> None:
-        self.observers.remove(observer)
-
-    def send_notification(self, notification:str) -> None:
-        self.notifications.append(notification)
-        for observer in self.observers:
-            observer.notification_received(self, notification)
-
     def message_received(self, character:Character, message:Message) -> None:
         self.messages[message.entity_id] = message
-        for observer in self.observers:
-            observer.message_received(self, message)

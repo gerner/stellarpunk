@@ -1,7 +1,7 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True, infer_types=False, nonecheck=False
 
 import sys
-from typing import Tuple, Dict, Any, Iterable, List
+from typing import Tuple, Mapping, Dict, Any, Iterable, List
 
 from libc.stdint cimport uint64_t
 from libcpp cimport bool
@@ -16,11 +16,11 @@ cdef extern from "director.hpp":
 
     struct cEvent:
         uint64_t event_type
-        cEventContext* event_context
-        unordered_map[uint64_t, cEventContext*] entity_context
+        cEventContext event_context
+        unordered_map[uint64_t, cEventContext]* entity_context
         void* data
 
-        cEvent(uint64_t et, cEventContext* ec, unordered_map[uint64_t, cEventContext*] ent_c, void* data)
+        cEvent(uint64_t et, cEventContext ec, unordered_map[uint64_t, cEventContext]* ent_c, void* d)
 
     cdef cppclass cFlagRef:
         uint64_t fact
@@ -64,7 +64,6 @@ cdef extern from "director.hpp":
             vector[cCriteria[cEntityRef]] e_cri,
             vector[cActionTemplate] a
         )
-        bool evaluate(cEvent &event)
 
     cdef cppclass cDirector:
         cDirector()
@@ -73,20 +72,32 @@ cdef extern from "director.hpp":
 
 
 cdef class EventContext:
-    cdef cEventContext event_context;
+    cdef cEventContext* event_context;
 
     def set_flag(self, flag, value):
-        self.event_context[flag] = value
+        dereference(self.event_context)[flag] = value
 
     def get_flag(self, flag):
-        return self.event_context[flag]
+        return dereference(self.event_context)[flag]
 
 
-def context(c:Dict[int, int]) -> EventContext:
-    e = EventContext()
-    for k,v in c.items():
-        e.set_flag(k,v)
-    return e
+cdef class EntityStore:
+    cdef unordered_map[uint64_t, cEventContext] entity_context
+
+    def register_entity(self, entity_id) -> EventContext:
+        if self.entity_context.count(entity_id) != 0:
+            raise ValueError(f'entity with id {entity_id} already registered')
+
+        self.entity_context[entity_id] = cEventContext()
+        cdef EventContext event_context = EventContext()
+        event_context.event_context = &(self.entity_context[entity_id])
+        return event_context
+
+    def unregister_entity(self, entity_id) -> None:
+        if self.entity_context.count(entity_id) != 1:
+            raise ValueError(f'no entity with id {entity_id} registered')
+
+        self.entity_context.erase(<uint64_t?>entity_id)
 
 
 cdef class FlagCriteria:
@@ -183,26 +194,22 @@ cdef class Event:
     cdef public object entity_context
     cdef public object args
 
-    def __cinit__(self, event_type: int, event_context: EventContext, entity_context: Dict[int, EventContext], args: Any):
-        cdef unordered_map[uint64_t, cEventContext*] c_entity_context
-        cdef PyObject* c_args = <PyObject *>args
+    def __cinit__(self, event_type: int, event_context: Mapping[int, int], entity_context: EntityStore, args: Any):
 
-        for k, v in entity_context.items():
-            c_entity_context[k] = &((<EventContext?>v).event_context)
+        self.event = cEvent()
+        self.event.event_type = event_type
+        self.event.entity_context = &((<EntityStore?>entity_context).entity_context)
+        self.event.data = <PyObject *>args
 
-        self.event = cEvent(event_type, &((<EventContext?>event_context).event_context), c_entity_context, c_args)
+        # populate the event context
+        for k, v in event_context.items():
+            self.event.event_context[k] = v
 
         # we hang on to several items
         self.event_type = event_type
         self.event_context = event_context
         self.entity_context = entity_context
         self.args = args
-
-    #@property
-    #def event_type(self) -> int:
-    #    return self._event_type
-
-
 
 
 class CharacterCandidate:
@@ -250,7 +257,7 @@ cdef class Director:
         #TODO: construct cCharacterCandidate instances from character_candidates
         for candidate in character_candidates:
             c_candidates.push_back(cCharacterCandidate(
-                &((<EventContext?>candidate.character_context).event_context),
+                (<EventContext?>candidate.character_context).event_context,
                 <PyObject*>candidate
             ))
 

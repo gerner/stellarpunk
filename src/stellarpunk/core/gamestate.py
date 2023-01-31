@@ -19,7 +19,7 @@ from .production_chain import ProductionChain
 from .sector import Sector
 from .sector_entity import SectorEntity
 from .order import Order, Effect
-from .character import Character, Player, Agendum
+from .character import Character, Player, Agendum, Message
 
 
 class Counters(enum.IntEnum):
@@ -68,12 +68,18 @@ class AbstractGameRuntime:
         """ Request time acceleration. """
         pass
 
+    def send_message(
+        self,
+        recipient: Character,
+        message: Message,
+    ) -> None:
+        pass
+
     def trigger_event(
         self,
         characters: Iterable[Character],
         event_type: int,
-        context: narrative.EventContext,
-        *entities: Entity,
+        context: Mapping[int, int],
         **kwargs: Any,
     ) -> None:
         pass
@@ -88,6 +94,7 @@ class Gamestate(EntityRegistry):
 
         self.entities: Dict[uuid.UUID, Entity] = {}
         self.entities_short: Dict[int, Entity] = {}
+        self.entity_context_store = narrative.EntityStore()
 
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
@@ -149,7 +156,7 @@ class Gamestate(EntityRegistry):
         self.sector_starfield:Sequence[StarfieldLayer] = []
         self.portrait_starfield:Sequence[StarfieldLayer] = []
 
-    def register_entity(self, entity: Entity) -> None:
+    def register_entity(self, entity: Entity) -> narrative.EventContext:
         if entity.entity_id in self.entities:
             raise ValueError(f'entity {entity.entity_id} already registered!')
         if entity.short_id_int() in self.entities_short:
@@ -157,8 +164,10 @@ class Gamestate(EntityRegistry):
 
         self.entities[entity.entity_id] = entity
         self.entities_short[entity.short_id_int()] = entity
+        return self.entity_context_store.register_entity(entity.short_id_int())
 
     def unregister_entity(self, entity: Entity) -> None:
+        self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
 
@@ -350,12 +359,15 @@ class Gamestate(EntityRegistry):
     def quit(self) -> None:
         self.keep_running = False
 
+    def send_message(self, recipient: Character, message: Message) -> None:
+        recipient.send_message(message)
+        self.game_runtime.send_message(recipient, message)
+
     def trigger_event(
         self,
         characters: Iterable[Character],
         event_type: int,
-        context: narrative.EventContext,
-        *entities: Entity,
+        context: Mapping[int, int],
         **kwargs: Any,
     ) -> None:
-        self.game_runtime.trigger_event(characters, event_type, context, *entities, **kwargs)
+        self.game_runtime.trigger_event(characters, event_type, context, **kwargs)

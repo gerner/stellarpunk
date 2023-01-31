@@ -7,8 +7,9 @@ class EventContext:
     def get_flag(self, flag: int) -> int: ...
 
 
-def context(c: Mapping[int, int]) -> EventContext: ...
-
+class EntityStore:
+    def register_entity(self, entity_id: int) -> EventContext: ...
+    def unregister_entity(self, entity_id: int) -> None: ...
 
 class FlagCriteria:
     def __init__(self, flag: int, low: int, high: int) -> None: ...
@@ -51,15 +52,15 @@ class Rule:
 
 class Event:
     event_type: int
-    event_context: EventContext
-    entity_context: Mapping[int, EventContext]
+    event_context: Mapping[int, int]
+    entity_context: EntityStore
     args: Any
 
     def __init__(
         self,
         event_type: int,
-        event_context: EventContext,
-        entity_context: Mapping[int, EventContext],
+        event_context: Mapping[int, int],
+        entity_context: EntityStore,
         args: Any
     ) -> None: ...
 

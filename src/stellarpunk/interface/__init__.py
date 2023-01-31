@@ -568,7 +568,7 @@ class FPSCounter:
     def fps(self) -> float:
         return self.current_fps
 
-class Interface(AbstractInterface, core.PlayerObserver):
+class Interface(AbstractInterface):
     def __init__(self, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
         self.stdscr:curses.window = None # type: ignore[assignment]
@@ -684,9 +684,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
 
     def notification_received(self, player:core.Player, notification:str) -> None:
         self.log_message(notification)
-
-    def message_received(self, player:core.Player, message:core.Message) -> None:
-        self.log_message(f'Message {message.short_id()} received at {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
 
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
@@ -830,8 +827,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
         curses.curs_set(0)
 
         self.reinitialize_screen()
-
-        self.gamestate.player.observe(self)
 
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:

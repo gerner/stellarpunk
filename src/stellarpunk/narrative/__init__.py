@@ -52,5 +52,5 @@ hunter comes after them (perhaps immediately).
 
 """
 
-from .director import EventContext, Event, CharacterCandidate, Action, Director, context
+from .director import EventContext, EntityStore, Event, CharacterCandidate, Action, Director
 from .rule_parser import loads, loadd

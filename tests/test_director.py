@@ -1,6 +1,7 @@
 """ Test cases for director and narrative package in general """
 
 import enum
+from typing import Dict
 
 from stellarpunk.narrative import rule_parser, director
 
@@ -61,24 +62,29 @@ def test_parse_eval():
     d = rule_parser.loads(test_config, {x.name: x.value for x in ET}, {x.name: x.value for x in CK}, {x.name: x.value for x in A})
     #d.check_refcounts()
 
-    event_context = director.context({CK.foo: 100, CK.bar: 200})
-    entity_context = {
-        100: director.context({CK.bar: 7}),
-        200: director.context({CK.baz: 21}),
-    }
+    event_context:Dict[int,int] = {CK.foo: 100, CK.bar: 200}
+    entity_store = director.EntityStore()
+    e1 = entity_store.register_entity(100)
+    e1.set_flag(CK.bar, 7)
+    e2 = entity_store.register_entity(200)
+    e2.set_flag(CK.baz, 21)
 
     event = director.Event(
         ET.start_game,
         event_context,
-        entity_context,
+        entity_store,
         {"awesome": "sauce"}
     )
 
-    char_a = director.context({CK.is_player: 1})
-    char_b = director.context({})
-    char_c = director.context({CK.stuff: 3})
-    char_d = director.context({CK.stuff: 7})
-    char_e = director.context({CK.stuff: 12})
+    char_a = entity_store.register_entity(300)
+    char_a.set_flag(CK.is_player, 1)
+    char_b = entity_store.register_entity(400)
+    char_c = entity_store.register_entity(500)
+    char_c.set_flag(CK.stuff, 3)
+    char_d = entity_store.register_entity(600)
+    char_d.set_flag(CK.stuff, 7)
+    char_e = entity_store.register_entity(700)
+    char_e.set_flag(CK.stuff, 12)
 
     actions = d.evaluate(
         event,

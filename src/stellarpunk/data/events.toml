@@ -1,24 +1,55 @@
 # Events
 
-[tutorial_test]
+[help_start]
 type = "start_game"
 priority = 0
-criteria = ["1 <= tutorial_guy <= 1"]
-[[tutorial_test.actions]]
-_action = "broadcast"
-radius = 2000
+criteria = ["is_player"]
+[[help_start.actions]]
+_action = "player_notification"
+message = "press \"?\" for help\ntype \":\" followed by \"help\" and press <ENTER> for more help"
+
+[tutorial]
+type = "start_game"
+priority = 0
+criteria = ["tutorial_guy"]
+[[tutorial.actions]]
+_action = "message"
+_delay = 0.5
 message_id = 0
-delay = 0.5
 message = "is this thing on?"
+subject = "Let's get to work"
+recipient = "_ref:tutorial_target_player"
+
+#[tutorial_first_contact]
+#type = "contact"
+#priority = 1
+#criteria = ["tutorial_guy", "0 <= tutorial_started <= 0"]
+#[[tutorial_first_contact]]
+#_action = "dialog"
+#dialog_id = "tutorial_first_contact"
 
 # Player event handlers
 
 [player_receive_broadcast]
 type = "broadcast"
 priority = 0
-criteria = ["1 <= is_player <= 1"]
+criteria = ["is_player"]
 [[player_receive_broadcast.actions]]
 _action = "player_receive_broadcast"
+
+[player_receive_message]
+type = "message"
+priority = 0
+criteria = ["is_player"]
+[[player_receive_message.actions]]
+_action = "player_receive_message"
+
+#[player_open_dialog]
+#type = "dialog"
+#priority = 0
+#criteria ["is_player"]
+#[[player_open_dialog.actions]]
+#_action = "player_open_dialog"
 
 #[start_game_help]
 #type = "start_game"

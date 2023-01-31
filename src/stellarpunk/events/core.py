@@ -11,10 +11,10 @@ Responsible for:
 import enum
 import logging
 import collections
+import numbers
 from typing import Iterable, Any, Sequence, Mapping, Dict, Tuple, Optional, Union, Deque, Callable
 
-from stellarpunk import core, util, dialog, predicates, task_schedule
-from stellarpunk import narrative
+from stellarpunk import core, util, dialog, narrative, task_schedule
 
 
 class AbstractEventManager:
@@ -22,8 +22,7 @@ class AbstractEventManager:
         self,
         characters: Iterable[core.Character],
         event_type: int,
-        context: narrative.EventContext,
-        *entities: core.Entity,
+        context: Mapping[int,int],
         **kwargs: Any,
     ) -> None:
         pass
@@ -36,13 +35,20 @@ class Action:
     def __init__(self) -> None:
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
 
+    def _validate(self, action_args: Mapping[str, Any]) -> bool:
+        return True
+
     def validate(self, action_args: Mapping[str, Any]) -> bool:
         """ Validate a set of action_args associated with a configured instance
         of the action.
 
         This is useful to help catch event configuration errors (e.g. missing
         or malformed required params). """
-        return True
+
+        if "_delay" in action_args and not isinstance(action_args["_delay"], numbers.Real):
+            return False
+
+        return self._validate(action_args)
 
     def initialize(self, gamestate: core.Gamestate) -> None:
         self.gamestate = gamestate
@@ -51,8 +57,7 @@ class Action:
         self,
         character: core.Character,
         event_type: int,
-        event_context: narrative.EventContext,
-        entities: Mapping[int, core.Entity],
+        event_context: Mapping[int, int],
         event_args: Mapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
@@ -124,6 +129,8 @@ class EventManager(AbstractEventManager):
         self.context_keys: Dict[str, int] = {}
         self.action_ids: Dict[str, int] = {}
 
+        self.action_schedule: task_schedule.TaskSchedule[Tuple[narrative.Event, narrative.Action]] = task_schedule.TaskSchedule()
+
     def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
         self.gamestate = gamestate
 
@@ -152,27 +159,24 @@ class EventManager(AbstractEventManager):
             action_validators[action_count] = action.validate
             action_count += 1
 
+        self.logger.info(f'known events {self.event_types.keys()}')
+        self.logger.info(f'known context keys {self.context_keys.keys()}')
+        self.logger.info(f'known actions {self.action_ids.keys()}')
         self.director = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
 
     def trigger_event(
         self,
         characters: Iterable[core.Character],
         event_type: int,
-        context: narrative.EventContext,
-        *entities: core.Entity,
+        context: Mapping[int, int],
         **kwargs: Any,
     ) -> None:
-        entity_context: Dict[int, narrative.EventContext] = {}
-        entity_dict: Dict[int, core.Entity] = {}
-        for entity in entities:
-            entity_context[entity.short_id_int()] = entity.context
-            entity_dict[entity.short_id_int()] = entity
         self.event_queue.append((
             narrative.Event(
                 event_type,
                 context,
-                entity_context,
-                (entity_dict, kwargs)
+                self.gamestate.entity_context_store,
+                kwargs,
             ),
             [narrative.CharacterCandidate(c.context, c) for c in characters]
         ))
@@ -185,24 +189,38 @@ class EventManager(AbstractEventManager):
             event, candidates = self.event_queue.popleft()
 
             for action in self.director.evaluate(event, candidates):
-                self.logger.debug(f'processing action {action.action_id}')
-                delay = action.args.get("_delay", 0)
-                self._do_action(event, action)
-                actions_processed += 1
+                self.logger.debug(f'triggered action {action.action_id}')
+
+                if "_delay" in action.args:
+                    delay = action.args["_delay"]
+                    self.logger.debug(f'delaying action {action.action_id} by {delay}')
+                    self.action_schedule.push_task(
+                        self.gamestate.timestamp+delay,
+                        (event, action)
+                    )
+                else:
+                    self._do_action(event, action)
+                    actions_processed += 1
+
 
             events_processed += 1
+
+        for event, action in self.action_schedule.pop_current_tasks(self.gamestate.timestamp):
+            self._do_action(event, action)
+            actions_processed += 1
 
         self.gamestate.counters[core.Counters.EVENTS_PROCESSED] += events_processed
         self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED] += actions_processed
 
     def _do_action(self, event: narrative.Event, action: narrative.Action) -> None:
         s_action = self.actions[action.action_id]
+
+        self.logger.debug(f'processing action {s_action}')
         s_action.act(
             action.character_candidate.data,
             event.event_type,
             event.event_context,
-            event.args[0],
-            event.args[1],
+            event.args,
             action.args
         )
 

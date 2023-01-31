@@ -1476,8 +1476,6 @@ class UniverseGenerator:
         refinery.cargo[refinery.resource] += math.floor((refinery.cargo_capacity - np.sum(refinery.cargo))*0.2)
 
         assert refinery.sector
-        assert refinery.captain
-        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), 1)
 
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
@@ -1491,6 +1489,11 @@ class UniverseGenerator:
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player)
 
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate))
+
+        # set up tutorial flags
+        assert refinery.captain
+        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), 1)
+        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
 
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
 
@@ -1548,6 +1551,9 @@ class UniverseGenerator:
         self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
         self.logger.info(f'characters: {len(self.gamestate.characters)}')
         self.logger.info(f'econ_agents: {len(self.gamestate.econ_agents)}')
+        self.logger.info(f'entities: {len(self.gamestate.entities)}')
+
+        assert all(x == y for x,y in zip(self.gamestate.entities.values(), self.gamestate.entities_short.values()))
 
         generation_stop = time.perf_counter()
         logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')

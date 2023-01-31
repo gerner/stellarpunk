@@ -12,14 +12,14 @@ from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk.narrative import director
+from stellarpunk import narrative
 
 if TYPE_CHECKING:
     from .character import Character
 
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod
-    def register_entity(self, entity: "Entity") -> None: ...
+    def register_entity(self, entity: "Entity") -> narrative.EventContext: ...
 
     @abc.abstractmethod
     def unregister_entity(self, entity: "Entity") -> None: ...
@@ -37,10 +37,8 @@ class Entity(abc.ABC):
 
         self.description = description or name
 
-        self.context = director.EventContext()
-
         self.entity_registry = entity_registry
-        self.entity_registry.register_entity(self)
+        self.context = self.entity_registry.register_entity(self)
 
     def __del__(self) -> None:
         self.entity_registry.unregister_entity(self)

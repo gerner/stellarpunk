@@ -281,15 +281,29 @@ class Simulator(core.AbstractGameRuntime):
         self.time_accel_rate = accel_rate
         self.fast_mode = fast_mode
 
+    def send_message(
+        self,
+        recipient: core.Character,
+        message: core.Message,
+    ) -> None:
+        self.gamestate.trigger_event(
+            [recipient],
+            events.e(events.Events.MESSAGE),
+            {
+                events.ck(events.ContextKeys.MESSAGE_SENDER): message.reply_to.short_id_int(),
+                events.ck(events.ContextKeys.MESSAGE_ID): message.message_id,
+                events.ck(events.ContextKeys.MESSAGE): message.short_id_int(),
+            },
+        )
+
     def trigger_event(
         self,
         characters: Iterable[core.Character],
         event_type: int,
-        context: narrative.EventContext,
-        *entities: core.Entity,
+        context: Mapping[int, int],
         **kwargs: Any,
     ) -> None:
-        self.event_manager.trigger_event(characters, event_type, context, *entities, **kwargs)
+        self.event_manager.trigger_event(characters, event_type, context, **kwargs)
 
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()
@@ -344,7 +358,7 @@ class Simulator(core.AbstractGameRuntime):
         self.gamestate.trigger_event(
             self.gamestate.characters.values(),
             events.e(events.Events.START_GAME),
-            narrative.context({}),
+            {},
         )
 
         while self.gamestate.keep_running:
@@ -430,6 +444,8 @@ def main() -> None:
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')
 
+        assert all(x == y for x,y in zip(gamestate.entities.values(), gamestate.entities_short.values()))
+        logging.info(f'entities:\t{len(gamestate.entities)}')
         logging.info(f'ticks:\t{gamestate.ticks}')
         logging.info(f'timestamp:\t{gamestate.timestamp}')
         real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()
