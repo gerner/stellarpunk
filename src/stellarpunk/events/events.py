@@ -13,6 +13,7 @@ class Events(enum.IntEnum):
     NOTIFICATION = enum.auto()
     BROADCAST = enum.auto()
     MESSAGE = enum.auto()
+    CONTACT = enum.auto()
 
 
 class ContextKeys(enum.IntEnum):
@@ -22,9 +23,12 @@ class ContextKeys(enum.IntEnum):
     MESSAGE = enum.auto()
     MESSAGE_SENDER = enum.auto()
     MESSAGE_ID = enum.auto()
+    CONTACTER = enum.auto()
     TUTORIAL_GUY = enum.auto()
     TUTORIAL = enum.auto()
     TUTORIAL_TARGET_PLAYER = enum.auto()
+    TUTORIAL_STARTED = enum.auto()
+    TUTORIAL_SKIPPED = enum.auto()
 
 
 class BroadcastAction(ecore.Action):

@@ -11,7 +11,7 @@ import math
 
 import numpy as np
 
-from stellarpunk import interface, core, config, util
+from stellarpunk import interface, core, config, util, events
 from stellarpunk.interface import ui_util, starfield
 from stellarpunk.interface.ui_util import ValidationError
 
@@ -28,6 +28,8 @@ class StationView(interface.View):
     def __init__(
             self, station: core.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+
+        self.test_flag = False
 
         self.station = station
         self.ship = ship
@@ -72,6 +74,10 @@ class StationView(interface.View):
         )
 
         self.enter_mode(self.mode)
+
+    def focus(self) -> None:
+        self.interface.reinitialize_screen(name="Station View")
+        self.active=True
 
     def terminate(self) -> None:
         # transition to EXIT mode to leave, e.g., TRADE and relase pause lock
@@ -197,7 +203,7 @@ class StationView(interface.View):
             y += 1
 
         y += 1
-        self.station_menu.draw_menu(self.detail_pad, y, x)
+        self.station_menu.draw(self.detail_pad, y, x)
 
         self.detail_pad.noutrefresh(0, 0)
 
@@ -464,10 +470,30 @@ class StationView(interface.View):
         self.detail_pad.erase()
 
     def _draw_people(self) -> None:
-        self.detail_pad.addstr(1, self.detail_padding, "Press <ESC> to cancel")
+        if self.test_flag:
+            raise Exception()
+        y = 1
+        for character in self.gamestate.characters_by_location[self.station.entity_id]:
+            self.detail_pad.addstr(y, self.detail_padding, f' * {character.short_id()}')
+            y += 1
+        y += 1
+        self.detail_pad.addstr(y, self.detail_padding, "Press <ESC> to cancel")
         self.detail_pad.noutrefresh(0, 0)
 
     def _key_list_people(self) -> Collection[interface.KeyBinding]:
+        for character in self.gamestate.characters_by_location[self.station.entity_id]:
+            pass
+
+        def contact() -> None:
+            self.gamestate.trigger_event_immediate(
+                [character],
+                events.e(events.Events.CONTACT),
+                {
+                    events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
+                },
+            )
+
         return [
+            self.bind_key(curses.ascii.CR, contact, help_key="station_people_contact"),
             self.bind_key(curses.ascii.ESC, lambda: self.enter_mode(Mode.STATION_MENU), help_key="station_people_cancel"),
         ]

@@ -305,6 +305,15 @@ class Simulator(core.AbstractGameRuntime):
     ) -> None:
         self.event_manager.trigger_event(characters, event_type, context, **kwargs)
 
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: Mapping[int, int],
+        **kwargs: Any,
+    ) -> None:
+        self.event_manager.trigger_event_immediate(characters, event_type, context, **kwargs)
+
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()
         real_span = now - self.reference_realtime
@@ -418,11 +427,11 @@ def main() -> None:
         gamestate.econ_logger = data_logger
 
         generator = generate.UniverseGenerator(gamestate)
-        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
+        event_manager = events.EventManager()
+        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator, event_manager))
         generator.initialize()
 
         # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
-        event_manager = events.EventManager()
         event_manager.initialize(gamestate, config.Events)
 
         generator.generate_universe()

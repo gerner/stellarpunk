@@ -1494,6 +1494,7 @@ class UniverseGenerator:
         assert refinery.captain
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), 1)
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
 
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
 

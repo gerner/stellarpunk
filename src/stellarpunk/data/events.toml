@@ -20,13 +20,13 @@ message = "is this thing on?"
 subject = "Let's get to work"
 recipient = "_ref:tutorial_target_player"
 
-#[tutorial_first_contact]
-#type = "contact"
-#priority = 1
-#criteria = ["tutorial_guy", "0 <= tutorial_started <= 0"]
-#[[tutorial_first_contact]]
-#_action = "dialog"
-#dialog_id = "tutorial_first_contact"
+[tutorial_first_contact]
+type = "contact"
+priority = 1
+criteria = ["tutorial_guy", "0 <= $contacter.tutorial_skipped <= 0", "0 <= $contacter.tutorial_started <= 0", "$contacter.tutorial_target_player"]
+[[tutorial_first_contact.actions]]
+_action = "dialog"
+dialog_id = "tutorial_first_contact"
 
 # Player event handlers
 

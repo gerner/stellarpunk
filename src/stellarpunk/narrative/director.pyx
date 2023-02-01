@@ -80,6 +80,14 @@ cdef class EventContext:
     def get_flag(self, flag):
         return dereference(self.event_context)[flag]
 
+    def _to_dict(self):
+        cdef unordered_map[uint64_t, uint64_t].iterator itr = self.event_context.begin()
+        d = {}
+        while itr != self.event_context.end():
+            d[dereference(itr).first] = dereference(itr).second
+            preincrement(itr)
+        return d
+
 
 cdef class EntityStore:
     cdef unordered_map[uint64_t, cEventContext] entity_context

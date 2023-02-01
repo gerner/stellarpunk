@@ -55,6 +55,8 @@ class Counters(enum.IntEnum):
     BEHIND_TICKS = enum.auto()
     EVENTS_PROCESSED = enum.auto()
     EVENT_ACTIONS_PROCESSED = enum.auto()
+    EVENTS_PROCESSED_OOB = enum.auto()
+    EVENT_ACTIONS_PROCESSED_OOB = enum.auto()
 
 
 class AbstractGameRuntime:
@@ -76,6 +78,15 @@ class AbstractGameRuntime:
         pass
 
     def trigger_event(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: Mapping[int, int],
+        **kwargs: Any,
+    ) -> None:
+        pass
+
+    def trigger_event_immediate(
         self,
         characters: Iterable[Character],
         event_type: int,
@@ -371,3 +382,12 @@ class Gamestate(EntityRegistry):
         **kwargs: Any,
     ) -> None:
         self.game_runtime.trigger_event(characters, event_type, context, **kwargs)
+
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: Mapping[int, int],
+        **kwargs: Any,
+    ) -> None:
+        self.game_runtime.trigger_event_immediate(characters, event_type, context, **kwargs)

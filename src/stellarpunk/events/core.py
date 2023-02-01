@@ -27,6 +27,15 @@ class AbstractEventManager:
     ) -> None:
         pass
 
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: Mapping[int,int],
+        **kwargs: Any,
+    ) -> None:
+        pass
+
     def tick(self) -> None:
         pass
 
@@ -181,28 +190,32 @@ class EventManager(AbstractEventManager):
             [narrative.CharacterCandidate(c.context, c) for c in characters]
         ))
 
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: Mapping[int, int],
+        **kwargs: Any,
+    ) -> None:
+        actions_processed = self._do_event(
+            narrative.Event(
+                event_type,
+                context,
+                self.gamestate.entity_context_store,
+                kwargs,
+            ),
+            [narrative.CharacterCandidate(c.context, c) for c in characters]
+        )
+        self.gamestate.counters[core.Counters.EVENTS_PROCESSED_OOB] += 1
+        self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED_OOB] += actions_processed
+
     def tick(self) -> None:
         # check for relevant events and process them
         events_processed = 0
         actions_processed = 0
         while len(self.event_queue) > 0:
             event, candidates = self.event_queue.popleft()
-
-            for action in self.director.evaluate(event, candidates):
-                self.logger.debug(f'triggered action {action.action_id}')
-
-                if "_delay" in action.args:
-                    delay = action.args["_delay"]
-                    self.logger.debug(f'delaying action {action.action_id} by {delay}')
-                    self.action_schedule.push_task(
-                        self.gamestate.timestamp+delay,
-                        (event, action)
-                    )
-                else:
-                    self._do_action(event, action)
-                    actions_processed += 1
-
-
+            actions_processed += self._do_event(event, candidates)
             events_processed += 1
 
         for event, action in self.action_schedule.pop_current_tasks(self.gamestate.timestamp):
@@ -211,6 +224,24 @@ class EventManager(AbstractEventManager):
 
         self.gamestate.counters[core.Counters.EVENTS_PROCESSED] += events_processed
         self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED] += actions_processed
+
+    def _do_event(self, event: narrative.Event, candidates:Iterable[narrative.CharacterCandidate]) -> int:
+        actions_processed = 0
+        for action in self.director.evaluate(event, candidates):
+            self.logger.debug(f'triggered action {action.action_id}')
+
+            if "_delay" in action.args:
+                delay = action.args["_delay"]
+                self.logger.debug(f'delaying action {action.action_id} by {delay}')
+                self.action_schedule.push_task(
+                    self.gamestate.timestamp+delay,
+                    (event, action)
+                )
+            else:
+                self._do_action(event, action)
+                actions_processed += 1
+
+        return actions_processed
 
     def _do_action(self, event: narrative.Event, action: narrative.Action) -> None:
         s_action = self.actions[action.action_id]
@@ -226,11 +257,13 @@ class EventManager(AbstractEventManager):
 
 
 class DialogManager:
-    def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, player:core.Player) -> None:
+    def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, event_manager:EventManager, character: core.Character, speaker: core.Character) -> None:
         self.dialog = dialog
         self.current_id = dialog.root_id
         self.gamestate = gamestate
-        self.player = player
+        self.event_manager = event_manager
+        self.character = character
+        self.speaker = speaker
 
     @property
     def node(self) -> dialog.DialogNode:
@@ -241,14 +274,17 @@ class DialogManager:
         return self.dialog.nodes[self.current_id].choices
 
     def do_node(self) -> None:
-        #for node_event_id in self.dialog.nodes[self.current_id].event_id:
-        #    self.player.set_flag(node_event_id, self.gamestate.timestamp)
-        pass
+        for flag in self.dialog.nodes[self.current_id].flags:
+            self.character.context.set_flag(self.event_manager.context_keys[flag], 1)
+        for flag in self.dialog.nodes[self.current_id].speaker_flags:
+            self.speaker.context.set_flag(self.event_manager.context_keys[flag], 1)
 
     def choose(self, choice:dialog.DialogChoice) -> None:
         if choice not in self.choices:
             raise ValueError(f'given choice is not current node {self.current_id} choices')
 
-        #for event_id in choice.event_id:
-        #    self.player.set_flag(event_id, self.gamestate.timestamp)
+        for flag in choice.flags:
+            self.character.context.set_flag(self.event_manager.context_keys[flag], 1)
+        for flag in choice.speaker_flags:
+            self.speaker.context.set_flag(self.event_manager.context_keys[flag], 1)
         self.current_id = choice.node_id

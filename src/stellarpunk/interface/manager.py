@@ -129,10 +129,11 @@ class KeyDemo(interface.View):
 
 
 class InterfaceManager:
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator) -> None:
+    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.interface = interface.Interface(gamestate)
         self.gamestate = gamestate
         self.generator = generator
+        self.event_manager = event_manager
 
         self.profiler:Optional[cProfile.Profile] = None
         self.mouse_on = True
@@ -153,6 +154,7 @@ class InterfaceManager:
         self.interface.open_view(pilot_view)
 
     def register_events(self) -> None:
+        events.register_action(ui_events.DialogAction(self.interface, self.event_manager))
         events.register_action(ui_events.PlayerNotification(self.interface))
         events.register_action(ui_events.PlayerReceiveBroadcast(self.interface))
         events.register_action(ui_events.PlayerReceiveMessage(self.interface))
@@ -381,7 +383,7 @@ class InterfaceManager:
             message.replied_at = self.interface.gamestate.timestamp
 
             comms_view = comms.CommsView(
-                events.DialogManager(dialog, self.gamestate, self.gamestate.player),
+                events.DialogManager(dialog, self.gamestate, self.event_manager, self.interface.player.character, speaker),
                 speaker,
                 self.interface,
             )
