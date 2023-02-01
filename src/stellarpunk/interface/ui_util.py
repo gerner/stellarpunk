@@ -1,5 +1,7 @@
 """ Utils for drawing Stellarpunk UI """
 
+import abc
+import logging
 import curses
 import math
 from typing import List, Callable, Any, Collection, Optional, Sequence, Dict, Tuple
@@ -30,7 +32,12 @@ def composite_sprites(sprites:Sequence[core.Sprite]) -> core.Sprite:
     return core.Sprite(["".join(t) for t in text], attr)
 
 def draw_sprite(
-        sprite: core.Sprite, canvas: interface.BasicCanvas, y: int, x: int) -> None:
+    sprite: core.Sprite,
+    canvas: interface.BasicCanvas,
+    y: int,
+    x: int,
+    attr: int = 0,
+) -> None:
     y_off = 0
     for row in sprite.text:
         for x_off, s in enumerate(row):
@@ -42,7 +49,7 @@ def draw_sprite(
                     a | curses.color_pair(c)
                 )
             else:
-                canvas.addstr(y+y_off, x+x_off, s)
+                canvas.addstr(y+y_off, x+x_off, s, attr)
         y_off += 1
 
 
@@ -69,46 +76,127 @@ def product_name(
         return util.elipsis(production_chain.product_names[product_id], max_length)
 
 
+class UIComponent(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def bbox(self) -> Tuple[int, int, int, int]: ...
+
+    @property
+    def width(self) -> int:
+        return self.bbox[3]-self.bbox[1]
+
+    @property
+    def height(self) -> int:
+        return self.bbox[2]-self.bbox[0]
+
+    @abc.abstractmethod
+    def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None: ...
+
+
 class ValidationError(Exception):
     def __init__(self, message:str):
         super().__init__(message)
         self.message = message
 
 
-@dataclass
-class MenuItem:
-    label: str
-    action: Callable[[], Any]
+class MenuItem(UIComponent, abc.ABC):
+    def __init__(self) -> None:
+        self._selected = False
+
+    @property
+    @abc.abstractmethod
+    def action(self) -> Callable[[], Any]: ...
+
+    def select(self) -> None:
+        self._selected = True
+    def deselect(self) -> None:
+        self._selected = False
 
 
-class Menu:
+class TextMenuItem(MenuItem):
+    def __init__(self, label:str, action: Callable[[], Any]) -> None:
+        super().__init__()
+        self.label = label
+        self._action = action
+        self._bbox = (0,0,0,0)
+
+    @property
+    def bbox(self) -> Tuple[int, int, int, int]:
+        return self._bbox
+
+    @property
+    def action(self) -> Callable[[], Any]:
+        return self._action
+
+    def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
+        attr = 0
+        if self._selected:
+            attr |= curses.A_STANDOUT
+        canvas.addstr(
+            y, x,
+            self.label,
+            attr
+        )
+        self._bbox = (y, x, y+1, x+len(self.label))
+
+
+def number_text_menu_items(options: List[TextMenuItem]) -> List[TextMenuItem]:
+    number_width = len(options)//10+1
+    for i, option in enumerate(options):
+        option_str = f'{i+1:>{number_width}}. {option.label}'
+        option.label = option_str
+    return options
+
+
+class Menu(UIComponent):
     def __init__(
             self,
             title: str,
-            options: List[MenuItem],
-            selected_option: int = 0
+            options: Sequence[MenuItem],
+            selected_option: int = 0,
+            option_padding: int = 0,
     ) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
         self.title = title
         self.options = options
-        self.selected_option = selected_option
+        self.selected_option = -1
+        self.option_padding = option_padding
+        self._bbox = (0,0,0,0)
+
+        self.select_option(selected_option)
+
+    @property
+    def bbox(self) -> Tuple[int, int, int, int]:
+        return self._bbox
 
     def select_option(self, selected_option: int) -> None:
+        if 0 <= self.selected_option < len(self.options):
+            self.options[self.selected_option].deselect()
         self.selected_option = selected_option
+        if 0 <= self.selected_option < len(self.options):
+            self.options[self.selected_option].select()
 
     def select_next(self) -> int:
         if self.selected_option < len(self.options)-1:
-            self.selected_option += 1
+            self.select_option(self.selected_option + 1)
         return self.selected_option
 
     def select_prev(self) -> int:
         if self.selected_option > 0:
-            self.selected_option -= 1
+            self.select_option(self.selected_option - 1)
         return self.selected_option
 
     def activate_item(self) -> Any:
+        if not (0 <= self.selected_option < len(self.options)):
+            return
+        self.logger.debug(f'activating menu item {self.selected_option} {self.options[self.selected_option]}')
         self.options[self.selected_option].action()
 
-    def draw_menu(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
+    def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
+        min_y = y
+        min_x = x
+
+        max_x = x+len(self.title)+2
         canvas.addstr(
             y, x,
             f' {self.title} \n\n',
@@ -117,15 +205,11 @@ class Menu:
 
         y += 2
         for i, option in enumerate(self.options):
-            attr = 0
-            if i == self.selected_option:
-                attr |= curses.A_STANDOUT
-            canvas.addstr(
-                y, x,
-                f'{i+1:>{len(self.options)//10+1}}. {option.label}\n',
-                attr
-            )
-            y += 1
+            option.draw(canvas, y, x)
+            max_x = max(max_x, option.width)
+            y += option.height + self.option_padding
+
+        self._bbox = (min_y, min_x, y, max_x)
 
     def key_list(self) -> Collection[interface.KeyBinding]:
         nav_help = config.key_help(self, "j")
@@ -165,7 +249,7 @@ class MeterItem:
         self.data = data
 
 
-class MeterMenu:
+class MeterMenu(UIComponent):
     @staticmethod
     def validate_pool(item: MeterItem, meter: "MeterMenu") -> bool:
         # no pool or amount above value is less than the pool
@@ -196,6 +280,10 @@ class MeterMenu:
             self.left_number_width + 1 +
             self.right_number_width + 1
         )
+
+    @property
+    def bbox(self) -> Tuple[int, int, int, int]:
+        return (self.draw_y, self.draw_x, self.draw_y+self.height, self.draw_x+self.width)
 
     @property
     def width(self) -> int:
@@ -240,6 +328,8 @@ class MeterMenu:
         return option.setting
 
     def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
+        self.draw_y = y
+        self.draw_x = x
         canvas.addstr(
             y, x,
             f' {self.title} \n\n',

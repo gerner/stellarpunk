@@ -1,6 +1,6 @@
 """ Docked View """
 
-from typing import Any, Collection, List, Optional
+from typing import Any, Collection, List, Optional, Callable, Tuple
 import curses
 import curses.ascii
 from curses import textpad
@@ -15,6 +15,37 @@ from stellarpunk import interface, core, config, util, events
 from stellarpunk.interface import ui_util, starfield
 from stellarpunk.interface.ui_util import ValidationError
 
+
+class CharacterMenuItem(ui_util.MenuItem):
+    def __init__(self, character:core.Character, action:Callable[[], Any]) -> None:
+        super().__init__()
+        self.character = character
+        self._action = action
+        self._bbox = (0,0,0,0)
+
+    @property
+    def bbox(self) -> Tuple[int, int, int, int]:
+        return self._bbox
+
+    @property
+    def action(self) -> Callable[[], Any]:
+        return self._action
+
+    def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
+        attr = 0
+        if self._selected:
+            attr = curses.A_STANDOUT
+        ui_util.draw_sprite(self.character.portrait, canvas, y, x+1)
+
+        info_x = x + 1 + self.character.portrait.width + 1
+        canvas.addstr(y, info_x, self.character.name, attr)
+        canvas.addstr(y+1, info_x, self.character.short_id(), attr)
+
+        info_width = max(len(self.character.name), len(self.character.short_id()))
+
+        self._bbox = (y, x, y+self.character.portrait.height+1, x+self.character.portrait.width+2+info_width)
+
+
 class Mode(enum.Enum):
     """ Station view UI modes, mutually exclusive things to display. """
     STATION_MENU = enum.auto()
@@ -28,8 +59,6 @@ class StationView(interface.View):
     def __init__(
             self, station: core.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-
-        self.test_flag = False
 
         self.station = station
         self.ship = ship
@@ -53,6 +82,7 @@ class StationView(interface.View):
         self.station_menu = ui_util.Menu("uninitialized", [])
         self.sell_menu = ui_util.MeterMenu("uninitialized", [])
         self.buy_menu = ui_util.MeterMenu("uninitialized", [])
+        self.people_menu = ui_util.Menu("uninitialized", [])
 
     def initialize(self) -> None:
         self.interface.reinitialize_screen(name="Station View")
@@ -106,7 +136,7 @@ class StationView(interface.View):
             raise ValueError(f'unknown mode {self.mode}')
 
     def enter_mode(self, mode:Mode) -> None:
-        # leave the old mode
+        # leave the old mode (right now only trade has special leaving logic)
         if self.mode == Mode.TRADE:
             self._leave_trade()
 
@@ -174,17 +204,17 @@ class StationView(interface.View):
         self.mode = Mode.STATION_MENU
         self.station_menu = ui_util.Menu(
             "Station Menu",
-            [
-                ui_util.MenuItem(
+            ui_util.number_text_menu_items([
+                ui_util.TextMenuItem(
                     "Trade", lambda: self.enter_mode(Mode.TRADE)
                 ),
-                ui_util.MenuItem(
+                ui_util.TextMenuItem(
                     "People", lambda: self.enter_mode(Mode.PEOPLE)
                 ),
-                ui_util.MenuItem(
+                ui_util.TextMenuItem(
                     "Undock", lambda: self.interface.close_view(self)
                 ),
-            ]
+            ])
         )
 
     def _draw_station_menu(self) -> None:
@@ -468,16 +498,34 @@ class StationView(interface.View):
 
     def _enter_people(self) -> None:
         self.detail_pad.erase()
+        self.mode = Mode.PEOPLE
+
+        def make_contact(character: core.Character) -> Callable[[], Any]:
+            def contact() -> None:
+                self.logger.debug(f'contacting {character.short_id()}')
+                self.gamestate.trigger_event_immediate(
+                    [character],
+                    events.e(events.Events.CONTACT),
+                    {
+                        events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
+                    },
+                )
+            return contact
+        self.people_menu = ui_util.Menu(
+            "Station Directory",
+            [
+                CharacterMenuItem(x, make_contact(x))
+                for x in self.gamestate.characters_by_location[self.station.entity_id]
+            ],
+            -1
+        )
 
     def _draw_people(self) -> None:
-        if self.test_flag:
-            raise Exception()
         y = 1
-        for character in self.gamestate.characters_by_location[self.station.entity_id]:
-            self.detail_pad.addstr(y, self.detail_padding, f' * {character.short_id()}')
-            y += 1
-        y += 1
-        self.detail_pad.addstr(y, self.detail_padding, "Press <ESC> to cancel")
+        x = self.detail_padding
+        self.people_menu.draw(self.detail_pad, y, x)
+        y += self.people_menu.height+1
+        self.detail_pad.addstr(y, x, "Press <ESC> to cancel")
         self.detail_pad.noutrefresh(0, 0)
 
     def _key_list_people(self) -> Collection[interface.KeyBinding]:
@@ -492,8 +540,9 @@ class StationView(interface.View):
                     events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                 },
             )
-
-        return [
-            self.bind_key(curses.ascii.CR, contact, help_key="station_people_contact"),
+        key_list:List[interface.KeyBinding] = []
+        key_list.extend(self.people_menu.key_list())
+        key_list.extend({
             self.bind_key(curses.ascii.ESC, lambda: self.enter_mode(Mode.STATION_MENU), help_key="station_people_cancel"),
-        ]
+        })
+        return key_list
