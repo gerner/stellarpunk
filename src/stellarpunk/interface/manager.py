@@ -9,7 +9,7 @@ import logging
 from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
 from stellarpunk import core, interface, generate, util, config, events, narrative
-from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station, ui_events
+from stellarpunk.interface import audio, universe, sector, pilot, command_input, character, comms, station, ui_events
 
 
 KEY_DISPLAY = {
@@ -130,7 +130,8 @@ class KeyDemo(interface.View):
 
 class InterfaceManager:
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
-        self.interface = interface.Interface(gamestate)
+        self.mixer = audio.Mixer()
+        self.interface = interface.Interface(gamestate, self.mixer)
         self.gamestate = gamestate
         self.generator = generator
         self.event_manager = event_manager
@@ -140,12 +141,14 @@ class InterfaceManager:
 
     def __enter__(self) -> "InterfaceManager":
         self.interface.key_list = {x.key:x for x in self.key_list()}
+        self.mixer.__enter__()
         self.interface.__enter__()
         self.register_events()
         return self
 
     def __exit__(self, *args:Any) -> None:
         self.interface.__exit__(*args)
+        self.mixer.__exit__(*args)
 
     def initialize(self) -> None:
         self.interface.initialize()

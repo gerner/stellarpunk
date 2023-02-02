@@ -501,14 +501,23 @@ class StationView(interface.View):
         self.mode = Mode.PEOPLE
 
         def make_contact(character: core.Character) -> Callable[[], Any]:
-            def contact() -> None:
-                self.logger.debug(f'contacting {character.short_id()}')
+            def handle_contact(c: core.Character) -> None:
                 self.gamestate.trigger_event_immediate(
                     [character],
                     events.e(events.Events.CONTACT),
                     {
                         events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                     },
+                )
+
+            def contact() -> None:
+                self.logger.debug(f'contacting {character.short_id()}')
+                number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in character.entity_id.bytes[0:8]))
+                s = number_str
+                self.interface.log_message(f'dialing {s[0:8]}-{s[8:16]}-{s[16:24]}-{s[24:32]}...')
+                self.interface.mixer.play_sample(
+                    ui_util.dtmf_sample(number_str, self.interface.mixer.sample_rate),
+                    lambda: handle_contact(character)
                 )
             return contact
         self.people_menu = ui_util.Menu(

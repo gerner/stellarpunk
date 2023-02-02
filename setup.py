@@ -65,9 +65,11 @@ setuptools.setup(
         "ipdb",
         "graphviz",
         "drawille",
-        "pymunk",
+        "cymunk",
         "rtree",
         "tqdm",
+        "pysdl2",
+        "dtmf",
     ],
     python_requires='>=3.8',
     entry_points={

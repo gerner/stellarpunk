@@ -3,7 +3,7 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate
+from stellarpunk import core, sim, generate, interface
 from . import MonitoringUI, MonitoringEconDataLogger
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, shi
 
 @pytest.fixture
 def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(sector, gamestate)
+    return MonitoringUI(sector, gamestate, interface.AbstractMixer())
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:

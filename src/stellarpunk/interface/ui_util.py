@@ -8,6 +8,9 @@ from typing import List, Callable, Any, Collection, Optional, Sequence, Dict, Tu
 from dataclasses import dataclass
 
 import drawille # type: ignore
+import dtmf # type: ignore
+import numpy as np
+import numpy.typing as npt
 
 from stellarpunk import core, interface, config, util
 
@@ -413,3 +416,7 @@ class MeterMenu(UIComponent):
                 y, x + self.left_number_width + 1 + self.meter_width + 1,
                 f' {option.pool - (option.setting-option.value):>{self.right_number_width}}'
             )
+
+def dtmf_sample(number_str: str, sample_rate: int) -> npt.NDArray[np.float64]:
+    gp = dtmf._generator.GenerationParams(mark_duration=0.03, space_duration=0.03, level=-6)
+    return np.array(list(dtmf.generate(dtmf.parse(number_str), params=gp, sample_rate=sample_rate)))

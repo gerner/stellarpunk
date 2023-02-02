@@ -20,6 +20,7 @@ import uuid
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
+import numpy.typing as npt
 
 from stellarpunk import util, core, config
 
@@ -457,10 +458,22 @@ class View(abc.ABC):
     def key_list(self) -> Collection[KeyBinding]:
         return []
 
+class AbstractMixer:
+    @property
+    def sample_rate(self) -> int:
+        return 44100
+
+    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None) -> None:
+        """ Plays an audio sample encoded in an np array of floats from -1 to 1
+
+        We assume the sample is at our sampel rate. """
+        pass
+
 class AbstractInterface(abc.ABC):
-    def __init__(self, gamestate:core.Gamestate) -> None:
+    def __init__(self, gamestate:core.Gamestate, mixer: AbstractMixer) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
+        self.mixer = mixer
         self.views:List[View] = []
 
     def decrease_fps(self) -> bool:
@@ -641,6 +654,7 @@ class Interface(AbstractInterface):
         so that it can be cleaned up properly in __exit__. """
 
         self.logger.info("starting the inferface")
+
         self.stdscr = curses.initscr()
 
         curses.noecho()
