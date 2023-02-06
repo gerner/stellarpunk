@@ -433,7 +433,7 @@ class StationView(interface.View):
                     station_agent,
                     self.interface.player.agent,
                     price,
-                    amount
+                    amount,
                 )
                 total_sell_value += price * amount
 
@@ -451,7 +451,7 @@ class StationView(interface.View):
                     self.interface.player.agent,
                     station_agent,
                     price,
-                    amount
+                    amount,
                 )
                 total_buy_value += price*amount
 

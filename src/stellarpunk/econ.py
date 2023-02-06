@@ -6,7 +6,7 @@ from typing import Callable, Collection, Tuple, Any
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, util
+from stellarpunk import core, util, events
 
 #TODO: unify this with the one in effects
 AMOUNT_EPS = 0.5
@@ -83,6 +83,10 @@ class YesAgent(core.EconAgent):
         # NOTE: we do not call the parent constructor so we don't pollute the id space
         self._resources = tuple(range(production_chain.num_products))
 
+    def __del__(self) -> None:
+        # NOTE: we do not call the parent deleter because we haven't set up an entity registry
+        pass
+
     def get_owner(self) -> core.Character:
         raise NotImplementedError("YesAgent doesn't have an owner")
 
@@ -114,9 +118,10 @@ class YesAgent(core.EconAgent):
         raise NotImplementedError("do not trade with the YesAgent")
 
 class PlayerAgent(core.EconAgent):
-    def __init__(self, player:core.Player, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, player:core.Player, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
+        super().__init__(gamestate, *args, **kwargs)
         self.player = player
+        self.gamestate = gamestate
 
     @property
     def location(self) -> core.SectorEntity:
@@ -155,6 +160,16 @@ class PlayerAgent(core.EconAgent):
         if util.isclose(self.player.character.balance, 0.):
             self.player.character.balance = 0.
 
+        self.gamestate.trigger_event(
+            [self.player.character],
+            events.Events.BOUGHT,
+            {
+                events.ContextKeys.RESOURCE: resource,
+                events.ContextKeys.AMOUNT: int(amount),
+                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+            },
+        )
+
     def sell(self, resource:int, price:float, amount:float) -> None:
         assert self.inventory(resource) >= amount
 
@@ -162,6 +177,16 @@ class PlayerAgent(core.EconAgent):
         if util.isclose(self.location.cargo[resource], 0.):
             self.location.cargo[resource] = 0.
         self.player.character.balance += price * amount
+
+        self.gamestate.trigger_event(
+            [self.player.character],
+            events.Events.SOLD,
+            {
+                events.ContextKeys.RESOURCE: resource,
+                events.ContextKeys.AMOUNT: int(amount),
+                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+            },
+        )
 
 
 class StationAgent(core.EconAgent):
@@ -171,14 +196,20 @@ class StationAgent(core.EconAgent):
     """
 
     @classmethod
-    def create_station_agent(cls, character:core.Character, station:core.Station, production_chain:core.ProductionChain) -> "StationAgent":
+    def create_station_agent(cls, character:core.Character, station:core.Station, production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
         if station.resource is None:
             raise ValueError(f'cannot create station agent for station that has no resource')
 
         if station.owner is None:
             raise ValueError(f'cannot create station agent for station that has no owner')
 
-        station_agent = StationAgent(station, station.owner, character, production_chain)
+        station_agent = StationAgent(
+            station,
+            station.owner,
+            character,
+            production_chain,
+            gamestate
+        )
 
         resource = station.resource
         inputs = production_chain.inputs_of(resource)
@@ -199,11 +230,17 @@ class StationAgent(core.EconAgent):
         return station_agent
 
     @classmethod
-    def create_planet_agent(cls, character:core.Character, planet:core.Planet,  production_chain:core.ProductionChain) -> "StationAgent":
+    def create_planet_agent(cls, character:core.Character, planet:core.Planet,  production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
         if planet.owner is None:
             raise ValueError(f'cannot create station agent for planet that has no owner')
 
-        station_agent = StationAgent(planet, planet.owner, character, production_chain)
+        station_agent = StationAgent(
+            planet,
+            planet.owner,
+            character,
+            production_chain,
+            gamestate
+        )
 
         end_product_ids = production_chain.final_product_ids()[[
             core.production_chain.RESOURCE_REL_CONSUMER,
@@ -218,8 +255,18 @@ class StationAgent(core.EconAgent):
 
         return station_agent
 
-    def __init__(self, station:core.SectorEntity, owner:core.Character, character:core.Character, production_chain:core.ProductionChain, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        station:core.SectorEntity,
+        owner:core.Character,
+        character:core.Character,
+        production_chain:core.ProductionChain,
+        gamestate:core.Gamestate,
+        *args:Any,
+        **kwargs:Any
+    ) -> None:
+        super().__init__(gamestate, *args, **kwargs)
+        self.gamestate = gamestate
         self._buy_resources:Tuple[int] = tuple() # type: ignore
         self._sell_resources:Tuple[int] = tuple() # type: ignore
 
@@ -275,6 +322,16 @@ class StationAgent(core.EconAgent):
         if util.isclose(self.owner.balance, 0.):
             self.owner.balance = 0.
 
+        self.gamestate.trigger_event(
+            [self.character],
+            events.Events.BOUGHT,
+            {
+                events.ContextKeys.RESOURCE: resource,
+                events.ContextKeys.AMOUNT: int(amount),
+                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+            },
+        )
+
     def sell(self, resource:int, price:float, amount:float) -> None:
         assert self.owner is not None
         assert self.inventory(resource) >= amount
@@ -284,7 +341,19 @@ class StationAgent(core.EconAgent):
             self.station.cargo[resource] = 0.
         self.owner.balance += price * amount
 
+        self.gamestate.trigger_event(
+            [self.character],
+            events.Events.SOLD,
+            {
+                events.ContextKeys.RESOURCE: resource,
+                events.ContextKeys.AMOUNT: int(amount),
+                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+            },
+        )
+
+
 EMPTY_TUPLE:Tuple = tuple()
+
 
 class ShipTraderAgent(core.EconAgent):
     """ Agent for a trader on a Ship.
@@ -292,8 +361,16 @@ class ShipTraderAgent(core.EconAgent):
     Buy/sell prices and budget are irrelevant for this agent. We assume this
     agent is "active" and decisions are handled elsewhere. """
 
-    def __init__(self, ship:core.Ship, character:core.Character, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        ship:core.Ship,
+        character:core.Character,
+        gamestate:core.Gamestate,
+        *args:Any,
+        **kwargs:Any
+    ) -> None:
+        super().__init__(gamestate, *args, **kwargs)
+        self.gamestate = gamestate
         self.ship = ship
         self.character = character
 
@@ -338,6 +415,16 @@ class ShipTraderAgent(core.EconAgent):
         if util.isclose(self.ship.owner.balance, 0.):
             self.ship.owner.balance = 0.
 
+        self.gamestate.trigger_event(
+            [self.character],
+            events.Events.BOUGHT,
+            {
+                events.ContextKeys.RESOURCE: resource,
+                events.ContextKeys.AMOUNT: int(amount),
+                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+            },
+        )
+
     def sell(self, resource:int, price:float, amount:float) -> None:
         assert self.ship.owner is not None
         assert self.inventory(resource) >= amount
@@ -347,3 +434,12 @@ class ShipTraderAgent(core.EconAgent):
             self.ship.cargo[resource] = 0.
         self.ship.owner.balance += price * amount
 
+        self.gamestate.trigger_event(
+            [self.character],
+            events.Events.SOLD,
+            {
+                events.ContextKeys.RESOURCE: resource,
+                events.ContextKeys.AMOUNT: int(amount),
+                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+            },
+        )

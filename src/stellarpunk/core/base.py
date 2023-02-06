@@ -90,7 +90,7 @@ class Sprite:
             self.width = 0
 
 
-class EconAgent(abc.ABC):
+class EconAgent(Entity, abc.ABC):
     _next_id = 0
 
     @classmethod

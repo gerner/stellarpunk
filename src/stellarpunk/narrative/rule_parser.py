@@ -50,8 +50,9 @@ def parse_criteria(cri: str, context_keys: Mapping[str, int], builder: director.
     if not isinstance(cri, str):
         raise ValueError("criteria must be a string, got {cri}")
 
-    # CRITERIA := [REF "<="] REF ["<=" REF] | INVERTED_REF
+    # CRITERIA := [REF "<="] REF ["<=" REF] | INVERTED_REF | EQUALITY_REF
     # INVERTED_REF := "!" REF
+    # EQUALITY_REF := REF "=" REF
     # REF := int | FLAG_REF | ENTITY_REF
     # INT_REF := [0-9]+
     # FLAG_REF := [a-zA-Z_][a-zA-Z0-9_]*
@@ -64,15 +65,13 @@ def parse_criteria(cri: str, context_keys: Mapping[str, int], builder: director.
         # inverted ref case
         ref, pos = parse_ref(data, context_keys)
         data = data[pos:].lstrip()
+        if data != "":
+            raise ValueError(f'had left-over string in inverted criteria "{data}"')
 
         builder.add_low(director.IntRef(0))
         builder.add_fact(ref)
         builder.add_high(director.IntRef(0))
         builder.build()
-
-        if data != "":
-            raise ValueError(f'had left-over string in criteria "{data}"')
-
         return
 
     ref, pos = parse_ref(data, context_keys)
@@ -84,6 +83,19 @@ def parse_criteria(cri: str, context_keys: Mapping[str, int], builder: director.
         builder.add_fact(ref)
         builder.add_high(director.IntRef(1))
         builder.build()
+        return
+
+    elif data[0] == "=":
+        # equality ref case
+        data = data[1:].lstrip()
+        rhs_ref, pos = parse_ref(data, context_keys)
+        data = data[pos:].lstrip()
+        if data != "":
+            raise ValueError(f'had left-over string in equality criteria "{data}"')
+
+        builder.add_low(ref)
+        builder.add_fact(rhs_ref)
+        builder.add_high(director.IntRef(POS_INF))
         return
 
     if not data.startswith("<="):
@@ -133,8 +145,6 @@ def parse_action(
     if action_name not in action_ids:
         raise ValueError(f'rule {rule_id} had unknown action {action_name}')
     action_id = action_ids[action_name]
-    if action_id in action_validators and not action_validators[action_id](act):
-        raise ValueError(f'rule {rule_id} had invalid action args for action {action_name}')
 
     # translate "ref:" type arguments to their integer context key id
     for k, v in act.items():
@@ -143,6 +153,9 @@ def parse_action(
             if ref_key not in context_keys:
                 raise ValueError(f'an action arg for {rule_id} had context key ref "{v}" that was not found in context keys')
             act[k] = context_keys[ref_key]
+
+    if action_id in action_validators and not action_validators[action_id](act):
+        raise ValueError(f'rule {rule_id} had invalid action args for action {action_name}')
 
     action_template = director.ActionTemplate(action_id, act)
     return action_template

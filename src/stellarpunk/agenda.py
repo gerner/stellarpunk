@@ -214,7 +214,7 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver):
         super().__init__(ship, *args, **kwargs)
 
         self.ship = ship
-        self.agent = econ.ShipTraderAgent(ship, self.character)
+        self.agent = econ.ShipTraderAgent(ship, self.character, self.gamestate)
 
         # resources we're allowed to mine
         if allowed_resources is None:
@@ -387,7 +387,7 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver):
     ) -> None:
         super().__init__(ship, *args, **kwargs)
         self.ship = ship
-        self.agent = econ.ShipTraderAgent(ship, self.character)
+        self.agent = econ.ShipTraderAgent(ship, self.character, self.gamestate)
         self.state = TradingAgendum.State.IDLE
 
         # goods we're allowed to trade
@@ -548,6 +548,7 @@ class StationManager(CaptainAgendum):
             self.character,
             station,
             self.gamestate.production_chain,
+            self.gamestate,
         )
         self.produced_batches = 0
 
@@ -622,7 +623,12 @@ class PlanetManager(CaptainAgendum):
         super().__init__(planet, *args, **kwargs)
 
         self.planet = planet
-        self.agent = econ.StationAgent.create_planet_agent(self.character, planet, self.gamestate.production_chain)
+        self.agent = econ.StationAgent.create_planet_agent(
+            self.character,
+            planet,
+            self.gamestate.production_chain,
+            self.gamestate
+        )
 
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(planet.entity_id, self.agent)

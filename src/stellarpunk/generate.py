@@ -694,7 +694,7 @@ class UniverseGenerator:
         player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
         player = core.Player(self.gamestate)
         player.character = player_character
-        player.agent = econ.PlayerAgent(player)
+        player.agent = econ.PlayerAgent(player, self.gamestate)
 
         return player
 
@@ -1486,7 +1486,7 @@ class UniverseGenerator:
         player_character = self.gamestate.player.character
 
         self.gamestate.player.character = player_character
-        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player)
+        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate))
 

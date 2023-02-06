@@ -49,7 +49,11 @@ recipient = "_ref:tutorial_target_player"
 [tutorial_mined_enough]
 type = "mined"
 priority = 1
-criteria = ["tutorial_started", "!tutorial_delivered", "resource <= tutorial_resource <= resource", "500 <= amount_on_hand"]
+criteria = ["tutorial_started", "!tutorial_mined", "!tutorial_delivered", "resource = tutorial_resource", "500 <= amount_on_hand"]
+[[tutorial_mined_enough.actions]]
+_action = "inc"
+amount = 1
+flag = "_ref:tutorial_mined"
 [[tutorial_mined_enough.actions]]
 _action = "message"
 message_id = 0
@@ -57,6 +61,39 @@ subject = "Head on back"
 message = "That's enough. Head on back to the station."
 sender = "_ref:tutorial_guy"
 recipient = "_ref:tutorial_target_player"
+
+# player traded target resource and it's enough
+# check this first
+[tutorial_traded_resource]
+type = "sold"
+priority = 2
+criteria = ["tutorial_started", "!tutorial_delivered", "resource = tutorial_resource", "tutorial_amount_to_trade <= amount"]
+[[tutorial_traded_resource.actions]]
+_action = "inc"
+amount = 1
+flag = "_ref:tutorial_delivered"
+[[tutorial_traded_resource.actions]]
+_action = "dec"
+amount_ref = "_ref:amount"
+flag = "_ref:tutorial_amount_to_trade"
+[[tutorial_traded_resource.actions]]
+_action = "message"
+message_id = 0
+subject = "All done"
+message = "Great work, seems like you know what you're doing. TBD"
+sender = "_ref:tutorial_guy"
+recipient = "_ref:tutorial_target_player"
+
+# player traded target resource and it's not enough
+# keep track of total amount traded
+[tutorial_traded_resource_not_enough]
+type = "sold"
+priority = 1
+criteria = ["tutorial_started", "!tutorial_delivered", "resource = tutorial_resource"]
+[[tutorial_traded_resource_not_enough.actions]]
+_action = "dec"
+amount_ref = "_ref:amount"
+flag = "_ref:tutorial_amount_to_trade"
 
 # Player event handlers
 

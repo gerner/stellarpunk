@@ -30,6 +30,14 @@ def test_parse_criteria():
     assert isinstance(builder.last_high, director.IntRef)
     assert builder.last_high.value == 1
 
+    rule_parser.parse_criteria("is_player <= 1", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_low, director.FlagRef)
+    assert builder.last_low.fact == CK.is_player
+    assert isinstance(builder.last_fact, director.IntRef)
+    assert builder.last_fact.value == 1
+    assert isinstance(builder.last_high, director.IntRef)
+    assert builder.last_high.value == rule_parser.POS_INF
+
     rule_parser.parse_criteria("4 <= $foo.bar <= 15", {x.name: x.value for x in CK}, builder)
     assert isinstance(builder.last_fact, director.EntityRef)
     assert builder.last_fact.entity_fact == CK.foo
@@ -65,6 +73,14 @@ def test_parse_criteria():
     assert builder.last_low.value == 1
     assert isinstance(builder.last_high, director.IntRef)
     assert builder.last_high.value == 1
+
+    rule_parser.parse_criteria("baz = foo", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_low, director.FlagRef)
+    assert builder.last_low.fact == CK.baz
+    assert isinstance(builder.last_fact, director.FlagRef)
+    assert builder.last_fact.fact == CK.foo
+    assert isinstance(builder.last_high, director.IntRef)
+    assert builder.last_high.value == rule_parser.POS_INF
 
 def test_parse_eval():
     test_config = """

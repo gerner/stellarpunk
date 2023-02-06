@@ -44,6 +44,16 @@ class Action:
     def __init__(self) -> None:
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
 
+    def _required_keys(self, key_types: Sequence[Tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
+        return all(
+            k in action_args and isinstance(action_args[k], t) for k,t in key_types
+        )
+
+    def _optional_keys(self, key_types: Sequence[Tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
+        return all(
+            k not in action_args or isinstance(action_args[k], t) for k,t in key_types
+        )
+
     def _validate(self, action_args: Mapping[str, Any]) -> bool:
         return True
 

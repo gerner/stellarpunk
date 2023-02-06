@@ -8,6 +8,9 @@ from . import core as ecore
 from stellarpunk import narrative, core, dialog
 
 
+POS_INF = (1<<64)-1
+
+
 class Events(enum.IntEnum):
     START_GAME = enum.auto()
     NOTIFICATION = enum.auto()
@@ -16,6 +19,8 @@ class Events(enum.IntEnum):
     CONTACT = enum.auto()
     DOCKED = enum.auto()
     MINED = enum.auto()
+    SOLD = enum.auto()
+    BOUGHT = enum.auto()
 
 
 class ContextKeys(enum.IntEnum):
@@ -28,26 +33,89 @@ class ContextKeys(enum.IntEnum):
     CONTACTER = enum.auto()
     TARGET = enum.auto()
     RESOURCE = enum.auto()
+    AMOUNT = enum.auto()
     AMOUNT_ON_HAND = enum.auto()
     TUTORIAL_GUY = enum.auto()
     TUTORIAL = enum.auto()
     TUTORIAL_TARGET_PLAYER = enum.auto()
+    TUTORIAL_AMOUNT_TO_TRADE = enum.auto()
     TUTORIAL_STARTED = enum.auto()
     TUTORIAL_SKIPPED = enum.auto()
     TUTORIAL_MINING_ARRIVE = enum.auto()
     TUTORIAL_RESOURCE = enum.auto()
+    TUTORIAL_MINED = enum.auto()
     TUTORIAL_DELIVERED = enum.auto()
     TUTORIAL_ASTEROID = enum.auto()
 
 
+class IncAction(ecore.Action):
+    def _validate(self, action_args: Mapping[str, Any]) -> bool:
+        if not self._required_keys([("flag", int)], action_args) or not self._optional_keys([("amount", int), ("amount_ref", int)], action_args):
+            return False
+        if ("amount" in action_args) == ("amount_ref" in action_args):
+            return False
+        return True
+
+    def act(
+        self,
+        character: "core.Character",
+        event_type: int,
+        event_context: Mapping[int, int],
+        event_args: Mapping[str, Any],
+        action_args: Mapping[str, Any]
+    ) -> None:
+        current_value = character.context.get_flag(action_args["flag"])
+        if "amount" in action_args:
+            amount = action_args["amount"]
+        else:
+            amount = event_context.get(action_args["amount_ref"], 0)
+        if current_value + amount < 0:
+            new_value = 0
+        elif current_value + amount > POS_INF:
+            new_value = POS_INF
+        else:
+            new_value = current_value + amount
+        character.context.set_flag(action_args["flag"], current_value+action_args["amount"])
+
+
+class DecAction(ecore.Action):
+    def _validate(self, action_args: Mapping[str, Any]) -> bool:
+        if not self._required_keys([("flag", int)], action_args) or not self._optional_keys([("amount", int), ("amount_ref", int)], action_args):
+            return False
+        if ("amount" in action_args) == ("amount_ref" in action_args):
+            return False
+        return True
+
+    def act(
+        self,
+        character: "core.Character",
+        event_type: int,
+        event_context: Mapping[int, int],
+        event_args: Mapping[str, Any],
+        action_args: Mapping[str, Any]
+    ) -> None:
+        current_value = character.context.get_flag(action_args["flag"])
+        if "amount" in action_args:
+            amount = action_args["amount"]
+        else:
+            amount = event_context.get(action_args["amount_ref"], 0)
+        if current_value - amount < 0:
+            new_value = 0
+        elif current_value - amount > POS_INF:
+            new_value = POS_INF
+        else:
+            new_value = current_value - amount
+        character.context.set_flag(action_args["flag"], new_value)
+
+
 class BroadcastAction(ecore.Action):
     def _validate(self, action_args: Mapping[str, Any]) -> bool:
-        return all(
-            k in action_args and isinstance(action_args[k], t) for k,t in [
+        return self._required_keys([
                 ("radius", numbers.Real),
-                ("message_id", numbers.Real),
+                ("message_id", int),
                 ("message", str),
-            ]
+            ],
+            action_args,
         )
 
     def act(
@@ -89,20 +157,17 @@ class BroadcastAction(ecore.Action):
 
 class MessageAction(ecore.Action):
     def _validate(self, action_args: Mapping[str, Any]) -> bool:
-        if not all(
-            k in action_args and isinstance(action_args[k], t) for k,t in [
-                ("message_id", numbers.Real),
+        if not self._required_keys([
+                ("message_id", int),
                 ("subject", str),
                 ("message", str),
-                ("recipient", str),
-            ]
+                ("recipient", int),
+            ],
+            action_args,
         ):
             return False
 
-        if not action_args["recipient"].startswith("_ref:"):
-            return False
-
-        if "sender" in action_args and not (isinstance(action_args["sender"], str) and action_args["sender"].startswith("_ref:")):
+        if not self._optional_keys([("sender", int)], action_args):
             return False
 
         return True
@@ -148,6 +213,8 @@ class MessageAction(ecore.Action):
 def register_events() -> None:
     ecore.register_events(Events)
     ecore.register_context_keys(ContextKeys)
+    ecore.register_action(IncAction())
+    ecore.register_action(DecAction())
     ecore.register_action(BroadcastAction())
     ecore.register_action(MessageAction())
 
