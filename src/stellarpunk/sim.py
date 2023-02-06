@@ -8,7 +8,7 @@ import curses
 import warnings
 import collections
 import heapq
-from typing import Iterable, List, Optional, Mapping, Any, Tuple, Deque, TextIO, Set
+from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple, Deque, TextIO, Set
 
 import numpy as np
 import cymunk # type: ignore
@@ -301,18 +301,18 @@ class Simulator(core.AbstractGameRuntime):
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any] = {},
     ) -> None:
-        self.event_manager.trigger_event(characters, event_type, context, **kwargs)
+        self.event_manager.trigger_event(characters, event_type, context, event_args)
 
     def trigger_event_immediate(
         self,
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any] = {},
     ) -> None:
-        self.event_manager.trigger_event_immediate(characters, event_type, context, **kwargs)
+        self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)
 
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()

@@ -82,7 +82,7 @@ class AbstractGameRuntime:
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any] = {},
     ) -> None:
         pass
 
@@ -91,7 +91,7 @@ class AbstractGameRuntime:
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any] = {},
     ) -> None:
         pass
 
@@ -379,15 +379,15 @@ class Gamestate(EntityRegistry):
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any] = {},
     ) -> None:
-        self.game_runtime.trigger_event(characters, event_type, context, **kwargs)
+        self.game_runtime.trigger_event(characters, event_type, context, event_args)
 
     def trigger_event_immediate(
         self,
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any] = {},
     ) -> None:
-        self.game_runtime.trigger_event_immediate(characters, event_type, context, **kwargs)
+        self.game_runtime.trigger_event_immediate(characters, event_type, context, event_args)

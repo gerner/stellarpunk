@@ -8,6 +8,9 @@ criteria = ["is_player"]
 _action = "player_notification"
 message = "press \"?\" for help\ntype \":\" followed by \"help\" and press <ENTER> for more help"
 
+# Tutorial Chain
+
+# message on game start
 [tutorial]
 type = "start_game"
 priority = 0
@@ -16,17 +19,44 @@ criteria = ["tutorial_guy"]
 _action = "message"
 _delay = 0.5
 message_id = 0
-message = "is this thing on?"
 subject = "Let's get to work"
+message = "is this thing on?"
 recipient = "_ref:tutorial_target_player"
 
+# talking to tutorial guy for the first time
 [tutorial_first_contact]
 type = "contact"
 priority = 1
-criteria = ["tutorial_guy", "0 <= $contacter.tutorial_skipped <= 0", "0 <= $contacter.tutorial_started <= 0", "$contacter.tutorial_target_player"]
+criteria = ["tutorial_guy", "$contacter.tutorial_skipped", "!$contacter.tutorial_started", "$contacter.tutorial_target_player"]
 [[tutorial_first_contact.actions]]
 _action = "dialog"
 dialog_id = "tutorial_first_contact"
+
+# player arrives at target asteroid
+[tutorial_mining_arrive]
+type = "docked"
+priority = 1
+criteria = ["tutorial_started", "$target.tutorial_asteroid", "!tutorial_mining_arrive"]
+[[tutorial_mining_arrive.actions]]
+_action = "message"
+message_id = 0
+subject = "Time to get mining"
+message = "TBD"
+sender = "_ref:tutorial_guy"
+recipient = "_ref:tutorial_target_player"
+
+# player mined enough of the target resource
+[tutorial_mined_enough]
+type = "mined"
+priority = 1
+criteria = ["tutorial_started", "!tutorial_delivered", "resource <= tutorial_resource <= resource", "500 <= amount_on_hand"]
+[[tutorial_mined_enough.actions]]
+_action = "message"
+message_id = 0
+subject = "Head on back"
+message = "That's enough. Head on back to the station."
+sender = "_ref:tutorial_guy"
+recipient = "_ref:tutorial_target_player"
 
 # Player event handlers
 

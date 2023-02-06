@@ -2,6 +2,7 @@
 #include <unordered_map>
 #include <cstdint>
 #include <stdio.h>
+#include <memory>
 
 typedef std::unordered_map<std::uint64_t, std::uint64_t> cEventContext;
 
@@ -19,6 +20,27 @@ struct cEvent {
         event_context = ec;
         entity_context = ent_c;
         data = d;
+    }
+};
+
+/*class cRef {
+    public:
+    virtual ~cRef() {}
+    virtual std::uint64_t resolve(cEvent* event, cEventContext* character_context) const = 0;
+};*/
+
+struct cIntRef {
+    std::uint64_t value;
+
+    cIntRef() {
+    }
+
+    cIntRef(std::uint64_t v) {
+        value = v;
+    }
+
+    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+        return value;
     }
 };
 
@@ -90,25 +112,109 @@ struct cEntityRef {
     }
 };
 
-template<class T>
-struct cCriteria{
-    T fact;
-    std::uint64_t low;
-    std::uint64_t high;
+struct cCriteriaBase {
+    cCriteriaBase() {}
+    virtual ~cCriteriaBase() {}
+    virtual bool evaluate(cEvent* event, cEventContext* character_context) const = 0;
+};
+
+template<class L, class F, class U>
+struct cCriteria : cCriteriaBase {
+    F fact;
+    L low;
+    U high;
 
     cCriteria() {
     }
 
-    cCriteria(T f, std::uint64_t l, std::uint64_t h) {
+    cCriteria(L l, F f, U h) {
         fact = f;
         low = l;
         high = h;
     }
 
-    bool evaluate(cEvent* event, cEventContext* character_context) const {
+    virtual bool evaluate(cEvent* event, cEventContext* character_context) const {
         std::uint64_t fact_value = fact.resolve(event, character_context);
-        //printf("comparing %lu <= %lu <= %lu\n", low, fact_value, high);
-        return low <= fact_value && fact_value <= high;
+        std::uint64_t low_value = low.resolve(event, character_context);
+        std::uint64_t high_value = high.resolve(event, character_context);
+        //printf("comparing %lu <= %lu <= %lu\n", low_value, fact_value, high_value);
+        return low_value <= fact_value && fact_value <= high_value;
+    }
+};
+
+struct UBuilder {
+    virtual std::unique_ptr<cCriteriaBase> addU(cIntRef u) = 0;
+    virtual std::unique_ptr<cCriteriaBase> addU(cFlagRef u) = 0;
+    virtual std::unique_ptr<cCriteriaBase> addU(cEntityRef u) = 0;
+};
+
+struct FBuilder {
+    virtual std::unique_ptr<UBuilder> addF(cIntRef f) = 0;
+    virtual std::unique_ptr<UBuilder> addF(cFlagRef f) = 0;
+    virtual std::unique_ptr<UBuilder> addF(cEntityRef f) = 0;
+};
+
+template<class L, class F>
+struct UBuilderImpl : UBuilder {
+    L l;
+    F f;
+    UBuilderImpl(L low, F fact) {
+        l = low;
+        f = fact;
+    }
+    virtual std::unique_ptr<cCriteriaBase> addU(cIntRef u) {
+        return std::make_unique<cCriteria<L, F, cIntRef> >(l, f, u);
+    }
+    virtual std::unique_ptr<cCriteriaBase> addU(cFlagRef u) {
+        return std::make_unique<cCriteria<L, F, cFlagRef> >(l, f, u);
+    }
+    virtual std::unique_ptr<cCriteriaBase> addU(cEntityRef u) {
+        return std::make_unique<cCriteria<L, F, cEntityRef> >(l, f, u);
+    }
+};
+
+template<class L>
+struct FBuilderImpl : FBuilder {
+    L l;
+    FBuilderImpl(L low) {
+        l = low;
+    }
+    virtual std::unique_ptr<UBuilder> addF(cIntRef f) {
+        return std::make_unique<UBuilderImpl<L, cIntRef> >(l, f);
+    }
+    virtual std::unique_ptr<UBuilder> addF(cFlagRef f) {
+        return std::make_unique<UBuilderImpl<L, cFlagRef> >(l, f);
+    }
+    virtual std::unique_ptr<UBuilder> addF(cEntityRef f) {
+        return std::make_unique<UBuilderImpl<L, cEntityRef> >(l, f);
+    }
+};
+
+struct cCriteriaBuilder {
+    std::unique_ptr<FBuilder> fbuilder;
+    std::unique_ptr<UBuilder> ubuilder;
+    std::unique_ptr<cCriteriaBase> criteria;
+
+    cCriteriaBuilder() {
+    }
+
+    template<class L>
+    void addL(L l) {
+        fbuilder = std::make_unique<FBuilderImpl<L> >(l);
+    }
+
+    template<class F>
+    void addF(F f) {
+        ubuilder = fbuilder->addF(f);
+    }
+
+    template<class U>
+    void addU(U u) {
+        criteria = ubuilder->addU(u);
+    }
+
+    std::unique_ptr<cCriteriaBase> build() {
+        return std::move(criteria);
     }
 };
 
@@ -162,8 +268,7 @@ class cRule {
     private:
         std::uint64_t event_type;
         std::uint64_t priority;
-        std::vector<cCriteria<cFlagRef> > criteria;
-        std::vector<cCriteria<cEntityRef> > entity_criteria;
+        std::vector<std::unique_ptr<cCriteriaBase>> criteria;
         std::vector<cActionTemplate> actions;
 
     public:
@@ -173,15 +278,16 @@ class cRule {
         cRule(
             std::uint64_t et,
             std::uint64_t pri,
-            std::vector<cCriteria<cFlagRef> > cri,
-            std::vector<cCriteria<cEntityRef> > e_cri,
+            std::vector<std::unique_ptr<cCriteriaBase>> &cri,
             std::vector<cActionTemplate> a
         ) {
             event_type = et;
             priority = pri;
-            criteria = cri;
-            entity_criteria = e_cri;
             actions = a;
+
+            for(auto &c : cri) {
+                criteria.push_back(std::move(c));
+            }
         }
 
         const std::vector<cActionTemplate>& get_actions() const {
@@ -191,16 +297,8 @@ class cRule {
         bool evaluate(cEvent* event, cEventContext* character_context) const {
             //printf("evaluating rule criteria\n");
             for(auto &c : criteria) {
-                if(!c.evaluate(event, character_context)) {
+                if(!c->evaluate(event, character_context)) {
                     //printf("failed criteria %lu\n", c.fact.fact);
-                    return false;
-                }
-            }
-
-            //printf("evaluating rule entity criteria\n");
-            for(auto &ec : entity_criteria) {
-                if(!ec.evaluate(event, character_context)) {
-                    //printf("failed entity criteria $%lu.%lu\n", ec.fact.entity_fact, ec.fact.sub_fact);
                     return false;
                 }
             }
@@ -213,14 +311,19 @@ class cRule {
 class cDirector {
     private:
         // stored in descending priority sorted order
-        std::unordered_map<std::uint64_t, std::vector<cRule> > rules;
+        std::unordered_map<std::uint64_t, std::vector<std::unique_ptr<cRule>> > rules;
 
     public:
         cDirector() {
         }
 
-        cDirector(std::unordered_map<std::uint64_t, std::vector<cRule> > r) {
-            rules = r;
+        cDirector(std::unordered_map<std::uint64_t, std::vector<std::unique_ptr<cRule>> > &r) {
+            for(auto &entry : r) {
+                rules[entry.first] = std::vector<std::unique_ptr<cRule> >();
+                for(auto &one_r : entry.second) {
+                    rules[entry.first].push_back(std::move(one_r));
+                }
+            }
         }
 
         std::vector<cAction> evaluate(cEvent* event, std::vector<cCharacterCandidate> character_candidates) const {
@@ -231,15 +334,15 @@ class cDirector {
             if(ritr == rules.end()) {
                 return matches;
             }
-            const std::vector<cRule> &matching_rules = ritr->second;
+            const std::vector<std::unique_ptr<cRule>> &matching_rules = ritr->second;
 
             // find the "best" matching rule for each character
             // best here means first matching rule in descending priority order
             for(auto &character_candidate : character_candidates) {
                 //TODO: what do we do for matches in equal priority? first wins
                 for(const auto &itr : matching_rules) {
-                    if(itr.evaluate(event, character_candidate.character_context)) {
-                        for(const auto &aitr : itr.get_actions()) {
+                    if(itr->evaluate(event, character_candidate.character_context)) {
+                        for(const auto &aitr : itr->get_actions()) {
                             //printf("adding action %lu\n", aitr.action_id);
                             matches.push_back(aitr.resolve(event, character_candidate));
                         }

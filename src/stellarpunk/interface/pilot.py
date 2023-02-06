@@ -192,6 +192,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         direction is an angle relative to heading
         """
 
+        self.has_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_fine_thrust, self.ship.angle + direction)
 

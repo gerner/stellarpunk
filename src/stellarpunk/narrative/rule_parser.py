@@ -4,7 +4,7 @@ import sys
 import re
 import collections
 import logging
-from typing import Dict, Mapping, List, Union, Any, Callable
+from typing import Dict, Mapping, List, Union, Any, Callable, Tuple
 
 import toml # type: ignore
 
@@ -15,33 +15,11 @@ FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
 
 POS_INF = (1<<64)-1
 
-def parse_criteria(cri: str, context_keys: Mapping[str, int]) -> Union[director.FlagCriteria, director.EntityCriteria]:
-
-    if not isinstance(cri, str):
-        raise ValueError("criteria must be a string, got {cri}")
-
-    # CRITERIA := [int "<="] REF ["<=" int]
-    # REF := FLAG_REF | ENTITY_REF
-    # FLAG_REF := [a-zA-Z_][a-zA-Z0-9_]*
-    # ENTITY_REF := $ FLAG_REF "." FLAG_REF
-
-    data = cri.lstrip()
-
-    # lower bound value
+def parse_ref(data: str, context_keys: Mapping[str, int]) -> Tuple[Union[director.IntRef, director.FlagRef, director.EntityRef], int]:
     m = INT_RE.match(data)
-    if not m:
-        low = None
-    else:
-        low = int(m.group(0))
-        data = data[m.end():].lstrip()
+    if m:
+        return director.IntRef(int(m.group(0))), m.end()
 
-        # lower bound indicator
-        if data[0:2] != "<=":
-            raise ValueError(f'epected lower bound as "<=" in "{data}"')
-        data = data[2:].strip()
-
-    # flag or entity flag
-    entity_name = None
     if data[0] == "$":
         data = data[1:]
         m = FLAG_RE.match(data)
@@ -57,51 +35,87 @@ def parse_criteria(cri: str, context_keys: Mapping[str, int]) -> Union[director.
             raise ValueError("bad fname in entity ref")
         flag_name = m.group(0)
         data = data[m.end():].lstrip()
+
+        return director.EntityRef(context_keys[entity_name], context_keys[flag_name]), 1 + len(entity_name) + 1 + len(flag_name)
     else:
         m = FLAG_RE.match(data)
         if not m:
             raise ValueError("bad flag ref")
         flag_name = m.group(0)
-        data = data[m.end():].lstrip()
+        return director.FlagRef(context_keys[flag_name]), m.end()
 
-    # upper bound indicator
-    if data[0:2] != "<=":
-        high = None
-    else:
-        data = data[2:].strip()
 
-        # upper bound value
-        m = INT_RE.match(data)
-        if not m:
-            raise ValueError("bad high value")
-        high = int(m.group(0))
-        data = data[m.end():].strip()
+def parse_criteria(cri: str, context_keys: Mapping[str, int], builder: director.CriteriaBuilder) -> None:
 
-    # nothing else left
+    if not isinstance(cri, str):
+        raise ValueError("criteria must be a string, got {cri}")
+
+    # CRITERIA := [REF "<="] REF ["<=" REF] | INVERTED_REF
+    # INVERTED_REF := "!" REF
+    # REF := int | FLAG_REF | ENTITY_REF
+    # INT_REF := [0-9]+
+    # FLAG_REF := [a-zA-Z_][a-zA-Z0-9_]*
+    # ENTITY_REF := $ FLAG_REF "." FLAG_REF
+
+    data = cri.lstrip()
+
+    if data[0] == "!":
+        data = data[1:]
+        # inverted ref case
+        ref, pos = parse_ref(data, context_keys)
+        data = data[pos:].lstrip()
+
+        builder.add_low(director.IntRef(0))
+        builder.add_fact(ref)
+        builder.add_high(director.IntRef(0))
+        builder.build()
+
+        if data != "":
+            raise ValueError(f'had left-over string in criteria "{data}"')
+
+        return
+
+    ref, pos = parse_ref(data, context_keys)
+    data = data[pos:].lstrip()
+
+    if data == "":
+        # single ref case
+        builder.add_low(director.IntRef(1))
+        builder.add_fact(ref)
+        builder.add_high(director.IntRef(1))
+        builder.build()
+        return
+
+    if not data.startswith("<="):
+        raise ValueError(f'epected lower bound as "<=" in "{data}"')
+    data = data[2:].lstrip()
+
+    lref = ref
+    ref, pos = parse_ref(data, context_keys)
+    data = data[pos:].lstrip()
+
+    if data == "":
+        # single bound case
+        builder.add_low(lref)
+        builder.add_fact(ref)
+        builder.add_high(director.IntRef(POS_INF))
+        builder.build()
+        return
+
+    if not data.startswith("<="):
+        raise ValueError(f'epected upper bound as "<=" in "{data}"')
+    data = data[2:].lstrip()
+
+    href, pos = parse_ref(data, context_keys)
+    data = data[pos:].lstrip()
     if data != "":
-        raise ValueError(f'had left-over string in criteria {data}')
+        raise ValueError(f'had left-over string in criteria "{data}"')
 
-    if low is None and high is None:
-        # no bounds => non-zero (is present)
-        low = 1
-        high = POS_INF
-    elif low is None:
-        # high bound, but no low bound => less than high
-        low = 0
-    elif high is None:
-        # low bound, but no high bound => greater than low
-        high = POS_INF
-
-    assert low is not None
-    assert high is not None
-
-    if entity_name:
-        entity_id = context_keys[entity_name]
-        flag_id = context_keys[flag_name]
-        return director.EntityCriteria(entity_id, flag_id, low, high)
-    else:
-        flag_id = context_keys[flag_name]
-        return director.FlagCriteria(flag_id, low, high)
+    builder.add_low(lref)
+    builder.add_fact(ref)
+    builder.add_high(href)
+    builder.build()
+    return
 
 
 def parse_action(
@@ -216,21 +230,13 @@ def loadd(
         else:
             criteria_data = rule["criteria"]
 
-        criteria: List[director.FlagCriteria] = []
-        entity_criteria: List[director.EntityCriteria] = []
+        criteria_builder = director.CriteriaBuilder()
 
         for cri in criteria_data:
             #try:
-            parsed_criteria = parse_criteria(cri, context_keys)
+            parse_criteria(cri, context_keys, criteria_builder)
             #except ValueError as e:
             #    raise ValueError(f'bad criteria for {rule_id}') from e
-
-            if isinstance(parsed_criteria, director.FlagCriteria):
-                criteria.append(parsed_criteria)
-            elif isinstance(parsed_criteria, director.EntityCriteria):
-                entity_criteria.append(parsed_criteria)
-            else:
-                raise Exception(f'for {rule_id} "{cri}" parsed to bad criteria')
 
         # find and parse the actions
         action_data: List[Dict[str, Any]]
@@ -247,7 +253,7 @@ def loadd(
             actions.append(parse_action(rule_id, act, action_ids, action_validators, context_keys))
 
         # create a rule record
-        rules[event_type_id].append(director.Rule(event_type_id, priority, criteria, entity_criteria, actions))
+        rules[event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
 
     # create and return an event director
     return director.Director(rules)

@@ -7,8 +7,11 @@ from libc.stdint cimport uint64_t
 from libcpp cimport bool
 from libcpp.unordered_map  cimport unordered_map
 from libcpp.vector  cimport vector
+from libcpp.memory  cimport unique_ptr, make_unique
+from libcpp.utility cimport move
 from cpython.ref cimport PyObject
 from cython.operator cimport dereference, preincrement
+import cython
 
 
 cdef extern from "director.hpp":
@@ -22,21 +25,38 @@ cdef extern from "director.hpp":
 
         cEvent(uint64_t et, cEventContext ec, unordered_map[uint64_t, cEventContext]* ent_c, void* d)
 
+    cdef cppclass cIntRef:
+        uint64_t value
+        cIntRef()
+        cIntRef(uint64_t v)
+
     cdef cppclass cFlagRef:
         uint64_t fact
+        cFlagRef()
         cFlagRef(uint64_t f)
 
     cdef cppclass cEntityRef:
         uint64_t entity_fact
         uint64_t sub_fact
+        cEntityRef()
         cEntityRef(uint64_t ef, uint64_t sf)
 
-    cdef cppclass cCriteria[T]:
+    cdef cppclass cCriteriaBase:
+        pass
+
+    cdef cppclass cCriteria[T, L, U](cCriteriaBase):
         T fact
-        uint64_t low
-        uint64_t high
+        L low
+        U high
         cCriteria()
         cCriteria(T f, uint64_t l, uint64_t h)
+
+    cdef cppclass cCriteriaBuilder:
+        cCriteriaBuilder()
+        void addL[L](L l)
+        void addF[F](F f)
+        void addU[U](U u)
+        unique_ptr[cCriteriaBase] build()
 
     cdef cppclass cActionTemplate:
         cActionTemplate()
@@ -60,14 +80,13 @@ cdef extern from "director.hpp":
         cRule(
             uint64_t et,
             uint64_t pri,
-            vector[cCriteria[cFlagRef]] cri,
-            vector[cCriteria[cEntityRef]] e_cri,
+            vector[unique_ptr[cCriteriaBase]] &cri,
             vector[cActionTemplate] a
         )
 
     cdef cppclass cDirector:
         cDirector()
-        cDirector(unordered_map[uint64_t, vector[cRule]] r)
+        cDirector(unordered_map[uint64_t, vector[unique_ptr[cRule]]] &r)
         vector[cAction] evaluate(cEvent* event, vector[cCharacterCandidate] character_candidates)
 
 
@@ -108,46 +127,83 @@ cdef class EntityStore:
         self.entity_context.erase(<uint64_t?>entity_id)
 
 
-cdef class FlagCriteria:
-    cdef cCriteria[cFlagRef] criteria
-
-    def __cinit__(self, f, l, h):
-        self.criteria = cCriteria[cFlagRef](cFlagRef(f), l, h)
-
-    @property
-    def fact(self) -> int:
-        return self.criteria.fact.fact
+cdef class IntRef:
+    cdef cIntRef c_ref
+    def __cinit__(self, value):
+        self.c_ref = cIntRef(value)
 
     @property
-    def low(self) -> int:
-        return self.criteria.low
+    def value(self):
+        return self.c_ref.value
+
+
+cdef class FlagRef:
+    cdef cFlagRef c_ref
+    def __cinit__(self, flag):
+        self.c_ref = cFlagRef(flag)
 
     @property
-    def high(self) -> int:
-        return self.criteria.high
+    def fact(self):
+        return self.c_ref.fact
 
 
-cdef class EntityCriteria:
-    cdef cCriteria[cEntityRef] entity_criteria
-
-    def __cinit__(self, ef, sf, l, h):
-        self.entity_criteria = cCriteria[cEntityRef](cEntityRef(ef, sf), l, h)
-
-    @property
-    def entity_fact(self) -> int:
-        return self.entity_criteria.fact.entity_fact
+cdef class EntityRef:
+    cdef cEntityRef c_ref
+    def __cinit__(self, entity_fact, sub_fact):
+        self.c_ref = cEntityRef(entity_fact, sub_fact)
 
     @property
-    def sub_fact(self) -> int:
-        return self.entity_criteria.fact.sub_fact
-
+    def entity_fact(self):
+        return self.c_ref.entity_fact
     @property
-    def low(self) -> int:
-        return self.entity_criteria.low
+    def sub_fact(self):
+        return self.c_ref.sub_fact
 
-    @property
-    def high(self) -> int:
-        return self.entity_criteria.high
+
+cdef class CriteriaBuilder:
+    cdef cCriteriaBuilder c_builder
+    cdef vector[unique_ptr[cCriteriaBase]] c_criteria
+
+    cdef public object last_low
+    cdef public object last_fact
+    cdef public object last_high
+
+    def add_low(self, low):
+        self.last_low = low
+        if isinstance(low, IntRef):
+            self.c_builder.addL((<IntRef?>low).c_ref)
+        elif isinstance(low, FlagRef):
+            self.c_builder.addL((<FlagRef?>low).c_ref)
+        elif isinstance(low, EntityRef):
+            self.c_builder.addL((<EntityRef?>low).c_ref)
+        else:
+            raise ValueError(f'only int, flag, entity refs are allowed, got {low.__class__}')
+
+    def add_fact(self, fact):
+        self.last_fact = fact
+        if isinstance(fact, IntRef):
+            self.c_builder.addF((<IntRef?>fact).c_ref)
+        elif isinstance(fact, FlagRef):
+            self.c_builder.addF((<FlagRef?>fact).c_ref)
+        elif isinstance(fact, EntityRef):
+            self.c_builder.addF((<EntityRef?>fact).c_ref)
+        else:
+            raise ValueError(f'only int, flag, entity refs are allowed, got {fact.__class__}')
+
+    def add_high(self, high):
+        self.last_high = high
+        if isinstance(high, IntRef):
+            self.c_builder.addU((<IntRef?>high).c_ref)
+        elif isinstance(high, FlagRef):
+            self.c_builder.addU((<FlagRef?>high).c_ref)
+        elif isinstance(high, EntityRef):
+            self.c_builder.addU((<EntityRef?>high).c_ref)
+        else:
+            raise ValueError(f'only int, flag, entity refs are allowed, got {high.__class__}')
+
+    def build(self):
+        self.c_criteria.push_back(self.c_builder.build())
+        self.c_builder = cCriteriaBuilder()
 
 
 cdef class ActionTemplate:
@@ -166,32 +222,26 @@ cdef class ActionTemplate:
 
 
 cdef class Rule:
-    cdef cRule rule
+    cdef unique_ptr[cRule] c_rule
     cdef object actions
 
-    def __cinit__(self, event_type, priority, criteria=[], entity_criteria=[], actions=[]):
-        cdef vector[cCriteria[cFlagRef]] c_criteria
-        cdef vector[cCriteria[cEntityRef]] c_entity_criteria
+    def __cinit__(self, event_type, priority, criteria, actions=[]):
         cdef vector[cActionTemplate] c_actions
-
-        for c in criteria:
-            c_criteria.push_back((<FlagCriteria?>c).criteria)
-
-        for ec in entity_criteria:
-            c_entity_criteria.push_back((<EntityCriteria?>ec).entity_criteria)
+        cdef uint64_t c_event_type = event_type
+        cdef uint64_t c_priority = priority
 
         for a in actions:
             c_actions.push_back((<ActionTemplate?>a).action_template)
 
-        self.rule = cRule(event_type, priority, c_criteria, c_entity_criteria, c_actions)
+        self.c_rule = make_unique[cRule](c_event_type, c_priority, (<CriteriaBuilder?>criteria).c_criteria, c_actions)
 
         # we hang on to action templates to keep them alive
         self.actions = list(actions)
 
     def check_refcounts(self):
-        print(f'rule.actions {sys.getrefcount(self.actions)}')
+        print(f'self.c_rule.actions {sys.getrefcount(self.actions)}')
         for action in self.actions:
-            print(f'rule.actions[i] {sys.getrefcount(action)}')
+            print(f'self.c_rule.actions[i] {sys.getrefcount(action)}')
             action.check_refcounts()
 
 
@@ -238,14 +288,11 @@ cdef class Director:
     cdef object rules
 
     def __cinit__(self, rules:Dict[int, Iterable[Rule]]):
-        cdef unordered_map[uint64_t, vector[cRule]] c_rules;
-        cdef vector[cRule] c_rule_list
+        cdef unordered_map[uint64_t, vector[unique_ptr[cRule]]] c_rules;
 
         for k, v in rules.items():
-            c_rule_list.clear()
             for r in v:
-                c_rule_list.push_back((<Rule?>r).rule)
-            c_rules[k] = c_rule_list
+                c_rules[k].push_back(move((<Rule?>r).c_rule))
 
         self.director = cDirector(c_rules)
 

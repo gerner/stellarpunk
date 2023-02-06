@@ -1,6 +1,6 @@
 """ Docked View """
 
-from typing import Any, Collection, List, Optional, Callable, Tuple
+from typing import Any, Collection, List, Optional, Callable, Tuple, Dict
 import curses
 import curses.ascii
 from curses import textpad
@@ -502,19 +502,23 @@ class StationView(interface.View):
 
         def make_contact(character: core.Character) -> Callable[[], Any]:
             def handle_contact(c: core.Character) -> None:
+                event_args: Dict[str, Any] = {}
                 self.gamestate.trigger_event_immediate(
                     [character],
                     events.e(events.Events.CONTACT),
                     {
                         events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                     },
+                    event_args
                 )
+                if "dialog" not in event_args:
+                    self.interface.log_message("no answer.")
 
             def contact() -> None:
                 self.logger.debug(f'contacting {character.short_id()}')
-                number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in character.entity_id.bytes[0:8]))
+                number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in character.entity_id.bytes[0:4]))
                 s = number_str
-                self.interface.log_message(f'dialing {s[0:8]}-{s[8:16]}-{s[16:24]}-{s[24:32]}...')
+                self.interface.log_message(f'dialing {s[0:8]}-{s[8:16]}...')
                 self.interface.mixer.play_sample(
                     ui_util.dtmf_sample(number_str, self.interface.mixer.sample_rate),
                     lambda: handle_contact(character)

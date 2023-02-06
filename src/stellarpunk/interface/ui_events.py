@@ -1,6 +1,6 @@
 """ Interface event handling logic """
 
-from typing import Mapping, Any
+from typing import Mapping, MutableMapping, Any
 
 from stellarpunk import core, events, interface, narrative, util, dialog
 from stellarpunk.interface import comms
@@ -25,7 +25,7 @@ class DialogAction(events.Action):
         character: "core.Character",
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: Mapping[str, Any],
+        event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
         dialog_id = action_args["dialog_id"]
@@ -37,6 +37,7 @@ class DialogAction(events.Action):
             self.interface,
         )
         self.interface.open_view(comms_view, deactivate_views=True)
+        event_args["dialog"] = True
 
 
 class PlayerNotification(events.Action):
@@ -58,7 +59,7 @@ class PlayerNotification(events.Action):
         character: "core.Character",
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: Mapping[str, Any],
+        event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
         format_args = dict(event_args)
@@ -76,7 +77,7 @@ class PlayerReceiveBroadcast(events.Action):
         character: core.Character,
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: Mapping[str, Any],
+        event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
         sender = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.MESSAGE_SENDER)]]
@@ -94,7 +95,7 @@ class PlayerReceiveMessage(events.Action):
         character: core.Character,
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: Mapping[str, Any],
+        event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
         sender = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.MESSAGE_SENDER)]]

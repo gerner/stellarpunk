@@ -21,18 +21,50 @@ class A(enum.IntEnum):
     message = enum.auto()
 
 def test_parse_criteria():
-    criteria = rule_parser.parse_criteria("1 <= is_player <= 1", {x.name: x.value for x in CK})
-    assert isinstance(criteria, director.FlagCriteria)
-    assert criteria.fact == CK.is_player
-    assert criteria.low == 1
-    assert criteria.high == 1
+    builder = director.CriteriaBuilder()
+    rule_parser.parse_criteria("1 <= is_player <= 1", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_fact, director.FlagRef)
+    assert builder.last_fact.fact == CK.is_player
+    assert isinstance(builder.last_low, director.IntRef)
+    assert builder.last_low.value == 1
+    assert isinstance(builder.last_high, director.IntRef)
+    assert builder.last_high.value == 1
 
-    criteria = rule_parser.parse_criteria("4 <= $foo.bar <= 15", {x.name: x.value for x in CK})
-    assert isinstance(criteria, director.EntityCriteria)
-    assert criteria.entity_fact == CK.foo
-    assert criteria.sub_fact == CK.bar
-    assert criteria.low == 4
-    assert criteria.high == 15
+    rule_parser.parse_criteria("4 <= $foo.bar <= 15", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_fact, director.EntityRef)
+    assert builder.last_fact.entity_fact == CK.foo
+    assert builder.last_fact.sub_fact == CK.bar
+    assert isinstance(builder.last_low, director.IntRef)
+    assert builder.last_low.value == 4
+    assert isinstance(builder.last_high, director.IntRef)
+    assert builder.last_high.value == 15
+
+    rule_parser.parse_criteria("$bar.baz <= $foo.bar <= stuff", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_fact, director.EntityRef)
+    assert builder.last_fact.entity_fact == CK.foo
+    assert builder.last_fact.sub_fact == CK.bar
+    assert isinstance(builder.last_low, director.EntityRef)
+    assert builder.last_low.entity_fact == CK.bar
+    assert builder.last_low.sub_fact == CK.baz
+    assert isinstance(builder.last_high, director.FlagRef)
+    assert builder.last_high.fact == CK.stuff
+
+    rule_parser.parse_criteria("!$bar.baz", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_fact, director.EntityRef)
+    assert builder.last_fact.entity_fact == CK.bar
+    assert builder.last_fact.sub_fact == CK.baz
+    assert isinstance(builder.last_low, director.IntRef)
+    assert builder.last_low.value == 0
+    assert isinstance(builder.last_high, director.IntRef)
+    assert builder.last_high.value == 0
+
+    rule_parser.parse_criteria("baz", {x.name: x.value for x in CK}, builder)
+    assert isinstance(builder.last_fact, director.FlagRef)
+    assert builder.last_fact.fact == CK.baz
+    assert isinstance(builder.last_low, director.IntRef)
+    assert builder.last_low.value == 1
+    assert isinstance(builder.last_high, director.IntRef)
+    assert builder.last_high.value == 1
 
 def test_parse_eval():
     test_config = """

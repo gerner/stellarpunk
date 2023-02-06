@@ -12,7 +12,7 @@ import enum
 import logging
 import collections
 import numbers
-from typing import Iterable, Any, Sequence, Mapping, Dict, Tuple, Optional, Union, Deque, Callable
+from typing import Iterable, Any, Sequence, Mapping, MutableMapping, Dict, Tuple, Optional, Union, Deque, Callable
 
 from stellarpunk import core, util, dialog, narrative, task_schedule
 
@@ -23,7 +23,7 @@ class AbstractEventManager:
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int,int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any],
     ) -> None:
         pass
 
@@ -32,7 +32,7 @@ class AbstractEventManager:
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int,int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any],
     ) -> None:
         pass
 
@@ -67,7 +67,7 @@ class Action:
         character: core.Character,
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: Mapping[str, Any],
+        event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
         pass
@@ -178,14 +178,14 @@ class EventManager(AbstractEventManager):
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any],
     ) -> None:
         self.event_queue.append((
             narrative.Event(
                 event_type,
                 context,
                 self.gamestate.entity_context_store,
-                kwargs,
+                event_args,
             ),
             [narrative.CharacterCandidate(c.context, c) for c in characters]
         ))
@@ -195,14 +195,14 @@ class EventManager(AbstractEventManager):
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        **kwargs: Any,
+        event_args: MutableMapping[str, Any],
     ) -> None:
         actions_processed = self._do_event(
             narrative.Event(
                 event_type,
                 context,
                 self.gamestate.entity_context_store,
-                kwargs,
+                event_args,
             ),
             [narrative.CharacterCandidate(c.context, c) for c in characters]
         )
