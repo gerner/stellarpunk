@@ -106,6 +106,7 @@ class StationView(interface.View):
         self.enter_mode(self.mode)
 
     def focus(self) -> None:
+        super().focus()
         self.interface.reinitialize_screen(name="Station View")
         self.active=True
 

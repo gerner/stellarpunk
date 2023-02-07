@@ -11,7 +11,7 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core
 
-from .steering import VELOCITY_EPS, ZERO_VECTOR, CYZERO_VECTOR, AbstractSteeringOrder
+from .steering import ANGLE_EPS, VELOCITY_EPS, ZERO_VECTOR, CYZERO_VECTOR, AbstractSteeringOrder
 from stellarpunk.orders import collision
 
 class KillRotationOrder(core.Order):
@@ -61,20 +61,26 @@ class KillVelocityOrder(AbstractSteeringOrder):
     Rotates to opposite direction of current velocity and applies thrust to
     zero out velocity. """
 
+    @staticmethod
+    def in_motion(ship: core.Ship) -> bool:
+        return not ship.angular_velocity <= ANGLE_EPS or not np.allclose(ship.velocity, ZERO_VECTOR)
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
     def is_complete(self) -> bool:
-        return self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, ZERO_VECTOR)
+        return not KillVelocityOrder.in_motion(self.ship)
 
     def act(self, dt: float) -> None:
         period = collision.accelerate_to(
                 self.ship.phys, cymunk.Vec2d(0,0), dt,
                 self.ship.max_speed(), self.ship.max_torque,
                 self.ship.max_thrust, self.ship.max_fine_thrust)
-        #TODO: need a way to keep applying force
         # don't need to wake up again until the acceleration is complete
-        self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
+        if period < math.inf:
+            self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
+        else:
+            assert self.is_complete()
 
 class GoToLocation(AbstractSteeringOrder):
     class NoEmptyArrivalError(Exception):

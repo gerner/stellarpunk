@@ -27,7 +27,7 @@ recipient = "_ref:tutorial_target_player"
 [tutorial_first_contact]
 type = "contact"
 priority = 1
-criteria = ["tutorial_guy", "$contacter.tutorial_skipped", "!$contacter.tutorial_started", "$contacter.tutorial_target_player"]
+criteria = ["tutorial_guy", "!$contacter.tutorial_skipped", "!$contacter.tutorial_started", "$contacter.tutorial_target_player"]
 [[tutorial_first_contact.actions]]
 _action = "dialog"
 dialog_id = "tutorial_first_contact"
@@ -49,7 +49,7 @@ recipient = "_ref:tutorial_target_player"
 [tutorial_mined_enough]
 type = "mined"
 priority = 1
-criteria = ["tutorial_started", "!tutorial_mined", "!tutorial_delivered", "resource = tutorial_resource", "500 <= amount_on_hand"]
+criteria = ["tutorial_started", "!tutorial_mined", "!tutorial_delivered", "resource = tutorial_resource", "tutorial_amount_to_mine <= amount_on_hand"]
 [[tutorial_mined_enough.actions]]
 _action = "inc"
 amount = 1

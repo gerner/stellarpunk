@@ -10,6 +10,7 @@ import numpy.typing as npt
 
 from stellarpunk import util, core, effects, econ
 from stellarpunk.narrative import director
+from . import movement
 
 from .movement import GoToLocation, RotateOrder
 from .steering import ZERO_VECTOR
@@ -26,6 +27,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
     def _begin(self) -> None:
         self.init_eta = (
                 DockingOrder.compute_eta(self.ship, self.target)
+                + 5
                 + self.amount / self.mining_rate
         )
 
@@ -60,11 +62,15 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
             self.ship.prepend_order(order)
             return
 
+        if movement.KillVelocityOrder.in_motion(self.ship):
+            self.ship.prepend_order(movement.KillVelocityOrder(self.ship, self.gamestate, observer=self))
+            return
         if not self.mining_effect:
             assert self.ship.sector is not None
             self.mining_effect = effects.MiningEffect(
                     self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
             self.ship.sector.add_effect(self.mining_effect)
+
         # else wait for the mining effect
 
 class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):

@@ -237,8 +237,9 @@ class EventManager(AbstractEventManager):
 
     def _do_event(self, event: narrative.Event, candidates:Iterable[narrative.CharacterCandidate]) -> int:
         actions_processed = 0
+        self.logger.debug(f'evaluating event {event.event_type} for {list(x.data.short_id() for x in candidates)}')
         for action in self.director.evaluate(event, candidates):
-            self.logger.debug(f'triggered action {action.action_id}')
+            self.logger.debug(f'triggered action {action.action_id} for {action.character_candidate.data.short_id()}')
 
             if "_delay" in action.args:
                 delay = action.args["_delay"]

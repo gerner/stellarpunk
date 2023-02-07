@@ -36,13 +36,13 @@ class ContextKeys(enum.IntEnum):
     AMOUNT = enum.auto()
     AMOUNT_ON_HAND = enum.auto()
     TUTORIAL_GUY = enum.auto()
-    TUTORIAL = enum.auto()
     TUTORIAL_TARGET_PLAYER = enum.auto()
+    TUTORIAL_RESOURCE = enum.auto()
+    TUTORIAL_AMOUNT_TO_MINE = enum.auto()
     TUTORIAL_AMOUNT_TO_TRADE = enum.auto()
     TUTORIAL_STARTED = enum.auto()
     TUTORIAL_SKIPPED = enum.auto()
     TUTORIAL_MINING_ARRIVE = enum.auto()
-    TUTORIAL_RESOURCE = enum.auto()
     TUTORIAL_MINED = enum.auto()
     TUTORIAL_DELIVERED = enum.auto()
     TUTORIAL_ASTEROID = enum.auto()
@@ -182,7 +182,13 @@ class MessageAction(ecore.Action):
     ) -> None:
 
         if "sender" in action_args:
-            sender_id = event_context[action_args["sender"]]
+            sender_key = action_args["sender"]
+            if sender_key in event_context:
+                sender_id = event_context[action_args["sender"]]
+            elif character.context.get_flag(sender_key) > 0:
+                sender_id = character.context.get_flag(sender_key)
+            else:
+                raise ValueError(f'sender key {action_args["sender"]} not found in event or character context')
             sender = self.gamestate.entities_short[sender_id]
             assert isinstance(sender, core.Character)
         else:

@@ -444,6 +444,9 @@ class View(abc.ABC):
     def update_display(self) -> None:
         pass
 
+    def handle_mouse(self, m_id: int, m_x: int, m_y: int, m_z: int, bstate: int) -> bool:
+        return False
+
     def handle_input(self, key:int, dt:float) -> bool:
         key_list = {x.key: x for x in self.key_list()}
         if key in key_list:
@@ -501,9 +504,18 @@ class AbstractInterface(abc.ABC):
     def handle_input(self, key:int, dt:float) -> bool:
         self.status_message()
         v = self.views[-1]
-        if v.handle_input(key, dt):
-            return True
-        return False
+        assert v.has_focus
+        if key == curses.KEY_MOUSE:
+            try:
+                m_tuple = curses.getmouse()
+                m_id, m_x, m_y, m_z, bstate = m_tuple
+                self.logger.debug(f'getmouse: {m_tuple}')
+            except curses.error as e:
+                self.logger.warning(f'error getting mouse {e}')
+                return False
+            return v.handle_mouse(m_id, m_x, m_y, m_z, bstate)
+        else:
+            return v.handle_input(key, dt)
 
     def open_view(self, view:View, deactivate_views:bool=False) -> None:
         self.logger.debug(f'opening view {view}')

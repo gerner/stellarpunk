@@ -81,7 +81,7 @@ def parse_criteria(cri: str, context_keys: Mapping[str, int], builder: director.
         # single ref case
         builder.add_low(director.IntRef(1))
         builder.add_fact(ref)
-        builder.add_high(director.IntRef(1))
+        builder.add_high(director.IntRef(POS_INF))
         builder.build()
         return
 

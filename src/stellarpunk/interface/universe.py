@@ -231,6 +231,23 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
             self.bind_command("target", target, util.tab_completer(map(str, self.gamestate.sectors.keys()))),
         ]
 
+    def handle_mouse(self, m_id: int, m_x: int, m_y: int, m_z: int, bstate: int) -> bool:
+        if not bstate & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+            return False
+
+        sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
+
+        # select a target within a cell of the mouse click
+        bounds = (
+                sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
+                sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
+        )
+        hit = next(self.gamestate.spatial_query(bounds), None)
+        if hit:
+            #TODO: check if the hit is close enough
+            self.selected_sector = self.gamestate.sectors[hit]
+        return True
+
     def key_list(self) -> Collection[interface.KeyBinding]:
         def focus_target() -> None:
             if self.selected_sector is None:
@@ -239,21 +256,6 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
                 self.perspective.cursor = tuple(self.selected_sector.loc)
             else:
                 self.open_sector_view(self.selected_sector)
-
-        def handle_mouse() -> None:
-            m_tuple = curses.getmouse()
-            m_id, m_x, m_y, m_z, bstate = m_tuple
-            sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
-
-            # select a target within a cell of the mouse click
-            bounds = (
-                    sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
-                    sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
-            )
-            hit = next(self.gamestate.spatial_query(bounds), None)
-            if hit:
-                #TODO: check if the hit is close enough
-                self.selected_sector = self.gamestate.sectors[hit]
 
         key_list = [
             self.bind_key(ord('w'), lambda: self.perspective.move_cursor(ord('w'))),
@@ -264,7 +266,6 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
             self.bind_key(ord('\n'), focus_target),
             self.bind_key(ord('\r'), focus_target),
-            self.bind_key(curses.KEY_MOUSE, handle_mouse),
         ]
 
         return key_list

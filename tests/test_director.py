@@ -72,7 +72,7 @@ def test_parse_criteria():
     assert isinstance(builder.last_low, director.IntRef)
     assert builder.last_low.value == 1
     assert isinstance(builder.last_high, director.IntRef)
-    assert builder.last_high.value == 1
+    assert builder.last_high.value == rule_parser.POS_INF
 
     rule_parser.parse_criteria("baz = foo", {x.name: x.value for x in CK}, builder)
     assert isinstance(builder.last_low, director.FlagRef)

@@ -1477,6 +1477,12 @@ class UniverseGenerator:
 
         assert refinery.sector
 
+        asteroid_loc = refinery.loc
+        while not 5e3 < util.distance(asteroid_loc, refinery.loc) < 1e4:
+            asteroid_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
+        assert refinery.resource is not None
+        asteroid = self.spawn_asteroid(refinery.sector, asteroid_loc[0], asteroid_loc[1], resource=self.gamestate.production_chain.inputs_of(refinery.resource)[0], amount=1e5)
+
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
             ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
@@ -1492,11 +1498,19 @@ class UniverseGenerator:
 
         # set up tutorial flags
         assert refinery.captain
-        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), 1)
+        asteroid.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_ASTEROID), asteroid.short_id_int())
+        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_RESOURCE), asteroid.resource)
         player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_MINE), 500)
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_TRADE), 500)
 
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
+        self.logger.info(f'tutorial guy is {refinery.captain.short_id()} in {refinery.captain.location.address_str()} {refinery.captain.name}')
+        self.logger.info(f'refinery is {refinery.address_str()} {refinery.name}')
+        self.logger.info(f'asteroid is {asteroid.address_str()} {asteroid.name}')
 
     def generate_starfields(self) -> None:
         self.logger.info(f'generating universe_starfield...')
