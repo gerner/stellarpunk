@@ -1542,11 +1542,13 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
         # also apply thrust depending on where we're pointed
         force_result = _force_for_delta_velocity(dv, body.m, max_fine_thrust, dt)
     else:
-        torque_result = _torque_for_angle(difference_angle, body.a, body.w, body.i, max_torque, dt)
-
+        # no need to rotate from the current angle
         # we should apply thrust, however we can with the current heading
         # max thrust is main engines if we're pointing in the desired
         # direction, otherwise use fine thrusters
+
+        torque_result = _torque_for_angle(body.a, body.a, body.w, body.i, max_torque, dt)
+
         if fabs(delta_heading) < COARSE_ANGLE_MATCH:
             max_thrust = max_thrust
         else:

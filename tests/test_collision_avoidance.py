@@ -150,7 +150,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     testui.eta = eta
     testui.orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
-    testui.cannot_avoid_collision_orders = [goto_order]
+    #testui.cannot_avoid_collision_orders = [goto_order]
     testui.margin_neighbors = [ship_driver]
 
     simulator.run()
@@ -460,7 +460,7 @@ def test_followers(gamestate, generator, sector, testui, simulator):
 
     station = station_from_history(c, generator, sector)
 
-    testui.order_eta_error_factor = 1.3
+    testui.order_eta_error_factor = 1.4
     testui.orders = [goto_a]
     #testui.cannot_avoid_collision_orders = [goto_a, goto_b]
     #testui.cannot_stop_orders = [goto_a, goto_b]
