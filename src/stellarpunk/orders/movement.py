@@ -63,7 +63,12 @@ class KillVelocityOrder(AbstractSteeringOrder):
 
     @staticmethod
     def in_motion(ship: core.Ship) -> bool:
-        return not ship.angular_velocity <= ANGLE_EPS or not np.allclose(ship.velocity, ZERO_VECTOR)
+        return (
+            ship.angular_velocity != 0. or
+            ship.phys.torque != 0. or
+            not np.allclose(ship.velocity, ZERO_VECTOR) or
+            ship.phys.force != CYZERO_VECTOR
+        )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -80,6 +85,7 @@ class KillVelocityOrder(AbstractSteeringOrder):
         if period < math.inf:
             self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
         else:
+            self.gamestate.schedule_order_immediate(self)
             assert self.is_complete()
 
 class GoToLocation(AbstractSteeringOrder):

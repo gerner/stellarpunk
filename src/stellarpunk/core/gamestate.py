@@ -195,10 +195,10 @@ class Gamestate(EntityRegistry):
         else:
             self.paused = paused
 
-    def pause(self) -> None:
+    def pause(self, paused:Optional[bool]=None) -> None:
         if self.force_pause_holder is not None:
             return
-        self._pause()
+        self._pause(paused)
 
     def force_pause(self, requesting_object:object) -> None:
         if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:

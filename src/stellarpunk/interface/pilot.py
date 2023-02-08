@@ -245,7 +245,6 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         # indicates if the ship should follow its orders, or direct player
         # control
-        self.autopilot_on = False
         self.control_order:Optional[PlayerControlOrder] = None
 
         self.selected_entity:Optional[core.SectorEntity] = None
@@ -322,31 +321,39 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.selected_entity = entity
             self.presenter.selected_target = entity.entity_id
 
-    def _toggle_autopilot(self) -> None:
-        """ Toggles autopilot state.
+    def _clear_control_order(self, order: core.Order) -> None:
+        self.logger.debug("clearing pilot control order")
+        assert order == self.control_order
+        self.control_order = None
 
-        If autopilot is on, we follow normal orders for the ship. Otherwise we
-        suspend the current order queue and follow the user's input directly.
+    def _toggle_player_control(self) -> None:
+        """ Toggles player control state.
+
+        When player control is off, we follow normal orders for the ship.
+        When it's on, we cancel the current order queue and follow the user's
+        input directly.
         """
 
-        if self.autopilot_on:
-            self.logger.info("entering autopilot")
+        if self.control_order is not None:
+            self.logger.info("exiting player control")
 
-            if self.control_order is None:
-                raise ValueError("autopilot on, but no control order while toggling autopilot")
             self.control_order.cancel_order()
-            self.control_order = None
-            self.autopilot_on = False
+            # clearing control_order is handled by the order observer callback
+            assert self.control_order is None
         else:
-            self.logger.info("exiting autopilot")
+            self.logger.info("entering player control")
             self.ship.clear_orders(self.gamestate)
 
-            if self.control_order is not None:
-                raise ValueError("autopilot off, but has control order while toggling autopilot")
-            control_order = PlayerControlOrder(self.ship, self.gamestate)
+            control_order = PlayerControlOrder(
+                self.ship,
+                self.gamestate,
+                observer=LambdaOrderObserver(
+                    complete=self._clear_control_order,
+                    cancel=self._clear_control_order
+                )
+            )
             self.ship.prepend_order(control_order)
             self.control_order = control_order
-            self.autopilot_on = True
 
     def _drive(self, key:int) -> None:
         """ Inputs a direct navigation control for the ship.
@@ -356,10 +363,8 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         action.
         """
 
-        if not self.autopilot_on:
+        if not self.control_order:
             return
-        elif self.control_order is None:
-            raise ValueError("autopilot on, but no control order set")
 
         if key == ord("w"):
             self.control_order.accelerate()
@@ -376,8 +381,8 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self._cancel_mouse()
         elif self.selected_entity is not None:
             self._select_target(None)
-        elif self.autopilot_on:
-            self._toggle_autopilot()
+        elif self.control_order:
+            self._toggle_player_control()
 
     def _cancel_mouse(self) -> None:
             self.mouse_state = MouseState.EMPTY
@@ -401,8 +406,8 @@ class PilotView(interface.View, interface.PerspectiveObserver):
                 self._select_target(hit)
 
         elif self.mouse_state == MouseState.GOTO:
-            if self.autopilot_on:
-                self._toggle_autopilot()
+            if self.control_order:
+                self._toggle_player_control()
 
             self.ship.clear_orders(self.gamestate)
 
@@ -452,7 +457,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.bind_key(curses.ascii.ESC, self._handle_cancel),
             self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
-            self.bind_key(ord("p"), self._toggle_autopilot),
+            self.bind_key(ord("p"), self._toggle_player_control),
             self.bind_key(ord("g"), self._start_goto),
             self.bind_key(ord("t"), lambda: self._next_target(1), help_key="pilot_targt_cycle"),
             self.bind_key(ord("r"), lambda: self._next_target(-1), help_key="pilot_targt_cycle"),
@@ -710,9 +715,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.interface.reinitialize_screen(name="Pilot's Seat")
 
     def terminate(self) -> None:
-        if self.autopilot_on:
-            if self.control_order is None:
-                raise ValueError("autopilot on, but no control order while terminating pilot view")
+        if self.control_order:
             self.control_order.cancel_order()
 
     def focus(self) -> None:

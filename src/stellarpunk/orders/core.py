@@ -60,12 +60,11 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         if distance > self.max_dist:
             order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
             self.ship.prepend_order(order)
-            return
 
-        if movement.KillVelocityOrder.in_motion(self.ship):
+        elif movement.KillVelocityOrder.in_motion(self.ship):
             self.ship.prepend_order(movement.KillVelocityOrder(self.ship, self.gamestate, observer=self))
-            return
-        if not self.mining_effect:
+        elif not self.mining_effect:
+            assert self.ship.phys.torque == 0.
             assert self.ship.sector is not None
             self.mining_effect = effects.MiningEffect(
                     self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
