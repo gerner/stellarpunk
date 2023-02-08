@@ -6,15 +6,16 @@ import time
 import math
 import curses
 import warnings
-from typing import List, Optional, Mapping, Any, Tuple, Deque, TextIO, Set
 import collections
 import heapq
+from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple, Deque, TextIO, Set
 
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events
+from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
 from stellarpunk.interface import manager as interface_manager
+import stellarpunk.events.events
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
@@ -110,43 +111,37 @@ class Simulator(core.AbstractGameRuntime):
         for sector in self.gamestate.sectors.values():
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
 
-    def tick(self, dt: float) -> None:
-        """ Do stuff to update the universe """
-
+    def _tick_space(self, dt: float) -> None:
         # update physics simulations
         # do this for all sectors
         for sector in self.gamestate.sectors.values():
             sector.space.step(dt)
 
-            # keep track of this tick collisions (if any) so we can ignore
-            # collisions that last over several consecutive ticks
-            self._last_colliders = self._colliders
-            self._colliders = set()
+    def _tick_collisions(self, dt:float) -> None:
+        # keep track of this tick collisions (if any) so we can ignore
+        # collisions that last over several consecutive ticks
+        self._last_colliders = self._colliders
+        self._colliders = set()
 
-            if self._collisions:
-                self.gamestate.counters[core.Counters.COLLISIONS] += len(self._collisions)
-                #TODO: use kinetic energy from the collision to cause damage
-                # metals have an impact strength between 0.34e3 and 145e3
-                # joules / meter^2
-                # so an impact of 17M joules spread over an area of 1000 m^2
-                # would be a lot, but not catastrophic
-                # spread over 100m^2 would be
-                # for comparison, a typical briefcase bomb is comparable to
-                # 50 pounds of TNT, which is nearly 100M joules
-                self.gamestate.paused = self.pause_on_collision
-                if self.notify_on_collision:
-                    for entity_a, entity_b, impulse, ke in self._collisions:
-                        self.ui.collision_detected(entity_a, entity_b, impulse, ke)
+        if self._collisions:
+            self.gamestate.counters[core.Counters.COLLISIONS] += len(self._collisions)
+            #TODO: use kinetic energy from the collision to cause damage
+            # metals have an impact strength between 0.34e3 and 145e3
+            # joules / meter^2
+            # so an impact of 17M joules spread over an area of 1000 m^2
+            # would be a lot, but not catastrophic
+            # spread over 100m^2 would be
+            # for comparison, a typical briefcase bomb is comparable to
+            # 50 pounds of TNT, which is nearly 100M joules
+            self.gamestate.paused = self.pause_on_collision
+            if self.notify_on_collision:
+                for entity_a, entity_b, impulse, ke in self._collisions:
+                    self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
-                # keep _collisions clear for next time
-                self._collisions.clear()
+            # keep _collisions clear for next time
+            self._collisions.clear()
 
-        # at this point all physics sim is done for the tick and the gamestate
-        # is up to date across the universe
-
-        # do AI stuff, e.g. let ships take action (but don't actually have the
-        # actions take effect yet!)
-
+    def _tick_orders(self, dt: float) -> None:
         orders_processed = 0
         for order in self.gamestate.pop_current_orders():
             if order == order.ship.current_order():
@@ -177,19 +172,17 @@ class Simulator(core.AbstractGameRuntime):
 
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
+    def _tick_effects(self, dt: float) -> None:
         # process effects
         for effect in self.gamestate.pop_current_effects():
             effect.act(dt)
 
+    def _tick_agenda(self, dt: float) -> None:
         # let characters act on their (scheduled) agenda items
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
 
-        self.event_manager.tick()
-
-        self.gamestate.ticks += 1
-        self.gamestate.timestamp += dt
-
+    def _tick_record(self, dt: float) -> None:
         # record some state about the final state of this tick
         if self.ticks_per_hist_sample > 0:
             for sector in self.gamestate.sectors.values():
@@ -253,6 +246,30 @@ class Simulator(core.AbstractGameRuntime):
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
+    def tick(self, dt: float) -> None:
+        """ Do stuff to update the universe """
+
+        self._tick_space(dt)
+        self._tick_collisions(dt)
+
+        # at this point all physics sim is done for the tick and the gamestate
+        # is up to date across the universe
+
+        # do AI stuff, e.g. let ships take action (but don't actually have the
+        # actions take effect yet!)
+
+        self._tick_orders(dt)
+        self._tick_effects(dt)
+
+        self._tick_agenda(dt)
+
+        self.event_manager.tick()
+
+        self.gamestate.ticks += 1
+        self.gamestate.timestamp += dt
+
+        self._tick_record(dt)
+
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.time_accel_rate, self.fast_mode
 
@@ -263,6 +280,39 @@ class Simulator(core.AbstractGameRuntime):
         self.reference_gametime = self.gamestate.timestamp
         self.time_accel_rate = accel_rate
         self.fast_mode = fast_mode
+
+    def send_message(
+        self,
+        recipient: core.Character,
+        message: core.Message,
+    ) -> None:
+        self.gamestate.trigger_event(
+            [recipient],
+            events.e(events.Events.MESSAGE),
+            {
+                events.ck(events.ContextKeys.MESSAGE_SENDER): message.reply_to.short_id_int(),
+                events.ck(events.ContextKeys.MESSAGE_ID): message.message_id,
+                events.ck(events.ContextKeys.MESSAGE): message.short_id_int(),
+            },
+        )
+
+    def trigger_event(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: Mapping[int, int],
+        event_args: MutableMapping[str, Any] = {},
+    ) -> None:
+        self.event_manager.trigger_event(characters, event_type, context, event_args)
+
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[core.Character],
+        event_type: int,
+        context: Mapping[int, int],
+        event_args: MutableMapping[str, Any] = {},
+    ) -> None:
+        self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)
 
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()
@@ -314,6 +364,12 @@ class Simulator(core.AbstractGameRuntime):
 
         next_tick = time.perf_counter()+self.gamestate.dt
 
+        self.gamestate.trigger_event(
+            self.gamestate.characters.values(),
+            events.e(events.Events.START_GAME),
+            {},
+        )
+
         while self.gamestate.keep_running:
             if self.gamestate.should_raise:
                 raise Exception()
@@ -360,34 +416,31 @@ def main() -> None:
         # turn warnings into exceptions
         warnings.filterwarnings("error")
 
+        # Note: the construction/initialization order here is a little fragile
+        # there are some circular dependencies which we resolve through
+        # interleaving construction and initialization
+
         mgr = context_stack.enter_context(util.PDBManager())
         gamestate = core.Gamestate()
 
         data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=gamestate))
         gamestate.econ_logger = data_logger
 
-        logging.info("generating universe...")
-        generation_start = time.perf_counter()
         generator = generate.UniverseGenerator(gamestate)
-        generator.initialize()
-        stellar_punk = generator.generate_universe()
-        generation_stop = time.perf_counter()
-        logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
-
-        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator))
-
         event_manager = events.EventManager()
-        event_manager.initialize(gamestate)
+        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator, event_manager))
+        generator.initialize()
+
+        # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
+        event_manager.initialize(gamestate, config.Events)
+
+        generator.generate_universe()
+        gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
-
-        #logging.info("running simulation...")
-        #stellar_punk.run()
-
-        stellar_punk.production_chain.viz().render("/tmp/production_chain", format="pdf")
-
         sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
         sim.initialize()
+        ui.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
         # this helps a lot because there's lots of short lived objects during a
@@ -400,6 +453,8 @@ def main() -> None:
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')
 
+        assert all(x == y for x,y in zip(gamestate.entities.values(), gamestate.entities_short.values()))
+        logging.info(f'entities:\t{len(gamestate.entities)}')
         logging.info(f'ticks:\t{gamestate.ticks}')
         logging.info(f'timestamp:\t{gamestate.timestamp}')
         real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()

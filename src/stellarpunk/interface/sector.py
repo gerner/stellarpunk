@@ -359,9 +359,10 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         if self.selected_target:
             self.perspective.cursor = tuple(self.sector.entities[self.selected_target].loc)
 
-    def _handle_mouse(self) -> None:
-        m_tuple = curses.getmouse()
-        m_id, m_x, m_y, m_z, bstate = m_tuple
+    def handle_mouse(self, m_id: int, m_x: int, m_y: int, m_z: int, bstate: int) -> bool:
+        if not bstate & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+            return False
+
         sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
 
         # select a target within a cell of the mouse click
@@ -373,6 +374,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         if hit:
             #TODO: check if the hit is close enough
             self.select_target(hit.entity_id, hit)
+        return True
 
     def _handle_cancel(self) -> None:
         if self.selected_character is not None:
@@ -392,7 +394,6 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.bind_key(ord("r"), lambda: self._change_target(-1)),
             self.bind_key(ord('\n'), self.focus_target),
             self.bind_key(ord('\r'), self.focus_target),
-            self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
             self.bind_key(curses.ascii.ESC, self._handle_cancel),
         ]
 

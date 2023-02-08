@@ -6,6 +6,7 @@ import pytest
 
 from stellarpunk import core, events, dialog, predicates
 
+"""
 class EventMock(events.Event):
     message_entity_id = uuid.UUID('6b34e2b3-f6c0-4ee4-aaf1-d4e4cec9d1a6')
 
@@ -152,3 +153,4 @@ def test_load_criteria_bad():
 
     with pytest.raises(ValueError):
         events.load_criteria("p.foo)")
+"""

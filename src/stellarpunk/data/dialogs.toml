@@ -45,3 +45,25 @@ root_id = "START"
         [[dialog_demo.nodes.choices]]
         text="Give up"
         node_id="A"
+
+[tutorial_first_contact]
+root_id = "START"
+    [[tutorial_first_contact.nodes]]
+    node_id = "START"
+    text = "So you're just starting out, eh? Well it's time to get to work. Do you know what you're doing or do you need some direction?"
+        [[tutorial_first_contact.nodes.choices]]
+        text = "I need some help"
+        node_id = "TUTORIAL"
+        [[tutorial_first_contact.nodes.choices]]
+        text = "I don't need any help"
+        node_id = "SKIP"
+    [[tutorial_first_contact.nodes]]
+    node_id = "TUTORIAL"
+    text = "TBD... sorry :("
+    terminal = true
+    flags = ["tutorial_started"]
+    [[tutorial_first_contact.nodes]]
+    node_id = "SKIP"
+    text = "A real cowboy. Sounds good to me. You know what to do..."
+    terminal = true
+    flags = ["tutorial_skipped"]

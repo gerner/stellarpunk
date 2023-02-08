@@ -3,14 +3,14 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate
+from stellarpunk import core, sim, generate, interface
 from . import MonitoringUI, MonitoringEconDataLogger
 
 @pytest.fixture
 def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
-    gamestate.player = core.Player()
+    gamestate.player = core.Player(gamestate)
     return gamestate
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
     sector_name = "Sector"
 
-    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), sector_name)
+    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name)
     gamestate.sectors[sector.entity_id] = sector
 
     return sector
@@ -49,7 +49,7 @@ def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, shi
 
 @pytest.fixture
 def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(sector, gamestate)
+    return MonitoringUI(sector, gamestate, interface.AbstractMixer())
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:

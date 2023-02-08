@@ -7,7 +7,7 @@ from typing import Any, Tuple
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, econ, util
+from stellarpunk import core, econ, util, events
 
 AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 1.0
@@ -143,10 +143,24 @@ class TradeTransferEffect(TransferCargoEffect):
                 self.buyer, self.seller, self.resource, price, amount,
                 self.floor_price, self.ceiling_price)
 
+
 class MiningEffect(TransferCargoEffect):
     """ Subclass of TransferCargoEffect to get different visuals. """
     #TODO: do we want to log mining somewhere?
-    pass
+    def _deliver(self, amount: float) -> None:
+        super()._deliver(amount)
+        if self.destination.captain is not None:
+            self.gamestate.trigger_event(
+                [self.destination.captain],
+                events.Events.MINED,
+                {
+                    events.ContextKeys.TARGET: self.source.short_id_int(),
+                    events.ContextKeys.RESOURCE: self.resource,
+                    events.ContextKeys.AMOUNT: int(amount),
+                    events.ContextKeys.AMOUNT_ON_HAND: int(self.destination.cargo[self.resource]),
+                },
+            )
+
 
 class WarpOutEffect(core.Effect):
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
@@ -166,7 +180,7 @@ class WarpOutEffect(core.Effect):
         return (ll[0], ll[1], ur[0], ur[1])
 
     def is_complete(self) -> bool:
-        return self.gamestate.timestamp > self.expiration_time
+        return self.gamestate.timestamp >= self.expiration_time
 
 class WarpInEffect(core.Effect):
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
@@ -186,5 +200,5 @@ class WarpInEffect(core.Effect):
         return (ll[0], ll[1], ur[0], ur[1])
 
     def is_complete(self) -> bool:
-        return self.gamestate.timestamp > self.expiration_time
+        return self.gamestate.timestamp >= self.expiration_time
 

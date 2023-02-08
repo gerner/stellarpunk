@@ -1,14 +1,15 @@
 """ Interface Manager gluing together the interface elements """
 
-from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List
 import cProfile
 import pstats
 import curses
 import uuid
 import collections
+import logging
+from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
-from stellarpunk import core, interface, generate, util, config, events
-from stellarpunk.interface import universe, sector, pilot, command_input, character, comms, station
+from stellarpunk import core, interface, generate, util, config, events, narrative
+from stellarpunk.interface import audio, universe, sector, pilot, command_input, character, comms, station, ui_events
 
 
 KEY_DISPLAY = {
@@ -128,27 +129,38 @@ class KeyDemo(interface.View):
 
 
 class InterfaceManager:
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator) -> None:
-        self.interface = interface.Interface(gamestate)
+    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
+        self.mixer = audio.Mixer()
+        self.interface = interface.Interface(gamestate, self.mixer)
         self.gamestate = gamestate
         self.generator = generator
+        self.event_manager = event_manager
 
         self.profiler:Optional[cProfile.Profile] = None
         self.mouse_on = True
 
     def __enter__(self) -> "InterfaceManager":
         self.interface.key_list = {x.key:x for x in self.key_list()}
+        self.mixer.__enter__()
         self.interface.__enter__()
+        self.register_events()
+        return self
 
+    def __exit__(self, *args:Any) -> None:
+        self.interface.__exit__(*args)
+        self.mixer.__exit__(*args)
+
+    def initialize(self) -> None:
         self.interface.initialize()
         assert isinstance(self.gamestate.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
         self.interface.open_view(pilot_view)
 
-        return self
-
-    def __exit__(self, *args:Any) -> None:
-        self.interface.__exit__(*args)
+    def register_events(self) -> None:
+        events.register_action(ui_events.DialogAction(self.interface, self.event_manager))
+        events.register_action(ui_events.PlayerNotification(self.interface))
+        events.register_action(ui_events.PlayerReceiveBroadcast(self.interface))
+        events.register_action(ui_events.PlayerReceiveMessage(self.interface))
 
     def focused_view(self) -> Optional[interface.View]:
         """ Get the topmost view that's not the topmost CommandInput """
@@ -374,7 +386,7 @@ class InterfaceManager:
             message.replied_at = self.interface.gamestate.timestamp
 
             comms_view = comms.CommsView(
-                events.DialogManager(dialog, self.gamestate, self.gamestate.player),
+                events.DialogManager(dialog, self.gamestate, self.event_manager, self.interface.player.character, speaker),
                 speaker,
                 self.interface,
             )

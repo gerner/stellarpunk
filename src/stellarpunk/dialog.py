@@ -4,19 +4,24 @@ from typing import Sequence, Dict, Any, Optional
 
 from stellarpunk import config
 
+
 class DialogChoice:
-    def __init__(self, text:str, node_id:str, event_id:Sequence[str]):
+    def __init__(self, text: str, node_id: str, speaker_flags: Sequence[str], flags: Sequence[str]) -> None:
         self.text = text
         self.node_id = node_id
-        self.event_id = event_id
+        self.speaker_flags = speaker_flags
+        self.flags = flags
+
 
 class DialogNode:
-    def __init__(self, node_id:str, text:str, choices:Sequence[DialogChoice], terminal:bool, event_id:Sequence[str]):
+    def __init__(self, node_id:str, text:str, choices:Sequence[DialogChoice], terminal:bool, speaker_flags: Sequence[str], flags: Sequence[str]) -> None:
         self.node_id = node_id
         self.text = text
         self.choices = choices
         self.terminal = terminal
-        self.event_id = event_id
+        self.speaker_flags = speaker_flags
+        self.flags = flags
+
 
 class DialogGraph:
     def __init__(self, dialog_id:str, root_id:str, nodes:Sequence[DialogNode]):
@@ -24,14 +29,17 @@ class DialogGraph:
         self.root_id = root_id
         self.nodes = {x.node_id:x for x in nodes}
 
+
 def load_dialog_node(dialog_data:Dict[str, Any]) -> DialogNode:
     return DialogNode(
         dialog_data["node_id"],
         dialog_data["text"],
-        [DialogChoice(x["text"], x["node_id"], x.get("event_id", [])) for x in dialog_data.get("choices", [])],
+        [DialogChoice(x["text"], x["node_id"], x.get("speaker_flags", []), x.get("flags", [])) for x in dialog_data.get("choices", [])],
         dialog_data.get("terminal", False),
-        dialog_data.get("event_id", []),
+        dialog_data.get("speaker_flags", []),
+        dialog_data.get("flags", []),
     )
+
 
 def load_dialog(dialog_id:str) -> DialogGraph:
     dialog_data = config.Dialogs[dialog_id]

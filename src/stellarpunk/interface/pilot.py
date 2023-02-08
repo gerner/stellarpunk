@@ -192,6 +192,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         direction is an angle relative to heading
         """
 
+        self.has_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_fine_thrust, self.ship.angle + direction)
 
@@ -282,7 +283,6 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             dock_station = self.selected_entity
 
             def complete_docking(order: core.Order) -> None:
-                self.interface.player.send_notification(f'{self.ship.short_id()}, {dock_station.short_id()}. Our tugs have you. Welcome aboard.')
                 self.open_station_view(dock_station)
 
             order.observe(LambdaOrderObserver(complete=complete_docking))
@@ -382,10 +382,10 @@ class PilotView(interface.View, interface.PerspectiveObserver):
     def _cancel_mouse(self) -> None:
             self.mouse_state = MouseState.EMPTY
 
-    def _handle_mouse(self) -> None:
-        """ Orders trip to go to location via autopilot. """
-        m_tuple = curses.getmouse()
-        m_id, m_x, m_y, m_z, bstate = m_tuple
+    def handle_mouse(self, m_id: int, m_x: int, m_y: int, m_z: int, bstate: int) -> bool:
+        """ Handle mouse input according to MouseState """
+        if not bstate & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
+            return False
 
         sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
         self.logger.debug(f'clicked {(m_x,m_y)} translates to {(sector_x,sector_y)}')
@@ -413,6 +413,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         else:
             raise ValueError(f'unknown mouse state {self.mouse_state}')
+        return True
 
     def _next_target(self, direction:int) -> None:
         """ Selects the next or previous target from a sorted list. """
@@ -449,7 +450,6 @@ class PilotView(interface.View, interface.PerspectiveObserver):
     def key_list(self) -> Collection[interface.KeyBinding]:
         key_list = [
             self.bind_key(curses.ascii.ESC, self._handle_cancel),
-            self.bind_key(curses.KEY_MOUSE, self._handle_mouse),
             self.bind_key(ord("+"), lambda: self.perspective.zoom_cursor(ord("+"))),
             self.bind_key(ord("-"), lambda: self.perspective.zoom_cursor(ord("-"))),
             self.bind_key(ord("p"), self._toggle_autopilot),
@@ -677,7 +677,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         if np.any(self.ship.cargo > 0.):
             label_cargo = "Cargo:"
-            self.viewscreen.addstr(status_y, status_x, f'{label_cargo:>12}')
+            self.viewscreen.addstr(status_y, status_x, f'{label_cargo:>12} (capacity {self.ship.cargo_capacity:.0f})')
             status_y += 1
             for i in range(len(self.ship.cargo)):
                 if self.ship.cargo[i] == 0.:
@@ -687,7 +687,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
                 status_y += 1
         else:
             label_cargo = "No Cargo"
-            self.viewscreen.addstr(status_y, status_x, f'{label_cargo:>12}')
+            self.viewscreen.addstr(status_y, status_x, f'{label_cargo:>12} (capacity {self.ship.cargo_capacity:.0f})')
             status_y += 1
 
 
@@ -716,6 +716,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.control_order.cancel_order()
 
     def focus(self) -> None:
+        super().focus()
         self.interface.reinitialize_screen(name="Pilot's Seat")
         self.active=True
 

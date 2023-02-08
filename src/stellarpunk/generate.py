@@ -2,12 +2,13 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection
 import importlib.resources
 import itertools
 import enum
 import collections
 import heapq
+import time
 
 import numpy as np
 import numpy.typing as npt
@@ -17,7 +18,7 @@ from rtree import index # type: ignore
 import graphviz # type: ignore
 
 #TODO: we should not import interface here. we just do it to get interface.starfield, which could not import interface, but does
-from stellarpunk import util, core, orders, agenda, econ, config, interface
+from stellarpunk import util, core, orders, agenda, econ, config, interface, events
 from stellarpunk.interface import starfield
 
 RESOURCE_REL_SHIP = 0
@@ -429,7 +430,7 @@ class UniverseGenerator:
             body = cymunk.Body(mass, moment)
         return body
 
-    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, obj_flag:core.ObjectFlag, radius:float) -> cymunk.Shape:
+    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
         shape.collision_type = entity.object_type
@@ -492,19 +493,21 @@ class UniverseGenerator:
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
         station = core.Station(
-                self._choose_station_sprite(),
-                np.array((x, y), dtype=np.float64),
-                station_body,
-                self.gamestate.production_chain.shape[0],
-                self._gen_station_name(),
-                entity_id=entity_id,
-                description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit.")
+            self._choose_station_sprite(),
+            np.array((x, y), dtype=np.float64),
+            station_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_station_name(),
+            entity_id=entity_id,
+            description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
+        )
         station.resource = resource
 
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
         assert station.cargo.sum() <= station.cargo_capacity
 
-        self._phys_shape(station_body, station, core.ObjectFlag.STATION, station_radius)
+        self._phys_shape(station_body, station, station_radius)
 
         sector.add_entity(station)
 
@@ -515,10 +518,17 @@ class UniverseGenerator:
 
         #TODO: stations are static?
         planet_body = self._phys_body()
-        planet = core.Planet(np.array((x, y), dtype=np.float64), planet_body, self.gamestate.production_chain.shape[0], self._gen_planet_name(), entity_id=entity_id)
+        planet = core.Planet(
+            np.array((x, y), dtype=np.float64),
+            planet_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_planet_name(),
+            entity_id=entity_id
+        )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
-        self._phys_shape(planet_body, planet, core.ObjectFlag.PLANET, planet_radius)
+        self._phys_shape(planet_body, planet, planet_radius)
 
         sector.add_entity(planet)
 
@@ -533,9 +543,16 @@ class UniverseGenerator:
         max_torque = config.Settings.generate.SectorEntities.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
-        ship = core.Ship(np.array((ship_x, ship_y), dtype=np.float64), ship_body, self.gamestate.production_chain.shape[0], self._gen_ship_name(), entity_id=entity_id)
+        ship = core.Ship(
+            np.array((ship_x, ship_y), dtype=np.float64),
+            ship_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_ship_name(),
+            entity_id=entity_id
+        )
 
-        self._phys_shape(ship_body, ship, core.ObjectFlag.SHIP, ship_radius)
+        self._phys_shape(ship_body, ship, ship_radius)
 
         ship.mass = ship_mass
         ship.moment = ship_body.moment
@@ -587,9 +604,18 @@ class UniverseGenerator:
         x,y = util.polar_to_cartesian(r, theta)
 
         body = self._phys_body()
-        gate = core.TravelGate(destination, direction, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_gate_name(destination), entity_id=entity_id)
+        gate = core.TravelGate(
+            destination,
+            direction,
+            np.array((x,y), dtype=np.float64),
+            body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_gate_name(destination),
+            entity_id=entity_id
+        )
 
-        self._phys_shape(body, gate, core.ObjectFlag.GATE, gate_radius)
+        self._phys_shape(body, gate, gate_radius)
 
         sector.add_entity(gate)
 
@@ -601,9 +627,18 @@ class UniverseGenerator:
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         body = self._phys_body()
-        asteroid = core.Asteroid(resource, amount, np.array((x,y), dtype=np.float64), body, self.gamestate.production_chain.shape[0], self._gen_asteroid_name(), entity_id=entity_id)
+        asteroid = core.Asteroid(
+            resource,
+            amount,
+            np.array((x,y), dtype=np.float64),
+            body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_asteroid_name(),
+            entity_id=entity_id
+        )
 
-        self._phys_shape(body, asteroid, core.ObjectFlag.ASTEROID, asteroid_radius)
+        self._phys_shape(body, asteroid, asteroid_radius)
 
         sector.add_entity(asteroid)
 
@@ -644,18 +679,62 @@ class UniverseGenerator:
         return asteroids
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
-        character = core.Character(self._choose_portrait(), location, name=self._gen_character_name())
+        character = core.Character(
+            self._choose_portrait(),
+            location,
+            self.gamestate,
+            name=self._gen_character_name()
+        )
         character.balance = balance
         self.gamestate.add_character(character)
         return character
 
     def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
         player_character = self.spawn_character(location, balance=balance)
-        player = core.Player()
+        player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
+        player = core.Player(self.gamestate)
         player.character = player_character
-        player.agent = econ.PlayerAgent(player)
+        player.agent = econ.PlayerAgent(player, self.gamestate)
 
         return player
+
+    def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
+        if isinstance(asset, core.Ship):
+            if asset in mining_ships:
+                character.add_agendum(agenda.MiningAgendum(
+                    ship=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
+            elif asset in trading_ships:
+                character.add_agendum(agenda.TradingAgendum(
+                    ship=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
+                character.balance += 5e3
+            else:
+                raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
+        elif isinstance(asset, core.Station):
+            character.add_agendum(agenda.StationManager(
+                station=asset,
+                character=character,
+                gamestate=self.gamestate
+            ))
+            # give enough money to buy several batches worth of goods
+            resource_price:float = self.gamestate.production_chain.prices[asset.resource] # type: ignore
+            batch_size:float = self.gamestate.production_chain.batch_sizes[asset.resource] # type: ignore
+            character.balance += resource_price * batch_size * 5
+        elif isinstance(asset, core.Planet):
+            character.add_agendum(agenda.PlanetManager(
+                planet=asset,
+                character=character,
+                gamestate=self.gamestate
+            ))
+            # give enough money to buy some of all the final goods
+            character.balance += self.gamestate.production_chain.prices[-self.gamestate.production_chain.ranks[-1]:].max() * 5
+        else:
+            raise ValueError(f'got an asset of unknown type {asset}')
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
         pchain = self.gamestate.production_chain
@@ -667,7 +746,14 @@ class UniverseGenerator:
         for i in range(1, len(slices)-1):
             raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
 
-        sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+        sector = core.Sector(
+            np.array([x, y]),
+            radius,
+            cymunk.Space(),
+            self.gamestate,
+            self._gen_sector_name(),
+            entity_id=entity_id
+        )
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
         # habitable planet
         # plenty of resources
@@ -805,26 +891,14 @@ class UniverseGenerator:
 
             for asset in map(lambda j: assets[j], owned_asset_ids):
                 character.take_ownership(asset)
-                if isinstance(asset, core.Ship):
-                    if asset in mining_ships:
-                        character.add_agendum(agenda.MiningAgendum(ship=asset, character=character, gamestate=self.gamestate))
-                    elif asset in trading_ships:
-                        character.add_agendum(agenda.TradingAgendum(ship=asset, character=character, gamestate=self.gamestate))
-                        character.balance += 5e3
-                    else:
-                        raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
-                elif isinstance(asset, core.Station):
-                    character.add_agendum(agenda.StationManager(station=asset, character=character, gamestate=self.gamestate))
-                    # give enough money to buy several batches worth of goods
-                    resource_price:float = self.gamestate.production_chain.prices[asset.resource] # type: ignore
-                    batch_size:float = self.gamestate.production_chain.batch_sizes[asset.resource] # type: ignore
-                    character.balance += resource_price * batch_size * 5
-                elif isinstance(asset, core.Planet):
-                    character.add_agendum(agenda.PlanetManager(planet=asset, character=character, gamestate=self.gamestate))
-                    # give enough money to buy some of all the final goods
-                    character.balance += self.gamestate.production_chain.prices[-self.gamestate.production_chain.ranks[-1]:].max() * 5
+                if character.location == asset:
+                    captain = character
                 else:
-                    raise ValueError(f'got an asset of unknown type {asset}')
+                    captain = self.spawn_character(asset)
+                self.setup_captain(captain, asset, mining_ships, trading_ships)
+
+        for asset in assets:
+            assert asset.captain.location == asset
 
         self.gamestate.add_sector(sector, sector_idx)
 
@@ -1289,7 +1363,14 @@ class UniverseGenerator:
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
-            sector = core.Sector(np.array([x, y]), radius, cymunk.Space(), self._gen_sector_name(), entity_id=entity_id)
+            sector = core.Sector(
+                np.array([x, y]),
+                radius,
+                cymunk.Space(),
+                self.gamestate,
+                self._gen_sector_name(),
+                entity_id=entity_id
+            )
 
             # mypy thinks idx is an int
             self.gamestate.add_sector(sector, idx[0]) # type: ignore
@@ -1396,6 +1477,12 @@ class UniverseGenerator:
 
         assert refinery.sector
 
+        asteroid_loc = refinery.loc
+        while not 5e3 < util.distance(asteroid_loc, refinery.loc) < 1e4:
+            asteroid_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
+        assert refinery.resource is not None
+        asteroid = self.spawn_asteroid(refinery.sector, asteroid_loc[0], asteroid_loc[1], resource=self.gamestate.production_chain.inputs_of(refinery.resource)[0], amount=1e5)
+
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
             ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
@@ -1405,9 +1492,25 @@ class UniverseGenerator:
         player_character = self.gamestate.player.character
 
         self.gamestate.player.character = player_character
-        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player)
+        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
+
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate))
+
+        # set up tutorial flags
+        assert refinery.captain
+        asteroid.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_ASTEROID), asteroid.short_id_int())
+        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
+        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_RESOURCE), asteroid.resource)
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_MINE), 500)
+        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_TRADE), 500)
 
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
+        self.logger.info(f'tutorial guy is {refinery.captain.short_id()} in {refinery.captain.location.address_str()} {refinery.captain.name}')
+        self.logger.info(f'refinery is {refinery.address_str()} {refinery.name}')
+        self.logger.info(f'asteroid is {asteroid.address_str()} {asteroid.name}')
 
     def generate_starfields(self) -> None:
         self.logger.info(f'generating universe_starfield...')
@@ -1434,6 +1537,8 @@ class UniverseGenerator:
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
     def generate_universe(self) -> core.Gamestate:
+        self.logger.info(f'generating a universe...')
+        generation_start = time.perf_counter()
         self.gamestate.random = self.r
 
         # generate a production chain
@@ -1456,6 +1561,17 @@ class UniverseGenerator:
 
         # generate pretty starfields for the background
         self.generate_starfields()
+
+        self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
+        self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
+        self.logger.info(f'characters: {len(self.gamestate.characters)}')
+        self.logger.info(f'econ_agents: {len(self.gamestate.econ_agents)}')
+        self.logger.info(f'entities: {len(self.gamestate.entities)}')
+
+        assert all(x == y for x,y in zip(self.gamestate.entities.values(), self.gamestate.entities_short.values()))
+
+        generation_stop = time.perf_counter()
+        logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
 
         return self.gamestate
 

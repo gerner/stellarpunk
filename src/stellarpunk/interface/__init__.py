@@ -20,6 +20,7 @@ import uuid
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
+import numpy.typing as npt
 
 from stellarpunk import util, core, config
 
@@ -443,6 +444,9 @@ class View(abc.ABC):
     def update_display(self) -> None:
         pass
 
+    def handle_mouse(self, m_id: int, m_x: int, m_y: int, m_z: int, bstate: int) -> bool:
+        return False
+
     def handle_input(self, key:int, dt:float) -> bool:
         key_list = {x.key: x for x in self.key_list()}
         if key in key_list:
@@ -457,10 +461,22 @@ class View(abc.ABC):
     def key_list(self) -> Collection[KeyBinding]:
         return []
 
+class AbstractMixer:
+    @property
+    def sample_rate(self) -> int:
+        return 44100
+
+    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None) -> None:
+        """ Plays an audio sample encoded in an np array of floats from -1 to 1
+
+        We assume the sample is at our sampel rate. """
+        pass
+
 class AbstractInterface(abc.ABC):
-    def __init__(self, gamestate:core.Gamestate) -> None:
+    def __init__(self, gamestate:core.Gamestate, mixer: AbstractMixer) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
+        self.mixer = mixer
         self.views:List[View] = []
 
     def decrease_fps(self) -> bool:
@@ -488,9 +504,18 @@ class AbstractInterface(abc.ABC):
     def handle_input(self, key:int, dt:float) -> bool:
         self.status_message()
         v = self.views[-1]
-        if v.handle_input(key, dt):
-            return True
-        return False
+        assert v.has_focus
+        if key == curses.KEY_MOUSE:
+            try:
+                m_tuple = curses.getmouse()
+                m_id, m_x, m_y, m_z, bstate = m_tuple
+                self.logger.debug(f'getmouse: {m_tuple}')
+            except curses.error as e:
+                self.logger.warning(f'error getting mouse {e}')
+                return False
+            return v.handle_mouse(m_id, m_x, m_y, m_z, bstate)
+        else:
+            return v.handle_input(key, dt)
 
     def open_view(self, view:View, deactivate_views:bool=False) -> None:
         self.logger.debug(f'opening view {view}')
@@ -568,7 +593,7 @@ class FPSCounter:
     def fps(self) -> float:
         return self.current_fps
 
-class Interface(AbstractInterface, core.PlayerObserver):
+class Interface(AbstractInterface):
     def __init__(self, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
         self.stdscr:curses.window = None # type: ignore[assignment]
@@ -641,6 +666,7 @@ class Interface(AbstractInterface, core.PlayerObserver):
         so that it can be cleaned up properly in __exit__. """
 
         self.logger.info("starting the inferface")
+
         self.stdscr = curses.initscr()
 
         curses.noecho()
@@ -684,9 +710,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
 
     def notification_received(self, player:core.Player, notification:str) -> None:
         self.log_message(notification)
-
-    def message_received(self, player:core.Player, message:core.Message) -> None:
-        self.log_message(f'Message {message.short_id()} received at {self.gamestate.timestamp_to_datetime(message.timestamp).strftime("%c")}:\n  {message.message}')
 
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
@@ -830,8 +853,6 @@ class Interface(AbstractInterface, core.PlayerObserver):
         curses.curs_set(0)
 
         self.reinitialize_screen()
-
-        self.gamestate.player.observe(self)
 
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:

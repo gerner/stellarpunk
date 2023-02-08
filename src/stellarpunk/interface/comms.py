@@ -124,7 +124,12 @@ class CommsView(interface.View):
         self.response_width = 64
         self.response_indent = dpw - self.response_width
 
+        self.interface.log_message(f'connection established with {self.speaker.short_id()}')
+
         self.handle_dialog_node(self.dialog_manager.node)
+
+    def terminate(self) -> None:
+        self.interface.log_message("connection closed.")
 
     def handle_dialog_node(self, node:dialog.DialogNode) -> None:
         self.dialog_manager.do_node()

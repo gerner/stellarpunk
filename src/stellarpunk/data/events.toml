@@ -1,12 +1,143 @@
 # Events
 
-[event.start_game_help]
-criteria="!p.start_game_help & CMP(NOW > 1)"
-notification="press \"?\" or type \":\" then \"help\" and <ENTER> for help.\ntype \":\" then \"quit\" and <ENTER> to quit."
+[help_start]
+type = "start_game"
+priority = 0
+criteria = ["is_player"]
+[[help_start.actions]]
+_action = "player_notification"
+message = "press \"?\" for help\ntype \":\" followed by \"help\" and press <ENTER> for more help"
 
-[contact.contact_demo]
-criteria="p.event_demo"
-notification="awesome sauce"
+# Tutorial Chain
+
+# message on game start
+[tutorial]
+type = "start_game"
+priority = 0
+criteria = ["tutorial_guy"]
+[[tutorial.actions]]
+_action = "message"
+_delay = 0.5
+message_id = 0
+subject = "Let's get to work"
+message = "is this thing on?"
+recipient = "_ref:tutorial_target_player"
+
+# talking to tutorial guy for the first time
+[tutorial_first_contact]
+type = "contact"
+priority = 1
+criteria = ["tutorial_guy", "!$contacter.tutorial_skipped", "!$contacter.tutorial_started", "$contacter.tutorial_target_player"]
+[[tutorial_first_contact.actions]]
+_action = "dialog"
+dialog_id = "tutorial_first_contact"
+
+# player arrives at target asteroid
+[tutorial_mining_arrive]
+type = "docked"
+priority = 1
+criteria = ["tutorial_started", "$target.tutorial_asteroid", "!tutorial_mining_arrive"]
+[[tutorial_mining_arrive.actions]]
+_action = "message"
+message_id = 0
+subject = "Time to get mining"
+message = "TBD"
+sender = "_ref:tutorial_guy"
+recipient = "_ref:tutorial_target_player"
+
+# player mined enough of the target resource
+[tutorial_mined_enough]
+type = "mined"
+priority = 1
+criteria = ["tutorial_started", "!tutorial_mined", "!tutorial_delivered", "resource = tutorial_resource", "tutorial_amount_to_mine <= amount_on_hand"]
+[[tutorial_mined_enough.actions]]
+_action = "inc"
+amount = 1
+flag = "_ref:tutorial_mined"
+[[tutorial_mined_enough.actions]]
+_action = "message"
+message_id = 0
+subject = "Head on back"
+message = "That's enough. Head on back to the station."
+sender = "_ref:tutorial_guy"
+recipient = "_ref:tutorial_target_player"
+
+# player traded target resource and it's enough
+# check this first
+[tutorial_traded_resource]
+type = "sold"
+priority = 2
+criteria = ["tutorial_started", "!tutorial_delivered", "resource = tutorial_resource", "tutorial_amount_to_trade <= amount"]
+[[tutorial_traded_resource.actions]]
+_action = "inc"
+amount = 1
+flag = "_ref:tutorial_delivered"
+[[tutorial_traded_resource.actions]]
+_action = "dec"
+amount_ref = "_ref:amount"
+flag = "_ref:tutorial_amount_to_trade"
+[[tutorial_traded_resource.actions]]
+_action = "message"
+message_id = 0
+subject = "All done"
+message = "Great work, seems like you know what you're doing. TBD"
+sender = "_ref:tutorial_guy"
+recipient = "_ref:tutorial_target_player"
+
+# player traded target resource and it's not enough
+# keep track of total amount traded
+[tutorial_traded_resource_not_enough]
+type = "sold"
+priority = 1
+criteria = ["tutorial_started", "!tutorial_delivered", "resource = tutorial_resource"]
+[[tutorial_traded_resource_not_enough.actions]]
+_action = "dec"
+amount_ref = "_ref:amount"
+flag = "_ref:tutorial_amount_to_trade"
+
+# Player event handlers
+
+[player_receive_broadcast]
+type = "broadcast"
+priority = 0
+criteria = ["is_player"]
+[[player_receive_broadcast.actions]]
+_action = "player_receive_broadcast"
+
+[player_receive_message]
+type = "message"
+priority = 0
+criteria = ["is_player"]
+[[player_receive_message.actions]]
+_action = "player_receive_message"
+
+#[player_open_dialog]
+#type = "dialog"
+#priority = 0
+#criteria ["is_player"]
+#[[player_open_dialog.actions]]
+#_action = "player_open_dialog"
+
+#[start_game_help]
+#type = "start_game"
+#criteria = ["is_player", "5 <= stuff <= 10", "4 <= $foo.bar <= 15", "$bar.baz = 21"]
+#[[start_game_help.actions]]
+#_action = "broadcast"
+#message = "what up gang?"
+#delay = 500
+#[[start_game_help.actions]]
+#_action = "message"
+#message = "{recipient} how ya doin?"
+#recipient = "PLAYER"
+#sender = "CHARACTER"
+
+#[event.start_game_help]
+#criteria="!p.start_game_help & CMP(NOW > 1)"
+#notification="press \"?\" or type \":\" then \"help\" and <ENTER> for help.\ntype \":\" then \"quit\" and <ENTER> to quit."
+
+#[contact.contact_demo]
+#criteria="p.event_demo"
+#notification="awesome sauce"
 
 #[event.tutorial_chain_intro]
 #criteria="!p.tutorial_chain_intro & CMP(NOW > 1)"

@@ -16,7 +16,7 @@ import cymunk # type: ignore
 from stellarpunk import util, core
 from stellarpunk.orders import collision
 
-ANGLE_EPS = 5e-2 # about 3 degrees #2e-3 # about .06 degrees
+ANGLE_EPS = 8e-2 # about 3 degrees #2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1
 VELOCITY_EPS = 5e-1
 COARSE_VELOCITY_MATCH = 2e0
