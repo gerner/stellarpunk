@@ -1,11 +1,14 @@
 ## Use-Case: NPCs doing Quests
 
-Consider the tutorial event chain:
-
- * player gets a message from tutorial guy to come see him -> dialog -> start
+ * Tutorial event chain:
+   * player gets a message from tutorial guy to come see him -> dialog -> start
    (or skip) the tutorial.
- * player goes to gather resources
- * player trades resources at the tutorial station
+   * player goes to gather resources
+   * player trades resources at the tutorial station
+ * Take passenger from one station to another
+   * simple case: just get them there
+   * complex case: something happens on the way, need to do some other goal
+ * Build a station in a sector
 
 What if we want any NPC to do this event chain? We could put some goals to that
 NPC to accomplish the relevant tasks in the chain: go see the tutorial guy,
