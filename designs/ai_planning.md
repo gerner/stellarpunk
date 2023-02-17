@@ -1,4 +1,6 @@
-## Use-Case: NPCs doing Quests
+# Use-Case: NPCs doing Quests
+
+## Sample Quests
 
  * Tutorial event chain:
    * player gets a message from tutorial guy to come see him -> dialog -> start
@@ -9,6 +11,9 @@
    * simple case: just get them there
    * complex case: something happens on the way, need to do some other goal
  * Build a station in a sector
+ * Deliver goods to a station
+
+## Tutorial Quest
 
 What if we want any NPC to do this event chain? We could put some goals to that
 NPC to accomplish the relevant tasks in the chain: go see the tutorial guy,
@@ -45,13 +50,13 @@ If we can express our goals like so:
 
 * Goal: Talk to tutorial guy
   * parameters: `who=$tutorial_guy`
-  * desire: `talk.character=$who`
+  * goal: `talk.character=$who`
 * Goal: Gather tutorial amount of tutorial resource
   * parameters: `resource=$resource, amount=$amount`
-  * desire: `cargo.$resource=$amount`
+  * goal: `cargo.$resource=$amount`
 * Goal: Trade tutorial amount of tutorial reosource with tutorial station
   * parameters: `where=$where, amount=$amount, resource=$resource`
-  * desire: `trade.amount=$amount, trade.resource=$resource, trade.location=$where`
+  * goal: `trade.amount=$amount, trade.resource=$resource, trade.location=$where`
 
 For each of those goals we should be able to assemble a sequence of actions
 that accomplishes the desired goal using a technique like Goal Oriented Action

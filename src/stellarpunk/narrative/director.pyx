@@ -6,8 +6,8 @@ from typing import Tuple, Mapping, Dict, Any, Iterable, List
 from libc.stdint cimport uint64_t
 from libcpp cimport bool
 from libcpp.unordered_map  cimport unordered_map
-from libcpp.vector  cimport vector
-from libcpp.memory  cimport unique_ptr, make_unique
+from libcpp.vector cimport vector
+from libcpp.memory cimport unique_ptr, make_unique
 from libcpp.utility cimport move
 from cpython.ref cimport PyObject
 from cython.operator cimport dereference, preincrement

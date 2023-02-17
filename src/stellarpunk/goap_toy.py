@@ -371,7 +371,7 @@ class GatherWood(ActionFactory):
             # goal didn't care about wood, no change
             pass
 
-        return Action("gather wood", amount_to_gather*10.), Goal(new_bounds)
+        return Action(f'gather_wood({amount_to_gather})', amount_to_gather*10.), Goal(new_bounds)
 
 class SellAxe(ActionFactory):
     def compatible(self, goal:Goal) -> bool:
@@ -424,13 +424,13 @@ class GoTo(ActionFactory):
 action_factories:List[ActionFactory] = [
     BuyAxe(),
     SellWood(sell_fraction=1.0),
-    SellWood(sell_fraction=0.5),
+    #SellWood(sell_fraction=0.5),
     SellWood(sell_one=True),
     ChopWood(chop_fraction=1.0),
-    ChopWood(chop_fraction=0.5),
+    #ChopWood(chop_fraction=0.5),
     ChopWood(chop_one=True),
     GatherWood(gather_fraction=1.0),
-    GatherWood(gather_fraction=0.5),
+    #GatherWood(gather_fraction=0.5),
     GatherWood(gather_one=True),
     SellAxe(),
     GoTo(),
@@ -525,6 +525,36 @@ COUNTERS = [0] * len(CKeys)
 
 
 def astar(goal_state: Goal, initial_state: State) -> Sequence[Tuple[Goal, Action]]:
+
+    # critical data and operations:
+    # State start
+    # TBD final_destination
+    # State:
+    #  * equivalence
+    # Node: (aka Goal here)
+    #  * State state
+    #  * path_cost g-score (transient)
+    #  * path_cost f-score (transient)
+    #  * Node parent (transient)
+    # open_set:
+    #  * store nodes
+    #  * check for State membership
+    #  * add element
+    #  * remove arbitrary element
+    #  * pop cheapest Node
+    # closed_set:
+    #  * store nodes
+    #  * check for State membership
+    #  * add element
+    #  * remove arbitrary element
+    # heuristic_cost(node, final_destination) -> path_cost
+    #  * estimate of path cost from node to final_destination
+    # is_satisified(State) -> bool
+    #  * checks if the current node is at the final_destination
+    # State.get_neighbors() -> collection of (Edge, State)
+    #  * gets _potential_ nodes with valid transitions to current
+    # Edge.cost() -> path_cost: gets the cost of traversing this edge
+
     open_set = GoalQueue()
     goal_state.goal_value = 0
     goal_state.fitness_value = heuristic_cost(goal_state, initial_state)
@@ -592,7 +622,7 @@ if __name__ == "__main__":
 
         goal = Goal({
             ContextKeys.money: Bound(ContextKeys.money, 50, POS_INF),
-            ContextKeys.have_axe: Bound(ContextKeys.have_axe, 1, POS_INF),
+            #ContextKeys.have_axe: Bound(ContextKeys.have_axe, 1, POS_INF),
             #ContextKeys.forest: Bound(ContextKeys.forest, ZERO, 50),
         })
         initial_state = State({
