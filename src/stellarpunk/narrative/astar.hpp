@@ -1,8 +1,15 @@
+#ifndef NARRATIVE_ASTAR_H
+#define NARRATIVE_ASTAR_H
+
 #include <set>
 #include <map>
 #include <limits>
 #include <string>
+#include <memory>
 #include <stdio.h>
+
+namespace stellarpunk {
+namespace narrative {
 
 template <class State, class Edge>
 struct AStarNode {
@@ -59,8 +66,8 @@ class AStar {
 
             while(!open_set.empty()) {
                 // move the cheapest element from open_set to the closed_set
-                const AStarNode<State, Edge>* current = &(*closed_set.insert(open_set.extract(open_set.begin())).position);
-                printf("considering node %s with g_score: %f f_score: %f\n", current->state->to_string().c_str(), current->g_score, current->f_score);
+                const AStarNode<State, Edge>* current = &*closed_set.insert(open_set.extract(open_set.begin())).position;
+                //printf("considering node %s with g_score: %f f_score: %f\n", to_string(*current->state).c_str(), current->g_score, current->f_score);
                 // move from open map to closed map
                 open_map.erase(current->state.get());
                 closed_map[current->state.get()] = current;
@@ -97,30 +104,34 @@ class AStar {
                     // if we've already seen this state (and we know this new
                     // one is better) we'll dump the old and take the new one
                     if(closed_itr != closed_set.end()) {
-                        closed_set.erase(closed_itr);
                         closed_map.erase(neighbor_ptr->state.get());
+                        closed_set.erase(closed_itr);
                     } else if(open_itr != open_set.end()) {
-                        open_set.erase(open_itr);
                         open_map.erase(neighbor_ptr->state.get());
+                        open_set.erase(open_itr);
                     }
 
                     // make a new AStarNode for this neighboring state
                     State* neighbor_state = neighbor.second.get();
-                    neighbor_ptr = &(*open_set.emplace(
+                    neighbor_ptr = &*open_set.emplace(
                         std::move(neighbor.second),
                         tentative_g_score,
                         tentative_g_score + map->heuristic_cost(neighbor_state),
                         std::make_pair(std::move(neighbor.first), current)
-                    ).first);
+                    ).first;
                     open_map[neighbor_ptr->state.get()] = neighbor_ptr;
                 }
             }
             return NULL;
         }
 
-    protected:
         std::set<AStarNode<State, Edge> > open_set;
         std::map<State*, const AStarNode<State, Edge>*, ptr_less<State> > open_map;
         std::set<AStarNode<State, Edge> > closed_set;
         std::map<State*, const AStarNode<State, Edge>*, ptr_less<State> > closed_map;
 };
+
+} // namespace narrative
+} // namespace stellarpunk
+
+#endif /* NARRATIVE_ASTAR_H */
