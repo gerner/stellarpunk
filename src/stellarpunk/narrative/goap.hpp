@@ -8,6 +8,7 @@
 #include <sstream>
 #include <array>
 #include <cassert>
+#include <functional>
 
 #include "director.hpp"
 
@@ -22,7 +23,6 @@ std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>> clone_criteria(const cCri
 const std::uint64_t k_POS_INF = std::numeric_limits<std::uint64_t>::max();
 
 struct Goal {
-    //std::unordered_map<std::uint64_t, std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>>> criteria_;
     std::array<std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>>, 6> criteria_;
 
     Goal() {}
@@ -41,7 +41,6 @@ struct Goal {
             if(!c) {
                 continue;
             }
-            //if(!c.second->evaluate(state, character_context)) {
             if(!c->evaluate(state, character_context)) {
                 //printf("failed criteria %lu\n", c.fact.fact);
                 return false;
@@ -72,15 +71,11 @@ struct Goal {
                 distance += (float)d;
             }
         }
-
-        //printf("passed all criteria\n");
         return distance;
     }
 
     std::uint64_t low(std::uint64_t fact) const {
-        //if(criteria_.count(fact) > 0) {
         if(criteria_[fact]) {
-            //return criteria_.find(fact)->second->low.value;
             return criteria_[fact]->low.value;
         } else {
             return 0;
@@ -88,9 +83,7 @@ struct Goal {
     }
 
     std::uint64_t high(std::uint64_t fact) const {
-        //if(criteria_.count(fact) > 0) {
         if(criteria_[fact]) {
-            //return criteria_.find(fact)->second->high.value;
             return criteria_[fact]->high.value;
         } else {
             return k_POS_INF;
@@ -98,17 +91,13 @@ struct Goal {
     }
 
     void remove(std::uint64_t fact) {
-        /*if(criteria_.count(fact) > 0) {
-            criteria_.erase(fact);
-        }*/
         if(criteria_[fact]) {
             criteria_[fact].reset(nullptr);
         }
     }
 
     void exactly(std::uint64_t fact, std::uint64_t amount) {
-        //if(criteria_.count(fact) > 0) {
-        if(criteria_[fact] > 0) {
+        if(criteria_[fact]) {
             criteria_[fact]->low.value = amount;
             criteria_[fact]->high.value = amount;
         } else {
@@ -117,7 +106,6 @@ struct Goal {
     }
 
     void at_least(std::uint64_t fact, std::uint64_t amount) {
-        //if(criteria_.count(fact) > 0) {
         if(criteria_[fact]) {
             if(criteria_[fact]->low.value < amount) {
                 criteria_[fact]->low.value = amount;
@@ -131,7 +119,6 @@ struct Goal {
     }
 
     void inc(std::uint64_t fact, std::uint64_t amount) {
-        //if(criteria_.count(fact) > 0) {
         if(criteria_[fact]) {
             criteria_[fact]->low.value += amount;
             if(criteria_[fact]->high.value == k_POS_INF) {
@@ -148,14 +135,12 @@ struct Goal {
     }
 
     void dec(std::uint64_t fact, std::uint64_t amount) {
-        //if(criteria_.count(fact) > 0) {
         if(criteria_[fact]) {
             if(criteria_[fact]->low.value > amount) {
                 criteria_[fact]->low.value -= amount;
             } else if(criteria_[fact]->high.value < k_POS_INF) {
                 criteria_[fact]->low.value = 0;
             } else {
-                //criteria_.erase(fact);
                 criteria_[fact].reset(nullptr);
                 return;
             }
@@ -173,11 +158,6 @@ struct Goal {
     }
 
     std::unique_ptr<Goal> clone() const {
-
-        /*std::vector<std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>>> cri_copy;
-        for(auto& cri : criteria_) {
-            cri_copy.emplace_back(clone_criteria(*cri.second));
-        }*/
         std::unique_ptr<Goal> goal = std::make_unique<Goal>();
         for(const auto& c : criteria_) {
             if(c) {
@@ -189,33 +169,6 @@ struct Goal {
     }
 
     friend bool operator<(const Goal& lhs, const Goal& rhs) {
-        /*auto l_it = lhs.criteria_.begin();
-        auto r_it = rhs.criteria_.begin();
-        while(l_it != lhs.criteria_.end() && r_it != rhs.criteria_.end()) {
-            if(l_it->first == r_it->first) {
-                if(l_it->second->low.value < r_it->second->low.value) {
-                    return true;
-                } else if(l_it->second->low.value > r_it->second->low.value) {
-                    return false;
-                } else if(l_it->second->high.value < r_it->second->high.value) {
-                    return true;
-                } else if(l_it->second->high.value > r_it->second->high.value) {
-                    return false;
-                } else {
-                    l_it++;
-                    r_it++;
-                }
-            } else if(l_it->first < r_it->first) {
-                return true;
-            } else {
-                return false;
-            }
-        }
-        if(l_it != lhs.criteria_.end()) {
-            return true;
-        } else {
-            return false;
-        }*/
         for(int i=0; i<lhs.criteria_.size(); i++) {
             if(!lhs.criteria_[i] && !rhs.criteria_[i]) {
                 // neither has the fact
@@ -245,7 +198,39 @@ struct Goal {
         // all present criteria were the same (and so lhs is not less)
         return false;
     }
+
+    friend bool operator==(const Goal& lhs, const Goal& rhs) {
+        for(int i=0; i<lhs.criteria_.size(); i++) {
+            if(!lhs.criteria_[i] && !rhs.criteria_[i]) {
+                // neither has the fact
+                continue;
+            } else if(!lhs.criteria_[i]) {
+                // rhs has it but lhs does not
+                return false;
+            } else if (!rhs.criteria_[i]) {
+                // lhs has it but rhs does not
+                return false;
+            } else {
+                // they both have it
+                if(lhs.criteria_[i]->low.value < rhs.criteria_[i]->low.value) {
+                    return false;
+                } else if(lhs.criteria_[i]->low.value > rhs.criteria_[i]->low.value) {
+                    return false;
+                } else if(lhs.criteria_[i]->high.value < rhs.criteria_[i]->high.value) {
+                    return false;
+                } else if(lhs.criteria_[i]->high.value > rhs.criteria_[i]->high.value) {
+                    return false;
+                } else {
+                    //low and high are the same
+                    continue;
+                }
+            }
+        }
+        // all present criteria were the same (and so lhs is not less)
+        return true;
+    }
 };
+
 std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c) {
     std::ostringstream s;
     s << c.low.value << " <= " << c.fact.fact;
@@ -313,7 +298,7 @@ class PlanningMap {
         }
 
         std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > initial_state() {
-            return std::make_pair(std::make_unique<Action>(0.0), starting_goal_->clone());
+            return {std::make_unique<Action>(0.0), starting_goal_->clone()};
         }
 
         std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > > neighbors(const Goal* goal) {
@@ -323,7 +308,7 @@ class PlanningMap {
                     continue;
                 }
 
-                neighbors.push_back(factory->neighbor(goal));
+                neighbors.emplace_back(factory->neighbor(goal));
             }
             return neighbors;
         }
@@ -337,5 +322,22 @@ class PlanningMap {
 
 } // namespace narrative
 } // namespace stellarpunk
+
+template<>
+struct std::hash<stellarpunk::narrative::Goal>
+{
+    std::size_t operator()(const stellarpunk::narrative::Goal& g) const noexcept
+    {
+        size_t result = 0;
+        for(const auto& cri : g.criteria_) {
+            if(cri) {
+                result = result * 31 + (size_t)cri->low.value;
+                result = result * 31 + (size_t)cri->fact.fact;
+                result = result * 31 + (size_t)cri->high.value;
+            }
+        }
+        return result;
+    }
+};
 
 #endif /* NARRATIVE_GOAP_H */

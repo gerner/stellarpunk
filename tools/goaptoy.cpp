@@ -59,10 +59,7 @@ class BuyAxe : public narrative::ActionFactory {
         g->inc((std::uint64_t)Fact::k_money, 20);
         g->dec((std::uint64_t)Fact::k_have_axe, 1);
 
-        return std::make_pair(
-            std::make_unique<narrative::Action>(20.0),
-            std::move(g)
-        );
+        return {std::make_unique<narrative::Action>(20.0), std::move(g)};
     }
 };
 
