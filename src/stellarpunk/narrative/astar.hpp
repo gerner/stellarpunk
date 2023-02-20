@@ -202,7 +202,7 @@ class AStar {
         NodeContainer closed_set;
         NodeMap closed_map;
 
-        std::uint64_t counters_[k_cnt_LEN];
+        std::uint64_t counters_[k_cnt_LEN] = { 0 };
 };
 
 } // namespace narrative

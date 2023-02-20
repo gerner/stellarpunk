@@ -20,6 +20,13 @@ enum struct Location : std::uint64_t {
     k_store
 };
 
+const char* location_names[] = {
+    "INVALID",
+    "NONE",
+    "woods",
+    "store"
+};
+
 enum struct Fact : std::uint64_t {
     k_invalid = 0ULL,
     k_money,
@@ -46,10 +53,10 @@ struct FactDistance {
                 return d; // money, forest, wood cost 1:1
                 break;
             case (std::uint64_t)Fact::k_wood:
-                return d*0.7;
+                return 0.1*d;
                 break;
             case (std::uint64_t)Fact::k_have_axe:
-                return d * 15; // axes cost 25 but can sell for 10
+                return d * 20; // axes cost 20 but can sell for 10
                 break;
             case (std::uint64_t)Fact::k_location:
                 return d>0 ? 1 : 0; // either at location or not
@@ -105,7 +112,14 @@ struct Action {
 
 std::string to_string(const Action& a) {
     std::ostringstream s;
-    s << action_names[(size_t)a.action_type_] << "(" << a.action_param_ << ")";
+    s << action_names[(size_t)a.action_type_];
+    switch(a.action_type_) {
+        case ActionType::k_go_to:
+            s << "(" << location_names[a.action_param_] << ")";
+            break;
+        default:
+            s << "(" << a.action_param_ << ")";
+    }
     return s.str();
 
 }
@@ -191,7 +205,7 @@ class GatherWood : public narrative::ActionFactory<Action> {
         g->inc((std::uint64_t)Fact::k_forest, amount);
         g->dec((std::uint64_t)Fact::k_wood, amount);
 
-        return { std::make_unique<Action>(10.0*amount, ActionType::k_gather_wood, amount), std::move(g) };
+        return { std::make_unique<Action>(10.0*amount+1.0, ActionType::k_gather_wood, amount), std::move(g) };
     }
 
     protected:
@@ -236,7 +250,7 @@ class ChopWood : public narrative::ActionFactory<Action> {
         g->dec((std::uint64_t)Fact::k_wood, amount);
         g->at_least((std::uint64_t)Fact::k_have_axe, 1);
 
-        return { std::make_unique<Action>(1.0*amount, ActionType::k_chop_wood, amount), std::move(g) };
+        return { std::make_unique<Action>(1.0*amount+1.0, ActionType::k_chop_wood, amount), std::move(g) };
     }
 
     protected:
@@ -277,10 +291,10 @@ class SellWood : public narrative::ActionFactory<Action> {
         std::uint64_t amount = amount_to_sell(desired_goal);
         std::unique_ptr<narrative::Goal> g = desired_goal->clone();
         g->exactly((std::uint64_t)Fact::k_location, (std::uint64_t)Location::k_store);
-        g->dec((std::uint64_t)Fact::k_money, 1);
-        g->inc((std::uint64_t)Fact::k_wood, 1);
+        g->dec((std::uint64_t)Fact::k_money, amount);
+        g->inc((std::uint64_t)Fact::k_wood, amount);
 
-        return { std::make_unique<Action>(1.0*amount, ActionType::k_sell_wood, amount), std::move(g) };
+        return { std::make_unique<Action>(0.1*amount+1, ActionType::k_sell_wood, amount), std::move(g) };
     }
     protected:
 
@@ -335,6 +349,14 @@ class GrindMoney : public narrative::ActionFactory<Action> {
 int main(int argc, char** argv) {
     printf("hello world!\n");
 
+    /*std::unordered_map<std::uint64_t, std::uint64_t> test_map;
+    printf("bucket count: %zu\n", test_map.bucket_count());
+    for(int i = 1; i < 50; i++) {
+        test_map[i] = 0;
+    }
+    printf("bucket count: %zu\n", test_map.bucket_count());
+    return 0;*/
+
     // initial state
     cEvent event;
     cEventContext character_context;
@@ -367,12 +389,12 @@ int main(int argc, char** argv) {
         {
             &af_ba,
             &af_sa,
-            &af_gw_one,
-            //&af_gw_all,
-            &af_cw_one,
-            //&af_cw_all,
-            &af_sw_one,
-            //&af_sw_all,
+            //&af_gw_one,
+            &af_gw_all,
+            //&af_cw_one,
+            &af_cw_all,
+            //&af_sw_one,
+            &af_sw_all,
             &af_gt
         }
     );

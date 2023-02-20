@@ -9,6 +9,7 @@
 #include <array>
 #include <cassert>
 #include <functional>
+#include <bitset>
 
 #include "director.hpp"
 
@@ -29,6 +30,7 @@ struct NonZeroDistance {
 };
 
 struct Goal {
+    std::bitset<6> set_criteria_;
     std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, 6> criteria_;
 
     Goal() {}
@@ -37,17 +39,18 @@ struct Goal {
     Goal(T &criteria) {
         for(auto &c : criteria) {
             if(c) {
+                set_criteria_[c.key()] = true;
                 criteria_[c.key()] = c;
             }
         }
     }
 
     bool satisfied(cEvent* state, cEventContext* character_context) const {
-        for(const auto &c : criteria_) {
-            if(!c) {
+        for(int i=0; i<criteria_.size(); i++) {
+            if(!set_criteria_[i]) {
                 continue;
             }
-            if(!c.evaluate(state, character_context)) {
+            if(!criteria_[i].evaluate(state, character_context)) {
                 //printf("failed criteria %lu\n", c.fact.fact);
                 return false;
             }
@@ -58,7 +61,7 @@ struct Goal {
     }
 
     std::uint64_t low(std::uint64_t fact) const {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             return criteria_[fact].low.value;
         } else {
             return 0;
@@ -66,7 +69,7 @@ struct Goal {
     }
 
     std::uint64_t high(std::uint64_t fact) const {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             return criteria_[fact].high.value;
         } else {
             return k_POS_INF;
@@ -74,23 +77,24 @@ struct Goal {
     }
 
     void remove(std::uint64_t fact) {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             //TODO: do we always want to access the fact directly here?
-            criteria_[fact].fact = 0;
+            set_criteria_[fact] = false;
         }
     }
 
     void exactly(std::uint64_t fact, std::uint64_t amount) {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             criteria_[fact].low.value = amount;
             criteria_[fact].high.value = amount;
         } else {
+            set_criteria_[fact] = true;
             criteria_[fact] = cCriteria<cIntRef, cFlagRef, cIntRef>(amount, fact, amount);
         }
     }
 
     void at_least(std::uint64_t fact, std::uint64_t amount) {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             if(criteria_[fact].low.value < amount) {
                 criteria_[fact].low.value = amount;
             }
@@ -98,12 +102,13 @@ struct Goal {
                 criteria_[fact].high.value = amount;
             }
         } else {
+            set_criteria_[fact] = true;
             criteria_[fact] = cCriteria<cIntRef, cFlagRef, cIntRef>(amount, fact, k_POS_INF);
         }
     }
 
     void inc(std::uint64_t fact, std::uint64_t amount) {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             criteria_[fact].low.value += amount;
             if(criteria_[fact].high.value == k_POS_INF) {
                 return;
@@ -114,18 +119,19 @@ struct Goal {
                 criteria_[fact].high.value = k_POS_INF;
             }
         } else {
+            set_criteria_[fact] = true;
             criteria_[fact] = cCriteria<cIntRef, cFlagRef, cIntRef>(amount, fact, k_POS_INF);
         }
     }
 
     void dec(std::uint64_t fact, std::uint64_t amount) {
-        if(criteria_[fact]) {
+        if(set_criteria_[fact]) {
             if(criteria_[fact].low.value > amount) {
                 criteria_[fact].low.value -= amount;
             } else if(criteria_[fact].high.value < k_POS_INF) {
                 criteria_[fact].low.value = 0;
             } else {
-                criteria_[fact].fact = 0;
+                set_criteria_[fact] = false;
                 return;
             }
 
@@ -138,14 +144,15 @@ struct Goal {
     }
 
     void add(cCriteria<cIntRef, cFlagRef, cIntRef> c) {
+        set_criteria_[c.key()] = true;
         criteria_[c.key()] = c;
     }
 
     std::unique_ptr<Goal> clone() const {
         std::unique_ptr<Goal> goal = std::make_unique<Goal>();
-        for(const auto& c : criteria_) {
-            if(c) {
-                goal->add(c);
+        for(int i=0; i<criteria_.size(); i++) {
+            if(set_criteria_[i]) {
+                goal->add(criteria_[i]);
             }
         }
 
@@ -154,13 +161,13 @@ struct Goal {
 
     friend bool operator<(const Goal& lhs, const Goal& rhs) {
         for(int i=0; i<lhs.criteria_.size(); i++) {
-            if(!lhs.criteria_[i] && !rhs.criteria_[i]) {
+            if(!lhs.set_criteria_[i] && !rhs.set_criteria_[i]) {
                 // neither has the fact
                 continue;
-            } else if(!lhs.criteria_[i]) {
+            } else if(!lhs.set_criteria_[i]) {
                 // rhs has it but lhs does not
                 return false;
-            } else if (!rhs.criteria_[i]) {
+            } else if (!rhs.set_criteria_[i]) {
                 // lhs has it but rhs does not
                 return true;
             } else {
@@ -185,13 +192,13 @@ struct Goal {
 
     friend bool operator==(const Goal& lhs, const Goal& rhs) {
         for(int i=0; i<lhs.criteria_.size(); i++) {
-            if(!lhs.criteria_[i] && !rhs.criteria_[i]) {
+            if(!lhs.set_criteria_[i] && !rhs.set_criteria_[i]) {
                 // neither has the fact
                 continue;
-            } else if(!lhs.criteria_[i]) {
+            } else if(!lhs.set_criteria_[i]) {
                 // rhs has it but lhs does not
                 return false;
-            } else if (!rhs.criteria_[i]) {
+            } else if (!rhs.set_criteria_[i]) {
                 // lhs has it but rhs does not
                 return false;
             } else {
@@ -236,10 +243,10 @@ std::string to_string(const Goal& g, const char** fact_names=NULL) {
     // TODO: represent a goal
     std::ostringstream s;
     s << "[ ";
-    for(const auto& c: g.criteria_) {
+    for(int i=0; i<g.criteria_.size(); i++) {
         //s << to_string(*c.second) << ", ";
-        if(c) {
-            s << to_string(c, fact_names) << ", ";
+        if(g.set_criteria_[i]) {
+            s << to_string(g.criteria_[i], fact_names) << ", ";
         }
     }
     s << "]";
@@ -279,10 +286,10 @@ class PlanningMap {
 
         float heuristic_cost(Goal* goal) {
             float distance = 0.0f;
-            for(auto &c : goal->criteria_) {
-                if(c) {
-                    std::uint64_t d = c.distance(starting_state_, character_context_);
-                    distance += Distance{}(c.key(), d);
+            for(int i=0; i<goal->criteria_.size(); i++) {
+                if(goal->set_criteria_[i]) {
+                    std::uint64_t d = goal->criteria_[i].distance(starting_state_, character_context_);
+                    distance += Distance{}(goal->criteria_[i].key(), d);
                 }
             }
             return distance;
@@ -320,11 +327,11 @@ struct std::hash<stellarpunk::narrative::Goal>
     std::size_t operator()(const stellarpunk::narrative::Goal& g) const noexcept
     {
         size_t result = 0;
-        for(const auto& cri : g.criteria_) {
-            if(cri) {
-                result = result * 31 + (size_t)cri.low.value;
-                result = result * 31 + (size_t)cri.fact.fact;
-                result = result * 31 + (size_t)cri.high.value;
+        for(int i=0; i<g.criteria_.size(); i++) {
+            if(g.set_criteria_[i]) {
+                result = result * 31 + (size_t)g.criteria_[i].low.value;
+                result = result * 31 + (size_t)g.criteria_[i].fact.fact;
+                result = result * 31 + (size_t)g.criteria_[i].high.value;
             }
         }
         return result;
