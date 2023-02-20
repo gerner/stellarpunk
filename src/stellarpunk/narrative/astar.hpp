@@ -62,6 +62,12 @@ struct ptr_equal_to
 template <class State, class Edge, class Map>
 class AStar {
     public:
+        static constexpr size_t k_cnt_neighbors = 0;
+        static constexpr size_t k_cnt_n_closed = 1;
+        static constexpr size_t k_cnt_n_open = 2;
+        static constexpr size_t k_cnt_n_no_improvement = 3;
+        static constexpr size_t k_cnt_LEN = 4;
+
         AStar() {}
         ~AStar() {}
 
@@ -85,6 +91,10 @@ class AStar {
                 emplace_result.first->state.get(), emplace_result.first
             ));
 
+            // some debug state
+            /*float best_h = std::numeric_limits<float>::infinity();
+            float best_g = std::numeric_limits<float>::infinity();*/
+
             while(!open_set.empty()) {
                 // move the cheapest element from open_set to the closed_set
                 auto current = closed_set.insert(open_set.extract(open_set.begin())).position;
@@ -93,12 +103,23 @@ class AStar {
                 open_map.erase(current->state.get());
                 closed_map[current->state.get()] = current;
 
+                // some debug logging
+                /*if(current->f_score-current->g_score < best_h || (
+                    current->f_score-current->g_score ==  best_h &&
+                    current->g_score < best_g
+                )) {
+                    best_h = current->f_score-current->g_score;
+                    best_g = current->g_score;
+                    printf("best_h: %f best_g: %f state: %s\n", best_h, best_g, to_string(*current->state).c_str());
+                }*/
+
                 // check if this is the desired state, if so, we're done
                 if(map->satisfied(current->state.get())) {
                     return &*current;
                 }
 
                 for(std::pair<std::unique_ptr<Edge>, std::unique_ptr<State>> &neighbor : map->neighbors(current->state.get())) {
+                    counters_[k_cnt_neighbors]++;
                     // compute the path cost to reach the neighbor state via neighbor edge
                     float tentative_g_score = current->g_score + neighbor.first->cost();
                     // check if neighbor leads to a destination we've seen before
@@ -112,10 +133,12 @@ class AStar {
                     if((closed_map_itr = closed_map.find(neighbor.second.get())) != closed_map.end()) {
                         closed_itr = closed_map_itr->second;
                         neighbor_ptr = &*closed_itr;
+                        counters_[k_cnt_n_closed]++;
                     } else if((open_map_itr = open_map.find(neighbor.second.get())) != open_map.end()) {
                         closed_itr = closed_set.end();
                         open_itr = open_map_itr->second;
                         neighbor_ptr = &*open_itr;
+                        counters_[k_cnt_n_open]++;
                     } else {
                         closed_itr = closed_set.end();
                         open_itr = open_set.end();
@@ -125,6 +148,7 @@ class AStar {
                     // if we've already seen this state and the new score is no
                     // better than we've seen before, skip this neighbor
                     if(neighbor_ptr != NULL && tentative_g_score >= neighbor_ptr->g_score) {
+                        counters_[k_cnt_n_no_improvement]++;
                         continue;
                     }
 
@@ -177,6 +201,8 @@ class AStar {
         NodeMap open_map;
         NodeContainer closed_set;
         NodeMap closed_map;
+
+        std::uint64_t counters_[k_cnt_LEN];
 };
 
 } // namespace narrative

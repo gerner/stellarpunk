@@ -22,8 +22,14 @@ std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>> clone_criteria(const cCri
 
 const std::uint64_t k_POS_INF = std::numeric_limits<std::uint64_t>::max();
 
+struct NonZeroDistance {
+    float operator ()(const std::uint64_t& k, const std::uint64_t& d) const {
+        return d > 0 ? 1 : 0;
+    }
+};
+
 struct Goal {
-    std::array<std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>>, 6> criteria_;
+    std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, 6> criteria_;
 
     Goal() {}
 
@@ -31,17 +37,17 @@ struct Goal {
     Goal(T &criteria) {
         for(auto &c : criteria) {
             if(c) {
-                criteria_[c->key()] = std::move(c);
+                criteria_[c.key()] = c;
             }
         }
     }
 
     bool satisfied(cEvent* state, cEventContext* character_context) const {
-        for(auto &c : criteria_) {
+        for(const auto &c : criteria_) {
             if(!c) {
                 continue;
             }
-            if(!c->evaluate(state, character_context)) {
+            if(!c.evaluate(state, character_context)) {
                 //printf("failed criteria %lu\n", c.fact.fact);
                 return false;
             }
@@ -51,32 +57,9 @@ struct Goal {
         return true;
     }
 
-    float distance(cEvent* state, cEventContext* character_context) const {
-        float distance = 0.0f;
-        for(auto &c : criteria_) {
-            //distance += (float)c.second->distance(state, character_context);
-            if(c) {
-                std::uint64_t d = c->distance(state, character_context);
-                if(c->key() == 2) {
-                    d *= 10;
-                } else if(c->key() == 1) {
-                    d = d;
-                } else if(c->key() == 4) {
-                    d = d;
-                } else if(c->key() == 5) {
-                    d = d>0 ? 1 : 0;
-                } else {
-                    d = 1;
-                }
-                distance += (float)d;
-            }
-        }
-        return distance;
-    }
-
     std::uint64_t low(std::uint64_t fact) const {
         if(criteria_[fact]) {
-            return criteria_[fact]->low.value;
+            return criteria_[fact].low.value;
         } else {
             return 0;
         }
@@ -84,7 +67,7 @@ struct Goal {
 
     std::uint64_t high(std::uint64_t fact) const {
         if(criteria_[fact]) {
-            return criteria_[fact]->high.value;
+            return criteria_[fact].high.value;
         } else {
             return k_POS_INF;
         }
@@ -92,76 +75,77 @@ struct Goal {
 
     void remove(std::uint64_t fact) {
         if(criteria_[fact]) {
-            criteria_[fact].reset(nullptr);
+            //TODO: do we always want to access the fact directly here?
+            criteria_[fact].fact = 0;
         }
     }
 
     void exactly(std::uint64_t fact, std::uint64_t amount) {
         if(criteria_[fact]) {
-            criteria_[fact]->low.value = amount;
-            criteria_[fact]->high.value = amount;
+            criteria_[fact].low.value = amount;
+            criteria_[fact].high.value = amount;
         } else {
-            criteria_[fact] = std::make_unique<cCriteria<cIntRef, cFlagRef, cIntRef>>(amount, fact, amount);
+            criteria_[fact] = cCriteria<cIntRef, cFlagRef, cIntRef>(amount, fact, amount);
         }
     }
 
     void at_least(std::uint64_t fact, std::uint64_t amount) {
         if(criteria_[fact]) {
-            if(criteria_[fact]->low.value < amount) {
-                criteria_[fact]->low.value = amount;
+            if(criteria_[fact].low.value < amount) {
+                criteria_[fact].low.value = amount;
             }
-            if(criteria_[fact]->high.value < amount) {
-                criteria_[fact]->high.value = amount;
+            if(criteria_[fact].high.value < amount) {
+                criteria_[fact].high.value = amount;
             }
         } else {
-            criteria_[fact] = std::make_unique<cCriteria<cIntRef, cFlagRef, cIntRef>>(amount, fact, k_POS_INF);
+            criteria_[fact] = cCriteria<cIntRef, cFlagRef, cIntRef>(amount, fact, k_POS_INF);
         }
     }
 
     void inc(std::uint64_t fact, std::uint64_t amount) {
         if(criteria_[fact]) {
-            criteria_[fact]->low.value += amount;
-            if(criteria_[fact]->high.value == k_POS_INF) {
+            criteria_[fact].low.value += amount;
+            if(criteria_[fact].high.value == k_POS_INF) {
                 return;
-            } else if(k_POS_INF - criteria_[fact]->high.value < amount) {
-                criteria_[fact]->high.value += amount;
+            } else if(k_POS_INF - criteria_[fact].high.value < amount) {
+                criteria_[fact].high.value += amount;
             } else {
                 //uh oh!
-                criteria_[fact]->high.value = k_POS_INF;
+                criteria_[fact].high.value = k_POS_INF;
             }
         } else {
-            criteria_[fact] = std::make_unique<cCriteria<cIntRef, cFlagRef, cIntRef>>(amount, fact, k_POS_INF);
+            criteria_[fact] = cCriteria<cIntRef, cFlagRef, cIntRef>(amount, fact, k_POS_INF);
         }
     }
 
     void dec(std::uint64_t fact, std::uint64_t amount) {
         if(criteria_[fact]) {
-            if(criteria_[fact]->low.value > amount) {
-                criteria_[fact]->low.value -= amount;
-            } else if(criteria_[fact]->high.value < k_POS_INF) {
-                criteria_[fact]->low.value = 0;
+            if(criteria_[fact].low.value > amount) {
+                criteria_[fact].low.value -= amount;
+            } else if(criteria_[fact].high.value < k_POS_INF) {
+                criteria_[fact].low.value = 0;
             } else {
-                criteria_[fact].reset(nullptr);
+                criteria_[fact].fact = 0;
                 return;
             }
 
-            if(criteria_[fact]->high.value < k_POS_INF) {
-                criteria_[fact]->high.value -= amount;
+            if(criteria_[fact].high.value < k_POS_INF) {
+                criteria_[fact].high.value -= amount;
             }
         } else {
             return;
         }
     }
 
-    void add(std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>> c) {
-        criteria_[c->key()] = std::move(c);
+    void add(cCriteria<cIntRef, cFlagRef, cIntRef> c) {
+        criteria_[c.key()] = c;
     }
 
     std::unique_ptr<Goal> clone() const {
         std::unique_ptr<Goal> goal = std::make_unique<Goal>();
         for(const auto& c : criteria_) {
             if(c) {
-                goal->add(clone_criteria(*c));
+                goal->add(c);
             }
         }
 
@@ -181,13 +165,13 @@ struct Goal {
                 return true;
             } else {
                 // they both have it
-                if(lhs.criteria_[i]->low.value < rhs.criteria_[i]->low.value) {
+                if(lhs.criteria_[i].low.value < rhs.criteria_[i].low.value) {
                     return true;
-                } else if(lhs.criteria_[i]->low.value > rhs.criteria_[i]->low.value) {
+                } else if(lhs.criteria_[i].low.value > rhs.criteria_[i].low.value) {
                     return false;
-                } else if(lhs.criteria_[i]->high.value < rhs.criteria_[i]->high.value) {
+                } else if(lhs.criteria_[i].high.value < rhs.criteria_[i].high.value) {
                     return true;
-                } else if(lhs.criteria_[i]->high.value > rhs.criteria_[i]->high.value) {
+                } else if(lhs.criteria_[i].high.value > rhs.criteria_[i].high.value) {
                     return false;
                 } else {
                     //low and high are the same
@@ -212,13 +196,13 @@ struct Goal {
                 return false;
             } else {
                 // they both have it
-                if(lhs.criteria_[i]->low.value < rhs.criteria_[i]->low.value) {
+                if(lhs.criteria_[i].low.value < rhs.criteria_[i].low.value) {
                     return false;
-                } else if(lhs.criteria_[i]->low.value > rhs.criteria_[i]->low.value) {
+                } else if(lhs.criteria_[i].low.value > rhs.criteria_[i].low.value) {
                     return false;
-                } else if(lhs.criteria_[i]->high.value < rhs.criteria_[i]->high.value) {
+                } else if(lhs.criteria_[i].high.value < rhs.criteria_[i].high.value) {
                     return false;
-                } else if(lhs.criteria_[i]->high.value > rhs.criteria_[i]->high.value) {
+                } else if(lhs.criteria_[i].high.value > rhs.criteria_[i].high.value) {
                     return false;
                 } else {
                     //low and high are the same
@@ -231,25 +215,31 @@ struct Goal {
     }
 };
 
-std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c) {
+std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c, const char** fact_names) {
     std::ostringstream s;
-    s << c.low.value << " <= " << c.fact.fact;
+    s << c.low.value << " <= ";
+    if(fact_names) {
+        s << fact_names[(size_t)c.fact.fact];
+    } else {
+        s << c.fact.fact;
+    }
+
     if(c.high.value < k_POS_INF) {
         s << " <= " << c.high.value;
     }
     return s.str();
 }
-std::string to_string(const Goal& g) {
+std::string to_string(const Goal& g, const char** fact_names=NULL) {
     /*if(g.criteria_.empty()) {
         return std::string("[ ]");
     }*/
     // TODO: represent a goal
     std::ostringstream s;
     s << "[ ";
-    for(auto& c: g.criteria_) {
+    for(const auto& c: g.criteria_) {
         //s << to_string(*c.second) << ", ";
         if(c) {
-            s << to_string(*c) << ", ";
+            s << to_string(c, fact_names) << ", ";
         }
     }
     s << "]";
@@ -257,17 +247,7 @@ std::string to_string(const Goal& g) {
 }
 
 
-struct Action {
-    //TODO: TBD information about using this action later: type, parameters
-    float cost_;
-
-    Action(float cost) : cost_(cost) {}
-
-    float cost() const {
-        return cost_;
-    }
-};
-
+template <class Action, class Distance=NonZeroDistance>
 class ActionFactory {
     public:
         ActionFactory() {}
@@ -277,10 +257,15 @@ class ActionFactory {
         virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(const Goal* desired_goal) = 0;
 };
 
+template <class Action, class Distance=NonZeroDistance>
 class PlanningMap {
     public:
         PlanningMap() = delete;
-        PlanningMap(Goal* starting_goal, cEvent* starting_state, cEventContext* character_context, std::vector<std::unique_ptr<ActionFactory> >* action_factories)
+        PlanningMap(
+            Goal* starting_goal, cEvent* starting_state,
+            cEventContext* character_context,
+            const std::vector<ActionFactory<Action>*> action_factories
+        )
             : starting_goal_(starting_goal),
               starting_state_(starting_state),
               character_context_(character_context),
@@ -293,17 +278,23 @@ class PlanningMap {
         }
 
         float heuristic_cost(Goal* goal) {
-            // TODO: distance between goal and starting_state_
-            return goal->distance(starting_state_, character_context_);
+            float distance = 0.0f;
+            for(auto &c : goal->criteria_) {
+                if(c) {
+                    std::uint64_t d = c.distance(starting_state_, character_context_);
+                    distance += Distance{}(c.key(), d);
+                }
+            }
+            return distance;
         }
 
         std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > initial_state() {
-            return {std::make_unique<Action>(0.0), starting_goal_->clone()};
+            return {std::make_unique<Action>(), starting_goal_->clone()};
         }
 
         std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > > neighbors(const Goal* goal) {
             std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > > neighbors;
-            for(auto& factory : *action_factories_) {
+            for(auto& factory : action_factories_) {
                 if(!factory->compatible(goal)) {
                     continue;
                 }
@@ -317,7 +308,7 @@ class PlanningMap {
         Goal* starting_goal_;
         cEvent* starting_state_;
         cEventContext* character_context_;
-        std::vector<std::unique_ptr<ActionFactory>>* action_factories_;
+        std::vector<ActionFactory<Action>*> action_factories_;
 };
 
 } // namespace narrative
@@ -331,9 +322,9 @@ struct std::hash<stellarpunk::narrative::Goal>
         size_t result = 0;
         for(const auto& cri : g.criteria_) {
             if(cri) {
-                result = result * 31 + (size_t)cri->low.value;
-                result = result * 31 + (size_t)cri->fact.fact;
-                result = result * 31 + (size_t)cri->high.value;
+                result = result * 31 + (size_t)cri.low.value;
+                result = result * 31 + (size_t)cri.fact.fact;
+                result = result * 31 + (size_t)cri.high.value;
             }
         }
         return result;

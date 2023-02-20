@@ -54,7 +54,7 @@ struct cIntRef {
 struct cFlagRef {
     std::uint64_t fact;
 
-    cFlagRef() {
+    cFlagRef() : fact(0) {
     }
 
     cFlagRef(std::uint64_t f) {
@@ -180,7 +180,12 @@ struct cCriteria : cCriteriaBase {
     virtual std::unique_ptr<cCriteriaBase> clone() const {
         return std::make_unique<cCriteria<L, F, U>>(low, fact, high);
     }
+
+    operator bool() const {
+        return key() > 0;
+    }
 };
+
 
 struct UBuilder {
     virtual ~UBuilder() {}
