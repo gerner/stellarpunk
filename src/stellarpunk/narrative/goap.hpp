@@ -17,10 +17,6 @@ namespace stellarpunk {
 namespace narrative {
 
 
-std::unique_ptr<cCriteria<cIntRef, cFlagRef, cIntRef>> clone_criteria(const cCriteria<cIntRef, cFlagRef, cIntRef> &cri) {
-    return std::make_unique<cCriteria<cIntRef, cFlagRef, cIntRef>>(cri.low, cri.fact, cri.high);
-}
-
 const std::uint64_t k_POS_INF = std::numeric_limits<std::uint64_t>::max();
 
 struct NonZeroDistance {
@@ -29,9 +25,10 @@ struct NonZeroDistance {
     }
 };
 
+template <size_t N_CRITERIA>
 struct Goal {
-    std::bitset<6> set_criteria_;
-    std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, 6> criteria_;
+    std::bitset<N_CRITERIA> set_criteria_;
+    std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, N_CRITERIA> criteria_;
 
     Goal() {}
 
@@ -203,17 +200,11 @@ struct Goal {
                 return false;
             } else {
                 // they both have it
-                if(lhs.criteria_[i].low.value < rhs.criteria_[i].low.value) {
-                    return false;
-                } else if(lhs.criteria_[i].low.value > rhs.criteria_[i].low.value) {
-                    return false;
-                } else if(lhs.criteria_[i].high.value < rhs.criteria_[i].high.value) {
-                    return false;
-                } else if(lhs.criteria_[i].high.value > rhs.criteria_[i].high.value) {
-                    return false;
-                } else {
-                    //low and high are the same
+                if(lhs.criteria_[i].low.value == rhs.criteria_[i].low.value &&
+                        lhs.criteria_[i].high.value == rhs.criteria_[i].high.value) {
                     continue;
+                } else {
+                    return false;
                 }
             }
         }
@@ -236,7 +227,9 @@ std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c, const char
     }
     return s.str();
 }
-std::string to_string(const Goal& g, const char** fact_names=NULL) {
+
+template<size_t N>
+std::string to_string(const Goal<N>& g, const char** fact_names=NULL) {
     /*if(g.criteria_.empty()) {
         return std::string("[ ]");
     }*/
@@ -254,7 +247,7 @@ std::string to_string(const Goal& g, const char** fact_names=NULL) {
 }
 
 
-template <class Action, class Distance=NonZeroDistance>
+template <class Action, class Goal, class Distance=NonZeroDistance>
 class ActionFactory {
     public:
         ActionFactory() {}
@@ -264,14 +257,14 @@ class ActionFactory {
         virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(const Goal* desired_goal) = 0;
 };
 
-template <class Action, class Distance=NonZeroDistance>
+template <class Action, class Goal, class Distance=NonZeroDistance>
 class PlanningMap {
     public:
         PlanningMap() = delete;
         PlanningMap(
             Goal* starting_goal, cEvent* starting_state,
             cEventContext* character_context,
-            const std::vector<ActionFactory<Action>*> action_factories
+            const std::vector<ActionFactory<Action, Goal>*> action_factories
         )
             : starting_goal_(starting_goal),
               starting_state_(starting_state),
@@ -299,8 +292,8 @@ class PlanningMap {
             return {std::make_unique<Action>(), starting_goal_->clone()};
         }
 
-        std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > > neighbors(const Goal* goal) {
-            std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > > neighbors;
+        std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal>>> neighbors(const Goal* goal) {
+            std::vector<std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal>>> neighbors;
             for(auto& factory : action_factories_) {
                 if(!factory->compatible(goal)) {
                     continue;
@@ -315,16 +308,16 @@ class PlanningMap {
         Goal* starting_goal_;
         cEvent* starting_state_;
         cEventContext* character_context_;
-        std::vector<ActionFactory<Action>*> action_factories_;
+        std::vector<ActionFactory<Action, Goal>*> action_factories_;
 };
 
 } // namespace narrative
 } // namespace stellarpunk
 
-template<>
-struct std::hash<stellarpunk::narrative::Goal>
+template<size_t N>
+struct std::hash<stellarpunk::narrative::Goal<N>>
 {
-    std::size_t operator()(const stellarpunk::narrative::Goal& g) const noexcept
+    std::size_t operator()(const stellarpunk::narrative::Goal<N>& g) const noexcept
     {
         size_t result = 0;
         for(int i=0; i<g.criteria_.size(); i++) {

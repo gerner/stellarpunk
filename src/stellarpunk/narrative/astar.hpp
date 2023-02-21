@@ -62,11 +62,30 @@ struct ptr_equal_to
 template <class State, class Edge, class Map>
 class AStar {
     public:
-        static constexpr size_t k_cnt_neighbors = 0;
-        static constexpr size_t k_cnt_n_closed = 1;
-        static constexpr size_t k_cnt_n_open = 2;
-        static constexpr size_t k_cnt_n_no_improvement = 3;
-        static constexpr size_t k_cnt_LEN = 4;
+        enum CounterKeys : size_t {
+            k_cnt_steps = 0,
+            k_cnt_neighbors,
+            k_cnt_n_closed,
+            k_cnt_n_open,
+            k_cnt_n_no_improvement,
+            k_cnt_n_closed_reopen,
+            k_cnt_n_open_reopen,
+            k_cnt_n_back,
+            k_cnt_LEN
+        };
+
+        static constexpr float k_improvement_epsilon = 1.0e-1;
+
+        const char* k_counter_names[k_cnt_LEN] {
+            "steps",
+            "neighbors",
+            "nbr_closed",
+            "nbr_open",
+            "nbr_no_imprv",
+            "nbr_c_reopen",
+            "nbr_o_reopen",
+            "nbr_back",
+        };
 
         AStar() {}
         ~AStar() {}
@@ -96,8 +115,11 @@ class AStar {
             float best_g = std::numeric_limits<float>::infinity();*/
 
             while(!open_set.empty()) {
+                counters_[k_cnt_steps]++;
                 // move the cheapest element from open_set to the closed_set
                 auto current = closed_set.insert(open_set.extract(open_set.begin())).position;
+                //print_solution(&*current);
+                //printf("STEP(%*zu, %*zu): %s\n", 5, open_set.size(), 5, closed_set.size(), to_string(&*current).c_str());
                 //printf("considering node %s with g_score: %f f_score: %f\n", to_string(*current->state).c_str(), current->g_score, current->f_score);
                 // move from open map to closed map
                 open_map.erase(current->state.get());
@@ -147,10 +169,12 @@ class AStar {
 
                     // if we've already seen this state and the new score is no
                     // better than we've seen before, skip this neighbor
-                    if(neighbor_ptr != NULL && tentative_g_score >= neighbor_ptr->g_score) {
+                    if(neighbor_ptr != NULL && tentative_g_score + k_improvement_epsilon >= neighbor_ptr->g_score ) {
                         counters_[k_cnt_n_no_improvement]++;
                         continue;
-                    }
+                    }/* else if(neighbor_ptr != NULL) {
+                        printf("%f\n", neighbor_ptr->g_score - tentative_g_score);
+                    }*/
 
                     // if we've already seen this state (and we know this new
                     // one is better) we'll dump the old and take the new one
@@ -159,30 +183,32 @@ class AStar {
                         auto nh = closed_set.extract(closed_itr);
                         State* neighbor_state = nh.value().state.get();
                         nh.value().g_score = tentative_g_score;
-                        nh.value().f_score = tentative_g_score + map->heuristic_cost(neighbor_state);
+                        nh.value().f_score = f_score(tentative_g_score, map->heuristic_cost(neighbor_state));
                         nh.value().parent = {std::move(neighbor.first), &*current};
                         auto insert_result = open_set.insert(std::move(nh));
                         open_map.emplace(std::make_pair(
                             insert_result.position->state.get(), insert_result.position
                         ));
+                        counters_[k_cnt_n_closed_reopen]++;
                     } else if(open_itr != open_set.end()) {
                         open_map.erase(neighbor_ptr->state.get());
                         auto nh = open_set.extract(open_itr);
                         State* neighbor_state = nh.value().state.get();
                         nh.value().g_score = tentative_g_score;
-                        nh.value().f_score = tentative_g_score + map->heuristic_cost(neighbor_state);
+                        nh.value().f_score = f_score(tentative_g_score, map->heuristic_cost(neighbor_state));
                         nh.value().parent = {std::move(neighbor.first), &*current};
                         auto insert_result = open_set.insert(std::move(nh));
                         open_map.emplace(std::make_pair(
                             insert_result.position->state.get(), insert_result.position
                         ));
+                        counters_[k_cnt_n_open_reopen]++;
                     } else {
                         // make a new AStarNode for this neighboring state
                         State* neighbor_state = neighbor.second.get();
                         emplace_result = open_set.emplace(
                             std::move(neighbor.second),
                             tentative_g_score,
-                            tentative_g_score + map->heuristic_cost(neighbor_state),
+                            f_score(tentative_g_score, map->heuristic_cost(neighbor_state)),
                             std::make_pair(std::move(neighbor.first), &*current)
                         );
                         open_map.emplace(std::make_pair(
@@ -192,6 +218,28 @@ class AStar {
                 }
             }
             return NULL;
+        }
+
+        float f_score(float g_score, float h_score) {
+            // A*
+            return g_score + h_score;
+            // djikstra
+            //return g_score;
+            // greedy
+            //return h_score;
+            // weighted A*
+            /*const float w = 1.5;
+            return g_score + w*h_score;*/
+            /*
+            // pxWD and pxWU
+            const float w = 1.5;
+            if(g_score < h_score) {
+                return g_score + h_score;
+                //return (g_score + (2*w - 1) * h_score) / w;
+            } else {
+                return (g_score + (2*w - 1) * h_score) / w;
+                //return g_score + h_score;
+            }*/
         }
 
         using NodeContainer = std::set<AStarNode<State, Edge>>;
