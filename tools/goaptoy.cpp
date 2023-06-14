@@ -58,7 +58,7 @@ struct FactDistance {
                 break;
             case (std::uint64_t)Fact::k_have_axe:
                 // axes cost 20 but can sell for 10
-                dist = d * 20;
+                dist = d;
                 break;
             case (std::uint64_t)Fact::k_location:
                 // either at location or not, going to a location costs 5
@@ -154,7 +154,7 @@ class BuyAxe : public narrative::ActionFactory<Action, Goal> {
         g->inc((std::uint64_t)Fact::k_money, 20);
         g->dec((std::uint64_t)Fact::k_have_axe, 1);
 
-        return {std::make_unique<Action>(20.0, ActionType::k_buy_axe, 1), std::move(g)};
+        return {std::make_unique<Action>(1.0, ActionType::k_buy_axe, 1), std::move(g)};
     }
 };
 
@@ -167,7 +167,7 @@ class SellAxe : public narrative::ActionFactory<Action, Goal> {
         //  will be at the store (but we need someone else to get us there)
         return (
             desired_goal->high((std::uint64_t)Fact::k_have_axe) < POS_INF ||
-            desired_goal->low((std::uint64_t)Fact::k_money) > 0
+            desired_goal->low((std::uint64_t)Fact::k_money) >= 0
         ) && (
             desired_goal->low((std::uint64_t)Fact::k_location) == 0 ||
             desired_goal->low((std::uint64_t)Fact::k_location) == (std::uint64_t)Location::k_store
@@ -181,7 +181,7 @@ class SellAxe : public narrative::ActionFactory<Action, Goal> {
         g->dec((std::uint64_t)Fact::k_money, 10);
         g->inc((std::uint64_t)Fact::k_have_axe, 1);
 
-        return { std::make_unique<Action>(10.0, ActionType::k_sell_axe, 1), std::move(g) };
+        return { std::make_unique<Action>(20.0, ActionType::k_sell_axe, 1), std::move(g) };
     }
 };
 
@@ -357,7 +357,7 @@ std::string to_string(const narrative::AStarNode<Goal, Action>* solution) {
     std::ostringstream s;
     s << to_string(*solution->parent.first) << " ";
     s << narrative::to_string(*solution->state, fact_names) << " ";
-    s << "h_score: " << solution->f_score - solution->g_score << " ";
+    s << "h_score: " << solution->h_score << " ";
     s << "g_score: " << solution->g_score << " ";
     s << "f_score: " << solution->f_score << " ";
     s << "cost: " << solution->parent.first->cost_;
@@ -394,6 +394,9 @@ int main(int argc, char** argv) {
     cri[(std::uint64_t)Fact::k_money] = make_criteria(
         50, (std::uint64_t)Fact::k_money, POS_INF
     );
+    /*cri[(std::uint64_t)Fact::k_forest] = make_criteria(
+        101, (std::uint64_t)Fact::k_forest, POS_INF
+    );*/
     Goal starting_goal = Goal(cri);
 
     // action factories
@@ -427,7 +430,7 @@ int main(int argc, char** argv) {
     narrative::AStar<Goal, Action, narrative::PlanningMap<Action, Goal, FactDistance>> astar;
 
     const narrative::AStarNode<Goal, Action>* solution;
-    for(int i=0; i < 1000; i++) {
+    for(int i=0; i < 1; i++) {
         solution = astar.run_astar(&map);
     }
     printf("open_set: %zu closed_set %zu\n", astar.open_set.size(), astar.closed_set.size());

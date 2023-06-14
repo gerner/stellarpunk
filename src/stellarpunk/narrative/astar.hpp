@@ -16,12 +16,14 @@ struct AStarNode {
     std::unique_ptr<State> state;
 
     float g_score;
+    float h_score;
     float f_score;
     std::pair<std::unique_ptr<Edge>, const AStarNode<State, Edge>*> parent;
 
-    AStarNode(std::unique_ptr<State> s, float g, float f, std::pair<std::unique_ptr<Edge>, const AStarNode<State, Edge>*> p)
+    AStarNode(std::unique_ptr<State> s, float g, float h, float f, std::pair<std::unique_ptr<Edge>, const AStarNode<State, Edge>*> p)
         : state(std::move(s)),
           g_score(g),
+          h_score(h),
           f_score(f),
           parent(std::move(p.first), p.second) {
     }
@@ -100,10 +102,12 @@ class AStar {
             // create an AStarNode for the initial state and add to open set
 
             std::pair<std::unique_ptr<Edge>, std::unique_ptr<State>> initial_state = map->initial_state();
+            float h_score = map->heuristic_cost(initial_state.second.get());
             auto emplace_result = open_set.emplace(
                 std::move(initial_state.second),
                 0.0f,
-                map->heuristic_cost(initial_state.second.get()),
+                h_score,
+                f_score(0.0f, h_score),
                 std::make_pair(std::move(initial_state.first), (const AStarNode<State, Edge>*)NULL)
             );
             open_map.emplace(std::make_pair(
@@ -114,13 +118,18 @@ class AStar {
             /*float best_h = std::numeric_limits<float>::infinity();
             float best_g = std::numeric_limits<float>::infinity();*/
 
+            int steps_since_gain = 0;
+            float best_h = std::numeric_limits<float>::infinity();
+
             while(!open_set.empty()) {
                 counters_[k_cnt_steps]++;
                 // move the cheapest element from open_set to the closed_set
                 auto current = closed_set.insert(open_set.extract(open_set.begin())).position;
+
+                // a couple of debug logging options
                 //print_solution(&*current);
-                //printf("STEP(%*zu, %*zu): %s\n", 5, open_set.size(), 5, closed_set.size(), to_string(&*current).c_str());
-                //printf("considering node %s with g_score: %f f_score: %f\n", to_string(*current->state).c_str(), current->g_score, current->f_score);
+                printf("STEP(%*zu, %*zu): %s\n", 5, open_set.size(), 5, closed_set.size(), to_string(&*current).c_str());
+
                 // move from open map to closed map
                 open_map.erase(current->state.get());
                 closed_map[current->state.get()] = current;
@@ -139,6 +148,15 @@ class AStar {
                 if(map->satisfied(current->state.get())) {
                     return &*current;
                 }
+
+                /*if(current->h_score < best_h) {
+                    steps_since_gain = 0;
+                    best_h = current->h_score;
+                } else if(steps_since_gain > max_steps_since_gain_) {
+                    return NULL;
+                } else {
+                    steps_since_gain++;
+                }*/
 
                 for(std::pair<std::unique_ptr<Edge>, std::unique_ptr<State>> &neighbor : map->neighbors(current->state.get())) {
                     counters_[k_cnt_neighbors]++;
@@ -176,6 +194,7 @@ class AStar {
                         printf("%f\n", neighbor_ptr->g_score - tentative_g_score);
                     }*/
 
+                    h_score = map->heuristic_cost(neighbor.second.get());
                     // if we've already seen this state (and we know this new
                     // one is better) we'll dump the old and take the new one
                     if(closed_itr != closed_set.end()) {
@@ -183,7 +202,8 @@ class AStar {
                         auto nh = closed_set.extract(closed_itr);
                         State* neighbor_state = nh.value().state.get();
                         nh.value().g_score = tentative_g_score;
-                        nh.value().f_score = f_score(tentative_g_score, map->heuristic_cost(neighbor_state));
+                        nh.value().h_score = h_score;
+                        nh.value().f_score = f_score(tentative_g_score, h_score);
                         nh.value().parent = {std::move(neighbor.first), &*current};
                         auto insert_result = open_set.insert(std::move(nh));
                         open_map.emplace(std::make_pair(
@@ -195,7 +215,8 @@ class AStar {
                         auto nh = open_set.extract(open_itr);
                         State* neighbor_state = nh.value().state.get();
                         nh.value().g_score = tentative_g_score;
-                        nh.value().f_score = f_score(tentative_g_score, map->heuristic_cost(neighbor_state));
+                        nh.value().h_score = h_score;
+                        nh.value().f_score = f_score(tentative_g_score, h_score);
                         nh.value().parent = {std::move(neighbor.first), &*current};
                         auto insert_result = open_set.insert(std::move(nh));
                         open_map.emplace(std::make_pair(
@@ -208,7 +229,8 @@ class AStar {
                         emplace_result = open_set.emplace(
                             std::move(neighbor.second),
                             tentative_g_score,
-                            f_score(tentative_g_score, map->heuristic_cost(neighbor_state)),
+                            h_score,
+                            f_score(tentative_g_score, h_score),
                             std::make_pair(std::move(neighbor.first), &*current)
                         );
                         open_map.emplace(std::make_pair(
@@ -222,14 +244,14 @@ class AStar {
 
         float f_score(float g_score, float h_score) {
             // A*
-            return g_score + h_score;
+            //return g_score + h_score;
             // djikstra
             //return g_score;
             // greedy
             //return h_score;
             // weighted A*
-            /*const float w = 1.5;
-            return g_score + w*h_score;*/
+            const float w = 5.0;
+            return g_score + w*h_score;
             /*
             // pxWD and pxWU
             const float w = 1.5;
@@ -249,6 +271,8 @@ class AStar {
         NodeMap open_map;
         NodeContainer closed_set;
         NodeMap closed_map;
+
+        int max_steps_since_gain_ = 1000;
 
         std::uint64_t counters_[k_cnt_LEN] = { 0 };
 };

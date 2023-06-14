@@ -73,13 +73,6 @@ struct Goal {
         }
     }
 
-    void remove(std::uint64_t fact) {
-        if(set_criteria_[fact]) {
-            //TODO: do we always want to access the fact directly here?
-            set_criteria_[fact] = false;
-        }
-    }
-
     void exactly(std::uint64_t fact, std::uint64_t amount) {
         if(set_criteria_[fact]) {
             criteria_[fact].low.value = amount;
@@ -112,7 +105,11 @@ struct Goal {
             } else if(k_POS_INF - criteria_[fact].high.value < amount) {
                 criteria_[fact].high.value += amount;
             } else {
-                //uh oh!
+                // uh oh!: the high bound was so high that now we're setting it
+                // to infinity, which is different than a bounded-from-above
+                // range. perhaps this will never happen and if it does,
+                // perhaps it's ok to treat it as now an unbounded-from-above
+                // range.
                 criteria_[fact].high.value = k_POS_INF;
             }
         } else {
@@ -143,6 +140,12 @@ struct Goal {
     void add(cCriteria<cIntRef, cFlagRef, cIntRef> c) {
         set_criteria_[c.key()] = true;
         criteria_[c.key()] = c;
+    }
+
+    void remove(std::uint64_t fact) {
+        if(set_criteria_[fact]) {
+            set_criteria_[fact] = false;
+        }
     }
 
     std::unique_ptr<Goal> clone() const {
@@ -217,9 +220,9 @@ std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c, const char
     std::ostringstream s;
     s << c.low.value << " <= ";
     if(fact_names) {
-        s << fact_names[(size_t)c.fact.fact];
+        s << fact_names[(size_t)c.key()];
     } else {
-        s << c.fact.fact;
+        s << c.key();
     }
 
     if(c.high.value < k_POS_INF) {
@@ -300,6 +303,7 @@ class PlanningMap {
                 }
 
                 neighbors.emplace_back(factory->neighbor(goal));
+                printf("NBR: %s\n", to_string(*neighbors.back().first).c_str());
             }
             return neighbors;
         }
@@ -323,7 +327,7 @@ struct std::hash<stellarpunk::narrative::Goal<N>>
         for(int i=0; i<g.criteria_.size(); i++) {
             if(g.set_criteria_[i]) {
                 result = result * 31 + (size_t)g.criteria_[i].low.value;
-                result = result * 31 + (size_t)g.criteria_[i].fact.fact;
+                result = result * 31 + (size_t)g.criteria_[i].key();
                 result = result * 31 + (size_t)g.criteria_[i].high.value;
             }
         }
