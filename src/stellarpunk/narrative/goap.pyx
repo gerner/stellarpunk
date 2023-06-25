@@ -1,6 +1,8 @@
 from libcpp cimport utility
 from libcpp.memory cimport unique_ptr
 
+"""
+TODO: figure out how to expose goap to python
 cdef extern from "goap.hpp":
     cdef cppclass Goal:
         int value
@@ -33,3 +35,4 @@ cdef class GOAPPlanner:
             while solution != NULL:
                 print(f'{solution.state.get().value} -> {solution.parent.first.get().c}')
                 solution = solution.parent.second
+"""
