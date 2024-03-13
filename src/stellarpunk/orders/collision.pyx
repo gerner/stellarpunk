@@ -245,10 +245,10 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
 
     return AnalyzedNeighbor(rel_dist, approach_t, rel_pos, rel_vel, min_sep, collision_loc, collision_distance)
 
-cdef void _sensor_point_callback(ccymunk.cpShape *shape, ccymunk.cpFloat distance, ccymunk.cpVect point, void *data):
+cdef void _sensor_point_callback(ccymunk.cpShape *shape, ccymunk.cpFloat distance, ccymunk.cpVect point, void *data) noexcept:
     _analyze_neighbor_callback(shape, data)
 
-cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointSet *points, void *data):
+cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointSet *points, void *data) noexcept:
     _analyze_neighbor_callback(shape, data)
 
 cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):

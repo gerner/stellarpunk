@@ -357,7 +357,7 @@ class Gamestate(EntityRegistry):
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
-        return hits
+        return hits # type: ignore
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)

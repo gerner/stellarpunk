@@ -337,7 +337,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         if self.ship.sector is None or self.ship.sector != self.target_gate.sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector}')
 
-        if self.rotate_order is not None and self.rotate_order.is_complete:
+        if self.rotate_order is not None and self.rotate_order.is_complete():
             # everything is ready for travel, let's goooooo
             self.ship.set_velocity((0., 0.))
 

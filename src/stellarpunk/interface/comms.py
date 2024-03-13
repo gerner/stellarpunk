@@ -1,5 +1,6 @@
 """ Comms view between a character and the player """
 
+import abc
 from typing import Any, Optional, Sequence, Collection, Deque
 import curses
 import textwrap
@@ -8,8 +9,8 @@ import collections
 from stellarpunk import core, interface, config, dialog, events
 
 class AnimationSequence:
-    def animate(self, now:float) -> bool:
-        pass
+    @abc.abstractmethod
+    def animate(self, now:float) -> bool: ...
 
     def flush(self) -> None:
         pass

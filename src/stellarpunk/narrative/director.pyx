@@ -287,7 +287,7 @@ cdef class Director:
     cdef cDirector director
     cdef object rules
 
-    def __cinit__(self, rules:Dict[int, Iterable[Rule]]):
+    def __cinit__(self, rules:Mapping[int, Iterable[Rule]]):
         cdef unordered_map[uint64_t, vector[unique_ptr[cRule]]] c_rules;
 
         for k, v in rules.items():

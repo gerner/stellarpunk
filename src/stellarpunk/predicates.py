@@ -6,6 +6,7 @@ from typing import TypeVar, Generic
 T = TypeVar('T')
 
 class Criteria(Generic[T], abc.ABC):
+    @abc.abstractmethod
     def evaluate(self, universe:T) -> bool: ...
 
 class Literal(Criteria[T]):
