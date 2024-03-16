@@ -42,7 +42,7 @@ struct cIntRef {
         value = v;
     }
 
-    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+    std::uint64_t resolve(const cEvent* event, const cEventContext* character_context) const {
         return value;
     }
 
@@ -61,7 +61,7 @@ struct cFlagRef {
         fact = f;
     }
 
-    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+    std::uint64_t resolve(const cEvent* event, const cEventContext* character_context) const {
         //printf("resolving %lu\n", fact);
         auto itr = event->event_context.find(fact);
         if(itr != event->event_context.end()) {
@@ -94,7 +94,7 @@ struct cEntityRef {
         sub_fact = sf;
     }
 
-    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+    std::uint64_t resolve(const cEvent* event, const cEventContext* character_context) const {
         //printf("resolving $%lu.%lu\n", entity_fact, sub_fact);
         std::uint64_t entity_id;
         auto itr = event->event_context.find(entity_fact);
@@ -130,8 +130,8 @@ struct cEntityRef {
 struct cCriteriaBase {
     cCriteriaBase() {}
     virtual ~cCriteriaBase() {}
-    virtual bool evaluate(cEvent* event, cEventContext* character_context) const = 0;
-    virtual std::uint64_t distance(cEvent* event, cEventContext* character_context) const = 0;
+    virtual bool evaluate(const cEvent* event, const cEventContext* const character_context) const = 0;
+    virtual std::uint64_t distance(const cEvent* event, const cEventContext* character_context) const = 0;
     virtual std::uint64_t key() const = 0;
     virtual std::unique_ptr<cCriteriaBase> clone() const = 0;
 };
@@ -151,7 +151,7 @@ struct cCriteria : cCriteriaBase {
         high = h;
     }
 
-    virtual bool evaluate(cEvent* event, cEventContext* character_context) const {
+    virtual bool evaluate(const cEvent* event, const cEventContext* character_context) const {
         std::uint64_t fact_value = fact.resolve(event, character_context);
         std::uint64_t low_value = low.resolve(event, character_context);
         std::uint64_t high_value = high.resolve(event, character_context);
@@ -159,7 +159,7 @@ struct cCriteria : cCriteriaBase {
         return low_value <= fact_value && fact_value <= high_value;
     }
 
-    virtual std::uint64_t distance(cEvent* event, cEventContext* character_context) const {
+    virtual std::uint64_t distance(const cEvent* event, const cEventContext* character_context) const {
         std::uint64_t fact_value = fact.resolve(event, character_context);
         std::uint64_t low_value = low.resolve(event, character_context);
         std::uint64_t high_value = high.resolve(event, character_context);

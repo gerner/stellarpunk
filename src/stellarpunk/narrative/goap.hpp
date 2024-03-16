@@ -42,7 +42,7 @@ struct Goal {
         }
     }
 
-    bool satisfied(cEvent* state, cEventContext* character_context) const {
+    bool satisfied(const cEvent* state, const cEventContext* character_context) const {
         for(int i=0; i<criteria_.size(); i++) {
             if(!set_criteria_[i]) {
                 continue;
@@ -102,7 +102,7 @@ struct Goal {
             criteria_[fact].low.value += amount;
             if(criteria_[fact].high.value == k_POS_INF) {
                 return;
-            } else if(k_POS_INF - criteria_[fact].high.value < amount) {
+            } else if(k_POS_INF - criteria_[fact].high.value > amount) {
                 criteria_[fact].high.value += amount;
             } else {
                 // uh oh!: the high bound was so high that now we're setting it
@@ -110,6 +110,7 @@ struct Goal {
                 // range. perhaps this will never happen and if it does,
                 // perhaps it's ok to treat it as now an unbounded-from-above
                 // range.
+                assert(false);
                 criteria_[fact].high.value = k_POS_INF;
             }
         } else {
@@ -129,8 +130,15 @@ struct Goal {
                 return;
             }
 
-            if(criteria_[fact].high.value < k_POS_INF) {
+            if(criteria_[fact].high.value == k_POS_INF) {
+                return;
+            } else if(criteria_[fact].high.value >= amount) {
                 criteria_[fact].high.value -= amount;
+            } else {
+                // uh oh!: the high bound can't tolerate decrementing by this
+                // amount.
+                assert(false);
+                criteria_[fact].high.value = 0;
             }
         } else {
             return;
@@ -256,8 +264,8 @@ class ActionFactory {
         ActionFactory() {}
         virtual ~ActionFactory() {}
 
-        virtual bool compatible(const Goal *desired_goal) = 0;
-        virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(const Goal* desired_goal) = 0;
+        virtual bool compatible(const Goal *desired_goal) const = 0;
+        virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(const Goal* desired_goal) const = 0;
 };
 
 template <class Action, class Goal, class Distance=NonZeroDistance>
@@ -275,12 +283,12 @@ class PlanningMap {
               action_factories_(action_factories) { }
         ~PlanningMap() {}
 
-        bool satisfied(Goal* goal) {
+        bool satisfied(const Goal* goal) const {
             // TODO: is given goal satisfied by the actual world state
             return goal->satisfied(starting_state_, character_context_);
         }
 
-        float heuristic_cost(Goal* goal) {
+        float heuristic_cost(const Goal* goal) const {
             float distance = 0.0f;
             for(int i=0; i<goal->criteria_.size(); i++) {
                 if(goal->set_criteria_[i]) {
@@ -303,15 +311,15 @@ class PlanningMap {
                 }
 
                 neighbors.emplace_back(factory->neighbor(goal));
-                printf("NBR: %s\n", to_string(*neighbors.back().first).c_str());
+                //printf("NBR: %s\n", to_string(*neighbors.back().first).c_str());
             }
             return neighbors;
         }
 
     protected:
         Goal* starting_goal_;
-        cEvent* starting_state_;
-        cEventContext* character_context_;
+        const cEvent* starting_state_;
+        const cEventContext* character_context_;
         std::vector<ActionFactory<Action, Goal>*> action_factories_;
 };
 

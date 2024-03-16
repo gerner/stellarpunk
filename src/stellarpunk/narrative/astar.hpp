@@ -61,7 +61,41 @@ struct ptr_equal_to
     }
 };
 
-template <class State, class Edge, class Map>
+struct AStarFScore {
+    float operator()(float g_score, float h_score) const {
+        return g_score + h_score;
+    }
+};
+struct DjikstraFScore {
+    float operator()(float g_score, float h_score) const {
+        return g_score;
+    }
+};
+struct GreedyFScore {
+    float operator()(float g_score, float h_score) const {
+        return h_score;
+    }
+};
+template<float W=2.5f>
+struct WeightedAStarFScore {
+    float operator()(float g_score, float h_score) const {
+        // weighted A*
+        //const float w = 5.0;
+        return g_score + W*h_score;
+        /*
+        // pxWD and pxWU
+        const float w = 1.5;
+        if(g_score < h_score) {
+            return g_score + h_score;
+            //return (g_score + (2*w - 1) * h_score) / w;
+        } else {
+            return (g_score + (2*w - 1) * h_score) / w;
+            //return g_score + h_score;
+        }*/
+    }
+};
+
+template <class State, class Edge, class Map, class FScore=WeightedAStarFScore<> >
 class AStar {
     public:
         enum CounterKeys : size_t {
@@ -107,7 +141,7 @@ class AStar {
                 std::move(initial_state.second),
                 0.0f,
                 h_score,
-                f_score(0.0f, h_score),
+                FScore()(0.0f, h_score),
                 std::make_pair(std::move(initial_state.first), (const AStarNode<State, Edge>*)NULL)
             );
             open_map.emplace(std::make_pair(
@@ -128,7 +162,7 @@ class AStar {
 
                 // a couple of debug logging options
                 //print_solution(&*current);
-                printf("STEP(%*zu, %*zu): %s\n", 5, open_set.size(), 5, closed_set.size(), to_string(&*current).c_str());
+                //printf("STEP(%*zu, %*zu): %s\n", 5, open_set.size(), 5, closed_set.size(), to_string(&*current).c_str());
 
                 // move from open map to closed map
                 open_map.erase(current->state.get());
@@ -203,7 +237,7 @@ class AStar {
                         State* neighbor_state = nh.value().state.get();
                         nh.value().g_score = tentative_g_score;
                         nh.value().h_score = h_score;
-                        nh.value().f_score = f_score(tentative_g_score, h_score);
+                        nh.value().f_score = FScore()(tentative_g_score, h_score);
                         nh.value().parent = {std::move(neighbor.first), &*current};
                         auto insert_result = open_set.insert(std::move(nh));
                         open_map.emplace(std::make_pair(
@@ -216,7 +250,7 @@ class AStar {
                         State* neighbor_state = nh.value().state.get();
                         nh.value().g_score = tentative_g_score;
                         nh.value().h_score = h_score;
-                        nh.value().f_score = f_score(tentative_g_score, h_score);
+                        nh.value().f_score = FScore()(tentative_g_score, h_score);
                         nh.value().parent = {std::move(neighbor.first), &*current};
                         auto insert_result = open_set.insert(std::move(nh));
                         open_map.emplace(std::make_pair(
@@ -230,7 +264,7 @@ class AStar {
                             std::move(neighbor.second),
                             tentative_g_score,
                             h_score,
-                            f_score(tentative_g_score, h_score),
+                            FScore()(tentative_g_score, h_score),
                             std::make_pair(std::move(neighbor.first), &*current)
                         );
                         open_map.emplace(std::make_pair(
@@ -240,28 +274,6 @@ class AStar {
                 }
             }
             return NULL;
-        }
-
-        float f_score(float g_score, float h_score) {
-            // A*
-            //return g_score + h_score;
-            // djikstra
-            //return g_score;
-            // greedy
-            //return h_score;
-            // weighted A*
-            const float w = 5.0;
-            return g_score + w*h_score;
-            /*
-            // pxWD and pxWU
-            const float w = 1.5;
-            if(g_score < h_score) {
-                return g_score + h_score;
-                //return (g_score + (2*w - 1) * h_score) / w;
-            } else {
-                return (g_score + (2*w - 1) * h_score) / w;
-                //return g_score + h_score;
-            }*/
         }
 
         using NodeContainer = std::set<AStarNode<State, Edge>>;

@@ -12,6 +12,7 @@
 using namespace stellarpunk;
 
 const std::uint64_t POS_INF = std::numeric_limits<std::uint64_t>::max();
+const float FIXED_COST = 1e-4;
 
 enum struct Location : std::uint64_t {
     k_invalid = 0ULL,
@@ -48,27 +49,22 @@ const char* fact_names[] = {
 
 struct FactDistance {
     float operator ()(const std::uint64_t& k, const std::uint64_t& d) const {
-        float dist;
         switch(k) {
-            case (std::uint64_t)Fact::k_money:
             case (std::uint64_t)Fact::k_forest:
+                return 0.0;
+            case (std::uint64_t)Fact::k_money:
             case (std::uint64_t)Fact::k_wood:
                 // money, forest, wood cost 1 each
-                dist = d;
-                break;
+                return d;
             case (std::uint64_t)Fact::k_have_axe:
                 // axes cost 20 but can sell for 10
-                dist = d;
-                break;
+                return d;//*10;
             case (std::uint64_t)Fact::k_location:
                 // either at location or not, going to a location costs 5
-                dist = d>0 ? 5.0 : 0.0;
-                break;
+                return d == 0 ? 0.0 : 5.0;
             default:
                 assert(false); // shouldn't ever see anything else
         }
-
-        return dist;
     }
 };
 
@@ -133,7 +129,7 @@ std::string to_string(const Action& a) {
 
 class BuyAxe : public narrative::ActionFactory<Action, Goal> {
     public:
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         // effect:
         //  get an axe
         //  spend 20 money
@@ -148,7 +144,7 @@ class BuyAxe : public narrative::ActionFactory<Action, Goal> {
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal>> neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
         std::unique_ptr<Goal> g = desired_goal->clone();
         g->exactly((std::uint64_t)Fact::k_location, (std::uint64_t)Location::k_store);
         g->inc((std::uint64_t)Fact::k_money, 20);
@@ -160,14 +156,14 @@ class BuyAxe : public narrative::ActionFactory<Action, Goal> {
 
 class SellAxe : public narrative::ActionFactory<Action, Goal> {
     public:
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         // effect:
         //  remove an axe
         //  get 10 money
         //  will be at the store (but we need someone else to get us there)
         return (
             desired_goal->high((std::uint64_t)Fact::k_have_axe) < POS_INF ||
-            desired_goal->low((std::uint64_t)Fact::k_money) >= 0
+            (desired_goal->low((std::uint64_t)Fact::k_money) >= 0 && desired_goal->high((std::uint64_t)Fact::k_money) >= 10)
         ) && (
             desired_goal->low((std::uint64_t)Fact::k_location) == 0 ||
             desired_goal->low((std::uint64_t)Fact::k_location) == (std::uint64_t)Location::k_store
@@ -175,13 +171,13 @@ class SellAxe : public narrative::ActionFactory<Action, Goal> {
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
         std::unique_ptr<Goal> g = desired_goal->clone();
         g->exactly((std::uint64_t)Fact::k_location, (std::uint64_t)Location::k_store);
         g->dec((std::uint64_t)Fact::k_money, 10);
         g->inc((std::uint64_t)Fact::k_have_axe, 1);
 
-        return { std::make_unique<Action>(20.0, ActionType::k_sell_axe, 1), std::move(g) };
+        return { std::make_unique<Action>(1.0, ActionType::k_sell_axe, 1), std::move(g) };
     }
 };
 
@@ -189,7 +185,7 @@ class GatherWood : public narrative::ActionFactory<Action, Goal> {
     public:
     GatherWood(std::uint64_t chop_amount=1, float chop_fraction=1.0) : chop_amount_(chop_amount), chop_fraction_(chop_fraction) { }
 
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         // effect:
         //  get wood
         //  remove forest
@@ -203,7 +199,7 @@ class GatherWood : public narrative::ActionFactory<Action, Goal> {
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
 
         std::uint64_t amount = amount_to_chop(desired_goal);
 
@@ -212,7 +208,7 @@ class GatherWood : public narrative::ActionFactory<Action, Goal> {
         g->inc((std::uint64_t)Fact::k_forest, amount);
         g->dec((std::uint64_t)Fact::k_wood, amount);
 
-        return { std::make_unique<Action>(10.0*amount+1.0, ActionType::k_gather_wood, amount), std::move(g) };
+        return { std::make_unique<Action>(10.0*amount+FIXED_COST, ActionType::k_gather_wood, amount), std::move(g) };
     }
 
     protected:
@@ -235,7 +231,7 @@ class ChopWood : public narrative::ActionFactory<Action, Goal> {
     public:
     ChopWood(std::uint64_t chop_amount=1, float chop_fraction=1.0) : chop_amount_(chop_amount), chop_fraction_(chop_fraction) { }
 
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         // effect:
         //  get wood
         //  remove forest
@@ -249,15 +245,17 @@ class ChopWood : public narrative::ActionFactory<Action, Goal> {
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
+
         std::uint64_t amount = amount_to_chop(desired_goal);
+
         std::unique_ptr<Goal> g = desired_goal->clone();
         g->exactly((std::uint64_t)Fact::k_location, (std::uint64_t)Location::k_woods);
         g->inc((std::uint64_t)Fact::k_forest, amount);
         g->dec((std::uint64_t)Fact::k_wood, amount);
         g->at_least((std::uint64_t)Fact::k_have_axe, 1);
 
-        return { std::make_unique<Action>(1.0*amount+1.0, ActionType::k_chop_wood, amount), std::move(g) };
+        return { std::make_unique<Action>(1.0*amount+FIXED_COST, ActionType::k_chop_wood, amount), std::move(g) };
     }
 
     protected:
@@ -280,7 +278,7 @@ class SellWood : public narrative::ActionFactory<Action, Goal> {
     public:
     SellWood(std::uint64_t sell_amount=1, float sell_fraction=1.0) : sell_amount_(sell_amount), sell_fraction_(sell_fraction) { }
 
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         // effect:
         //  get money
         //  remove wood
@@ -294,14 +292,14 @@ class SellWood : public narrative::ActionFactory<Action, Goal> {
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
         std::uint64_t amount = amount_to_sell(desired_goal);
         std::unique_ptr<Goal> g = desired_goal->clone();
         g->exactly((std::uint64_t)Fact::k_location, (std::uint64_t)Location::k_store);
         g->dec((std::uint64_t)Fact::k_money, amount);
         g->inc((std::uint64_t)Fact::k_wood, amount);
 
-        return { std::make_unique<Action>(1.0*amount+1.0, ActionType::k_sell_wood, amount), std::move(g) };
+        return { std::make_unique<Action>(1.0*amount+FIXED_COST, ActionType::k_sell_wood, amount), std::move(g) };
     }
     protected:
 
@@ -322,14 +320,14 @@ class SellWood : public narrative::ActionFactory<Action, Goal> {
 
 class GoTo : public narrative::ActionFactory<Action, Goal> {
     public:
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         // effect:
         //  set location to whatever the goal is
         return desired_goal->low((std::uint64_t)Fact::k_location) > 0;
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
         std::unique_ptr<Goal> g = desired_goal->clone();
         std::uint64_t location = desired_goal->low((std::uint64_t)Fact::k_location);
         g->remove((std::uint64_t)Fact::k_location);
@@ -340,12 +338,12 @@ class GoTo : public narrative::ActionFactory<Action, Goal> {
 
 class GrindMoney : public narrative::ActionFactory<Action, Goal> {
     public:
-    virtual bool compatible(const Goal *desired_goal) {
+    virtual bool compatible(const Goal *desired_goal) const {
         return desired_goal->low((std::uint64_t)Fact::k_money) > 0;
     }
 
     virtual std::pair<std::unique_ptr<Action>, std::unique_ptr<Goal> > neighbor(
-            const Goal* desired_goal) {
+            const Goal* desired_goal) const {
         std::unique_ptr<Goal> g = desired_goal->clone();
         g->dec((std::uint64_t)Fact::k_money, 1);
 
@@ -386,11 +384,11 @@ int main(int argc, char** argv) {
     // initial state
     cEvent event;
     cEventContext character_context;
-    character_context[(std::uint64_t)Fact::k_money] = 39;
+    character_context[(std::uint64_t)Fact::k_money] = 41;
     character_context[(std::uint64_t)Fact::k_forest] = 100;
 
     // desired goal
-    std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, 6> cri;
+    std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, (std::uint64_t)Fact::k_COUNT> cri;
     cri[(std::uint64_t)Fact::k_money] = make_criteria(
         50, (std::uint64_t)Fact::k_money, POS_INF
     );
@@ -404,11 +402,14 @@ int main(int argc, char** argv) {
     BuyAxe af_ba;
     SellAxe af_sa;
     GatherWood af_gw_one;
-    GatherWood af_gw_all(10);
+    GatherWood af_gw_half(0,0.5);
+    GatherWood af_gw_all(0);
     ChopWood af_cw_one;
-    ChopWood af_cw_all(10);
+    ChopWood af_cw_half(0,0.5);
+    ChopWood af_cw_all(0);
     SellWood af_sw_one;
-    SellWood af_sw_all(10);
+    SellWood af_sw_half(0,0.5);
+    SellWood af_sw_all(0);
     GoTo af_gt;
 
     narrative::PlanningMap<Action, Goal, FactDistance> map(
@@ -419,15 +420,18 @@ int main(int argc, char** argv) {
             &af_ba,
             &af_sa,
             &af_gw_one,
-            //&af_gw_all,
+            &af_gw_half,
+            &af_gw_all,
             &af_cw_one,
-            //&af_cw_all,
+            &af_cw_half,
+            &af_cw_all,
             &af_sw_one,
-            //&af_sw_all,
+            &af_sw_half,
+            &af_sw_all,
             &af_gt
         }
     );
-    narrative::AStar<Goal, Action, narrative::PlanningMap<Action, Goal, FactDistance>> astar;
+    narrative::AStar<Goal, Action, narrative::PlanningMap<Action, Goal, FactDistance>, narrative::AStarFScore> astar;
 
     const narrative::AStarNode<Goal, Action>* solution;
     for(int i=0; i < 1; i++) {
