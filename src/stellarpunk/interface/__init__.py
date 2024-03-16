@@ -85,8 +85,8 @@ class Icons:
 
     LOCATION_INDICATOR = "X"
 
-    STAR_LARGE = "🞣"
-    STAR_SMALL = "🞟"
+    STAR_LARGE = "*" #"🞣"
+    STAR_SMALL = "." #"🞟"
     STAR_SMALL_ALTS = ["˙", "·", "."]
 
     """

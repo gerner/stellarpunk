@@ -192,7 +192,7 @@ class EventManager(AbstractEventManager):
     ) -> None:
         self.event_queue.append((
             narrative.Event(
-                event_type,
+                int(event_type),
                 context,
                 self.gamestate.entity_context_store,
                 event_args,
