@@ -20,8 +20,8 @@ namespace narrative {
 const std::uint64_t k_POS_INF = std::numeric_limits<std::uint64_t>::max();
 
 struct NonZeroDistance {
-    float operator ()(const std::uint64_t& k, const std::uint64_t& d) const {
-        return d > 0 ? 1 : 0;
+    float operator ()(const std::uint64_t& k, const float& d) const {
+        return d != 0 ? 1 : 0;
     }
 };
 
@@ -258,7 +258,7 @@ std::string to_string(const Goal<N>& g, const char** fact_names=NULL) {
 }
 
 
-template <class Action, class Goal, class Distance=NonZeroDistance>
+template <class Action, class Goal>
 class ActionFactory {
     public:
         ActionFactory() {}
@@ -292,7 +292,7 @@ class PlanningMap {
             float distance = 0.0f;
             for(int i=0; i<goal->criteria_.size(); i++) {
                 if(goal->set_criteria_[i]) {
-                    std::uint64_t d = goal->criteria_[i].distance(starting_state_, character_context_);
+                    float d = goal->criteria_[i].distance(starting_state_, character_context_);
                     distance += Distance{}(goal->criteria_[i].key(), d);
                 }
             }

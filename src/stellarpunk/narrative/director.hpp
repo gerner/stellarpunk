@@ -131,7 +131,7 @@ struct cCriteriaBase {
     cCriteriaBase() {}
     virtual ~cCriteriaBase() {}
     virtual bool evaluate(const cEvent* event, const cEventContext* const character_context) const = 0;
-    virtual std::uint64_t distance(const cEvent* event, const cEventContext* character_context) const = 0;
+    virtual float distance(const cEvent* event, const cEventContext* character_context) const = 0;
     virtual std::uint64_t key() const = 0;
     virtual std::unique_ptr<cCriteriaBase> clone() const = 0;
 };
@@ -159,7 +159,7 @@ struct cCriteria : cCriteriaBase {
         return low_value <= fact_value && fact_value <= high_value;
     }
 
-    virtual std::uint64_t distance(const cEvent* event, const cEventContext* character_context) const {
+    virtual float distance(const cEvent* event, const cEventContext* character_context) const {
         std::uint64_t fact_value = fact.resolve(event, character_context);
         std::uint64_t low_value = low.resolve(event, character_context);
         std::uint64_t high_value = high.resolve(event, character_context);
@@ -167,7 +167,7 @@ struct cCriteria : cCriteriaBase {
         if(fact_value < low_value) {
             return low_value - fact_value;
         } else if (fact_value > high_value) {
-            return fact_value - high_value;
+            return (float)high_value - (float)fact_value;
         } else {
             return 0;
         }

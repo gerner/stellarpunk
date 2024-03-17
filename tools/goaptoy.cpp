@@ -48,17 +48,17 @@ const char* fact_names[] = {
 };
 
 struct FactDistance {
-    float operator ()(const std::uint64_t& k, const std::uint64_t& d) const {
+    float operator ()(const std::uint64_t& k, float& d) const {
         switch(k) {
             case (std::uint64_t)Fact::k_forest:
                 return 0.0;
             case (std::uint64_t)Fact::k_money:
             case (std::uint64_t)Fact::k_wood:
                 // money, forest, wood cost 1 each
-                return d;
+                return d>0?d:0.0;//std::abs(d);
             case (std::uint64_t)Fact::k_have_axe:
                 // axes cost 20 but can sell for 10
-                return d;//*10;
+                return d>0?d*10:-d;//std::abs(d);//*10;
             case (std::uint64_t)Fact::k_location:
                 // either at location or not, going to a location costs 5
                 return d == 0 ? 0.0 : 5.0;
@@ -384,13 +384,13 @@ int main(int argc, char** argv) {
     // initial state
     cEvent event;
     cEventContext character_context;
-    character_context[(std::uint64_t)Fact::k_money] = 41;
+    character_context[(std::uint64_t)Fact::k_money] = 0;
     character_context[(std::uint64_t)Fact::k_forest] = 100;
 
     // desired goal
     std::array<cCriteria<cIntRef, cFlagRef, cIntRef>, (std::uint64_t)Fact::k_COUNT> cri;
     cri[(std::uint64_t)Fact::k_money] = make_criteria(
-        50, (std::uint64_t)Fact::k_money, POS_INF
+        50, (std::uint64_t)Fact::k_money, 50//POS_INF
     );
     /*cri[(std::uint64_t)Fact::k_forest] = make_criteria(
         101, (std::uint64_t)Fact::k_forest, POS_INF
@@ -421,17 +421,17 @@ int main(int argc, char** argv) {
             &af_sa,
             &af_gw_one,
             &af_gw_half,
-            &af_gw_all,
+            //&af_gw_all,
             &af_cw_one,
             &af_cw_half,
-            &af_cw_all,
+            //&af_cw_all,
             &af_sw_one,
             &af_sw_half,
-            &af_sw_all,
+            //&af_sw_all,
             &af_gt
         }
     );
-    narrative::AStar<Goal, Action, narrative::PlanningMap<Action, Goal, FactDistance>, narrative::AStarFScore> astar;
+    narrative::AStar<Goal, Action, narrative::PlanningMap<Action, Goal, FactDistance>, narrative::WeightedAStarFScore<2.5f>> astar;
 
     const narrative::AStarNode<Goal, Action>* solution;
     for(int i=0; i < 1; i++) {
