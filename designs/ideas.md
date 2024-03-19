@@ -20,7 +20,90 @@ here." And then someone else responds, "I heard you can find good deals in
 sector XYZ" or something. Maybe this is real info, but it doesn't have to be to
 create a sense of life.
 
-## Sources
+### Characters can do Quests and AI Planning
+
+Consider the tutorial event chain:
+
+ * player gets a message from tutorial guy to come see him -> dialog -> start
+   (or skip) the tutorial.
+ * player goes to gather resources
+ * player trades resources at the tutorial station
+
+What if we want any NPC to do this event chain? We could put some goals to that
+NPC to accomplish the relevant tasks in the chain: go see the tutorial guy,
+gather enough of the relevant resource, trade the resource with the right
+station. We express each of these steps as some state. In fact, we have already
+done that in our event system as the followup events!. And if we can do that,
+we should be able to build a plan of actions our AI can follow to accomplish
+those quest tasks.
+
+Suppose that our AI can do things like:
+
+* Action: Talk with a given NPC
+  * parameters: `who`
+  * prec: `player.location=$who.location`
+  * postc: `talk.character=$who`
+* Action: Go to a given sector entity
+  * parameters: `where`
+  * prec: `player.location.is_ship`
+  * postc: `player.location=$where`
+* Action: Scout for resources (or scout for a given resource)
+  * parameters: `resource`
+  * prec: `player.location.is_ship`
+  * postc: `resource_intel.resource=$resource`
+* Action: Mine a resource of given resource
+  * parameters: `resource, amount`
+  * prec: `resource_intel.$resource=$resource, player.location=resource_intel.location`
+  * postc: `cargo.$resource=$amount`
+* Action: Trade a given amount of a given resource at a given station
+  * parameter: `resource, where, amount`
+  * prec: `cargo.$resource=$amount, player.location=$where`
+  * postc: `trade.location=$where, trade.resource=$resource, trade.amount=$amount`
+
+If we can express our goals like so:
+
+* Goal: Talk to tutorial guy
+  * parameters: `who=$tutorial_guy`
+  * desire: `talk.character=$who`
+* Goal: Gather tutorial amount of tutorial resource
+  * parameters: `resource=$resource, amount=$amount`
+  * desire: `cargo.$resource=$amount`
+* Goal: Trade tutorial amount of tutorial reosource with tutorial station
+  * parameters: `where=$where, amount=$amount, resource=$resource`
+  * desire: `trade.amount=$amount, trade.resource=$resource, trade.location=$where`
+
+For each of those goals we should be able to assemble a sequence of actions
+that accomplishes the desired goal using a technique like Goal Oriented Action
+Planning (GOAP).
+
+In fact, we could just jump to that last goal (of wanting to trade the resource
+to the station) and come up with the relevant plan. The tutorial (which is
+strictly structured in the above steps) is sort of spoon feeding you a coarse
+plan.
+
+#### Issues
+
+Things like "trade", "talk", seem like instances that might co-exist with other instances of the same type. Do we model that? how do we select one particular trade and make it clear that we are talking about that same instance when we say things like `trade.resource=$foo` and `trade.amount=$bar`? Will we ever want to have two instances at the same time? Notationally we could do something like `trade1 = select(trade)`, `trade2 = select(trade)`.
+
+There's probably some weirdness about the  parameter binding I'm doing above.
+
+# Sources
+
+## AI Planning
+
+### Applying Goal Oriented Action Planning to Games
+* [paper](https://alumni.media.mit.edu/~jorkin/GOAP_draft_AIWisdom2_2003.pdf)
+
+### Three States and a Plan: The A.I. of F.E.A.R.
+* [paper](http://alumni.media.mit.edu/~jorkin/gdc2006_orkin_jeff_fear.pdf)
+
+### Building the AI of F.E.A.R. with Goal Oriented Action Planning | AI 101
+* [video](https://www.youtube.com/watch?v=PaOLBOuyswI)
+
+### Exploring HTN Planners through Example
+* [chapter](http://www.gameaipro.com/GameAIPro/GameAIPro_Chapter12_Exploring_HTN_Planners_through_Example.pdf)
+
+## Events, Storytelling, Narrative Systems
 
 ### Monster Train feedback system, "press F8 to give feedback":
 * Roguelike Celebration talk by Brian Cronin of Shiny Shoe

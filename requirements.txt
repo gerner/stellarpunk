@@ -9,8 +9,14 @@ msgpack
 imageio
 rtree
 tqdm
+toml
+pysdl2
+pysdl2-dll
+cython
+cymunk @ git+https://github.com/gerner/cymunk@a43d9aa
 
 # dev dependencies
+mypy
 pytest
 pytest-repeat
 jupyter

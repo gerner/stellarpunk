@@ -6,8 +6,8 @@ from typing import Tuple, Mapping, Dict, Any, Iterable, List
 from libc.stdint cimport uint64_t
 from libcpp cimport bool
 from libcpp.unordered_map  cimport unordered_map
-from libcpp.vector  cimport vector
-from libcpp.memory  cimport unique_ptr, make_unique
+from libcpp.vector cimport vector
+from libcpp.memory cimport unique_ptr, make_unique
 from libcpp.utility cimport move
 from cpython.ref cimport PyObject
 from cython.operator cimport dereference, preincrement
@@ -287,7 +287,7 @@ cdef class Director:
     cdef cDirector director
     cdef object rules
 
-    def __cinit__(self, rules:Dict[int, Iterable[Rule]]):
+    def __cinit__(self, rules:Mapping[int, Iterable[Rule]]):
         cdef unordered_map[uint64_t, vector[unique_ptr[cRule]]] c_rules;
 
         for k, v in rules.items():

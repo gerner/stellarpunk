@@ -1,3 +1,6 @@
+#ifndef NARRATIVE_DIRECTOR_H
+#define NARRATIVE_DIRECTOR_H
+
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
@@ -39,22 +42,26 @@ struct cIntRef {
         value = v;
     }
 
-    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+    std::uint64_t resolve(const cEvent* event, const cEventContext* character_context) const {
         return value;
+    }
+
+    std::uint64_t key() const {
+        return 0;
     }
 };
 
 struct cFlagRef {
     std::uint64_t fact;
 
-    cFlagRef() {
+    cFlagRef() : fact(0) {
     }
 
     cFlagRef(std::uint64_t f) {
         fact = f;
     }
 
-    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+    std::uint64_t resolve(const cEvent* event, const cEventContext* character_context) const {
         //printf("resolving %lu\n", fact);
         auto itr = event->event_context.find(fact);
         if(itr != event->event_context.end()) {
@@ -68,6 +75,10 @@ struct cFlagRef {
         }
 
         return 0;
+    }
+
+    std::uint64_t key() const {
+        return fact;
     }
 };
 
@@ -83,7 +94,7 @@ struct cEntityRef {
         sub_fact = sf;
     }
 
-    std::uint64_t resolve(cEvent* event, cEventContext* character_context) const {
+    std::uint64_t resolve(const cEvent* event, const cEventContext* character_context) const {
         //printf("resolving $%lu.%lu\n", entity_fact, sub_fact);
         std::uint64_t entity_id;
         auto itr = event->event_context.find(entity_fact);
@@ -110,12 +121,19 @@ struct cEntityRef {
         }
         return 0;
     }
+
+    std::uint64_t key() const {
+        return sub_fact;
+    }
 };
 
 struct cCriteriaBase {
     cCriteriaBase() {}
     virtual ~cCriteriaBase() {}
-    virtual bool evaluate(cEvent* event, cEventContext* character_context) const = 0;
+    virtual bool evaluate(const cEvent* event, const cEventContext* const character_context) const = 0;
+    virtual float distance(const cEvent* event, const cEventContext* character_context) const = 0;
+    virtual std::uint64_t key() const = 0;
+    virtual std::unique_ptr<cCriteriaBase> clone() const = 0;
 };
 
 template<class L, class F, class U>
@@ -133,22 +151,51 @@ struct cCriteria : cCriteriaBase {
         high = h;
     }
 
-    virtual bool evaluate(cEvent* event, cEventContext* character_context) const {
+    virtual bool evaluate(const cEvent* event, const cEventContext* character_context) const {
         std::uint64_t fact_value = fact.resolve(event, character_context);
         std::uint64_t low_value = low.resolve(event, character_context);
         std::uint64_t high_value = high.resolve(event, character_context);
         //printf("comparing %lu <= %lu <= %lu\n", low_value, fact_value, high_value);
         return low_value <= fact_value && fact_value <= high_value;
     }
+
+    virtual float distance(const cEvent* event, const cEventContext* character_context) const {
+        std::uint64_t fact_value = fact.resolve(event, character_context);
+        std::uint64_t low_value = low.resolve(event, character_context);
+        std::uint64_t high_value = high.resolve(event, character_context);
+
+        if(fact_value < low_value) {
+            return low_value - fact_value;
+        } else if (fact_value > high_value) {
+            return (float)high_value - (float)fact_value;
+        } else {
+            return 0;
+        }
+    }
+
+    virtual std::uint64_t key() const {
+        return fact.key();
+    }
+
+    virtual std::unique_ptr<cCriteriaBase> clone() const {
+        return std::make_unique<cCriteria<L, F, U>>(low, fact, high);
+    }
+
+    operator bool() const {
+        return key() > 0;
+    }
 };
 
+
 struct UBuilder {
+    virtual ~UBuilder() {}
     virtual std::unique_ptr<cCriteriaBase> addU(cIntRef u) = 0;
     virtual std::unique_ptr<cCriteriaBase> addU(cFlagRef u) = 0;
     virtual std::unique_ptr<cCriteriaBase> addU(cEntityRef u) = 0;
 };
 
 struct FBuilder {
+    virtual ~FBuilder() {}
     virtual std::unique_ptr<UBuilder> addF(cIntRef f) = 0;
     virtual std::unique_ptr<UBuilder> addF(cFlagRef f) = 0;
     virtual std::unique_ptr<UBuilder> addF(cEntityRef f) = 0;
@@ -353,3 +400,5 @@ class cDirector {
             return matches;
         }
 };
+
+#endif /* NARRATIVE_DIRECTOR_H */

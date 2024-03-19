@@ -1331,7 +1331,7 @@ class UniverseGenerator:
             while reject:
                 reject = False
                 for hit in sector_loc_index.intersection((coords[0]-radius, coords[1]-radius, coords[0]+radius, coords[1]+radius), True):
-                    other_coords, other_radius = hit.object
+                    other_coords, other_radius = hit.object # type: ignore
                     if util.distance(coords, other_coords) < radius + other_radius:
                         reject = True
                         break
@@ -1417,11 +1417,11 @@ class UniverseGenerator:
             )
             segment = (a[0],a[1],b[0],b[1])
             collision = False
-            for (hit, ids) in edge_index.intersection(bbox, objects="raw"):
+            for (hit, ids) in edge_index.intersection(bbox, objects="raw"): # type: ignore
                 # ignore segments that share an endpoint
-                if source_id in ids or dest_id in ids:
+                if source_id in ids or dest_id in ids: # type: ignore
                     continue
-                if util.segments_intersect(segment, hit):
+                if util.segments_intersect(segment, hit): # type: ignore
                     collision = True
                     break
             if collision:

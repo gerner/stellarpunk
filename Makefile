@@ -24,3 +24,10 @@ test:
 
 lint:
 	flake8 src/stellarpunk/ tests/
+
+GOAPTOY_SRC:=tools/goaptoy.cpp
+goaptoy: build/goaptoy
+
+build/goaptoy: $(shell find src/stellarpunk/narrative -name *.hpp) $(GOAPTOY_SRC)
+	#c++ -Isrc/stellarpunk/narrative/ -fsanitize=address -g -O0 -std=c++20 -o build/goaptoy $(GOAPTOY_SRC)
+	c++ -Isrc/stellarpunk/narrative/ -g -O2 -std=c++20 -o build/goaptoy $(GOAPTOY_SRC)

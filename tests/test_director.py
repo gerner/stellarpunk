@@ -118,7 +118,7 @@ def test_parse_eval():
     e2.set_flag(CK.baz, 21)
 
     event = director.Event(
-        ET.start_game,
+        int(ET.start_game),
         event_context,
         entity_store,
         {"awesome": "sauce"}

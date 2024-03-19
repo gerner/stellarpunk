@@ -1,4 +1,4 @@
-# Ideas
+# Content Ideas
 
 ## Modempunk
 
