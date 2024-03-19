@@ -1,6 +1,7 @@
 #ifndef NARRATIVE_ASTAR_H
 #define NARRATIVE_ASTAR_H
 
+#include <sstream>
 #include <set>
 #include <map>
 #include <limits>
@@ -288,6 +289,27 @@ class AStar {
 
         std::uint64_t counters_[k_cnt_LEN] = { 0 };
 };
+
+template <class State, class Edge>
+std::string to_string(const stellarpunk::narrative::AStarNode<State, Edge>* solution, const char** fact_names=NULL) {
+    std::ostringstream s;
+    s << to_string(*solution->parent.first) << std::string(" ");
+    s << to_string(*solution->state, fact_names) << " ";
+    s << "h_score: " << solution->h_score << " ";
+    s << "g_score: " << solution->g_score << " ";
+    s << "f_score: " << solution->f_score << " ";
+    s << "cost: " << solution->parent.first->cost();
+
+    return s.str();
+}
+
+template <class State, class Edge>
+void print_solution(const narrative::AStarNode<State, Edge>* solution, const char** fact_names=NULL) {
+    while(solution != NULL) {
+        printf("%s\n", to_string(solution).c_str());
+        solution = solution->parent.second;
+    }
+}
 
 } // namespace narrative
 } // namespace stellarpunk

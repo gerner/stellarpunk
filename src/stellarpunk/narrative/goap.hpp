@@ -224,7 +224,7 @@ struct Goal {
     }
 };
 
-std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c, const char** fact_names) {
+std::string to_string(const cCriteria<cIntRef, cFlagRef, cIntRef>& c, const char** fact_names=NULL) {
     std::ostringstream s;
     s << c.low.value << " <= ";
     if(fact_names) {

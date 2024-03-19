@@ -14,19 +14,7 @@ using namespace stellarpunk;
 const std::uint64_t POS_INF = std::numeric_limits<std::uint64_t>::max();
 const float FIXED_COST = 1e-4;
 
-enum struct Location : std::uint64_t {
-    k_invalid = 0ULL,
-    k_none,
-    k_woods,
-    k_store
-};
-
-const char* location_names[] = {
-    "INVALID",
-    "NONE",
-    "woods",
-    "store"
-};
+// Facts that describe the world
 
 enum struct Fact : std::uint64_t {
     k_invalid = 0ULL,
@@ -46,6 +34,25 @@ const char* fact_names[] = {
     "wood",
     "location"
 };
+
+// location is a non-scalar fact with named states
+
+enum struct Location : std::uint64_t {
+    k_invalid = 0ULL,
+    k_none,
+    k_woods,
+    k_store
+};
+
+const char* location_names[] = {
+    "INVALID",
+    "NONE",
+    "woods",
+    "store"
+};
+
+// heuristic estimate of the cost to move d points for one fact
+// this must be a lower bound of the cost for A* to work
 
 struct FactDistance {
     float operator ()(const std::uint64_t& k, float& d) const {
@@ -67,6 +74,15 @@ struct FactDistance {
         }
     }
 };
+
+cCriteria<cIntRef, cFlagRef, cIntRef> make_criteria(
+        std::uint64_t l,
+        std::uint64_t f,
+        std::uint64_t h) {
+    return cCriteria<cIntRef, cFlagRef, cIntRef>(l, f, h);
+}
+
+// actions that can be taken
 
 enum struct ActionType : size_t {
     k_null = 0,
@@ -90,12 +106,9 @@ const char* action_names[] = {
     "go_to"
 };
 
-cCriteria<cIntRef, cFlagRef, cIntRef> make_criteria(
-        std::uint64_t l,
-        std::uint64_t f,
-        std::uint64_t h) {
-    return cCriteria<cIntRef, cFlagRef, cIntRef>(l, f, h);
-}
+// logic that implements reasoning about and taking those actions
+// these are "factories" that can create instances of actions taking us from
+// state to another
 
 struct Action {
     //TODO: TBD information about using this action later: type, parameters
@@ -112,20 +125,6 @@ struct Action {
 };
 
 using Goal = narrative::Goal<(size_t)Fact::k_COUNT>;
-
-std::string to_string(const Action& a) {
-    std::ostringstream s;
-    s << action_names[(size_t)a.action_type_];
-    switch(a.action_type_) {
-        case ActionType::k_go_to:
-            s << "(" << location_names[a.action_param_] << ")";
-            break;
-        default:
-            s << "(" << a.action_param_ << ")";
-    }
-    return s.str();
-
-}
 
 class BuyAxe : public narrative::ActionFactory<Action, Goal> {
     public:
@@ -351,23 +350,18 @@ class GrindMoney : public narrative::ActionFactory<Action, Goal> {
     }
 };
 
-std::string to_string(const narrative::AStarNode<Goal, Action>* solution) {
+std::string to_string(const Action& a) {
     std::ostringstream s;
-    s << to_string(*solution->parent.first) << " ";
-    s << narrative::to_string(*solution->state, fact_names) << " ";
-    s << "h_score: " << solution->h_score << " ";
-    s << "g_score: " << solution->g_score << " ";
-    s << "f_score: " << solution->f_score << " ";
-    s << "cost: " << solution->parent.first->cost_;
-
-    return s.str();
-}
-
-void print_solution(const narrative::AStarNode<Goal, Action>* solution) {
-    while(solution != NULL) {
-        printf("%s\n", to_string(solution).c_str());
-        solution = solution->parent.second;
+    s << action_names[(size_t)a.action_type_];
+    switch(a.action_type_) {
+        case ActionType::k_go_to:
+            s << "(" << location_names[a.action_param_] << ")";
+            break;
+        default:
+            s << "(" << a.action_param_ << ")";
     }
+    return s.str();
+
 }
 
 int main(int argc, char** argv) {
@@ -447,7 +441,7 @@ int main(int argc, char** argv) {
         printf("no solution found\n");
     } else {
         printf("solution cost %f\n", solution->g_score);
-        print_solution(solution);
+        narrative::print_solution(solution, fact_names);
     }
 
     return 0;
