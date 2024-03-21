@@ -131,7 +131,7 @@ class KeyDemo(interface.View):
 class InterfaceManager:
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.mixer = audio.Mixer()
-        self.interface = interface.Interface(gamestate, self.mixer)
+        self.interface = interface.Interface(gamestate, generator, self.mixer)
         self.gamestate = gamestate
         self.generator = generator
         self.event_manager = event_manager

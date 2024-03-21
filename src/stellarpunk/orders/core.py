@@ -20,9 +20,19 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         super().__init__(*args, **kwargs)
         self.target = target
         self.max_dist = max_dist
-        self.amount = amount
+        self.amount = min(amount, self.ship.cargo_capacity)
         self.mining_effect:Optional[effects.MiningEffect] = None
         self.mining_rate = 2e1
+
+    def estimate_eta(self) -> float:
+        docking_eta = DockingOrder.compute_eta(self.ship, self.target)
+        if docking_eta > 0:
+            return docking_eta + 5 + self.amount / self.mining_rate
+        elif self.mining_effect is not None:
+            return self.mining_effect.estimate_eta()
+        else:
+            raise Exception("no docking time, but also no mining effect")
+
 
     def _begin(self) -> None:
         self.init_eta = (

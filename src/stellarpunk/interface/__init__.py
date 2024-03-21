@@ -22,7 +22,7 @@ from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import util, core, config
+from stellarpunk import util, core, config, generate
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -473,9 +473,10 @@ class AbstractMixer:
         pass
 
 class AbstractInterface(abc.ABC):
-    def __init__(self, gamestate:core.Gamestate, mixer: AbstractMixer) -> None:
+    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, mixer: AbstractMixer) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
+        self.generator = generator
         self.mixer = mixer
         self.views:List[View] = []
 

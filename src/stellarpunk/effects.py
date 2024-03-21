@@ -32,6 +32,9 @@ class TransferCargoEffect(core.Effect):
         self.source = source
         self.destination = destination
 
+    def estimate_eta(self) -> float:
+        return self.amount / self.transfer_rate - (self.gamestate.timestamp - self.started_at)
+
     def _begin(self) -> None:
         amount = self._amount()
         if amount == 0.:

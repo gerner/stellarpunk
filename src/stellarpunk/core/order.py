@@ -170,6 +170,12 @@ class Order:
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
 
+    def estimate_eta(self) -> float:
+        if self.started_at > 0:
+            return self.init_eta - (self.gamestate.timestamp - self.started_at)
+        else:
+            return self.init_eta
+
     def observe(self, observer:OrderObserver) -> None:
         self.observers.append(observer)
 

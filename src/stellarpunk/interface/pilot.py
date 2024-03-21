@@ -656,14 +656,19 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         label_location = "location:"
         label_heading = "heading:"
         label_order = "order:"
+        label_eta = "eta:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
+
         self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
-
         status_y += 5
+        if current_order is not None:
+            eta = current_order.estimate_eta()
+            self.viewscreen.addstr(status_y, status_x, f'{label_eta:>12} {eta:.1f}s')
+            status_y += 1
 
         if isinstance(current_order, movement.GoToLocation):
             # distance

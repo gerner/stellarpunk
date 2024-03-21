@@ -17,9 +17,7 @@ import cymunk # type: ignore
 from rtree import index # type: ignore
 import graphviz # type: ignore
 
-#TODO: we should not import interface here. we just do it to get interface.starfield, which could not import interface, but does
-from stellarpunk import util, core, orders, agenda, econ, config, interface, events
-from stellarpunk.interface import starfield
+from stellarpunk import util, core, orders, agenda, econ, config, events
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1

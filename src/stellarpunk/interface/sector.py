@@ -278,19 +278,16 @@ class SectorView(interface.View, interface.PerspectiveObserver):
                 except Exception:
                     raise command_input.UserError("need two int args for x,y pos")
 
-            #TODO: dropped this to break the dependency on generate
-            #self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
+            self.interface.generator.spawn_ship(self.sector, x, y, v=np.array((0,0)), w=0)
 
         def spawn_collision(args:Sequence[str])->None:
             pass
-            #TODO: dropped this to break the dependency on generate
-            #self.interface.generator.spawn_ship(self.sector, 0, 1100, v=np.array((0,0)), w=0)
-            #self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
+            self.interface.generator.spawn_ship(self.sector, 0, 1100, v=np.array((0,0)), w=0)
+            self.interface.generator.spawn_ship(self.sector, 0, 2200, v=np.array((0,0)), w=0)
 
         def spawn_resources(args:Sequence[str])->None:
             x,y = self.perspective.cursor
-            #TODO: dropped this to break the dependency on generate
-            #self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
+            self.interface.generator.spawn_resource_field(self.sector, x, y, 0, 1e6)
 
         def pilot(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):

@@ -48,8 +48,8 @@ def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, shi
     return player
 
 @pytest.fixture
-def testui(gamestate:core.Gamestate, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(sector, gamestate, interface.AbstractMixer())
+def testui(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector) -> MonitoringUI:
+    return MonitoringUI(sector, gamestate, generator, interface.AbstractMixer())
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:
