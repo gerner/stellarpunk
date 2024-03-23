@@ -41,7 +41,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.interface.viewscreen,
             zoom=self.sector.radius/80/2,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=25*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
+            max_zoom=25*8*config.Settings.generate.SectorEntities.ship.RADIUS/80.,
         )
         self.perspective.observe(self)
 

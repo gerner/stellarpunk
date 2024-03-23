@@ -232,54 +232,63 @@
         ]
 
     [generate.SectorEntities]
-        STATION_RADIUS = 300
+        [generate.SectorEntities.station]
+            RADIUS = 300
+        [generate.SectorEntities.ship]
 
-        # soyuz 5000 - 10000kg
-        # dragon capsule 4000kg
-        # shuttle orbiter 78000kg
+            # soyuz 5000 - 10000kg
+            # dragon capsule 4000kg
+            # shuttle orbiter 78000kg
 
-        # ship mass in kilograms
-        SHIP_MASS = 2e3
+            # ship mass in kilograms
+            MASS = 2e3
 
-        # soyuz: 7-10m long
-        # shuttle orbiter: 37m long
-        # spacex dragon: 6.1m
-        # spacex starship: 120m long
+            # soyuz: 7-10m long
+            # shuttle orbiter: 37m long
+            # spacex dragon: 6.1m
+            # spacex starship: 120m long
 
-        # ship radius in meters
-        SHIP_RADIUS = 30.0
+            # ship radius in meters
+            RADIUS = 30.0
 
-        # one raptor: 1.81 MN
-        # one SSME: 2.279 MN
-        # OMS main engine: 26.7 kN
-        # KTDU-80 main engine: 2.95 kN
-        #max_thrust = 5e5
-        # 5e5 translates to 250m/s^2 which is over 25 gs
+            # one raptor: 1.81 MN
+            # one SSME: 2.279 MN
+            # OMS main engine: 26.7 kN
+            # KTDU-80 main engine: 2.95 kN
+            #max_thrust = 5e5
+            # 5e5 translates to 250m/s^2 which is over 25 gs
 
-        # max forward thrust in newtons
-        MAX_THRUST = 2e5
+            # max forward thrust in newtons
+            MAX_THRUST = 2e5
 
-        # one draco: 400 N (x16 on Dragon)
-        # OMS aft RCS: 3.87 kN
-        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
-        # some speculation that starship thrusters can do 100-200 kN
-        #max_fine_thrust = 5e3
+            # one draco: 400 N (x16 on Dragon)
+            # OMS aft RCS: 3.87 kN
+            # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
+            # some speculation that starship thrusters can do 100-200 kN
+            #max_fine_thrust = 5e3
 
-        # max unidirectional thrust in newtons
-        MAX_FINE_THRUST = 1.5e4
+            # max unidirectional thrust in newtons
+            MAX_FINE_THRUST = 1.5e4
 
-        # note about g-forces:
-        # assuming circle of radius 30m, mass 2e3 kg
-        # mass moment 18,000,000 kg m^2
-        # centriptal acceleration = r * w^2
-        # 1g at 30m with angular velocity of 0.57 rad/sec
-        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
-        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
-        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
-        # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
-        # starting from zero
-        # space shuttle doesn't exeed 3g during ascent
+            # note about g-forces:
+            # assuming circle of radius 30m, mass 2e3 kg
+            # mass moment 18,000,000 kg m^2
+            # centriptal acceleration = r * w^2
+            # 1g at 30m with angular velocity of 0.57 rad/sec
+            # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
+            # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
+            # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
+            # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
+            # starting from zero
+            # space shuttle doesn't exeed 3g during ascent
 
-        # max torque in newton-meters
-        # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
-        MAX_TORQUE = 2.7e6
+            # max torque in newton-meters
+            # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
+            MAX_TORQUE = 2.7e6
+
+        [generate.SectorEntities.missile]
+            MASS = 2e2
+            RADIUS = 3
+            MAX_THRUST = 1e5
+            MAX_FINE_THRUST = 5e3
+            MAX_TORQUE = 9e4

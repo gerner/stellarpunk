@@ -5,7 +5,7 @@ import uuid
 import collections
 import gzip
 import json
-from typing import Optional, Dict, Mapping, Any, Deque, Sequence, Union, TextIO, Iterable, TYPE_CHECKING
+from typing import Optional, Dict, Mapping, Any, Deque, Sequence, Union, TextIO, Iterable, TYPE_CHECKING, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -24,15 +24,17 @@ class ObjectType(enum.IntEnum):
     PLANET = enum.auto()
     ASTEROID = enum.auto()
     TRAVEL_GATE = enum.auto()
+    MISSILE = enum.auto()
 
 
-class ObjectFlag(enum.IntFlag):
-    # note: with pymunk we get up to 32 of these (depending on the c-type?)
-    SHIP = enum.auto()
-    STATION = enum.auto()
-    PLANET = enum.auto()
-    ASTEROID = enum.auto()
-    GATE = enum.auto()
+#class ObjectFlag(enum.IntFlag):
+#    # note: with pymunk we get up to 32 of these (depending on the c-type?)
+#    SHIP = enum.auto()
+#    STATION = enum.auto()
+#    PLANET = enum.auto()
+#    ASTEROID = enum.auto()
+#    GATE = enum.auto()
+#    MISSILE = enum.auto()
 
 
 class HistoryEntry:
@@ -81,6 +83,12 @@ class HistoryEntry:
             "o": self.order_hist,
         }
 
+class SectorEntityObserver:
+    def entity_migrated(self, entity:"SectorEntity", from_sector:"sector.Sector", to_sector:"sector.Sector") -> None:
+        pass
+
+    def entity_destroyed(self, entity:"SectorEntity") -> None:
+        pass
 
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
@@ -112,6 +120,31 @@ class SectorEntity(Entity):
 
         # who is responsible for this entity?
         self.captain: Optional["character.Character"] = None
+
+        self.observers:Set[SectorEntityObserver] = set()
+
+    def observe(self, observer:SectorEntityObserver) -> None:
+        self.observers.add(observer)
+
+    def unobserve(self, observer:SectorEntityObserver) -> None:
+        self.observers.remove(observer)
+
+    def migrate(self, to_sector:"sector.Sector") -> None:
+        if self.sector is None:
+            raise Exception("cannot migrate if from sector is None")
+        from_sector = self.sector
+        if self.sector is not None:
+            self.sector.remove_entity(self)
+        to_sector.add_entity(self)
+        for o in self.observers:
+            o.entity_migrated(self, from_sector, to_sector)
+
+    def destroy(self) -> None:
+        if self.sector is None:
+            raise Exception("cannot destroy if from sector is None")
+        self.sector.remove_entity(self)
+        for o in self.observers:
+            o.entity_destroyed(self)
 
     @property
     def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)

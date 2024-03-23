@@ -1064,7 +1064,7 @@ cdef class Navigator:
             delta speed between current and target
         """
 
-        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, self.max_speed, dt, safety_factor)
+        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, self.max_speed, dt, safety_factor, 0.0)
 
         return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
@@ -1145,7 +1145,7 @@ cdef class Navigator:
         # start by considering prior threats
         for shape_id in self.prior_threat_ids:
             shape = self.space._shapes.get(shape_id)
-            if shape_id is not None:
+            if shape is not None:
                 _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &self.analysis)
 
         # grab a copy of the shape ids for prior shapes
@@ -1599,7 +1599,7 @@ cdef struct DeltaVResult:
     bool cannot_stop
     double delta_speed
 
-cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_location, double arrival_distance, double min_distance, double max_acceleration, double max_angular_acceleration, double max_speed, double dt, double safety_factor):
+cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_location, double arrival_distance, double min_distance, double max_acceleration, double max_angular_acceleration, double max_speed, double dt, double safety_factor, double final_speed):
     """ Given goto location params, determine the desired velocity.
 
     returns a tuple:
@@ -1648,13 +1648,18 @@ cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_loc
         if s < 0:
             s = 0
 
-        desired_speed = (-2. * a * rot_time + sqrt((2. * a  * rot_time) ** 2. + 8 * a * s))/2.
+        desired_speed = (-2. * a * rot_time + sqrt((2. * a  * rot_time) ** 2. + 8 * a * s))/2. + final_speed
         desired_speed = clip(desired_speed/safety_factor, 0, max_speed)
 
         target_v = ccymunk.cpvmult(ccymunk.cpvmult(course, 1./distance), desired_speed)
 
     return DeltaVResult(target_v, distance, distance_estimate, cannot_stop, fabs(ccymunk.cpvlength(body.v) - desired_speed))
 
+def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_radius:float, min_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, safety_factor:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]:
+    cdef ccymunk.Body cBody = <ccymunk.Body?> body
+    cdef DeltaVResult result = _find_target_v(cBody._body, target_location.v, arrival_radius, min_distance, max_acceleration, max_angular_acceleration, max_speed, dt, safety_factor, final_speed)
+
+    return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,

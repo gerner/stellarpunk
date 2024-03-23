@@ -138,6 +138,10 @@ def screen_to_sector(
     )
 
 @jit(cache=True, nopython=True, fastmath=True)
+def circle_bbox(loc:npt.NDArray[np.float64], r:float) -> Tuple[float, float, float, float]:
+    return (loc[0]-r, loc[1]-r, loc[0]+r, loc[1]+r)
+
+@jit(cache=True, nopython=True, fastmath=True)
 def magnitude(x:float, y:float) -> float:
     return math.sqrt(x*x + y*y)
 

@@ -89,6 +89,8 @@ class Effect(abc.ABC):
         effect is done. The default act will call this if is_complete.
         """
 
+        if self.completed_at > 0:
+            return
         self.completed_at = self.gamestate.timestamp
         self._complete()
 

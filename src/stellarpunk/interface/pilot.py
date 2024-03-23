@@ -220,6 +220,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.ship = ship
         if self.ship.sector is None:
             raise ValueError("ship must be in a sector to pilot")
+        self.sector = self.ship.sector
 
         # perspective on the sector, zoomed so the player ship's shape is
         # barely visible on screen
@@ -227,7 +228,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.interface.viewscreen,
             zoom=self.ship.radius,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=2*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
+            max_zoom=2*8*config.Settings.generate.SectorEntities.ship.RADIUS/80.,
         )
         self.perspective.observe(self)
 
@@ -241,7 +242,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self._cached_radar_zoom = 0.
         self._cached_radar:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
 
-        self.presenter = presenter.Presenter(self.gamestate, self, self.ship.sector, self.perspective)
+        self.presenter = presenter.Presenter(self.gamestate, self, self.sector, self.perspective)
 
         # indicates if the ship should follow its orders, or direct player
         # control
@@ -305,12 +306,21 @@ class PilotView(interface.View, interface.PerspectiveObserver):
                 cargo_lines.append(f'\t{name:>{resource_width}}: {amount:>{amount_width}.2f}')
             self.interface.log_message("\n".join(cargo_lines))
 
+        def spawn_missile(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+            loc = self.interface.generator._gen_sector_location(self.sector, center=self.ship.loc + util.polar_to_cartesian(100, self.ship.angle), occupied_radius=75, radius=300)
+            v = util.polar_to_cartesian(100, self.ship.angle)
+            spawned_missile = self.interface.generator.spawn_missile(self.sector, loc[0], loc[1], v=v, w=0.0)
+            core.missile.setup_missile(spawned_missile, self.selected_entity, self.gamestate)
+
         return [
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
             self.bind_command("dock", order_dock),
             self.bind_command("cargo", log_cargo),
+            self.bind_command("spawn_missile", spawn_missile),
         ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:

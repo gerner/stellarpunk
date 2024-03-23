@@ -404,9 +404,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         # go fast! until we're "out of sector"
         if self.gamestate.timestamp - self.travel_start_time > self.travel_time:
             # move from current sector to destination sector
-            self.ship.sector.remove_entity(self.ship)
-            self.ship.sector = self.target_gate.destination
-            self.ship.sector.add_entity(self.ship)
+            self.ship.migrate(self.target_gate.destination)
 
             # set position with enough runway to come to a full stop
             min_r = self.target_gate.destination.radius * 2

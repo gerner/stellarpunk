@@ -8,6 +8,8 @@ def make_enclosing_circle(
 
 def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Vec2d, vel:cymunk.Vec2d, margin:float, v_d:cymunk.Vec2d, cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> cymunk.Vec2d: ...
 
+def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, safety_factor:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
+
 class Navigator:
     def __init__(
             self, space:cymunk.Space, body:cymunk.Body,

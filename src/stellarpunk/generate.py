@@ -485,7 +485,7 @@ class UniverseGenerator:
 
         assert resource < self.gamestate.production_chain.num_products
 
-        station_radius = config.Settings.generate.SectorEntities.STATION_RADIUS
+        station_radius = config.Settings.generate.SectorEntities.station.RADIUS
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -534,11 +534,11 @@ class UniverseGenerator:
 
     def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
 
-        ship_mass = config.Settings.generate.SectorEntities.SHIP_MASS
-        ship_radius = config.Settings.generate.SectorEntities.SHIP_RADIUS
-        max_thrust = config.Settings.generate.SectorEntities.MAX_THRUST
-        max_fine_thrust = config.Settings.generate.SectorEntities.MAX_FINE_THRUST
-        max_torque = config.Settings.generate.SectorEntities.MAX_TORQUE
+        ship_mass = config.Settings.generate.SectorEntities.ship.MASS
+        ship_radius = config.Settings.generate.SectorEntities.ship.RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.ship.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.ship.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(
@@ -576,6 +576,49 @@ class UniverseGenerator:
 
         ship.default_order_fn = default_order_fn
         ship.prepend_order(ship.default_order(self.gamestate))
+
+        return ship
+
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Missile:
+        ship_mass = config.Settings.generate.SectorEntities.missile.MASS
+        ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.missile.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.missile.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.missile.MAX_TORQUE
+
+        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship = core.Missile(
+            np.array((ship_x, ship_y), dtype=np.float64),
+            ship_body,
+            self.gamestate.production_chain.shape[0],
+            self.gamestate,
+            self._gen_ship_name(),
+            entity_id=entity_id
+        )
+
+        self._phys_shape(ship_body, ship, ship_radius)
+
+        ship.mass = ship_mass
+        ship.moment = ship_body.moment
+        ship.radius = ship_radius
+        ship.max_thrust = max_thrust
+        ship.max_fine_thrust = max_fine_thrust
+        ship.max_torque = max_torque
+
+        if v is None:
+            v = (self.r.normal(0, 50, 2))
+        ship_body.velocity = cymunk.vec2d.Vec2d(*v)
+        ship_body.angle = ship_body.velocity.angle
+
+        if theta is not None:
+            ship_body.angle = theta
+
+        if w is None:
+            ship_body.angular_velocity = self.r.normal(0, 0.08)
+        else:
+            ship_body.angular_velocity = w
+
+        sector.add_entity(ship)
 
         return ship
 
@@ -1528,7 +1571,7 @@ class UniverseGenerator:
             radius=8*config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
             desired_stars_per_char=(3/80.)**2,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=config.Settings.generate.SectorEntities.SHIP_RADIUS*2,
+            max_zoom=config.Settings.generate.SectorEntities.ship.RADIUS*2,
             layer_zoom_step=0.25,
         )
 

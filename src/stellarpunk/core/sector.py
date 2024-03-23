@@ -2,7 +2,8 @@
 
 import collections
 import uuid
-from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional
+import abc
+from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional, MutableMapping, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -12,6 +13,13 @@ from .base import Entity
 from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate
 from .ship import Ship
 from .order import Effect
+
+class CollisionObserver:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+    @abc.abstractmethod
+    def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
 
 
 class Sector(Entity):
@@ -43,6 +51,9 @@ class Sector(Entity):
 
         self._effects: Deque[Effect] = collections.deque()
 
+        self.collision_observers: MutableMapping[uuid.UUID, Set[CollisionObserver]] = collections.defaultdict(set)
+
+
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
             yield hit.body.data
@@ -56,6 +67,12 @@ class Sector(Entity):
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
+
+    def register_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
+        self.collision_observers[entity_id].add(observer)
+
+    def unregister_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
+        self.collision_observers[entity_id].remove(observer)
 
     def add_effect(self, effect:Effect) -> None:
         self._effects.append(effect)
@@ -75,10 +92,11 @@ class Sector(Entity):
             self.ships.append(entity)
         elif isinstance(entity, Asteroid):
             self.asteroids[entity.resource].append(entity)
-        elif isinstance(entity, TravelGate):
-            pass
         else:
-            raise ValueError(f'unknown entity type {entity.__class__}')
+            #isinstance(entity, TravelGate):
+            #isinstance(entity, Missile):
+            #raise ValueError(f'unknown entity type {entity.__class__}')
+            pass
 
         if entity.phys.is_static:
             self.space.add(entity.phys_shape)
@@ -92,6 +110,9 @@ class Sector(Entity):
         if entity.entity_id not in self.entities:
             raise ValueError(f'entity {entity.entity_id} not in this sector')
 
+        if entity.entity_id in self.collision_observers:
+            del self.collision_observers[entity.entity_id]
+
         if isinstance(entity, Planet):
             self.planets.remove(entity)
         elif isinstance(entity, Station):
@@ -100,10 +121,11 @@ class Sector(Entity):
             self.ships.remove(entity)
         elif isinstance(entity, Asteroid):
             self.asteroids[entity.resource].remove(entity)
-        elif isinstance(entity, TravelGate):
-            pass
         else:
-            raise ValueError(f'unknown entity type {entity.__class__}')
+            #isinstance(entity, TravelGate):
+            #isinstance(entity, Missile):
+            #raise ValueError(f'unknown entity type {entity.__class__}')
+            pass
 
         if entity.phys.is_static:
             self.space.remove(entity.phys_shape)

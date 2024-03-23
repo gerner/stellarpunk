@@ -79,21 +79,24 @@ class Simulator(core.AbstractGameRuntime):
         self.reference_realtime = 0.
         self.reference_gametime = 0.
 
-    def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
-        # which ship(s) are colliding?
+    def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:
+        return self.enable_collisions
 
+    def _ship_collision_handler(self, arbiter:cymunk.Arbiter) -> None:
+        # which ship(s) are colliding?
         (shape_a, shape_b) = arbiter.shapes
 
-        # ignore collisions between the same bodies on consecutive ticks
+        # keep track of collisions in consecutive ticks so we can ignore them
+        # later, but still process them for physics purposes
         colliders = "".join(sorted(map(str, [shape_a.body.data.entity_id, shape_b.body.data.entity_id])))
         self._colliders.add(colliders)
         if colliders in self._last_colliders:
-            return self.enable_collisions
+            return
 
         sector = shape_a.body.data.sector
 
         tons_of_tnt = arbiter.total_ke / 4.184e9
-        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.data.address_str()} {shape_b.body.data.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
+        self.logger.info(f'collision detected in {sector.short_id()}, between {shape_a.body.data.address_str()} {shape_b.body.data.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
 
         self._collisions.append((
             shape_a.body.data,
@@ -102,14 +105,11 @@ class Simulator(core.AbstractGameRuntime):
             arbiter.total_ke,
         ))
 
-        # return if the collision should happen
-        return self.enable_collisions
-
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         self.gamestate.game_runtime = self
         for sector in self.gamestate.sectors.values():
-            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
+            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected, post_solve = self._ship_collision_handler)
 
     def _tick_space(self, dt: float) -> None:
         # update physics simulations
@@ -137,6 +137,17 @@ class Simulator(core.AbstractGameRuntime):
             if self.notify_on_collision:
                 for entity_a, entity_b, impulse, ke in self._collisions:
                     self.ui.collision_detected(entity_a, entity_b, impulse, ke)
+
+            for entity_a, entity_b, impulse, ke in self._collisions:
+                if entity_a.sector is None or entity_a.sector != entity_b.sector:
+                    raise Exception(f'collision between entities in different or null sectors {entity_a.sector} != {entity_b.sector}')
+
+                if entity_a.entity_id in entity_a.sector.collision_observers:
+                    for observer in entity_a.sector.collision_observers[entity_a.entity_id]:
+                        observer.collision(entity_a, entity_b, impulse, ke)
+                if entity_b.entity_id in entity_b.sector.collision_observers:
+                    for observer in entity_b.sector.collision_observers[entity_b.entity_id]:
+                        observer.collision(entity_b, entity_a, impulse, ke)
 
             # keep _collisions clear for next time
             self._collisions.clear()
@@ -410,7 +421,7 @@ def main() -> None:
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
-        logging.getLogger("stellarpunk").level = logging.DEBUG
+        logging.getLogger("stellarpunk").level = logging.INFO
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions

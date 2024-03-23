@@ -171,7 +171,7 @@ class Icons:
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
-        if isinstance(entity, core.Ship):
+        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
         elif isinstance(entity, core.Station):
             icon = Icons.STATION
@@ -1037,5 +1037,5 @@ class Interface(AbstractInterface):
                 view.initialize()
             return
 
-        self.logger.debug(f'keypress {key}')
+        #self.logger.debug(f'keypress {key}')
         self.handle_input(key, dt)
