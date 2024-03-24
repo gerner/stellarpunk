@@ -217,8 +217,11 @@ class Gamestate(EntityRegistry):
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
 
-    def withdraw_agent(self, entity_id:uuid.UUID) -> EconAgent:
-        return self.econ_agents.pop(entity_id)
+    def withdraw_agent(self, entity_id:uuid.UUID) -> None:
+        try:
+            self.econ_agents.pop(entity_id)
+        except KeyError:
+            pass
 
     def add_character(self, character:Character) -> None:
         self.characters[character.entity_id] = character
@@ -228,6 +231,16 @@ class Gamestate(EntityRegistry):
         self.characters_by_location[character.location.entity_id].remove(character)
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
+
+    def destroy_character(self, character:Character) -> None:
+        character.destroy()
+
+    def destroy_sector_entity(self, entity:SectorEntity) -> None:
+        for character in self.characters_by_location[entity.entity_id]:
+            self.destroy_character(character)
+        entity.destroy()
+        if entity.sector is not None:
+            entity.sector.remove_entity(entity)
 
     def is_order_scheduled(self, order:Order) -> bool:
         return self._order_schedule.is_task_scheduled(order)

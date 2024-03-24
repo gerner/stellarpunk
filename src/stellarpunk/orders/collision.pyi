@@ -10,6 +10,8 @@ def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Ve
 
 def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, safety_factor:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
 
+def find_intercept_v(body:cymunk.Body, target:cymunk.body, arrival_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, cymunk.Vec2d]: ...
+
 class Navigator:
     def __init__(
             self, space:cymunk.Space, body:cymunk.Body,

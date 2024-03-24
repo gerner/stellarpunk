@@ -536,6 +536,7 @@ class AbstractInterface(abc.ABC):
         view.terminate()
         if len(self.views) > 0:
             self.views[-1].focus()
+        #TODO: else case, other code assumes there's always a view
 
     def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
         if old_view is not None:

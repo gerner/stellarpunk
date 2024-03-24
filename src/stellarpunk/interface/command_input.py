@@ -109,7 +109,7 @@ class CommandInput(interface.View):
                     self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
                 finally:
                     self._command_history.enter_command()
-            else:
+            elif command_name != "":
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
             self.interface.close_view(self)
         elif key == curses.KEY_UP:

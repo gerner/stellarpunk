@@ -127,7 +127,10 @@ class SectorEntity(Entity):
         self.observers.add(observer)
 
     def unobserve(self, observer:SectorEntityObserver) -> None:
-        self.observers.remove(observer)
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
 
     def migrate(self, to_sector:"sector.Sector") -> None:
         if self.sector is None:
@@ -136,15 +139,23 @@ class SectorEntity(Entity):
         if self.sector is not None:
             self.sector.remove_entity(self)
         to_sector.add_entity(self)
-        for o in self.observers:
+        for o in self.observers.copy():
             o.entity_migrated(self, from_sector, to_sector)
 
+        self._migrate(to_sector)
+
+    def _migrate(self, to_sector:"sector.Sector") -> None:
+        pass
+
     def destroy(self) -> None:
-        if self.sector is None:
-            raise Exception("cannot destroy if from sector is None")
-        self.sector.remove_entity(self)
-        for o in self.observers:
+        for o in self.observers.copy():
             o.entity_destroyed(self)
+        self.observers.clear()
+
+        self._destroy()
+
+    def _destroy(self) -> None:
+        pass
 
     @property
     def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)

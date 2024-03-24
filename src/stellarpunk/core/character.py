@@ -21,13 +21,20 @@ class AgendumLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
         return f'{self.character.address_str()} {msg}', kwargs
 
+class CharacterObserver(abc.ABC):
+    def message_received(self, character: "Character", message: "Message") -> None:
+        pass
 
-class Agendum:
+    def character_destroyed(self, character: "Character") -> None:
+        pass
+
+class Agendum(CharacterObserver):
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
 
     def __init__(self, character:"Character", gamestate:"Gamestate") -> None:
         self.character = character
+        self.character.observe(self)
         self.gamestate = gamestate
         self.logger = AgendumLoggerAdapter(
                 self.character,
@@ -35,6 +42,9 @@ class Agendum:
         )
 
         logging.getLogger(util.fullname(self))
+
+    def character_destroyed(self, character:"Character") -> None:
+        self.stop()
 
     def _start(self) -> None:
         pass
@@ -47,6 +57,7 @@ class Agendum:
 
     def stop(self) -> None:
         self._stop()
+        self.character.unobserve(self)
         self.gamestate.unschedule_agendum(self)
 
     def is_complete(self) -> bool:
@@ -55,12 +66,6 @@ class Agendum:
     def act(self) -> None:
         """ Lets the character interact. Called when scheduled. """
         pass
-
-
-class CharacterObserver(abc.ABC):
-    def message_received(self, character: "Character", message: "Message") -> None:
-        pass
-
 
 class Character(Entity):
     id_prefix = "CHR"
@@ -84,11 +89,19 @@ class Character(Entity):
 
         self.observers:Set[CharacterObserver] = set()
 
+    def destroy(self) -> None:
+        for observer in self.observers.copy():
+            observer.character_destroyed(self)
+        self.observers.clear()
+
     def observe(self, observer:CharacterObserver) -> None:
         self.observers.add(observer)
 
     def unobserve(self, observer:CharacterObserver) -> None:
-        self.observers.remove(observer)
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
 
     def address_str(self) -> str:
         return f'{self.short_id()}:{self.location.address_str()}'

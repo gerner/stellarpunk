@@ -7,6 +7,7 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import core, interface, util, effects
+from stellarpunk.core import missile
 
 class Presenter:
     """ Prsents entities in a sector. """
@@ -79,6 +80,12 @@ class Presenter:
                 r = util.interpolate(effect.started_at, 0., effect.expiration_time, effect.radius, self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
                 util.draw_canvas_at(c, window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+            elif isinstance(effect, missile.MissileEffect):
+                s_x, s_y = self.perspective.sector_to_screen(effect.intercept_location[0], effect.intercept_location[1])
+                icon = "X"
+                icon_attr = curses.color_pair(1)
+                self.view.viewscreen.addstr(s_y, s_x, icon, icon_attr)
+                self.view.viewscreen.addstr(s_y+1, s_x+1, f'{effect.intercept_time:.1f}s')
             else:
                 e_bbox = effect.bbox()
                 loc = ((e_bbox[2] - e_bbox[0])/2, (e_bbox[3] - e_bbox[1])/2)

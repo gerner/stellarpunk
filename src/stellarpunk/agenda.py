@@ -191,7 +191,7 @@ class CaptainAgendum(core.Agendum):
     def _stop(self) -> None:
         self.craft.captain = None
 
-class MiningAgendum(CaptainAgendum, core.OrderObserver):
+class MiningAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserver):
     """ Managing a ship for mining.
 
     Operates as a state machine as we mine asteroids and sell the resources to
@@ -214,6 +214,7 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver):
         super().__init__(ship, *args, **kwargs)
 
         self.ship = ship
+        self.ship.observe(self)
         self.agent = econ.ShipTraderAgent(ship, self.character, self.gamestate)
 
         # resources we're allowed to mine
@@ -232,6 +233,10 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver):
 
         self.round_trips = 0
         self.max_trips = -1
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.ship:
+            self.stop()
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -305,6 +310,7 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver):
 
     def _stop(self) -> None:
         super()._stop()
+        self.ship.unobserve(self)
         if self.state == MiningAgendum.State.MINING:
             assert self.mining_order is not None
             self.mining_order.cancel_order()
@@ -367,7 +373,7 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver):
             self.mining_order.observe(self)
             self.ship.prepend_order(self.mining_order)
 
-class TradingAgendum(CaptainAgendum, core.OrderObserver):
+class TradingAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserver):
 
     class State(enum.Enum):
         IDLE = enum.auto()
@@ -387,6 +393,7 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver):
     ) -> None:
         super().__init__(ship, *args, **kwargs)
         self.ship = ship
+        self.ship.observe(self)
         self.agent = econ.ShipTraderAgent(ship, self.character, self.gamestate)
         self.state = TradingAgendum.State.IDLE
 
@@ -403,6 +410,10 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver):
 
         self.max_trips = -1
         self.trade_trips = 0
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.ship:
+            self.stop()
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -444,6 +455,7 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver):
 
     def _stop(self) -> None:
         super()._stop()
+        self.ship.unobserve(self)
         if self.state == TradingAgendum.State.BUYING:
             assert self.buy_order is not None
             self.buy_order.cancel_order()
@@ -533,7 +545,7 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver):
         else:
             self._buy_goods()
 
-class StationManager(CaptainAgendum):
+class StationManager(CaptainAgendum, core.SectorEntityObserver):
     """ Manage production and trading for a station.
 
     Responsible for actually driving the production at the station as well as
@@ -544,6 +556,7 @@ class StationManager(CaptainAgendum):
         super().__init__(station, *args, **kwargs)
 
         self.station = station
+        self.station.observe(self)
         self.agent = econ.StationAgent.create_station_agent(
             self.character,
             station,
@@ -555,14 +568,17 @@ class StationManager(CaptainAgendum):
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(station.entity_id, self.agent)
 
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.station:
+            self.stop()
+
     def _start(self) -> None:
         super()._start()
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
         super()._stop()
-        agent = self.gamestate.withdraw_agent(self.station.entity_id)
-        assert agent == self.agent
+        self.gamestate.withdraw_agent(self.station.entity_id)
 
     def _produce_at_station(self) -> float:
         """ Run production at this agendum's station.
@@ -616,13 +632,14 @@ class StationManager(CaptainAgendum):
 
         self.gamestate.schedule_agendum(next_production_ts, self, jitter=1.0)
 
-class PlanetManager(CaptainAgendum):
+class PlanetManager(CaptainAgendum, core.SectorEntityObserver):
     """ Manage consumption and trading for planet/hab. """
 
     def __init__(self, planet:core.Planet, *args:Any, **kwargs:Any) -> None:
         super().__init__(planet, *args, **kwargs)
 
         self.planet = planet
+        self.planet.observe(self)
         self.agent = econ.StationAgent.create_planet_agent(
             self.character,
             planet,
@@ -633,14 +650,17 @@ class PlanetManager(CaptainAgendum):
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(planet.entity_id, self.agent)
 
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.planet:
+            self.stop()
+
     def _start(self) -> None:
         super()._start()
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
         super()._start()
-        agent = self.gamestate.withdraw_agent(self.planet.entity_id)
-        assert agent == self.agent
+        self.gamestate.withdraw_agent(self.planet.entity_id)
 
     def act(self) -> None:
         assert self.gamestate.econ_agents[self.planet.entity_id] == self.agent

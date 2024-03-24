@@ -466,11 +466,11 @@ class StationView(interface.View):
 
         key_list:List[interface.KeyBinding] = []
         key_list.extend(self.bind_aliases(
-            [ord("j"), ord("s"), curses.KEY_DOWN],
+            [ord("j"), ord("w"), curses.KEY_DOWN],
             sel_next, help_key="station_trade_nav"
         ))
         key_list.extend(self.bind_aliases(
-            [ord("k"), ord("w"), curses.KEY_UP],
+            [ord("k"), ord("s"), curses.KEY_UP],
             sel_prev, help_key="station_trade_nav"
         ))
         key_list.extend(self.bind_aliases(

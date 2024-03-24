@@ -211,7 +211,7 @@ class MouseState(enum.Enum):
     EMPTY = enum.auto()
     GOTO = enum.auto()
 
-class PilotView(interface.View, interface.PerspectiveObserver):
+class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
@@ -324,12 +324,36 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:
+        # observe target in case it is destroyed or migrates so we deselect it
+        if self.selected_entity is not None and self.selected_entity != self.ship:
+            # make sure not to unobserve self.ship
+            self.selected_entity.unobserve(self)
+
         if entity is None:
             self.selected_entity = None
             self.presenter.selected_target = None
         else:
             self.selected_entity = entity
             self.presenter.selected_target = entity.entity_id
+            self.selected_entity.observe(self)
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.selected_entity:
+            self._select_target(None)
+            self.interface.log_message("target destroyed")
+        if entity == self.ship:
+            # TODO: is this the right way to handle the interface when we've
+            # been destroyed?
+            # only swap the view if we have focus
+            self.interface.log_message("you've been killed")
+            self.interface.close_view(self)
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity != self.selected_entity:
+            return
+        if to_sector != self.sector:
+            self._select_target(None)
+            self.interface.log_message("target left the sector")
 
     def _clear_control_order(self, order: core.Order) -> None:
         self.logger.debug("clearing pilot control order")
@@ -728,8 +752,13 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
         self.perspective.update_bbox()
         self.interface.reinitialize_screen(name="Pilot's Seat")
+        self.ship.observe(self)
 
     def terminate(self) -> None:
+        if self.ship:
+            self.ship.unobserve(self)
+        if self.selected_entity:
+            self.selected_entity.unobserve(self)
         if self.control_order:
             self.control_order.cancel_order()
 
@@ -737,6 +766,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         super().focus()
         self.interface.reinitialize_screen(name="Pilot's Seat")
         self.active=True
+
 
     def update_display(self) -> None:
         if self.gamestate.timestamp > self.mouse_state_clear_time:

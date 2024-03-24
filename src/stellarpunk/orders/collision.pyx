@@ -1661,6 +1661,22 @@ def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_radius
 
     return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
+def find_intercept_v(body:cymunk.Body, target:cymunk.Body, arrival_radius:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, cymunk.Vec2d]:
+    cdef ccymunk.Body cBody = <ccymunk.Body?> body
+    cdef ccymunk.Body cTarget = <ccymunk.Body?> target
+    cdef DeltaVResult result = _find_target_v(cBody._body, cTarget._body.p, arrival_radius, 0.0, max_acceleration, max_angular_acceleration, max_speed, dt, 1.0, final_speed)
+
+    # crude estimate time and location of intercept for debugging/viz
+    cdef ccymunk.cpVect current_loc_diff = ccymunk.cpvsub(cBody._body.p, cTarget._body.p)
+
+    cdef ccymunk.cpVect normalized_loc_diff = ccymunk.cpvmult(current_loc_diff, 1.0/result.distance)
+    cdef double speed_projection = cBody._body.v.x * normalized_loc_diff.x + cBody._body.v.y * normalized_loc_diff.y
+    cdef double intercept_time = (-speed_projection + sqrt(speed_projection*speed_projection - 2 * max_acceleration * (-result.distance)) ) / max_acceleration
+    cdef ccymunk.cpVect intercept_location = ccymunk.cpvadd(cTarget._body.p, ccymunk.cpvmult(cTarget._body.v, intercept_time))
+
+    return cpvtoVec2d(ccymunk.cpvadd(result.target_velocity, cTarget._body.v)), result.distance, intercept_time, cpvtoVec2d(intercept_location)
+
+
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
         max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float:

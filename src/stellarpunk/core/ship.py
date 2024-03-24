@@ -40,6 +40,9 @@ class Ship(SectorEntity, Asset):
 
         self.collision_threat: Optional[SectorEntity] = None
 
+    def _destroy(self) -> None:
+        self._clear_orders()
+
     def get_history(self) -> Sequence[HistoryEntry]:
         return self.history
 
@@ -111,9 +114,12 @@ class Ship(SectorEntity, Asset):
         if co is not None and not co.gamestate.is_order_scheduled(co):
             co.gamestate.schedule_order_immediate(co)
 
-    def clear_orders(self, gamestate:"Gamestate") -> None:
+    def _clear_orders(self) -> None:
         while self._orders:
             self._orders[0].cancel_order()
+
+    def clear_orders(self, gamestate:"Gamestate") -> None:
+        self._clear_orders()
         self.prepend_order(self.default_order(gamestate))
 
     def pop_current_order(self) -> None:

@@ -12,10 +12,11 @@ from stellarpunk import core, econ, util, events
 AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 1.0
 
-class TransferCargoEffect(core.Effect):
+class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
     def __init__(
             self,
-            resource:int, amount:float, source:core.SectorEntity,
+            resource:int, amount:float,
+            source:core.SectorEntity,
             destination:core.SectorEntity,
             *args: Any,
             transfer_rate:float=1e2, max_distance:float=2.5e3,
@@ -30,7 +31,15 @@ class TransferCargoEffect(core.Effect):
         self._completed_transfer = False
 
         self.source = source
+        self.source.observe(self)
         self.destination = destination
+        self.destination.observe(self)
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        self.cancel_effect()
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        self.cancel_effect()
 
     def estimate_eta(self) -> float:
         return self.amount / self.transfer_rate - (self.gamestate.timestamp - self.started_at)
@@ -41,6 +50,14 @@ class TransferCargoEffect(core.Effect):
             self.gamestate.schedule_effect_immediate(self, jitter=1.0)
         else:
             self.gamestate.schedule_effect(self.gamestate.timestamp + (amount / self.transfer_rate), self, jitter=1.0)
+
+    def _cancel(self) -> None:
+        self.source.unobserve(self)
+        self.destination.unobserve(self)
+
+    def _complete(self) -> None:
+        self.source.unobserve(self)
+        self.destination.unobserve(self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         locs = np.asarray((self.source.loc, self.destination.loc))

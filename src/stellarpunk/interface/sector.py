@@ -17,7 +17,7 @@ import numpy as np
 from stellarpunk import util, core, interface, orders, effects, config
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
-class SectorView(interface.View, interface.PerspectiveObserver):
+class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -88,6 +88,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         if target_id == self.selected_target:
             # no-op selecting the same target
             return
+        if self.selected_entity:
+            self.selected_entity.unobserve(self)
         self.selected_target = target_id
         self.selected_entity = entity
 
@@ -95,6 +97,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         self.logger.info(f'selected target {entity}')
         if entity:
+            entity.observe(self)
             if isinstance(entity, core.Ship):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.current_order()}')
                 #TODO: display queued orders?
@@ -110,6 +113,16 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         if focus:
             self.focus_target()
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.selected_entity:
+            self.interface.log_message(f'target destroyed')
+            self.select_target(None, None)
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity == self.selected_entity and to_sector != self.sector:
+            self.interface.log_message(f'target left sector')
+            self.select_target(None, None)
 
     def _compute_grid(self, max_ticks:int=10) -> None:
         self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)

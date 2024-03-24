@@ -532,8 +532,8 @@ def compute_uiradar(
         thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
         for theta in thetas:
             # skip dots that fall on cross
-            #if np.isclose(theta % (math.pi/2), 0.):
-            #    continue
+            if np.isclose(theta % (math.pi/2), 0.):
+                continue
             dot_x, dot_y = polar_to_cartesian(r, theta)
 
             # skip dots outside bbox

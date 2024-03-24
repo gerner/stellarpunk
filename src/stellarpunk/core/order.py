@@ -3,7 +3,7 @@
 import abc
 import logging
 import collections
-from typing import Any, Optional, List, Tuple, Deque, TYPE_CHECKING
+from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set
 
 import numpy as np
 
@@ -35,7 +35,7 @@ class Effect(abc.ABC):
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
-        self.observers:List[EffectObserver] = []
+        self.observers:Set[EffectObserver] = set()
 
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -43,7 +43,13 @@ class Effect(abc.ABC):
             self.observe(observer)
 
     def observe(self, observer:EffectObserver) -> None:
-        self.observers.append(observer)
+        self.observers.add(observer)
+
+    def unobserve(self, observer:EffectObserver) -> None:
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
 
     def _begin(self) -> None:
         """ Called when the effect starts.
@@ -98,6 +104,7 @@ class Effect(abc.ABC):
 
         for observer in self.observers:
             observer.effect_complete(self)
+        self.observers.clear()
 
         self.sector.remove_effect(self)
 
@@ -120,6 +127,7 @@ class Effect(abc.ABC):
 
         for observer in self.observers:
             observer.effect_cancel(self)
+        self.observers.clear()
 
     def act(self, dt:float) -> None:
         # by default we'll just complete the effect if it's done
@@ -165,7 +173,7 @@ class Order:
         self.init_eta = np.inf
         self.child_orders:Deque[Order] = collections.deque()
 
-        self.observers:List[OrderObserver] = []
+        self.observers:Set[OrderObserver] = set()
         if observer is not None:
             self.observe(observer)
 
@@ -179,7 +187,13 @@ class Order:
             return self.init_eta
 
     def observe(self, observer:OrderObserver) -> None:
-        self.observers.append(observer)
+        self.observers.add(observer)
+
+    def unobserve(self, observer:OrderObserver) -> None:
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
 
     def _add_child(self, order:"Order", begin:bool=True) -> None:
         self.child_orders.appendleft(order)
@@ -222,6 +236,7 @@ class Order:
 
         for observer in self.observers:
             observer.order_complete(self)
+        self.observers.clear()
 
     def cancel_order(self) -> None:
         """ Called when an order is removed from the order queue, but not
@@ -246,6 +261,7 @@ class Order:
 
         for observer in self.observers:
             observer.order_cancel(self)
+        self.observers.clear()
 
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """
