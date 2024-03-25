@@ -153,6 +153,8 @@ class SectorEntity(Entity):
         self.observers.clear()
 
         self._destroy()
+        self.phys.data = None
+        super().destroy()
 
     def _destroy(self) -> None:
         pass

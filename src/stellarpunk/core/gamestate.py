@@ -241,9 +241,9 @@ class Gamestate(EntityRegistry):
     def destroy_sector_entity(self, entity:SectorEntity) -> None:
         for character in self.characters_by_location[entity.entity_id]:
             self.destroy_character(character)
-        entity.destroy()
         if entity.sector is not None:
             entity.sector.remove_entity(entity)
+        entity.destroy()
 
     def is_order_scheduled(self, order:Order) -> bool:
         return self._order_schedule.is_task_scheduled(order)

@@ -3,6 +3,7 @@
 import abc
 import logging
 import collections
+import weakref
 from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set
 
 import numpy as np
@@ -138,11 +139,13 @@ class Effect(abc.ABC):
 class OrderLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, ship:"Ship", *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
-        self.ship = ship
+        self.ship = weakref.proxy(ship)
 
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
-        assert self.ship.sector is not None
-        return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
+        if self.ship.sector is None:
+            return f'{self.ship.short_id()}@None {msg}', kwargs
+        else:
+            return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
 
 class OrderObserver:

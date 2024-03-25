@@ -7,15 +7,18 @@ import enum
 import abc
 import uuid
 import itertools
+import logging
 from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import narrative
+from stellarpunk import narrative, util
 
 if TYPE_CHECKING:
     from .character import Character
+
+logger = logging.getLogger(__name__)
 
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod
@@ -40,8 +43,12 @@ class Entity(abc.ABC):
         self.entity_registry = entity_registry
         self.context = self.entity_registry.register_entity(self)
 
-    def __del__(self) -> None:
+    def destroy(self) -> None:
         self.entity_registry.unregister_entity(self)
+        #import gc
+        #referrers = gc.get_referrers(self)
+        #if len(referrers) > 0:
+        #    raise Exception("ohnoes")
 
     def short_id(self) -> str:
         """ first 32 bits as hex """

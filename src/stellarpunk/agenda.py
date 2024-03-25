@@ -178,7 +178,7 @@ def choose_station_to_sell_to(
 MINING_SLEEP_TIME = 60.
 TRADING_SLEEP_TIME = 60.
 
-class CaptainAgendum(core.Agendum):
+class CaptainAgendum(core.Agendum, core.SectorEntityObserver):
     def __init__(self, craft: core.SectorEntity, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.craft = craft
@@ -189,11 +189,17 @@ class CaptainAgendum(core.Agendum):
         if self.character.location != self.craft:
             raise ValueError(f'{self.character.short_id()} tried to be captain of {self.craft.short_id()} but they are on {self.character.location.short_id()}')
         self.craft.captain = self.character
+        self.craft.observe(self)
 
     def _stop(self) -> None:
+        self.craft.unobserve(self)
         self.craft.captain = None
 
-class MiningAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserver):
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.craft:
+            self.stop()
+
+class MiningAgendum(CaptainAgendum, core.OrderObserver):
     """ Managing a ship for mining.
 
     Operates as a state machine as we mine asteroids and sell the resources to
@@ -235,10 +241,6 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserve
 
         self.round_trips = 0
         self.max_trips = -1
-
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.ship:
-            self.stop()
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -375,7 +377,7 @@ class MiningAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserve
             self.mining_order.observe(self)
             self.ship.prepend_order(self.mining_order)
 
-class TradingAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserver):
+class TradingAgendum(CaptainAgendum, core.OrderObserver):
 
     class State(enum.Enum):
         IDLE = enum.auto()
@@ -412,10 +414,6 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserv
 
         self.max_trips = -1
         self.trade_trips = 0
-
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.ship:
-            self.stop()
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -547,7 +545,7 @@ class TradingAgendum(CaptainAgendum, core.OrderObserver, core.SectorEntityObserv
         else:
             self._buy_goods()
 
-class StationManager(CaptainAgendum, core.SectorEntityObserver):
+class StationManager(CaptainAgendum):
     """ Manage production and trading for a station.
 
     Responsible for actually driving the production at the station as well as
@@ -569,10 +567,6 @@ class StationManager(CaptainAgendum, core.SectorEntityObserver):
 
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(station.entity_id, self.agent)
-
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.station:
-            self.stop()
 
     def _start(self) -> None:
         super()._start()
@@ -634,7 +628,7 @@ class StationManager(CaptainAgendum, core.SectorEntityObserver):
 
         self.gamestate.schedule_agendum(next_production_ts, self, jitter=1.0)
 
-class PlanetManager(CaptainAgendum, core.SectorEntityObserver):
+class PlanetManager(CaptainAgendum):
     """ Manage consumption and trading for planet/hab. """
 
     def __init__(self, planet:core.Planet, *args:Any, **kwargs:Any) -> None:
@@ -652,16 +646,12 @@ class PlanetManager(CaptainAgendum, core.SectorEntityObserver):
         #TODO: how do we keep this up to date if there's a change?
         self.gamestate.representing_agent(planet.entity_id, self.agent)
 
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.planet:
-            self.stop()
-
     def _start(self) -> None:
         super()._start()
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
-        super()._start()
+        super()._stop()
         self.gamestate.withdraw_agent(self.planet.entity_id)
 
     def act(self) -> None:
