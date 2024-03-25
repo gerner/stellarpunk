@@ -184,6 +184,8 @@ class CaptainAgendum(core.Agendum):
         self.craft = craft
 
     def _start(self) -> None:
+        if self.character.location is None:
+            raise ValueError(f'{self.character.short_id()} tried to be captain of {self.craft.short_id()} but they are nowhere')
         if self.character.location != self.craft:
             raise ValueError(f'{self.character.short_id()} tried to be captain of {self.craft.short_id()} but they are on {self.character.location.short_id()}')
         self.craft.captain = self.character

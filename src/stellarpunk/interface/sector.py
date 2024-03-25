@@ -194,6 +194,8 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
         if self.selected_character is None:
             return
 
+        assert self.selected_character.location
+
         info_x = 1
         info_y = 1
 

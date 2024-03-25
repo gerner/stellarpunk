@@ -173,6 +173,8 @@ class CommsView(interface.View):
         # message is left justified and indented to the right of the character
         # portrait
 
+        assert character.location
+
         dialog_lines = textwrap.wrap(text, width=self.dialog_width)
 
         if character != self.last_character:

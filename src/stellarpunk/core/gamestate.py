@@ -224,11 +224,14 @@ class Gamestate(EntityRegistry):
             pass
 
     def add_character(self, character:Character) -> None:
+        if character.location is None:
+            raise ValueError(f'tried to add character {character} with no location')
         self.characters[character.entity_id] = character
         self.characters_by_location[character.location.entity_id].append(character)
 
     def move_character(self, character:Character, location:SectorEntity) -> None:
-        self.characters_by_location[character.location.entity_id].remove(character)
+        if character.location is not None:
+            self.characters_by_location[character.location.entity_id].remove(character)
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
 

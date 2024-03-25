@@ -345,7 +345,6 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             # TODO: is this the right way to handle the interface when we've
             # been destroyed?
             # only swap the view if we have focus
-            self.interface.log_message("you've been killed")
             self.interface.close_view(self)
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:

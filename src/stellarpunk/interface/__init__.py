@@ -504,6 +504,8 @@ class AbstractInterface(abc.ABC):
 
     def handle_input(self, key:int, dt:float) -> bool:
         self.status_message()
+        if len(self.views) == 0:
+            return False
         v = self.views[-1]
         assert v.has_focus
         if key == curses.KEY_MOUSE:

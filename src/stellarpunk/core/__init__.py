@@ -6,6 +6,6 @@ from .sector import Sector, CollisionObserver
 from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate, write_history_to_file, SectorEntityObserver
 from .ship import Ship
 from .order import Order, OrderObserver, Effect, EffectObserver
-from .character import Character, Player, Agendum, Message
+from .character import Character, Player, Agendum, Message, CharacterObserver
 from .gamestate import Gamestate, Counters, AbstractGameRuntime
 from .missile import Missile

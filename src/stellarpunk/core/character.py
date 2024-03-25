@@ -76,7 +76,7 @@ class Character(Entity):
         #TODO: other character background stuff
 
         #TODO: does location matter?
-        self.location:SectorEntity = location
+        self.location:Optional[SectorEntity] = location
 
         # how much money
         self.balance:float = 0.
@@ -93,6 +93,7 @@ class Character(Entity):
         for observer in self.observers.copy():
             observer.character_destroyed(self)
         self.observers.clear()
+        self.location = None
 
     def observe(self, observer:CharacterObserver) -> None:
         self.observers.add(observer)
@@ -104,7 +105,10 @@ class Character(Entity):
             pass
 
     def address_str(self) -> str:
-        return f'{self.short_id()}:{self.location.address_str()}'
+        if self.location is None:
+            return f'{self.short_id()}:None'
+        else:
+            return f'{self.short_id()}:{self.location.address_str()}'
 
     def take_ownership(self, asset:Asset) -> None:
         self.assets.append(asset)

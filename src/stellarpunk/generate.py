@@ -1539,6 +1539,7 @@ class UniverseGenerator:
 
         # set up tutorial flags
         assert refinery.captain
+        assert refinery.captain.location
         asteroid.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_ASTEROID), asteroid.short_id_int())
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())

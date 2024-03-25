@@ -128,7 +128,7 @@ class KeyDemo(interface.View):
         return True
 
 
-class InterfaceManager:
+class InterfaceManager(core.CharacterObserver):
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(gamestate, generator, self.mixer)
@@ -152,6 +152,7 @@ class InterfaceManager:
 
     def initialize(self) -> None:
         self.interface.initialize()
+        self.gamestate.player.character.observe(self)
         assert isinstance(self.gamestate.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
         self.interface.open_view(pilot_view)
@@ -172,6 +173,24 @@ class InterfaceManager:
                 return self.interface.views[-2]
         else:
             return self.interface.views[-1]
+
+    def open_universe(self) -> None:
+        universe_view = universe.UniverseView(self.gamestate, self.interface)
+        self.interface.swap_view(
+            universe_view,
+            self.focused_view()
+        )
+        if self.gamestate.player.character.location is not None and self.gamestate.player.character.location.sector is not None:
+            universe_view.select_sector(
+                self.gamestate.player.character.location.sector,
+                focus=True
+            )
+
+    def character_destroyed(self, character:core.Character) -> None:
+        if character == self.gamestate.player.character:
+            self.gamestate.force_pause(self)
+            self.interface.log_message("you've been killed")
+            self.open_universe()
 
     def time_accel(self) -> None:
         old_accel_rate, _ = self.gamestate.get_time_acceleration()
@@ -312,7 +331,8 @@ class InterfaceManager:
 
         def open_sector(args:Sequence[str]) -> None:
             """ Opens a sector view on the sector the player is in """
-            assert self.gamestate.player.character.location.sector is not None
+            if self.gamestate.player.character.location is None or self.gamestate.player.character.location.sector is None:
+                raise command_input.UserError("player character not in a sector")
             sector_view = sector.SectorView(self.gamestate.player.character.location.sector, self.interface)
             self.interface.swap_view(
                 sector_view,
@@ -325,16 +345,7 @@ class InterfaceManager:
             )
 
         def open_universe(args:Sequence[str]) -> None:
-            assert self.gamestate.player.character.location.sector is not None
-            universe_view = universe.UniverseView(self.gamestate, self.interface)
-            self.interface.swap_view(
-                universe_view,
-                self.focused_view()
-            )
-            universe_view.select_sector(
-                self.gamestate.player.character.location.sector,
-                focus=True
-            )
+            self.open_universe()
 
         def open_character(args:Sequence[str]) -> None:
             if len(args) == 0:
@@ -355,9 +366,11 @@ class InterfaceManager:
             if len(args) < 1:
                 raise command_input.UserError(f'need to specify station to view')
 
+            if self.gamestate.player.character.location is None or self.gamestate.player.character.location.sector is None:
+                raise command_input.UserError("character is not in a sector")
+
             try:
                 station_id = uuid.UUID(args[0])
-                assert self.gamestate.player.character.location.sector is not None
                 target_station = next(x for x in self.gamestate.player.character.location.sector.stations if x.entity_id == station_id)
             except:
                 raise command_input.UserError(f'{args[0]} not a recognized station id')
@@ -420,7 +433,7 @@ class InterfaceManager:
             )
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
-        assert self.gamestate.player.character.location.sector is not None
+        in_location = self.gamestate.player.character.location is not None and self.gamestate.player.character.location.sector is not None
 
         return [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
@@ -443,7 +456,7 @@ class InterfaceManager:
             self.bind_command("universe", open_universe),
             self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
             self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
-            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations)),
+            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations) if in_location else None),
             self.bind_command("toggle_mouse", toggle_mouse),
             self.bind_command("debug_collision", debug_collision),
         ]
