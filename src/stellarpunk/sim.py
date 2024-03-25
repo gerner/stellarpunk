@@ -143,10 +143,10 @@ class Simulator(core.AbstractGameRuntime):
                     raise Exception(f'collision between entities in different or null sectors {entity_a.sector} != {entity_b.sector}')
 
                 if entity_a.entity_id in entity_a.sector.collision_observers:
-                    for observer in entity_a.sector.collision_observers[entity_a.entity_id]:
+                    for observer in entity_a.sector.collision_observers[entity_a.entity_id].copy():
                         observer.collision(entity_a, entity_b, impulse, ke)
                 if entity_b.entity_id in entity_b.sector.collision_observers:
-                    for observer in entity_b.sector.collision_observers[entity_b.entity_id]:
+                    for observer in entity_b.sector.collision_observers[entity_b.entity_id].copy():
                         observer.collision(entity_b, entity_a, impulse, ke)
 
             # keep _collisions clear for next time
