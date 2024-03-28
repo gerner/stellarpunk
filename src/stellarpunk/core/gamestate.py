@@ -1,5 +1,6 @@
 """ Stellarpunk gamestate, a central repository for all gamestate """
 
+import abc
 import logging
 import enum
 import uuid
@@ -7,7 +8,7 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -95,11 +96,19 @@ class AbstractGameRuntime:
     ) -> None:
         pass
 
+class AbstractGenerator:
+    @abc.abstractmethod
+    def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None)->npt.NDArray[np.float64]: ...
+
+    @abc.abstractmethod
+    def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
+
 
 class Gamestate(EntityRegistry):
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
+        self.generator:AbstractGenerator = None #type: ignore
+        self.game_runtime:AbstractGameRuntime = None #type: ignore
 
         self.random = np.random.default_rng()
 

@@ -212,7 +212,7 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
         if rel_dist < margin + entity_radius:
             # this can cause discontinuities in approach_time
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
-        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, ZERO_VECTOR, ccymunk.INFINITY)
+        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, entity_pos, ccymunk.INFINITY)
 
     cdef ccymunk.cpVect rel_tangent = ccymunk.cpvmult(rel_vel, 1. / rel_speed)
     cdef double approach_t = -1 * ccymunk.cpvdot(rel_tangent, rel_pos) / rel_speed
@@ -221,7 +221,7 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
         if rel_dist < margin + entity_radius:
             # this can cause discontinuities in approach_time
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
-        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, ZERO_VECTOR, ccymunk.INFINITY)
+        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, entity_pos, ccymunk.INFINITY)
 
     cdef double speed = ccymunk.cpvlength(analysis.body.v)
     # compute the closest approach within max_distance
@@ -1068,6 +1068,29 @@ cdef class Navigator:
 
         return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
+    def analyze_neighbor(self, target:cymunk.Shape, margin:float, max_distance:float
+            ) -> Tuple[
+                    float,
+                    float,
+                    cymunk.Vec2d,
+                    cymunk.Vec2d,
+                    float,
+                    cymunk.Vec2d,
+                    float
+            ]:
+
+        cdef double cmargin = margin
+
+        cdef ccymunk.cpShape *target_shape = (<ccymunk.Circle?>target)._shape
+        cdef cpCircleShape *circle_shape = <cpCircleShape *>target_shape
+        cdef double entity_radius = circle_shape.r
+        self.analysis.max_distance = max_distance
+        self.analysis.body = self.body._body
+        cdef AnalyzedNeighbor result = _analyze_neighbor(&self.analysis, target_shape, margin)
+
+        return (result.rel_dist, result.approach_t, cpvtoVec2d(result.rel_pos), cpvtoVec2d(result.rel_vel), result.min_sep, cpvtoVec2d(result.c_loc), result.collision_distance)
+
+
     def analyze_neighbors(
             self,
             current_timestamp:float,
@@ -1146,7 +1169,7 @@ cdef class Navigator:
         for shape_id in self.prior_threat_ids:
             shape = self.space._shapes.get(shape_id)
             if shape is not None:
-                _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &self.analysis)
+                _analyze_neighbor_callback((<ccymunk.Circle>shape)._shape, &self.analysis)
 
         # grab a copy of the shape ids for prior shapes
         cdef set[ccymunk.cpHashValue] prior_shape_ids = self.analysis.considered_shapes

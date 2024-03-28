@@ -2,7 +2,7 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
 import importlib.resources
 import itertools
 import enum
@@ -164,7 +164,7 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
-class UniverseGenerator:
+class UniverseGenerator(core.AbstractGenerator):
     @staticmethod
     def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
         g = graphviz.Digraph("product_name_graph", graph_attr={"rankdir": "TB"})
@@ -284,7 +284,7 @@ class UniverseGenerator:
 
         return adj_matrix
 
-    def _gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None)->npt.NDArray[np.float64]:
+    def gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None)->npt.NDArray[np.float64]:
         if radius is None:
             radius = sector.radius
         loc = self.r.normal(0, 1, 2) * radius + center
@@ -477,6 +477,7 @@ class UniverseGenerator:
             #    self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
     def initialize(self, starfield_composite:bool=True) -> None:
+        self.gamestate.generator = self
         self._prepare_sprites(starfield_composite=starfield_composite)
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
@@ -685,6 +686,12 @@ class UniverseGenerator:
 
         return asteroid
 
+    def spawn_sector_entity(self, klass:Type, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> core.SectorEntity:
+        if klass == core.Missile:
+            return self.spawn_missile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
+        else:
+            raise ValueError(f'do not know how to spawn {klass}')
+
     def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
@@ -824,7 +831,7 @@ class UniverseGenerator:
             # generate a field for each one
             asteroids[resource] = []
             for field_amount in field_amounts:
-                loc = self._gen_sector_location(sector)
+                loc = self.gen_sector_location(sector)
                 asteroids[resource].extend(self.spawn_resource_field(sector, loc[0], loc[1], resource, amount))
             self.logger.info(f'generated {len(asteroids[resource])} asteroids for resource {resource} in sector {sector.short_id()}')
 
@@ -845,7 +852,7 @@ class UniverseGenerator:
         for i in range(num_agents):
             # find the one resource this agent produces
             resource = agent_goods[i].argmax()
-            entity_loc = self._gen_sector_location(sector)
+            entity_loc = self.gen_sector_location(sector)
             for build_resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
                 self.harvest_resources(sector, entity_loc[0], entity_loc[1], build_resource, amount)
             station = self.spawn_station(
@@ -856,7 +863,7 @@ class UniverseGenerator:
         # consume resources to establish and support population
 
         # set up population according to production capacity
-        entity_loc = self._gen_sector_location(sector)
+        entity_loc = self.gen_sector_location(sector)
         planet = self.spawn_planet(sector, entity_loc[0], entity_loc[1])
         assets.append(planet)
 
@@ -867,7 +874,7 @@ class UniverseGenerator:
         self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
         mining_ships = set()
         for i in range(num_mining_ships):
-            ship_x, ship_y = self._gen_sector_location(sector)
+            ship_x, ship_y = self.gen_sector_location(sector)
             ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
             assets.append(ship)
             mining_ships.add(ship)
@@ -880,7 +887,7 @@ class UniverseGenerator:
 
         trading_ships = set()
         for i in range(num_trading_ships):
-            ship_x, ship_y = self._gen_sector_location(sector)
+            ship_x, ship_y = self.gen_sector_location(sector)
             ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
             assets.append(ship)
             trading_ships.add(ship)
@@ -1520,13 +1527,13 @@ class UniverseGenerator:
 
         asteroid_loc = refinery.loc
         while not 5e3 < util.distance(asteroid_loc, refinery.loc) < 1e4:
-            asteroid_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
+            asteroid_loc = self.gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         assert refinery.resource is not None
         asteroid = self.spawn_asteroid(refinery.sector, asteroid_loc[0], asteroid_loc[1], resource=self.gamestate.production_chain.inputs_of(refinery.resource)[0], amount=1e5)
 
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
-            ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
+            ship_loc = self.gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)

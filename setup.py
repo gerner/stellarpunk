@@ -24,7 +24,7 @@ ext_modules=[
     Extension("stellarpunk.narrative.goap",
         sources=["src/stellarpunk/narrative/goap.pyx"],
         language="c++",
-        extra_compile_args=["-std=c++17"],
+        extra_compile_args=["-std=c++17 -O2"],
     ),
     Extension("stellarpunk.task_schedule",
         sources=["src/stellarpunk/task_schedule.pyx"],

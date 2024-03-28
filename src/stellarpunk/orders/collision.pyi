@@ -52,6 +52,17 @@ class Navigator:
             dt: float, safety_factor:float,
             ) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
 
+    def analyze_neighbor(self, target:cymunk.Shape, margin:float, max_distance:float
+            ) -> Tuple[
+                    float,
+                    float,
+                    cymunk.Vec2d,
+                    cymunk.Vec2d,
+                    float,
+                    cymunk.Vec2d,
+                    float
+            ]: ...
+
     def analyze_neighbors(
             self,
             current_timestamp:float,

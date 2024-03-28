@@ -372,6 +372,162 @@ class GoToLocation(AbstractSteeringOrder):
 
         return
 
+class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
+    def __init__(self, target:core.SectorEntity, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.target = target
+        self.target.observe(self)
+
+        self.intercept_location = np.array((0.0, 0.0))
+        self.intercept_time = 0.0
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.target:
+            self.cancel_order()
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity != self.target or to_sector == self.ship.sector:
+            return
+        self.cancel_order()
+
+    def _complete(self) -> None:
+        self.target.unobserve(self)
+
+    def _cancel(self) -> None:
+        self._complete()
+
+    def is_complete(self) -> bool:
+        # TODO: when do we stop evading?
+        return False
+
+    def act(self, dt:float) -> None:
+        assert self.ship.sector
+
+        # OPTION A:
+        # plot a course away from intercept location
+        #target_velocity, _, self.intercept_time, self.intercept_location = collision.find_intercept_v(
+        #        self.ship.phys,
+        #        self.target.phys,
+        #        self.target.radius/5,
+        #        self.ship.max_acceleration(),
+        #        self.ship.max_angular_acceleration(),
+        #        self.ship.max_speed(),
+        #        dt,
+        #        self.ship.max_speed())
+        # take intercept course and invert it
+        #target_velocity = target_velocity * -1
+
+        # OPTION B:
+        # estimate our closest approach and flee from there
+        rel_dist, self.intercept_time, rel_pos, rel_vel, min_sep, self.intercept_location, collision_distance = self.neighbor_analyzer.analyze_neighbor(self.target.phys_shape, 0.0, 1e6)
+
+        # plot a course away from that closest approach
+        #course = self.ship.loc - self.intercept_location
+        #course = course / np.linalg.norm(course)
+        #target_velocity = cymunk.Vec2d(course * self.ship.max_speed())
+
+        # OPTION C:
+        # want a velocity perpendicular to current relative velocity
+        rel_vel = self.target.velocity - self.ship.velocity
+        rel_speed = np.linalg.norm(rel_vel)
+        if rel_speed == 0:
+            target_velocity = self.ship.velocity
+        else:
+            # two perpendicular options, pick the one with the least rotation
+            a = np.array((-rel_vel[1], rel_vel[0]))
+            a = a / rel_speed
+            b = np.array((rel_vel[1], -rel_vel[0]))
+            b = b / rel_speed
+            heading = np.array(util.polar_to_cartesian(1.0, self.ship.angle))
+            if np.dot(a, heading) > np.dot(b, heading):
+                target_velocity = cymunk.Vec2d(a * self.ship.max_speed())
+            else:
+                target_velocity = cymunk.Vec2d(b * self.ship.max_speed())
+
+        collision_dv, approach_time = self._avoid_collisions_dv(
+                self.ship.sector,
+                desired_direction=target_velocity)
+
+        if not util.both_almost_zero(collision_dv) or approach_time < self.intercept_time:
+            target_velocity = self.ship.phys.velocity + collision_dv
+
+        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+
+        next_ts = self.gamestate.timestamp + min(1/10, continue_time)
+        self.gamestate.schedule_order(next_ts, self)
+
+class PursueOrder(core.Order, core.SectorEntityObserver):
+    """ Steer toward a collision with the target """
+    def __init__(self, target:core.SectorEntity, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.ship.observe(self)
+        self.target = target
+        self.target.observe(self)
+
+        self.intercept_location = np.array((0.0, 0.0))
+        self.intercept_time = 0.0
+
+    def estimate_eta(self) -> float:
+        return self.intercept_time
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if to_sector == self.ship.sector and to_sector == self.target.sector:
+            pass
+
+        self.cancel_order()
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        self.cancel_order()
+
+    def _complete(self) -> None:
+        self.ship.unobserve(self)
+        self.target.unobserve(self)
+
+    def _cancel(self) -> None:
+        self._complete()
+
+    def act(self, dt:float) -> None:
+        # we won't get called if we're complete
+
+        # interception algorithm:
+        # assume target velocity is constant
+        # solve problem in their frame of reference, so they appear stationary
+        # try to "arrive" at their location (using arrival steering behavior)
+        # whatever velocity we need in this frame of reference, add in their
+        # velocity
+
+        # this is the desired final speed we'll try to achieve at the intercept
+        # this is on top of the target's velocity
+        # a large value here reduces intercept time
+        # a small value here makes it easy to correct at the last minute
+        final_speed = self.ship.max_thrust / self.ship.mass * 0.5
+
+
+        target_velocity, _, self.intercept_time, self.intercept_location = collision.find_intercept_v(
+                self.ship.phys,
+                self.target.phys,
+                self.target.radius/5,
+                self.ship.max_acceleration(),
+                self.ship.max_angular_acceleration(),
+                self.ship.max_speed(),
+                dt,
+                final_speed)
+
+        continue_time = collision.accelerate_to(
+                self.ship.phys,
+                target_velocity,
+                dt,
+                self.ship.max_speed(),
+                self.ship.max_torque,
+                self.ship.max_thrust,
+                self.ship.max_fine_thrust
+        )
+
+        next_ts = self.gamestate.timestamp + min(1/10, continue_time)
+
+        self.gamestate.schedule_order(next_ts, self)
+
 class WaitOrder(AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)

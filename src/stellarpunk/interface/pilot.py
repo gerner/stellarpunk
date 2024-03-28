@@ -61,7 +61,8 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.has_command = False
+        self.has_thrust_command = False
+        self.has_torque_command = False
 
     def _clip_force_to_max_speed(self, force:Tuple[float, float], max_thrust:float) -> Tuple[float, float]:
         # clip force s.t. resulting speed (after dt) is at most max_speed
@@ -121,32 +122,36 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
     def act(self, dt:float) -> None:
         # if the player is controlling, do nothing and wait until next tick
-        if self.has_command:
-            self.has_command = False
-            self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
-            return
-
-        self.ship.apply_force(steering.ZERO_VECTOR, False)
-        # otherwise try to kill rotation
-        # apply torque up to max torque to kill angular velocity
-        # torque = moment * angular_acceleration
-        # the perfect acceleration would be -1 * angular_velocity / timestep
-        # implies torque = moment * -1 * angular_velocity / timestep
-        t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.max_torque, self.ship.max_torque)
-        if t == 0:
-            self.ship.phys.angular_velocity = 0
-            # schedule again to get cleaned up on next tick
-            self.ship.apply_torque(0., False)
-            self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
+        if self.has_thrust_command:
+            self.has_thrust_command = False
         else:
-            self.ship.apply_torque(t, True)
+            self.ship.apply_force(steering.ZERO_VECTOR, False)
 
-            self.gamestate.schedule_order_immediate(self)
+        rotate_time = 1/15
+        if self.has_torque_command:
+            self.has_torque_command = False
+        else:
+            # otherwise try to kill rotation
+            # apply torque up to max torque to kill angular velocity
+            # torque = moment * angular_acceleration
+            # the perfect acceleration would be -1 * angular_velocity / timestep
+            # implies torque = moment * -1 * angular_velocity / timestep
+            t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.max_torque, self.ship.max_torque)
+            if t == 0:
+                self.ship.phys.angular_velocity = 0
+                # schedule again to get cleaned up on next tick
+                self.ship.apply_torque(0., False)
+            else:
+                self.ship.apply_torque(t, True)
+                rotate_time = 1/60
+
+        self.gamestate.schedule_order(self.gamestate.timestamp + min(rotate_time, 1/15), self)
+
 
     # action functions, imply player direct input
 
     def accelerate(self) -> None:
-        self.has_command = True
+        self.has_thrust_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_thrust, self.ship.angle)
 
@@ -159,7 +164,8 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             self.ship.apply_force(steering.ZERO_VECTOR, False)
 
     def kill_velocity(self) -> None:
-        self.has_command = True
+        self.has_thrust_command = True
+        self.has_rotate_command = True
         if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
             return
         #TODO: handle continuous force/torque
@@ -174,7 +180,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         scale is the direction 1 is clockwise,-1 is counter clockwise
         """
 
-        self.has_command = True
+        self.has_rotate_command = True
         #TODO: up to max angular acceleration?
         self.ship.apply_force(steering.ZERO_VECTOR, False)
         self.ship.apply_torque(
@@ -192,7 +198,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         direction is an angle relative to heading
         """
 
-        self.has_command = True
+        self.has_thrust_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_fine_thrust, self.ship.angle + direction)
 
@@ -262,6 +268,10 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
     def command_list(self) -> Collection[interface.CommandBinding]:
 
+        def show_orders(args:Sequence[str]) -> None:
+            for order in self.ship._orders:
+                self.interface.log_message(f'{order}')
+
         def order_jump(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
                 raise command_input.UserError("can only jump through travel gates as selected target")
@@ -289,6 +299,13 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
+        def order_pursue(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+            order = movement.PursueOrder(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
         def log_cargo(args:Sequence[str]) -> None:
             if np.sum(self.ship.cargo) == 0.:
                 self.interface.log_message("No cargo on ship")
@@ -309,16 +326,22 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def spawn_missile(args:Sequence[str]) -> None:
             if self.selected_entity is None:
                 raise command_input.UserError("no target")
-            loc = self.interface.generator._gen_sector_location(self.sector, center=self.ship.loc + util.polar_to_cartesian(100, self.ship.angle), occupied_radius=75, radius=300)
-            v = util.polar_to_cartesian(100, self.ship.angle)
-            spawned_missile = self.interface.generator.spawn_missile(self.sector, loc[0], loc[1], v=v, w=0.0)
-            core.missile.setup_missile(spawned_missile, self.selected_entity, self.gamestate)
+            #loc = self.interface.generator._gen_sector_location(self.sector, center=self.ship.loc + util.polar_to_cartesian(100, self.ship.angle), occupied_radius=75, radius=30000)
+            #v = util.polar_to_cartesian(100, self.ship.angle)
+            #spawned_missile = self.interface.generator.spawn_missile(self.sector, loc[0], loc[1], v=v, w=0.0)
+            #core.missile.setup_missile(spawned_missile, self.selected_entity, self.gamestate)
+
+            #if isinstance(self.selected_entity, core.Ship):
+            #    self.selected_entity.prepend_order(movement.EvadeOrder(spawned_missile, self.selected_entity, self.gamestate))
+            core.missile.MissileOrder.spawn_missile(self.ship, self.selected_entity, self.gamestate)
 
         return [
+            self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
             self.bind_command("dock", order_dock),
+            self.bind_command("pursue", order_pursue),
             self.bind_command("cargo", log_cargo),
             self.bind_command("spawn_missile", spawn_missile),
         ]
@@ -585,6 +608,11 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             s_x, s_y = self.perspective.sector_to_screen(*current_order._target_location)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
+        elif isinstance(current_order, movement.EvadeOrder):
+            s_x, s_y = self.perspective.sector_to_screen(*current_order.intercept_location)
+
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
+
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.

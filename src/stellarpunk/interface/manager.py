@@ -190,6 +190,7 @@ class InterfaceManager(core.CharacterObserver):
         if character == self.gamestate.player.character:
             self.gamestate.force_pause(self)
             self.interface.log_message("you've been killed")
+            # TODO: what should we do when the player's character dies?
             self.open_universe()
 
     def time_accel(self) -> None:

@@ -182,3 +182,4 @@ class StarfieldLayer:
         self._star_list.append((loc, size, spectral_class))
         self.num_stars += 1
         self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
+
