@@ -7,7 +7,7 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import core, interface, util, effects
-from stellarpunk.core import missile
+from stellarpunk.core import combat
 
 class Presenter:
     """ Prsents entities in a sector. """

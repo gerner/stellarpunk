@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import util, core, config, generate
+from stellarpunk.core import combat
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -171,7 +172,7 @@ class Icons:
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
-        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
+        if isinstance(entity, core.Ship) or isinstance(entity, combat.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
         elif isinstance(entity, core.Station):
             icon = Icons.STATION
@@ -487,9 +488,6 @@ class AbstractInterface(abc.ABC):
         return False
 
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
-        pass
-
-    def order_complete(self, order:core.Order) -> None:
         pass
 
     @abc.abstractmethod

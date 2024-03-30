@@ -72,7 +72,12 @@ class Sector(Entity):
         self.collision_observers[entity_id].add(observer)
 
     def unregister_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
-        self.collision_observers[entity_id].remove(observer)
+        try:
+            self.collision_observers[entity_id].remove(observer)
+        except KeyError:
+            # allow double unregister (e.g. the observe wants to unregister
+            # after we've destroyed the thing it observes)
+            pass
 
     def add_effect(self, effect:Effect) -> None:
         self._effects.append(effect)

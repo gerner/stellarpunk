@@ -142,11 +142,12 @@ class Simulator(core.AbstractGameRuntime):
                 if entity_a.sector is None or entity_a.sector != entity_b.sector:
                     raise Exception(f'collision between entities in different or null sectors {entity_a.sector} != {entity_b.sector}')
 
-                if entity_a.entity_id in entity_a.sector.collision_observers:
-                    for observer in entity_a.sector.collision_observers[entity_a.entity_id].copy():
+                sector = entity_a.sector
+                if entity_a.entity_id in sector.collision_observers:
+                    for observer in sector.collision_observers[entity_a.entity_id].copy():
                         observer.collision(entity_a, entity_b, impulse, ke)
-                if entity_b.entity_id in entity_b.sector.collision_observers:
-                    for observer in entity_b.sector.collision_observers[entity_b.entity_id].copy():
+                if entity_b.entity_id in sector.collision_observers:
+                    for observer in sector.collision_observers[entity_b.entity_id].copy():
                         observer.collision(entity_b, entity_a, impulse, ke)
 
             # keep _collisions clear for next time
@@ -168,11 +169,6 @@ class Simulator(core.AbstractGameRuntime):
                         #TODO: this is kind of janky, can't we just demand that orders schedule themselves?
                         # what about the order queue being simply a queue?
                         self.gamestate.schedule_order_immediate(next_order)
-
-                    #TODO: seems like we don't want this any more (why does the UI need
-                    #to know when every single order is complete? I think this was a
-                    #testing hook. but that's not probably the right way to do this
-                    self.ui.order_complete(order)
                 else:
                     order.act(dt)
             else:

@@ -610,6 +610,9 @@ def update_vema(value_estimate:float, volume_estimate:float, alpha:float, value:
 @overload
 def update_vema(value_estimate:npt.NDArray[np.float64], volume_estimate:npt.NDArray[np.float64], alpha:float, value:npt.NDArray[np.float64], volume:npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
 
+@overload
+def update_vema(value_estimate:npt.NDArray[np.float64], volume_estimate:float, alpha:float, value:npt.NDArray[np.float64], volume:float) -> Tuple[npt.NDArray[np.float64], float]: ...
+
 def update_vema(value_estimate:float | npt.NDArray[np.float64], volume_estimate:float | npt.NDArray[np.float64], alpha:float, value:float | npt.NDArray[np.float64], volume:float | npt.NDArray[np.float64]) -> Tuple[float | npt.NDArray[np.float64], float | npt.NDArray[np.float64]]:
     """ Update volume weighted moving average parameters (value, volume). """
 

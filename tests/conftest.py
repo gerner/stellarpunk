@@ -4,7 +4,7 @@ import cymunk # type: ignore
 import numpy as np
 
 from stellarpunk import core, sim, generate, interface
-from . import MonitoringUI, MonitoringEconDataLogger
+from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
 def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
@@ -18,6 +18,7 @@ def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
     ug.initialize(starfield_composite=False)
     gamestate.random = ug.r
+    gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
             max_fraction_one_to_one=1.,
             max_fraction_single_input=1.,
@@ -57,7 +58,7 @@ def econ_logger() -> MonitoringEconDataLogger:
 
 @pytest.fixture
 def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
-    simulation = sim.Simulator(gamestate, testui, ticks_per_hist_sample=1)
+    simulation = MonitoringSimulator(gamestate, testui)
     gamestate.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
 

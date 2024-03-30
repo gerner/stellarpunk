@@ -73,7 +73,7 @@ class Effect(abc.ABC):
         pass
 
     def is_complete(self) -> bool:
-        return True
+        return self.completed_at > 0
 
     def begin_effect(self) -> None:
         """ Triggers the event to start working.
@@ -208,7 +208,7 @@ class Order:
     def is_complete(self) -> bool:
         """ Indicates that this Order is ready to complete and be removed from
         the order queue. """
-        return False
+        return self.completed_at > 0
 
     def _begin(self) -> None:
         pass
@@ -234,25 +234,9 @@ class Order:
     def complete_order(self) -> None:
         """ Called when an order is_complete and about to be removed from the
         order queue. """
+        if self.completed_at > 0:
+            return
         self.completed_at = self.gamestate.timestamp
-        self._complete()
-
-        for observer in self.observers:
-            observer.order_complete(self)
-        self.observers.clear()
-
-    def cancel_order(self) -> None:
-        """ Called when an order is removed from the order queue, but not
-        because it's complete. Note the order _might_ be complete in this case.
-        """
-        self.gamestate.unschedule_order(self)
-        for order in self.child_orders:
-            order.cancel_order()
-            try:
-                self.ship.remove_order(order)
-            except ValueError:
-                # order might already have been removed from the queue
-                pass
 
         try:
             self.ship.remove_order(self)
@@ -260,11 +244,49 @@ class Order:
             # order might already have been removed from the queue
             pass
 
-        self._cancel()
+        for order in self.child_orders:
+            order.cancel_order()
+            try:
+                self.ship.remove_order(order)
+            except ValueError:
+                # order might already have been removed from the queue
+                pass
+        self.child_orders.clear()
 
+        self._complete()
+        for observer in self.observers:
+            observer.order_complete(self)
+        self.observers.clear()
+        self.gamestate.unschedule_order(self)
+
+    def cancel_order(self) -> None:
+        """ Called when an order is removed from the order queue, but not
+        because it's complete. Note the order _might_ be complete in this case.
+        """
+        if self.completed_at > 0:
+            return
+        self.completed_at = self.gamestate.timestamp
+
+        try:
+            self.ship.remove_order(self)
+        except ValueError:
+            # order might already have been removed from the queue
+            pass
+
+        for order in self.child_orders:
+            order.cancel_order()
+            try:
+                self.ship.remove_order(order)
+            except ValueError:
+                # order might already have been removed from the queue
+                pass
+        self.child_orders.clear()
+
+        self._cancel()
         for observer in self.observers:
             observer.order_cancel(self)
         self.observers.clear()
+        self.gamestate.unschedule_order(self)
 
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """

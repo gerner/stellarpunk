@@ -373,13 +373,23 @@ class GoToLocation(AbstractSteeringOrder):
         return
 
 class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
-    def __init__(self, target:core.SectorEntity, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, target:core.SectorEntity, *args: Any, escape_distance:float=np.inf, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
         self.target.observe(self)
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
+
+        # volume-weighted exponential average of target velocity
+        # "volume" here is time between measurements
+        # estimate of target velocity, weighted by amount of time since the
+        # last estimate
+        self.est_tv_velocity = np.array((0.0, 0.0))
+        self.est_tv_volume = 0.
+        self.last_est_tv = 0.
+
+        self.escape_distance = escape_distance
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self.target:
@@ -390,6 +400,11 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             return
         self.cancel_order()
 
+    def _begin(self) -> None:
+        self.est_tv_velocity = self.target.velocity
+        self.est_tv_volume = self.gamestate.dt
+        self.last_est_tv = self.gamestate.timestamp
+
     def _complete(self) -> None:
         self.target.unobserve(self)
 
@@ -398,10 +413,12 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
     def is_complete(self) -> bool:
         # TODO: when do we stop evading?
-        return False
+        return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) > self.escape_distance
 
     def act(self, dt:float) -> None:
         assert self.ship.sector
+
+        max_speed = self.ship.max_speed() * 100000
 
         # OPTION A:
         # plot a course away from intercept location
@@ -420,19 +437,21 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         # OPTION B:
         # estimate our closest approach and flee from there
         rel_dist, self.intercept_time, rel_pos, rel_vel, min_sep, self.intercept_location, collision_distance = self.neighbor_analyzer.analyze_neighbor(self.target.phys_shape, 0.0, 1e6)
-
-        # plot a course away from that closest approach
-        #course = self.ship.loc - self.intercept_location
-        #course = course / np.linalg.norm(course)
-        #target_velocity = cymunk.Vec2d(course * self.ship.max_speed())
-
-        # OPTION C:
-        # want a velocity perpendicular to current relative velocity
-        rel_vel = self.target.velocity - self.ship.velocity
         rel_speed = np.linalg.norm(rel_vel)
-        if rel_speed == 0:
-            target_velocity = self.ship.velocity
+
+        if rel_speed < 5 or self.intercept_time > 5:
+            self.logger.info(f'flee mode {rel_dist}m {rel_speed}m/s {self.intercept_time}s')
+            # plot a course away from that closest approach
+            course = self.ship.loc - self.intercept_location
+            course = course / np.linalg.norm(course)
+            target_velocity = cymunk.Vec2d(course * self.ship.max_speed())
         else:
+            self.logger.info(f'dodge mode {rel_dist}m {rel_speed}m/s {self.intercept_time}s')
+            # OPTION C:
+            # want a velocity perpendicular to current relative velocity
+            #self.est_tv_velocity, self.est_tv_volume = util.update_vema(self.est_tv_velocity, self.est_tv_volume, 0.05, self.target.velocity, self.gamestate.timestamp - self.last_est_tv)
+            #self.last_est_tv = self.gamestate.timestamp
+            #rel_vel = np.array(self.est_tv_velocity/self.est_tv_volume - self.ship.velocity)
             # two perpendicular options, pick the one with the least rotation
             a = np.array((-rel_vel[1], rel_vel[0]))
             a = a / rel_speed
@@ -440,9 +459,9 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             b = b / rel_speed
             heading = np.array(util.polar_to_cartesian(1.0, self.ship.angle))
             if np.dot(a, heading) > np.dot(b, heading):
-                target_velocity = cymunk.Vec2d(a * self.ship.max_speed())
+                target_velocity = cymunk.Vec2d(a * max_speed)
             else:
-                target_velocity = cymunk.Vec2d(b * self.ship.max_speed())
+                target_velocity = cymunk.Vec2d(b * max_speed)
 
         collision_dv, approach_time = self._avoid_collisions_dv(
                 self.ship.sector,
@@ -451,14 +470,14 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         if not util.both_almost_zero(collision_dv) or approach_time < self.intercept_time:
             target_velocity = self.ship.phys.velocity + collision_dv
 
-        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, max_speed, self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
 
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
         self.gamestate.schedule_order(next_ts, self)
 
-class PursueOrder(core.Order, core.SectorEntityObserver):
+class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     """ Steer toward a collision with the target """
-    def __init__(self, target:core.SectorEntity, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, target:core.SectorEntity, *args:Any, arrival_distance:Optional[float]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.ship.observe(self)
@@ -467,6 +486,13 @@ class PursueOrder(core.Order, core.SectorEntityObserver):
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
+
+        if arrival_distance is None:
+            self.arrival_distance = target.radius/5.
+        else:
+            self.arrival_distance = arrival_distance
+
+        self.avoid_collisions=True
 
     def estimate_eta(self) -> float:
         return self.intercept_time
@@ -478,7 +504,8 @@ class PursueOrder(core.Order, core.SectorEntityObserver):
         self.cancel_order()
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        self.cancel_order()
+        if entity == self.target:
+            self.cancel_order()
 
     def _complete(self) -> None:
         self.ship.unobserve(self)
@@ -487,7 +514,11 @@ class PursueOrder(core.Order, core.SectorEntityObserver):
     def _cancel(self) -> None:
         self._complete()
 
+    def is_complete(self) -> bool:
+        return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) < self.arrival_distance
+
     def act(self, dt:float) -> None:
+        assert self.ship.sector
         # we won't get called if we're complete
 
         # interception algorithm:
@@ -507,12 +538,22 @@ class PursueOrder(core.Order, core.SectorEntityObserver):
         target_velocity, _, self.intercept_time, self.intercept_location = collision.find_intercept_v(
                 self.ship.phys,
                 self.target.phys,
-                self.target.radius/5,
+                self.arrival_distance,
                 self.ship.max_acceleration(),
                 self.ship.max_angular_acceleration(),
                 self.ship.max_speed(),
                 dt,
                 final_speed)
+
+
+        if self.avoid_collisions:
+            # avoid collisions
+            collision_dv, approach_time = self._avoid_collisions_dv(
+                    self.ship.sector,
+                    desired_direction=target_velocity)
+
+            if not util.both_almost_zero(collision_dv):
+                target_velocity = self.ship.velocity + collision_dv
 
         continue_time = collision.accelerate_to(
                 self.ship.phys,

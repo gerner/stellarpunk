@@ -108,7 +108,7 @@ class Gamestate(EntityRegistry):
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.generator:AbstractGenerator = None #type: ignore
-        self.game_runtime:AbstractGameRuntime = None #type: ignore
+        self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
 
         self.random = np.random.default_rng()
 

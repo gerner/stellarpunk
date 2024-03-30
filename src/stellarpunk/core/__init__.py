@@ -8,4 +8,3 @@ from .ship import Ship
 from .order import Order, OrderObserver, Effect, EffectObserver
 from .character import Character, Player, Agendum, Message, CharacterObserver
 from .gamestate import Gamestate, Counters, AbstractGameRuntime, AbstractGenerator
-from .missile import Missile

@@ -12,6 +12,7 @@ import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders, config
+from stellarpunk.core import combat
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
 from stellarpunk.orders import steering, movement, collision
@@ -306,6 +307,22 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
+        def order_evade(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+
+            order = movement.EvadeOrder(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
+        def order_attack(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+
+            order = combat.AttackOrder(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
         def log_cargo(args:Sequence[str]) -> None:
             if np.sum(self.ship.cargo) == 0.:
                 self.interface.log_message("No cargo on ship")
@@ -326,14 +343,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def spawn_missile(args:Sequence[str]) -> None:
             if self.selected_entity is None:
                 raise command_input.UserError("no target")
-            #loc = self.interface.generator._gen_sector_location(self.sector, center=self.ship.loc + util.polar_to_cartesian(100, self.ship.angle), occupied_radius=75, radius=30000)
-            #v = util.polar_to_cartesian(100, self.ship.angle)
-            #spawned_missile = self.interface.generator.spawn_missile(self.sector, loc[0], loc[1], v=v, w=0.0)
-            #core.missile.setup_missile(spawned_missile, self.selected_entity, self.gamestate)
-
-            #if isinstance(self.selected_entity, core.Ship):
-            #    self.selected_entity.prepend_order(movement.EvadeOrder(spawned_missile, self.selected_entity, self.gamestate))
-            core.missile.MissileOrder.spawn_missile(self.ship, self.selected_entity, self.gamestate)
+            combat.MissileOrder.spawn_missile(self.ship, self.selected_entity, self.gamestate)
 
         return [
             self.bind_command("orders", show_orders),
@@ -342,6 +352,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("mine", order_mine),
             self.bind_command("dock", order_dock),
             self.bind_command("pursue", order_pursue),
+            self.bind_command("evade", order_evade),
+            self.bind_command("attack", order_attack),
             self.bind_command("cargo", log_cargo),
             self.bind_command("spawn_missile", spawn_missile),
         ]

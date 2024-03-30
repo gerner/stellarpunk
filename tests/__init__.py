@@ -161,7 +161,7 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
     ) -> None:
         pass
 
-class MonitoringUI(interface.AbstractInterface):
+class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
     def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.sector = sector
@@ -218,8 +218,11 @@ class MonitoringUI(interface.AbstractInterface):
         if len(self.orders) > 0 and len(set(self.orders) - set(self.complete_orders)) == 0:
             self.done = True
 
-    def tick(self, timeout:float, dt:float) -> None:
+    def first_tick(self) -> None:
+        for o in self.orders:
+            o.observe(self)
 
+    def tick(self, timeout:float, dt:float) -> None:
         assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
@@ -247,3 +250,12 @@ class MonitoringUI(interface.AbstractInterface):
 
         if self.gamestate.timestamp > self.max_timestamp:
             self.gamestate.quit()
+
+class MonitoringSimulator(sim.Simulator):
+    def __init__(self, gamestate:core.Gamestate, testui:MonitoringUI) -> None:
+        super().__init__(gamestate, testui, ticks_per_hist_sample=1)
+        self.testui = testui
+
+    def run(self) -> None:
+        self.testui.first_tick()
+        super().run()
