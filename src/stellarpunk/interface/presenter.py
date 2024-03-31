@@ -8,6 +8,7 @@ import numpy as np
 
 from stellarpunk import core, interface, util, effects
 from stellarpunk.core import combat
+from stellarpunk.orders import steering, collision
 
 class Presenter:
     """ Prsents entities in a sector. """
@@ -266,3 +267,30 @@ class Presenter:
         for entity in self.sector.spatial_query(self.perspective.bbox):
             if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
                 self.draw_entity_shape(entity)
+
+    def draw_sensor_cone(self, ship:core.Ship) -> None:
+        """ Visualize sensor cone used, e.g. in navigation/collision avoid """
+        # these are upper bounds on what gets used in collision avoidance
+        neighborhood_radius = 8.5e3
+        collision_margin = 1e3
+
+        current_order = ship.current_order()
+        if isinstance(current_order, steering.AbstractSteeringOrder):
+            neighborhood_radius = current_order.computed_neighborhood_radius
+            collision_margin = current_order.collision_margin
+
+        neighborhood_loc = collision.compute_neighborhood_center(ship.phys, neighborhood_radius, collision_margin)
+        sensor_cone = collision.compute_sensor_cone(ship.phys, neighborhood_radius, collision_margin, neighborhood_loc, ship.radius)
+
+        c = util.make_circle_canvas(neighborhood_radius, *self.perspective.meters_per_char)
+        c = util.drawille_line(sensor_cone[0]-neighborhood_loc, sensor_cone[1]-neighborhood_loc, *self.perspective.meters_per_char, canvas = c)
+        c = util.drawille_line(sensor_cone[1]-neighborhood_loc, sensor_cone[2]-neighborhood_loc, *self.perspective.meters_per_char, canvas = c)
+        c = util.drawille_line(sensor_cone[2]-neighborhood_loc, sensor_cone[3]-neighborhood_loc, *self.perspective.meters_per_char, canvas = c)
+        c = util.drawille_line(sensor_cone[3]-neighborhood_loc, sensor_cone[0]-neighborhood_loc, *self.perspective.meters_per_char, canvas = c)
+
+        s_x, s_y = self.perspective.sector_to_screen(*neighborhood_loc)
+
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        window = self.view.viewscreen.window
+        util.draw_canvas_at(c, window, s_y, s_x, bounds=self.view.viewscreen_bounds)
+

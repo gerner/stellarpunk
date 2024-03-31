@@ -64,6 +64,8 @@ class AbstractSteeringOrder(core.Order):
     def num_neighbors(self) -> int: return self.neighbor_analyzer.get_num_neighbors()
     @property
     def collision_margin(self) -> float: return self.neighbor_analyzer.get_collision_margin()
+    @property
+    def computed_neighborhood_radius(self) -> float: return self.neighbor_analyzer.get_neighborhood_radius()
 
     def to_history(self) -> dict:
         history = super().to_history()

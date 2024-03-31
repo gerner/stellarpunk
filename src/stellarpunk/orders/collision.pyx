@@ -654,6 +654,48 @@ cdef double _update_collision_margin_histeresis(double collision_margin_histeres
         # if there's no overlap, start collapsing collision margin
         return collision_margin_histeresis * COLLISION_MARGIN_HISTERESIS_FACTOR
 
+cdef ccymunk.cpVect _compute_neighborhood_center(ccymunk.Body body, double neighborhood_radius, double margin):
+    cdef double speed = ccymunk.cpvlength(body._body.v)
+    cdef double neighborhood_offset
+    if speed > 0:
+        # offset looking for threats in the direction we're travelling,
+        # depending on our speed
+        neighborhood_offset = clip(
+                interpolate(
+                    NOFF_SPEED_LOW, NOFF_LOW, NOFF_SPEED_HIGH, NOFF_HIGH,
+                    speed
+                ),
+                0, neighborhood_radius - margin)
+        return ccymunk.cpvadd(body._body.p, ccymunk.cpvmult(body._body.v, neighborhood_offset / speed))
+    else:
+        return body._body.p
+
+def compute_neighborhood_center(body:cymunk.Body, neighborhood_radius:float, margin:float) -> cymunk.Vec2d:
+    return cpvtoVec2d(_compute_neighborhood_center(<ccymunk.Body?>body, neighborhood_radius, margin))
+
+cdef void _compute_sensor_cone(ccymunk.Body body, double neighborhood_radius, double margin, ccymunk.cpVect cneighborhood_loc, double radius, ccymunk.cpVect[4] sensor_cone):
+    # look for threats in a cone facing the direction of our velocity
+    # cone is truncated, starts at the edge of our nearest point query circle
+    # goes until another 4 neighborhood radii in direction of our velocity
+    # cone starts at margin
+    cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(body._body.v)
+    cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
+    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
+    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
+
+    # points are ordered to get a convex shape with the proper winding
+    sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (radius+margin*2)))
+    sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(radius+margin*2)))
+    sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (radius+margin)*5))
+    sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(radius+margin)*5))
+
+def compute_sensor_cone(body:cymunk.Body, neighborhood_radius:float, margin:float, neighborhood_loc:cymunk.Vec2d, radius:float) -> Tuple[cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d]:
+    cdef ccymunk.cpVect sensor_cone[4]
+    _compute_sensor_cone(<ccymunk.Body?>body, neighborhood_radius, margin, neighborhood_loc.v, radius, sensor_cone)
+    return (cpvtoVec2d(sensor_cone[0]), cpvtoVec2d(sensor_cone[1]), cpvtoVec2d(sensor_cone[2]), cpvtoVec2d(sensor_cone[3]))
+
+
+
 cdef struct RelPosHistoryEntry:
     double timestamp
     ccymunk.cpVect rel_pos
@@ -1116,9 +1158,6 @@ cdef class Navigator:
 
         cdef ccymunk.cpShape *ct
         cdef ccymunk.Body cythreat_body
-        cdef double speed = ccymunk.cpvlength(self.body._body.v)
-        cdef double neighborhood_offset
-        cdef ccymunk.cpVect cneighborhood_loc
         cdef set[ccymunk.cpHashValue] prior_shapes
         cdef int prior_threat_count
         cdef ccymunk.cpHashValue prior_threat_id
@@ -1129,19 +1168,6 @@ cdef class Navigator:
 
         # and expand based on if we're trying to avoid a target
         cdef double margin = self.margin + self.collision_margin_histeresis
-
-        if speed > 0:
-            # offset looking for threats in the direction we're travelling,
-            # depending on our speed
-            neighborhood_offset = clip(
-                    interpolate(
-                        NOFF_SPEED_LOW, NOFF_LOW, NOFF_SPEED_HIGH, NOFF_HIGH,
-                        speed
-                    ),
-                    0, self.neighborhood_radius - margin)
-            cneighborhood_loc = ccymunk.cpvadd(self.body._body.p, ccymunk.cpvmult(self.body._body.v, neighborhood_offset / speed))
-        else:
-            cneighborhood_loc = self.body._body.p
 
         # stash the prior threat circle to smooth threat location transitions
         cdef ccymunk.cpVect prior_threat_location = self.analysis.threat_loc
@@ -1174,24 +1200,14 @@ cdef class Navigator:
         # grab a copy of the shape ids for prior shapes
         cdef set[ccymunk.cpHashValue] prior_shape_ids = self.analysis.considered_shapes
 
+        # construct the shape of the area we'll look for threats in
+        cdef ccymunk.cpVect cneighborhood_loc = _compute_neighborhood_center(self.body, self.neighborhood_radius, margin)
+        cdef ccymunk.cpVect sensor_cone[4]
+        _compute_sensor_cone(self.body, self.neighborhood_radius, margin, cneighborhood_loc, self.radius, sensor_cone)
+
         # look for threats in a circle
         ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, self.neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)
 
-        # look for threats in a cone facing the direction of our velocity
-        # cone is truncated, starts at the edge of our nearest point query circle
-        # goes until another 4 neighborhood radii in direction of our velocity
-        # cone starts at margin
-        cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(self.body._body.v)
-        cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
-        cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, self.neighborhood_radius-margin))
-        cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, self.neighborhood_radius*3))
-
-        cdef ccymunk.cpVect sensor_cone[4]
-        # points are ordered to get a convex shape with the proper winding
-        sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (self.radius+margin*2)))
-        sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(self.radius+margin*2)))
-        sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (self.radius+margin)*5))
-        sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(self.radius+margin)*5))
 
         cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
         ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)

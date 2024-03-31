@@ -322,6 +322,26 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
+def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None) -> drawille.Canvas:
+    if canvas is None:
+        canvas = drawille.Canvas()
+    course = np.array(end) - np.array(start)
+    distance = np.linalg.norm(course)
+    if distance == 0:
+        d_x, d_y = sector_to_drawille(start[0], start[1], meters_per_char_x, meters_per_char_y)
+        canvas.set(d_x, d_y)
+        return canvas
+    unit_course = course / distance
+    if step is None:
+        step = 2.*meters_per_char_x
+    d = 0.
+    while d <= distance:
+        point = unit_course * d + start
+        d_x, d_y = sector_to_drawille(point[0], point[1], meters_per_char_x, meters_per_char_y)
+        canvas.set(d_x, d_y)
+        d += step
+    return canvas
+
 def draw_line(y:int, x:int, line:str, screen:curses.window, attr:int=0, bounds:Tuple[int, int, int, int]=(0,0,sys.maxsize,sys.maxsize)) -> None:
     if y < bounds[1] or y >= bounds[3]:
         return

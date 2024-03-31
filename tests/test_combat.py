@@ -1,3 +1,5 @@
+from typing import Optional
+
 from stellarpunk.core import combat
 
 def test_missile_attack(gamestate, generator, sector, testui, simulator):
@@ -5,9 +7,12 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     target = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
 
 
-    missile = combat.MissileOrder.spawn_missile(ship, target, gamestate)
+    missile:Optional[combat.Missile] = combat.MissileOrder.spawn_missile(ship, target, gamestate)
+    assert missile
     missile_order = missile.current_order()
-    attack_order = combat.AttackOrder(target, ship, gamestate)
+    assert missile_order
+    attack_order:Optional[combat.AttackOrder] = combat.AttackOrder(target, ship, gamestate)
+    assert attack_order
     ship.prepend_order(attack_order)
 
     testui.orders = [attack_order]

@@ -817,6 +817,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.starfield.draw_starfield(self.viewscreen)
         self.presenter.draw_shapes()
         self._draw_radar()
+        self.presenter.draw_sensor_cone(self.selected_entity if isinstance(self.selected_entity, core.Ship) else self.ship)
         self.presenter.draw_sector_map()
 
         # draw hud overlay on top of everything else
