@@ -244,7 +244,6 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.target_indicator_radius = 13
         self.velocity_indicator_radius_min = 2
         self.velocity_indicator_radius_max = 14
-        self.show_sensor_cone = True
 
         # cache the radar, we'll regenerate it when the zoom changes
         self._cached_radar_zoom = 0.
@@ -347,12 +346,12 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             combat.MissileOrder.spawn_missile(self.ship, self.selected_entity, self.gamestate)
 
         def toggle_sensor_cone(args:Sequence[str]) -> None:
-            self.show_sensor_cone = not self.show_sensor_cone
-            cone_txt_state = "on" if self.show_sensor_cone else "off"
+            self.presenter.show_sensor_cone = not self.presenter.show_sensor_cone
+            cone_txt_state = "on" if self.presenter.show_sensor_cone else "off"
             self.interface.log_message(f'sensor_cone {cone_txt_state}')
 
         def cache_stats(args:Sequence[str]) -> None:
-            self.logger.info(self.presenter.compute_sensor_cone_memoize.cache_info())
+            self.logger.info(presenter.compute_sensor_cone_memoize.cache_info())
 
         return [
             self.bind_command("orders", show_orders),
@@ -739,16 +738,19 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         label_speed = "speed:"
         label_location = "location:"
         label_heading = "heading:"
+        label_course = "course:"
         label_order = "order:"
         label_eta = "eta:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
+        course = self.ship.phys.velocity.get_angle() + np.pi/2
 
         self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
-        status_y += 5
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
+        self.viewscreen.addstr(status_y+5, status_x, f'{label_order:>12} {current_order}')
+        status_y += 6
         if current_order is not None:
             eta = current_order.estimate_eta()
             self.viewscreen.addstr(status_y, status_x, f'{label_eta:>12} {eta:.1f}s')
@@ -828,8 +830,6 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.starfield.draw_starfield(self.viewscreen)
         self.presenter.draw_shapes()
         self._draw_radar()
-        if self.show_sensor_cone:
-            self.presenter.draw_sensor_cone(self.selected_entity if isinstance(self.selected_entity, core.Ship) else self.ship)
         self.presenter.draw_sector_map()
 
         # draw hud overlay on top of everything else

@@ -22,6 +22,25 @@ def quantize(a:float, error:float) -> float:
     exp = math.floor(math.log(a) / math.log(2))
     return (a/(2** exp) // error * error ) * 2 ** exp
 
+@functools.lru_cache(maxsize=256)
+def compute_sensor_cone_memoize(stopped:bool, angle:float, neighborhood_radius:float, collision_margin:float, radius:float, offset_x:float, offset_y:float, bounds:Tuple[int, int, int, int], meters_per_char:Tuple[float, float]) -> Mapping[Tuple[int, int], str]:
+    sensor_cone = collision.compute_sensor_cone(cymunk.Vec2d(*util.polar_to_cartesian(0.0 if stopped else 1.0, angle)), neighborhood_radius, collision_margin, steering.CYZERO_VECTOR, radius)
+
+    c = util.make_circle_canvas(neighborhood_radius, *meters_per_char)
+    c = util.drawille_line(sensor_cone[0], sensor_cone[1], *meters_per_char, canvas = c)
+    c = util.drawille_line(sensor_cone[1], sensor_cone[2], *meters_per_char, canvas = c)
+    c = util.drawille_line(sensor_cone[2], sensor_cone[3], *meters_per_char, canvas = c)
+    c = util.drawille_line(sensor_cone[3], sensor_cone[0], *meters_per_char, canvas = c)
+
+    # appears to fill the whole screen
+    (d_x, d_y) = util.sector_to_drawille(
+        offset_x,
+        offset_y,
+        *meters_per_char)
+    content = util.lines_to_dict(c.rows(d_x, d_y), bounds=bounds)
+
+    return content
+
 class Presenter:
     """ Prsents entities in a sector. """
 
@@ -40,6 +59,7 @@ class Presenter:
         self.debug_entity = False
         self.selected_target:Optional[uuid.UUID] = None
         self.debug_entity_vectors = False
+        self.show_sensor_cone = False
 
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching
@@ -49,33 +69,13 @@ class Presenter:
         else:
             stopped = False
             theta = util.normalize_angle(ship.phys.velocity.get_angle())
-            quantized_theta = SENSOR_ANGLE_BINS[np.digitize(theta, SENSOR_ANGLE_BINS)]
+            quantized_theta = SENSOR_ANGLE_BINS[np.digitize(theta, SENSOR_ANGLE_BINS)-1]
 
         neighborhood_radius = quantize(neighborhood_radius, 0.1)#NEIGHBORHOOD_RADIUS_BINS[np.digitize(neigborhood_radius, NEIGHBORHOOD_RADIUS_BINS)]
         collision_margin = quantize(collision_margin, 0.1)#COLLISION_MARGIN_BINS[np.digitize(collision_margin, COLLISION_MARGIN_BINS)]
         radius = quantize(ship.radius, 0.1)
 
-        return self.compute_sensor_cone_memoize(stopped, quantized_theta, neighborhood_radius, collision_margin, ship.radius)
-
-
-    @functools.lru_cache(maxsize=256)
-    def compute_sensor_cone_memoize(self, stopped:bool, angle:float, neighborhood_radius:float, collision_margin:float, radius:float, offset_x:float, offset_y:float, boundsTuple[int, int, int, int]) -> Mapping[Tuple[int, int], str]:
-        sensor_cone = collision.compute_sensor_cone(cymunk.Vec2d(*util.polar_to_cartesian(0.0 if stopped else 1.0, angle)), neighborhood_radius, collision_margin, steering.CYZERO_VECTOR, radius)
-
-        c = util.make_circle_canvas(neighborhood_radius, *self.perspective.meters_per_char)
-        c = util.drawille_line(sensor_cone[0], sensor_cone[1], *self.perspective.meters_per_char, canvas = c)
-        c = util.drawille_line(sensor_cone[1], sensor_cone[2], *self.perspective.meters_per_char, canvas = c)
-        c = util.drawille_line(sensor_cone[2], sensor_cone[3], *self.perspective.meters_per_char, canvas = c)
-        c = util.drawille_line(sensor_cone[3], sensor_cone[0], *self.perspective.meters_per_char, canvas = c)
-
-        # appears to fill the whole screen
-        (d_x, d_y) = util.sector_to_drawille(
-            -(self.perspective.bbox[2]-self.perspective.bbox[0])/2,
-            -(self.perspective.bbox[3]-self.perspective.bbox[1])/2,
-            *self.perspective.meters_per_char)
-        content = util.lines_to_dict(c.rows(d_x, d_y), bounds=self.view.viewscreen_bounds)
-
-        return content
+        return compute_sensor_cone_memoize(stopped, quantized_theta, neighborhood_radius, collision_margin, ship.radius, -(self.perspective.bbox[2]-self.perspective.bbox[0])/2, -(self.perspective.bbox[3]-self.perspective.bbox[1])/2, self.view.viewscreen_bounds, self.perspective.meters_per_char)
 
 
     def draw_effect(self, effect:core.Effect) -> None:
@@ -303,6 +303,11 @@ class Presenter:
                 occupied[last_loc] = [entity]
 
         self.draw_cells(occupied, collision_threats)
+
+        if self.show_sensor_cone and self.selected_target:
+            selected_entity = self.sector.entities[self.selected_target]
+            if isinstance(selected_entity, core.Ship):
+                self.draw_sensor_cone(selected_entity)
 
         #TODO: draw an indicator for off-screen targeted entities
 
