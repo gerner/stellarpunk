@@ -673,15 +673,14 @@ cdef ccymunk.cpVect _compute_neighborhood_center(ccymunk.Body body, double neigh
 def compute_neighborhood_center(body:cymunk.Body, neighborhood_radius:float, margin:float) -> cymunk.Vec2d:
     return cpvtoVec2d(_compute_neighborhood_center(<ccymunk.Body?>body, neighborhood_radius, margin))
 
-cdef void _compute_sensor_cone(ccymunk.Body body, double neighborhood_radius, double margin, ccymunk.cpVect cneighborhood_loc, double radius, ccymunk.cpVect[4] sensor_cone):
+cdef void _compute_sensor_cone(ccymunk.cpVect course, double neighborhood_radius, double margin, ccymunk.cpVect cneighborhood_loc, double radius, ccymunk.cpVect[4] sensor_cone):
     # look for threats in a cone facing the direction of our velocity
     # cone is truncated, starts at the edge of our nearest point query circle
     # goes until another 4 neighborhood radii in direction of our velocity
     # cone starts at margin
-    cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(body._body.v)
-    cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
-    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius-margin))
-    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, neighborhood_radius*3))
+    cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(course)
+    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(course, neighborhood_radius-margin))
+    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(course, neighborhood_radius*3))
 
     # points are ordered to get a convex shape with the proper winding
     sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (radius+margin*2)))
@@ -689,9 +688,10 @@ cdef void _compute_sensor_cone(ccymunk.Body body, double neighborhood_radius, do
     sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (radius+margin)*5))
     sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(radius+margin)*5))
 
-def compute_sensor_cone(body:cymunk.Body, neighborhood_radius:float, margin:float, neighborhood_loc:cymunk.Vec2d, radius:float) -> Tuple[cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d]:
+def compute_sensor_cone(course:cymunk.Vec2d, neighborhood_radius:float, margin:float, neighborhood_loc:cymunk.Vec2d, radius:float) -> Tuple[cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d]:
     cdef ccymunk.cpVect sensor_cone[4]
-    _compute_sensor_cone(<ccymunk.Body?>body, neighborhood_radius, margin, neighborhood_loc.v, radius, sensor_cone)
+    cdef ccymunk.cpVect ccourse = (<ccymunk.Vec2d?>course).v
+    _compute_sensor_cone(ccourse, neighborhood_radius, margin, neighborhood_loc.v, radius, sensor_cone)
     return (cpvtoVec2d(sensor_cone[0]), cpvtoVec2d(sensor_cone[1]), cpvtoVec2d(sensor_cone[2]), cpvtoVec2d(sensor_cone[3]))
 
 
@@ -1202,8 +1202,9 @@ cdef class Navigator:
 
         # construct the shape of the area we'll look for threats in
         cdef ccymunk.cpVect cneighborhood_loc = _compute_neighborhood_center(self.body, self.neighborhood_radius, margin)
+        cdef ccymunk.cpVect course = ccymunk.cpvnormalize(self.body._body.v)
         cdef ccymunk.cpVect sensor_cone[4]
-        _compute_sensor_cone(self.body, self.neighborhood_radius, margin, cneighborhood_loc, self.radius, sensor_cone)
+        _compute_sensor_cone(course, self.neighborhood_radius, margin, cneighborhood_loc, self.radius, sensor_cone)
 
         # look for threats in a circle
         ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, self.neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)

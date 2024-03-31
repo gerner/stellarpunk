@@ -586,7 +586,7 @@ def compute_uiradar(
         lines_to_dict(text, bounds=bounds)
     )
 
-def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None) -> drawille.Canvas:
+def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0.) -> drawille.Canvas:
     c = drawille.Canvas()
     if isclose(r, 0.):
         c.set(0,0)
@@ -596,7 +596,7 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
         step = 2/r*meters_per_char_x
     while theta < 2*math.pi:
         c_x, c_y = polar_to_cartesian(r, theta)
-        d_x, d_y = sector_to_drawille(c_x, c_y, meters_per_char_x, meters_per_char_y)
+        d_x, d_y = sector_to_drawille(c_x+offset_x, c_y+offset_y, meters_per_char_x, meters_per_char_y)
         c.set(d_x, d_y)
         theta += step
     return c

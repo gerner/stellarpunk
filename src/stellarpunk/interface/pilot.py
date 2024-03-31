@@ -244,6 +244,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.target_indicator_radius = 13
         self.velocity_indicator_radius_min = 2
         self.velocity_indicator_radius_max = 14
+        self.show_sensor_cone = True
 
         # cache the radar, we'll regenerate it when the zoom changes
         self._cached_radar_zoom = 0.
@@ -345,6 +346,14 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 raise command_input.UserError("no target")
             combat.MissileOrder.spawn_missile(self.ship, self.selected_entity, self.gamestate)
 
+        def toggle_sensor_cone(args:Sequence[str]) -> None:
+            self.show_sensor_cone = not self.show_sensor_cone
+            cone_txt_state = "on" if self.show_sensor_cone else "off"
+            self.interface.log_message(f'sensor_cone {cone_txt_state}')
+
+        def cache_stats(args:Sequence[str]) -> None:
+            self.logger.info(self.presenter.compute_sensor_cone_memoize.cache_info())
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
@@ -356,6 +365,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("attack", order_attack),
             self.bind_command("cargo", log_cargo),
             self.bind_command("spawn_missile", spawn_missile),
+            self.bind_command("toggle_sensor_cone", toggle_sensor_cone),
+            self.bind_command("cache_stats", cache_stats),
         ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:
@@ -817,7 +828,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.starfield.draw_starfield(self.viewscreen)
         self.presenter.draw_shapes()
         self._draw_radar()
-        self.presenter.draw_sensor_cone(self.selected_entity if isinstance(self.selected_entity, core.Ship) else self.ship)
+        if self.show_sensor_cone:
+            self.presenter.draw_sensor_cone(self.selected_entity if isinstance(self.selected_entity, core.Ship) else self.ship)
         self.presenter.draw_sector_map()
 
         # draw hud overlay on top of everything else

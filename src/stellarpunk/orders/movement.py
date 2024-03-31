@@ -477,7 +477,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
 class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     """ Steer toward a collision with the target """
-    def __init__(self, target:core.SectorEntity, *args:Any, arrival_distance:Optional[float]=None, **kwargs:Any) -> None:
+    def __init__(self, target:core.SectorEntity, *args:Any, arrival_distance:Optional[float]=None, avoid_collisions:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.ship.observe(self)
@@ -492,7 +492,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         else:
             self.arrival_distance = arrival_distance
 
-        self.avoid_collisions=True
+        self.avoid_collisions=avoid_collisions
 
     def estimate_eta(self) -> float:
         return self.intercept_time
@@ -553,7 +553,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
                     desired_direction=target_velocity)
 
             if not util.both_almost_zero(collision_dv):
-                target_velocity = self.ship.velocity + collision_dv
+                target_velocity = cymunk.Vec2d(self.ship.velocity + collision_dv)
 
         continue_time = collision.accelerate_to(
                 self.ship.phys,

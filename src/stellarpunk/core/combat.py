@@ -36,7 +36,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         return missile
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, avoid_collisions=False, **kwargs)
         self.avoid_collisions=False
 
         self.ttl = 240
