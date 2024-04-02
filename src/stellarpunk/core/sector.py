@@ -21,6 +21,24 @@ class CollisionObserver:
     @abc.abstractmethod
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
 
+class AbstractSensorManager:
+    def __init__(self, sector:"Sector"):
+        self.sector = sector
+
+    def compute_effective_profile(self, ship:SectorEntity) -> float:
+        return 100.
+
+    def compute_target_profile(self, target:SectorEntity, detector:SectorEntity) -> float:
+        return 100.
+
+    def compute_sensor_threshold(self, ship:SectorEntity) -> float:
+        return 100.
+
+    def detected(self, target:SectorEntity, detector:SectorEntity) -> bool:
+        return True
+
+    def spatial_query(self, detector:SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
+        return self.sector.spatial_query(bbox)
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
@@ -53,6 +71,9 @@ class Sector(Entity):
 
         self.collision_observers: MutableMapping[uuid.UUID, Set[CollisionObserver]] = collections.defaultdict(set)
 
+        self.weather_factor = 1.
+
+        self.sensor_manager:AbstractSensorManager = AbstractSensorManager(self)
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):

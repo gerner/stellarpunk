@@ -280,7 +280,7 @@ class Presenter:
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
-    def draw_sector_map(self) -> None:
+    def draw_sector_map(self, perspective_ship:Optional[core.Ship]=None) -> None:
         collision_threats = []
         for ship in self.sector.ships:
             if ship.collision_threat:
@@ -293,7 +293,11 @@ class Presenter:
             if util.intersects(effect.bbox(), self.perspective.bbox):
                 self.draw_effect(effect)
 
-        for entity in self.sector.spatial_query(self.perspective.bbox):
+        if perspective_ship:
+            entity_source = self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox)
+        else:
+            entity_source = self.sector.spatial_query(self.perspective.bbox)
+        for entity in entity_source:
             screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
@@ -317,8 +321,13 @@ class Presenter:
 
             self.draw_entity_vectors(screen_y, screen_x, entity)
 
-    def draw_shapes(self) -> None:
-        for entity in self.sector.spatial_query(self.perspective.bbox):
+    def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
+        if perspective_ship:
+            entity_source = self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox)
+        else:
+            entity_source = self.sector.spatial_query(self.perspective.bbox)
+
+        for entity in entity_source:
             if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
                 self.draw_entity_shape(entity)
 

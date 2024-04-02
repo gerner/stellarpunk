@@ -232,7 +232,14 @@
         ]
 
     [generate.SectorEntities]
+        [generate.SectorEntities.planet]
+            MASS = 2e6
+            RADIUS = 1000
+        [generate.SectorEntities.asteroid]
+            MASS = 2e5
+            RADIUS = 300
         [generate.SectorEntities.station]
+            MASS = 2e5
             RADIUS = 300
         [generate.SectorEntities.ship]
 
@@ -314,3 +321,18 @@
             MAX_THRUST = 1e5
             MAX_FINE_THRUST = 5e3
             MAX_TORQUE = 9e4
+
+[sensors]
+    # these are tuned so a stationary, passive ship under normal sector
+    # conditions has a profile of just over 100 at 100km
+    COEFF_MASS = 0.045
+    COEFF_RADIUS = 0.335
+    COEFF_FORCE = 0.005
+    COEFF_SENSORS = 10
+    COEFF_TRANSPONDER = 5e5
+    COEFF_DISTANCE = 1e-10
+
+    # these are tuned so a passiv ship has a threshold of 100 and an active
+    # ship has a threshold of 10
+    COEFF_THRESHOLD = 100
+    COEFF_DETECTOR = 0.009

@@ -123,6 +123,9 @@ class SectorEntity(Entity):
 
         self.observers:Set[SectorEntityObserver] = set()
 
+        self.sensor_power = 0.
+        self.transponder_on = False
+
     def observe(self, observer:SectorEntityObserver) -> None:
         self.observers.add(observer)
 
@@ -171,6 +174,8 @@ class SectorEntity(Entity):
     def angular_velocity(self) -> float: return self.phys.angular_velocity
 
     def distance_to(self, other:"SectorEntity") -> float:
+        if other.sector != self.sector:
+            raise ValueError(f'other in sector {other.sector} but we are in sector {self.sector}')
         return util.distance(self.loc, other.loc) - self.radius - other.radius
 
     def cargo_full(self) -> bool:
@@ -211,6 +216,9 @@ class Planet(SectorEntity, Asset):
         super().__init__(*args, **kwargs)
         self.population = 0.
 
+        self.sensor_power = 1000.
+        self.transponder_on = True
+
 
 class Station(SectorEntity, Asset):
 
@@ -226,6 +234,8 @@ class Station(SectorEntity, Asset):
 
         self.sprite = sprite
 
+        self.sensor_power = 1000.
+        self.transponder_on = True
 
 class Asteroid(SectorEntity):
 

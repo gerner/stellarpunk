@@ -257,6 +257,7 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
 
         self.embark_order = GoToLocation.goto_entity(self.embark_to, self.ship, self.gamestate, observer=self)
         if self.disembark_from and np.linalg.norm(self.disembark_from.loc - self.ship.loc)-self.disembark_from.radius < self.disembark_dist:
+            assert self.disembark_from.sector == self.ship.sector
             # choose a location which is outside disembark_dist
             _, angle = util.cartesian_to_polar(*(self.ship.loc - self.disembark_from.loc))
             target_angle = angle + self.gamestate.random.uniform(-np.pi/2, np.pi/2)
@@ -517,6 +518,9 @@ class DockingOrder(core.OrderObserver, core.Order):
         return distance_to_target < self.surface_distance + self.target.radius
 
     def act(self, dt:float) -> None:
+        if self.ship.sector != self.target.sector:
+            self.cancel_order()
+
         if self.gamestate.timestamp < self.next_arrival_attempt_time:
             return
 

@@ -17,7 +17,7 @@ import cymunk # type: ignore
 from rtree import index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ, config, events
+from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
 from stellarpunk.core import combat
 
 RESOURCE_REL_SHIP = 0
@@ -508,13 +508,14 @@ class UniverseGenerator(core.AbstractGenerator):
         assert station.cargo.sum() <= station.cargo_capacity
 
         self._phys_shape(station_body, station, station_radius)
+        station.mass = config.Settings.generate.SectorEntities.station.MASS
 
         sector.add_entity(station)
 
         return station
 
     def spawn_planet(self, sector:core.Sector, x:float, y:float, entity_id:Optional[uuid.UUID]=None) -> core.Planet:
-        planet_radius = 1000.
+        planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
         #TODO: stations are static?
         planet_body = self._phys_body()
@@ -529,6 +530,7 @@ class UniverseGenerator(core.AbstractGenerator):
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
         self._phys_shape(planet_body, planet, planet_radius)
+        planet.mass = config.Settings.generate.SectorEntities.planet.MASS
 
         sector.add_entity(planet)
 
@@ -665,7 +667,7 @@ class UniverseGenerator(core.AbstractGenerator):
         return gate
 
     def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float, entity_id:Optional[uuid.UUID]=None) -> core.Asteroid:
-        asteroid_radius = 100
+        asteroid_radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -682,6 +684,7 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         self._phys_shape(body, asteroid, asteroid_radius)
+        asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
 
         sector.add_entity(asteroid)
 
@@ -803,6 +806,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_sector_name(),
             entity_id=entity_id
         )
+        sector.sensor_manager = sensors.SensorManager(sector)
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
         # habitable planet
         # plenty of resources
@@ -1420,6 +1424,7 @@ class UniverseGenerator(core.AbstractGenerator):
                 self._gen_sector_name(),
                 entity_id=entity_id
             )
+            sector.sensor_manager = sensors.SensorManager(sector)
 
             # mypy thinks idx is an int
             self.gamestate.add_sector(sector, idx[0]) # type: ignore

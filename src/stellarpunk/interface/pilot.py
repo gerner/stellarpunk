@@ -350,6 +350,12 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             cone_txt_state = "on" if self.presenter.show_sensor_cone else "off"
             self.interface.log_message(f'sensor_cone {cone_txt_state}')
 
+        def toggle_sensors(args:Sequence[str]) -> None:
+            if self.ship.sensor_power > 0.:
+                self.ship.sensor_power = 0.
+            else:
+                self.ship.sensor_power = 1000.
+
         def cache_stats(args:Sequence[str]) -> None:
             self.logger.info(presenter.compute_sensor_cone_memoize.cache_info())
 
@@ -365,6 +371,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("cargo", log_cargo),
             self.bind_command("spawn_missile", spawn_missile),
             self.bind_command("toggle_sensor_cone", toggle_sensor_cone),
+            self.bind_command("toggle_sensors", toggle_sensors),
             self.bind_command("cache_stats", cache_stats),
         ]
 
@@ -675,6 +682,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(status_y, status_x, "Target Info:")
 
         label_id = "id:"
+        label_sensor_profile = "s profile:"
         label_speed = "speed:"
         label_location = "location:"
         label_bearing = "bearing:"
@@ -709,15 +717,16 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             closest_approach = math.inf
 
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {util.human_speed(self.selected_entity.speed)}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
-        self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
-        self.viewscreen.addstr(status_y+6, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_target_profile(self.selected_entity, self.ship)}')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.selected_entity.speed)}')
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+5, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
+        self.viewscreen.addstr(status_y+6, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
+        self.viewscreen.addstr(status_y+7, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
         if approach_t < 60*60:
-            self.viewscreen.addstr(status_y+7, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
+            self.viewscreen.addstr(status_y+8, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
 
-        status_y += 8
+        status_y += 9
 
         if isinstance(self.selected_entity, core.Station):
             assert self.selected_entity.resource is not None
@@ -735,6 +744,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         status_y = 1
         self.viewscreen.addstr(status_y, status_x, "Status:")
 
+        label_sensor_profile = "s profile:"
+        label_sensor_threshold = "s threshold:"
         label_speed = "speed:"
         label_location = "location:"
         label_heading = "heading:"
@@ -745,12 +756,14 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         heading = self.ship.angle + np.pi/2
         course = self.ship.phys.velocity.get_angle() + np.pi/2
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
-        self.viewscreen.addstr(status_y+5, status_x, f'{label_order:>12} {current_order}')
-        status_y += 6
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship)}')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_threshold:>12} {self.sector.sensor_manager.compute_sensor_threshold(self.ship)}')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
+        self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
+        self.viewscreen.addstr(status_y+7, status_x, f'{label_order:>12} {current_order}')
+        status_y += 8
         if current_order is not None:
             eta = current_order.estimate_eta()
             self.viewscreen.addstr(status_y, status_x, f'{label_eta:>12} {eta:.1f}s')
@@ -828,9 +841,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         self.viewscreen.erase()
         self.starfield.draw_starfield(self.viewscreen)
-        self.presenter.draw_shapes()
+        self.presenter.draw_shapes(self.ship)
         self._draw_radar()
-        self.presenter.draw_sector_map()
+        self.presenter.draw_sector_map(self.ship)
 
         # draw hud overlay on top of everything else
         self._draw_hud()
