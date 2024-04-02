@@ -8,7 +8,7 @@ from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set
 
 import numpy as np
 
-from stellarpunk import util
+from stellarpunk import util, core
 
 if TYPE_CHECKING:
     from .sector import Sector
@@ -291,3 +291,5 @@ class Order:
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """
         pass
+
+

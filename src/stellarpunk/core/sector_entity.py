@@ -290,3 +290,4 @@ def write_history_to_file(entity:Union["sector.Sector", SectorEntity], f:Union[s
             fout.write("\n")
     if needs_close:
         fout.close()
+

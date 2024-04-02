@@ -376,7 +376,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     def __init__(self, target:core.SectorEntity, *args: Any, escape_distance:float=np.inf, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
-        self.target.observe(self)
+        self.eow = core.EntityOrderWatch(self, target)
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -391,25 +391,10 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
         self.escape_distance = escape_distance
 
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.target:
-            self.cancel_order()
-
-    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        if entity != self.target or to_sector == self.ship.sector:
-            return
-        self.cancel_order()
-
     def _begin(self) -> None:
         self.est_tv_velocity = self.target.velocity
         self.est_tv_volume = self.gamestate.dt
         self.last_est_tv = self.gamestate.timestamp
-
-    def _complete(self) -> None:
-        self.target.unobserve(self)
-
-    def _cancel(self) -> None:
-        self._complete()
 
     def is_complete(self) -> bool:
         # TODO: when do we stop evading?
@@ -480,9 +465,8 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     def __init__(self, target:core.SectorEntity, *args:Any, arrival_distance:Optional[float]=None, avoid_collisions:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.ship.observe(self)
         self.target = target
-        self.target.observe(self)
+        self.eow = core.EntityOrderWatch(self, target)
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -496,20 +480,6 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
     def estimate_eta(self) -> float:
         return self.intercept_time
-
-    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        if to_sector == self.ship.sector and to_sector == self.target.sector:
-            pass
-
-        self.cancel_order()
-
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.target:
-            self.cancel_order()
-
-    def _complete(self) -> None:
-        self.ship.unobserve(self)
-        self.target.unobserve(self)
 
     def _cancel(self) -> None:
         self._complete()

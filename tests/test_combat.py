@@ -49,6 +49,7 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     assert missile_ref() is not None
 
     missile_order = None
+    assert missile_order_ref() is None
     assert target_ref() is not None
     assert missile_ref() is None
     attack_order = None

@@ -19,6 +19,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
     def __init__(self, target: core.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target = target
+        self.eow = core.EntityOrderWatch(self, target)
         self.max_dist = max_dist
         self.amount = min(amount, self.ship.cargo_capacity)
         self.mining_effect:Optional[effects.MiningEffect] = None
@@ -44,23 +45,32 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
     def _cancel(self) -> None:
         if self.mining_effect:
             self.mining_effect.cancel_effect()
+            self.mining_effect.cancel_effect()
 
     def effect_complete(self, effect:core.Effect) -> None:
         assert effect == self.mining_effect
+        if self.completed_at > 0:
+            return
         self.gamestate.schedule_order_immediate(self)
 
     def effect_cancel(self, effect:core.Effect) -> None:
         assert effect == self.mining_effect
+        if self.completed_at > 0:
+            return
         self.gamestate.schedule_order_immediate(self)
 
     def order_complete(self, order:core.Order) -> None:
+        if self.completed_at > 0:
+            return
         self.gamestate.schedule_order_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
+        if self.completed_at > 0:
+            return
         self.gamestate.schedule_order_immediate(self)
 
     def is_complete(self) -> bool:
-        return self.mining_effect is not None and self.mining_effect.is_complete()
+        return self.completed_at > 0 or (self.mining_effect is not None and self.mining_effect.is_complete())
 
     def act(self, dt: float) -> None:
         if self.ship.sector != self.target.sector:
@@ -91,6 +101,7 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
         super().__init__(*args, **kwargs)
 
         self.target = target
+        self.eow = core.EntityOrderWatch(self, target)
         self.resource = resource
         self.amount = amount
         self.transferred = 0.
@@ -226,7 +237,10 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
             raise ValueError(f'from in {disembark_from.sector}, but to is in {embark_to.sector}, they must be colocated')
 
         self.disembark_from = disembark_from
+        if disembark_from is not None:
+            self.eow_from = core.EntityOrderWatch(self, disembark_from)
         self.embark_to = embark_to
+        self.eow_to = core.EntityOrderWatch(self, embark_to)
 
         self.disembark_order:Optional[GoToLocation] = None
         self.embark_order:Optional[GoToLocation] = None
@@ -284,6 +298,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         super().__init__(*args, **kwargs)
 
         self.target_gate = target_gate
+        self.eow = core.EntityOrderWatch(self, target_gate)
         self.position_margin = position_margin
         self.travel_time = travel_time
         self.travel_thrust = travel_thrust
@@ -483,11 +498,16 @@ class DockingOrder(core.OrderObserver, core.Order):
         if approach_distance <= surface_distance:
             raise ValueError(f'{approach_distance=} must be greater than {surface_distance=}')
         self.target = target
+        self.eow = core.EntityOrderWatch(self, target)
         self.surface_distance = surface_distance
         self.approach_distance = approach_distance
         self.wait_time = wait_time
         self.next_arrival_attempt_time = 0.
         self.started_waiting = np.inf
+
+        # wrap target and observe it
+        # on cancel or complete unobserve it
+        # on destroy or migrate cancel us
 
     def _begin(self) -> None:
         # need to get roughly to the target and then time for final approach
