@@ -40,6 +40,7 @@ with passive sensors.
 | Active      | Easy      | Moderate- |
 | Passive     | Moderate+ | Difficult |
 
+
 ### Algorithm
 
 $p_{target} = \frac{(p_{base} + c_F * F + c_s * s + c_i * i) * w}{(c_d * d^2)}$
@@ -71,4 +72,22 @@ $p_{target} > q$
 
 That is, a ship is detected if it's target profile exceeds the sensor
 threshold of the detector.
+
+### Tuning
+
+Note that collision detection looks for collision threats in a disk of radius
+between 500m and 10km and a triangle forward of height up to 45km and base up
+to 10km. Typically it's much smaller than that.
+
+Sectors are typically 1-4Mm across. Sensors are tuned so that a passive ship
+can just detect a passive, stationary ship at 100km. So 100km is typically
+always visible. A passive ship can just detect an active, stationary ship at
+1000km. So active ships can generally always be detected halfway across the
+sector. This might take several minutes to cover. In that time the target might
+have moved.
+
+A passive moving craft has 10x the profile of a passive stationary one. An
+active craft has 100x the profile of a passive stationary one. Turning on the
+transponder increases the profile 1000x over a passive stationary craft and can
+almost always be seen in the sector.
 

@@ -21,6 +21,22 @@ class CollisionObserver:
     @abc.abstractmethod
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
 
+class AbstractSensorImage:
+    @abc.abstractmethod
+    @property
+    def age(self) -> float: ...
+
+    @abc.abstractmethod
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: ...
+
+    @abc.abstractmethod
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: ...
+
+    @abc.abstractmethod
+    def update(self) -> None: ...
+
 class AbstractSensorManager:
     def __init__(self, sector:"Sector"):
         self.sector = sector

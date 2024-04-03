@@ -40,7 +40,7 @@ class Ship(SectorEntity, Asset):
 
         self.collision_threat: Optional[SectorEntity] = None
 
-        self.sensor_power = 1000.
+        self.sensor_power = 0.#1000.
         self.transponder_on = False#True
 
     def _destroy(self) -> None:

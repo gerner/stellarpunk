@@ -329,10 +329,13 @@
     COEFF_RADIUS = 0.335
     COEFF_FORCE = 0.005
     COEFF_SENSORS = 10
-    COEFF_TRANSPONDER = 5e5
+    COEFF_TRANSPONDER = 1e5
     COEFF_DISTANCE = 1e-10
 
     # these are tuned so a passiv ship has a threshold of 100 and an active
     # ship has a threshold of 10
-    COEFF_THRESHOLD = 100
-    COEFF_DETECTOR = 0.009
+    COEFF_THRESHOLD = 1000
+    INTERCEPT_THRESHOLD = 100
+
+    POWER_PASSIVE = 0
+    POWER_ACTIVE = 100

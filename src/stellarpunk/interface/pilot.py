@@ -356,6 +356,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             else:
                 self.ship.sensor_power = 1000.
 
+        def toggle_transponder(args:Sequence[str]) -> None:
+            self.ship.transponder_on = not self.ship.transponder_on
+
         def cache_stats(args:Sequence[str]) -> None:
             self.logger.info(presenter.compute_sensor_cone_memoize.cache_info())
 
@@ -372,6 +375,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("spawn_missile", spawn_missile),
             self.bind_command("toggle_sensor_cone", toggle_sensor_cone),
             self.bind_command("toggle_sensors", toggle_sensors),
+            self.bind_command("toggle_transponder", toggle_transponder),
             self.bind_command("cache_stats", cache_stats),
         ]
 
@@ -836,6 +840,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
     def update_display(self) -> None:
         if self.gamestate.timestamp > self.mouse_state_clear_time:
             self.mouse_state = MouseState.EMPTY
+
+        if self.selected_entity and not self.sector.sensor_manager.detected(self.selected_entity, self.ship):
+            self._select_target(None)
 
         self._auto_pan()
 

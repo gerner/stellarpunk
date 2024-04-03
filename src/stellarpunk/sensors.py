@@ -2,7 +2,34 @@
 
 from typing import Tuple, Iterator
 
+import numpy.typing as npt
+import numpy as np
+
 from stellarpunk import core, config, util
+
+class SensorImage(core.AbstractSensorImage):
+    def __init__(self, target:core.SectorEntity) -> None:
+        self._target = target
+        self._last_update = core.Gamestate.gamestate.timestamp
+        self._loc = target.loc
+        self._velocity = target.velocity
+
+    @property
+    def age(self) -> float:
+        return core.Gamestate.gamestate.timestamp - self._last_update
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]:
+        return self._loc + self._velocity * (core.Gamestate.gamestate.timestamp - self._last_update)
+
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]:
+        return self._velocity
+
+    def update(self) -> None:
+        self._last_update = core.Gamestate.gamestate.timestamp
+        self._loc = self._target.loc
+        self._velocity = self._target.velocity
 
 class SensorManager(core.AbstractSensorManager):
     """ Models sensors for a sector """
@@ -24,7 +51,7 @@ class SensorManager(core.AbstractSensorManager):
 
     def compute_sensor_threshold(self, ship:core.SectorEntity) -> float:
         """ computes the sensor threshold accounting for sensor power """
-        return config.Settings.sensors.COEFF_THRESHOLD / (config.Settings.sensors.COEFF_DETECTOR * ship.sensor_power + 1)
+        return config.Settings.sensors.COEFF_THRESHOLD / (ship.sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
 
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > self.compute_sensor_threshold(detector)
