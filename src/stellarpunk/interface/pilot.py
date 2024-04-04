@@ -351,13 +351,15 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.interface.log_message(f'sensor_cone {cone_txt_state}')
 
         def toggle_sensors(args:Sequence[str]) -> None:
+            assert self.ship.sector
             if self.ship.sensor_power > 0.:
-                self.ship.sensor_power = 0.
+                self.ship.sector.sensor_manager.set_sensors(self.ship, 0.)
             else:
-                self.ship.sensor_power = 1000.
+                self.ship.sector.sensor_manager.set_sensors(self.ship, 1.)
 
         def toggle_transponder(args:Sequence[str]) -> None:
-            self.ship.transponder_on = not self.ship.transponder_on
+            self.interface.logger.info(f'toggle_transponder {core.Gamestate.gamestate.timestamp}')
+            self.ship.sector.sensor_manager.set_transponder(self.ship, not self.ship.transponder_on)
 
         def cache_stats(args:Sequence[str]) -> None:
             self.logger.info(presenter.compute_sensor_cone_memoize.cache_info())

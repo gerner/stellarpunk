@@ -123,8 +123,14 @@ class SectorEntity(Entity):
 
         self.observers:Set[SectorEntityObserver] = set()
 
+        self.max_sensor_power = 0.
         self.sensor_power = 0.
         self.transponder_on = False
+
+        # keeps track of history on sensor spikes
+        self.last_sensor_power = 0.
+        self.last_sensor_power_ts = 0.
+        self.last_transponder_ts = 0.
 
     def observe(self, observer:SectorEntityObserver) -> None:
         self.observers.add(observer)
@@ -216,7 +222,6 @@ class Planet(SectorEntity, Asset):
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-        self.sensor_power = 1000.
         self.transponder_on = True
 
 
@@ -234,7 +239,6 @@ class Station(SectorEntity, Asset):
 
         self.sprite = sprite
 
-        self.sensor_power = 1000.
         self.transponder_on = True
 
 class Asteroid(SectorEntity):

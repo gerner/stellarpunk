@@ -121,6 +121,8 @@ class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
         assert self.ship.sector
         assert self.target.sector == self.ship.sector
 
+        # TODO: keep sensor image fresh
+
         # TODO: determine our standoff range
 
         # get to a standoff distance

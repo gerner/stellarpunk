@@ -76,6 +76,12 @@ class AbstractSensorManager:
     @abc.abstractmethod
     def target(self, target:SectorEntity, detector:SectorEntity) -> AbstractSensorImage: ...
 
+    @abc.abstractmethod
+    def set_sensors(self, ship:SectorEntity, factor:float) -> None: ...
+
+    @abc.abstractmethod
+    def set_transponder(self, ship:SectorEntity, on:bool) -> None: ...
+
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 

@@ -235,12 +235,15 @@
         [generate.SectorEntities.planet]
             MASS = 2e6
             RADIUS = 1000
+            MAX_SENSOR_POWER = 100
         [generate.SectorEntities.asteroid]
             MASS = 2e5
             RADIUS = 300
+            MAX_SENSOR_POWER = 0
         [generate.SectorEntities.station]
             MASS = 2e5
             RADIUS = 300
+            MAX_SENSOR_POWER = 100
         [generate.SectorEntities.ship]
 
             # soyuz 5000 - 10000kg
@@ -293,6 +296,8 @@
             # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
             MAX_TORQUE = 2.7e6
 
+            MAX_SENSOR_POWER = 100
+
         [generate.SectorEntities.missile]
             # for comparison, a sidewinder missile:
             # https://en.wikipedia.org/wiki/AIM-9_Sidewinder
@@ -322,6 +327,8 @@
             MAX_FINE_THRUST = 5e3
             MAX_TORQUE = 9e4
 
+            MAX_SENSOR_POWER = 100
+
 [sensors]
     # these are tuned so a stationary, passive ship under normal sector
     # conditions has a profile of just over 100 at 100km
@@ -337,5 +344,5 @@
     COEFF_THRESHOLD = 1000
     INTERCEPT_THRESHOLD = 100
 
-    POWER_PASSIVE = 0
-    POWER_ACTIVE = 100
+    DECAY_SENSORS = 0.02
+    DECAY_TRANSPONDER = 0.01

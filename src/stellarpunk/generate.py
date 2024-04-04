@@ -509,6 +509,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self._phys_shape(station_body, station, station_radius)
         station.mass = config.Settings.generate.SectorEntities.station.MASS
+        station.max_sensor_power = config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER
 
         sector.add_entity(station)
 
@@ -531,6 +532,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self._phys_shape(planet_body, planet, planet_radius)
         planet.mass = config.Settings.generate.SectorEntities.planet.MASS
+        planet.max_sensor_power = config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER
 
         sector.add_entity(planet)
 
@@ -562,6 +564,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
+        ship.max_sensor_power = config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER
 
         if v is None:
             v = (self.r.normal(0, 50, 2))
@@ -608,6 +611,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
+        ship.max_sensor_power = config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER
 
         if v is None:
             v = (self.r.normal(0, 50, 2))
@@ -682,6 +686,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_asteroid_name(),
             entity_id=entity_id
         )
+        asteroid.max_sensor_power = config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER
 
         self._phys_shape(body, asteroid, asteroid_radius)
         asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS

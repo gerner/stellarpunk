@@ -85,9 +85,19 @@ class SensorManager(core.AbstractSensorManager):
     def __init__(self, sector:core.Sector):
         self.sector = sector
 
+    def compute_decayed_sensor_power(self, entity:core.SectorEntity) -> float:
+        if entity.last_sensor_power == entity.sensor_power:
+            return entity.sensor_power
+        return (entity.last_sensor_power - entity.sensor_power) * config.Settings.sensors.DECAY_SENSORS ** (core.Gamestate.gamestate.timestamp - entity.last_sensor_power_ts) + entity.sensor_power
+
+    def compute_decayed_transponder(self, entity:core.SectorEntity) -> float:
+        if entity.transponder_on:
+            return 1.0
+        return config.Settings.sensors.DECAY_TRANSPONDER ** (core.Gamestate.gamestate.timestamp - entity.last_transponder_ts)
+
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
-        return (config.Settings.sensors.COEFF_MASS * ship.mass + config.Settings.sensors.COEFF_RADIUS * ship.radius + config.Settings.sensors.COEFF_FORCE * ship.phys.force.length + config.Settings.sensors.COEFF_SENSORS * ship.sensor_power + config.Settings.sensors.COEFF_TRANSPONDER * ship.transponder_on) * self.sector.weather_factor
+        return (config.Settings.sensors.COEFF_MASS * ship.mass + config.Settings.sensors.COEFF_RADIUS * ship.radius + config.Settings.sensors.COEFF_FORCE * ship.phys.force.length + config.Settings.sensors.COEFF_SENSORS * self.compute_decayed_sensor_power(ship) + config.Settings.sensors.COEFF_TRANSPONDER * self.compute_decayed_transponder(ship)) * self.sector.weather_factor
 
     def compute_target_profile(self, target:core.SectorEntity, detector:core.SectorEntity) -> float:
         """ computes detector-specific profile of target """
@@ -111,3 +121,20 @@ class SensorManager(core.AbstractSensorManager):
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity) -> core.AbstractSensorImage:
         return SensorImage(target, detector, self)
+
+    def set_sensors(self, entity:core.SectorEntity, level:float) -> None:
+        # keep track of spikes in sensor usage so the impact on profile can
+        # decay with time
+        new_level = level * entity.max_sensor_power
+        decayed_power = self.compute_decayed_sensor_power(entity)
+        entity.last_sensor_power = max(new_level, decayed_power)
+        entity.last_sensor_power_ts = core.Gamestate.gamestate.timestamp
+        entity.sensor_power = new_level
+
+    def set_transponder(self, entity:core.SectorEntity, on:bool) -> None:
+        # keep track of the last time the transponder was on so it's impact to
+        # profile can decay with time
+        if entity.transponder_on:
+            entity.last_transponder_ts = core.Gamestate.gamestate.timestamp
+        entity.transponder_on = on
+
