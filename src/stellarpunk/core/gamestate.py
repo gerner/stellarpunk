@@ -105,7 +105,7 @@ class AbstractGenerator:
 
 
 class Gamestate(EntityRegistry):
-    gamestate:Gamestate = None # type: ignore
+    gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
         Gamestate.gamestate = self
         self.logger = logging.getLogger(util.fullname(self))

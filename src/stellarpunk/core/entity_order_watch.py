@@ -13,6 +13,8 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         self.target.observe(self)
 
     def order_complete(self, order:Order) -> None:
+        if self.order is None:
+            return
         assert order == self.order
         assert self.target
         self.target.unobserve(self)
@@ -20,6 +22,8 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         self.order = None
 
     def order_cancel(self, order:Order) -> None:
+        if self.order is None:
+            return
         assert order == self.order
         assert self.target
         self.target.unobserve(self)
@@ -27,6 +31,8 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         self.order = None
 
     def entity_destroyed(self, entity:SectorEntity) -> None:
+        if self.target is None:
+            return
         assert entity == self.target
         assert self.order
         self.order.cancel_order()
@@ -34,6 +40,8 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         self.order = None
 
     def entity_migrated(self, entity:SectorEntity, from_sector:Sector, to_sector:Sector) -> None:
+        if self.target is None:
+            return
         assert entity == self.target
         assert self.order
         # TODO: do we always want to cancel on migrated? maybe optional?

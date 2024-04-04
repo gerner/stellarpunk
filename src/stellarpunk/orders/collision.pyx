@@ -195,12 +195,8 @@ def cpvtoTuple(ccymunk.cpVect v):
 cdef ccymunk.cpVect tupletocpv(v):
     return ccymunk.cpv(v[0], v[1])
 
-cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpShape *shape, double margin):
+cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, const ccymunk.cpVect &entity_pos, const ccymunk.cpVect &entity_v, double margin):
     # we make the assumption that all shapes are circles here
-    cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
-    cdef double entity_radius = circle_shape.r
-    cdef ccymunk.cpVect entity_pos = shape.body.p
-    cdef ccymunk.cpVect entity_v = shape.body.v
     cdef ccymunk.cpVect rel_pos = ccymunk.cpvsub(entity_pos ,analysis.body.p)
     cdef ccymunk.cpVect rel_vel = ccymunk.cpvsub(entity_v, analysis.body.v)
 
@@ -209,7 +205,7 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
 
     # check for parallel paths
     if rel_speed == 0:
-        if rel_dist < margin + entity_radius:
+        if rel_dist < margin:
             # this can cause discontinuities in approach_time
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
         return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, entity_pos, ccymunk.INFINITY)
@@ -218,7 +214,7 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
     cdef double approach_t = -1 * ccymunk.cpvdot(rel_tangent, rel_pos) / rel_speed
 
     if approach_t <= 0:
-        if rel_dist < margin + entity_radius:
+        if rel_dist < margin:
             # this can cause discontinuities in approach_time
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
         return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, entity_pos, ccymunk.INFINITY)
@@ -265,7 +261,8 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     # keep track of shapes we've considered (we can compose multiple queries)
     analysis.considered_shapes.insert(shape.hashid_private)
 
-    cdef AnalyzedNeighbor neighbor = _analyze_neighbor(analysis, shape, analysis.ship_radius+analysis.margin)
+    cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
+    cdef AnalyzedNeighbor neighbor = _analyze_neighbor(analysis, shape.body.p, shape.body.v, analysis.ship_radius+analysis.margin + circle_shape.r)
 
     #if neighbor.rel_dist < analysis.neighborhood_radius:
     analysis.neighborhood_size += 1
@@ -280,7 +277,6 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
 
     # we need to keep track of all collision threats for coalescing later
     analysis.collision_threats.push_back(CollisionThreat(shape, neighbor.c_loc))
-    cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
     cdef double entity_radius = circle_shape.r
     if neighbor.min_sep > entity_radius + analysis.ship_radius + analysis.margin:
         return
@@ -1110,7 +1106,7 @@ cdef class Navigator:
 
         return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
-    def analyze_neighbor(self, target:cymunk.Shape, margin:float, max_distance:float
+    def analyze_neighbor(self, entity_loc:cymunk.Vec2d, entity_velocity:cymunk.Vec2d, margin:float, max_distance:float
             ) -> Tuple[
                     float,
                     float,
@@ -1123,12 +1119,11 @@ cdef class Navigator:
 
         cdef double cmargin = margin
 
-        cdef ccymunk.cpShape *target_shape = (<ccymunk.Circle?>target)._shape
-        cdef cpCircleShape *circle_shape = <cpCircleShape *>target_shape
-        cdef double entity_radius = circle_shape.r
+        cdef ccymunk.Vec2d centity_loc = <ccymunk.Vec2d?>entity_loc
+        cdef ccymunk.Vec2d centity_velocity = <ccymunk.Vec2d?>entity_velocity
         self.analysis.max_distance = max_distance
         self.analysis.body = self.body._body
-        cdef AnalyzedNeighbor result = _analyze_neighbor(&self.analysis, target_shape, margin)
+        cdef AnalyzedNeighbor result = _analyze_neighbor(&self.analysis, entity_loc.v, entity_velocity.v, self.analysis.ship_radius+margin)
 
         return (result.rel_dist, result.approach_t, cpvtoVec2d(result.rel_pos), cpvtoVec2d(result.rel_vel), result.min_sep, cpvtoVec2d(result.c_loc), result.collision_distance)
 
@@ -1701,20 +1696,21 @@ def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_radius
 
     return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
-def find_intercept_v(body:cymunk.Body, target:cymunk.Body, arrival_radius:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, cymunk.Vec2d]:
+def find_intercept_v(body:cymunk.Body, target_loc:cymunk.Vec2d, target_v:cymunk.Vec2d, arrival_radius:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, cymunk.Vec2d]:
     cdef ccymunk.Body cBody = <ccymunk.Body?> body
-    cdef ccymunk.Body cTarget = <ccymunk.Body?> target
-    cdef DeltaVResult result = _find_target_v(cBody._body, cTarget._body.p, arrival_radius, 0.0, max_acceleration, max_angular_acceleration, max_speed, dt, 1.0, final_speed)
+    cdef ccymunk.Vec2d cTargetLoc = <ccymunk.Vec2d?> target_loc
+    cdef ccymunk.Vec2d cTargetV = <ccymunk.Vec2d?> target_v
+    cdef DeltaVResult result = _find_target_v(cBody._body, cTargetLoc.v, arrival_radius, 0.0, max_acceleration, max_angular_acceleration, max_speed, dt, 1.0, final_speed)
 
     # crude estimate time and location of intercept for debugging/viz
-    cdef ccymunk.cpVect current_loc_diff = ccymunk.cpvsub(cBody._body.p, cTarget._body.p)
+    cdef ccymunk.cpVect current_loc_diff = ccymunk.cpvsub(cBody._body.p, cTargetLoc.v)
 
     cdef ccymunk.cpVect normalized_loc_diff = ccymunk.cpvmult(current_loc_diff, 1.0/result.distance)
     cdef double speed_projection = cBody._body.v.x * normalized_loc_diff.x + cBody._body.v.y * normalized_loc_diff.y
     cdef double intercept_time = (-speed_projection + sqrt(speed_projection*speed_projection - 2 * max_acceleration * (-result.distance)) ) / max_acceleration
-    cdef ccymunk.cpVect intercept_location = ccymunk.cpvadd(cTarget._body.p, ccymunk.cpvmult(cTarget._body.v, intercept_time))
+    cdef ccymunk.cpVect intercept_location = ccymunk.cpvadd(cTargetLoc.v, ccymunk.cpvmult(cTargetV.v, intercept_time))
 
-    return cpvtoVec2d(ccymunk.cpvadd(result.target_velocity, cTarget._body.v)), result.distance, intercept_time, cpvtoVec2d(intercept_location)
+    return cpvtoVec2d(ccymunk.cpvadd(result.target_velocity, cTargetV.v)), result.distance, intercept_time, cpvtoVec2d(intercept_location)
 
 
 def accelerate_to(

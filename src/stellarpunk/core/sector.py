@@ -22,20 +22,37 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
 
 class AbstractSensorImage:
-    @abc.abstractmethod
-    @property
-    def age(self) -> float: ...
+    """ A sensor contact which might be old with predicted attributes
 
-    @abc.abstractmethod
+    This lets logic interact with a target through sensors, without needing to
+    directly hang on to the target object. This image predicts the target's 
+    position and velocity using latest sensor readings.
+    """
     @property
-    def loc(self) -> npt.NDArray[np.float64]: ...
-
     @abc.abstractmethod
+    def age(self) -> float:
+        """ How long ago was this image updated in seconds """
+        ...
     @property
-    def velocity(self) -> npt.NDArray[np.float64]: ...
-
     @abc.abstractmethod
-    def update(self) -> None: ...
+    def loc(self) -> npt.NDArray[np.float64]:
+        """ Predicted location of the image """
+        ...
+    @property
+    @abc.abstractmethod
+    def velocity(self) -> npt.NDArray[np.float64]:
+        """ Predicted velocity of the image """
+        ...
+    @abc.abstractmethod
+    def is_active(self) -> bool:
+        """ False iff we saw the target destroyed or leaving the sector """
+        ...
+    @abc.abstractmethod
+    def update(self) -> bool:
+        """ Update the image if possible under current sensor conditions
+
+        return true if we're able to detect the target. """
+        ...
 
 class AbstractSensorManager:
     def __init__(self, sector:"Sector"):
@@ -55,6 +72,9 @@ class AbstractSensorManager:
 
     def spatial_query(self, detector:SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         return self.sector.spatial_query(bbox)
+
+    @abc.abstractmethod
+    def target(self, target:SectorEntity, detector:SectorEntity) -> AbstractSensorImage: ...
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
@@ -89,7 +109,7 @@ class Sector(Entity):
 
         self.weather_factor = 1.
 
-        self.sensor_manager:AbstractSensorManager = AbstractSensorManager(self)
+        self.sensor_manager:AbstractSensorManager = None # type: ignore
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):

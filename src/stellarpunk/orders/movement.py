@@ -373,10 +373,15 @@ class GoToLocation(AbstractSteeringOrder):
         return
 
 class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
-    def __init__(self, target:core.SectorEntity, *args: Any, escape_distance:float=np.inf, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, escape_distance:float=np.inf, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.target = target
-        self.eow = core.EntityOrderWatch(self, target)
+        assert self.ship.sector
+        if target_image:
+            self.target = target_image
+        elif target:
+            self.target = self.ship.sector.sensor_manager.target(target, self.ship)
+        else:
+            raise ValueError("must provide either the target entity or a sensor image for the target")
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -398,10 +403,11 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
     def is_complete(self) -> bool:
         # TODO: when do we stop evading?
-        return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) > self.escape_distance
+        return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) > self.escape_distance or not self.target.is_active()
 
     def act(self, dt:float) -> None:
         assert self.ship.sector
+        self.target.update()
 
         max_speed = self.ship.max_speed() * 100000
 
@@ -421,7 +427,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
         # OPTION B:
         # estimate our closest approach and flee from there
-        rel_dist, self.intercept_time, rel_pos, rel_vel, min_sep, self.intercept_location, collision_distance = self.neighbor_analyzer.analyze_neighbor(self.target.phys_shape, 0.0, 1e6)
+        rel_dist, self.intercept_time, _, rel_vel, _, self.intercept_location, _ = self.neighbor_analyzer.analyze_neighbor(cymunk.Vec2d(self.target.loc), cymunk.Vec2d(self.target.velocity), 0.0, 1e6)
         rel_speed = np.linalg.norm(rel_vel)
 
         if rel_speed < 5 or self.intercept_time > 5:
@@ -462,19 +468,21 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
 class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     """ Steer toward a collision with the target """
-    def __init__(self, target:core.SectorEntity, *args:Any, arrival_distance:Optional[float]=None, avoid_collisions:bool=True, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, arrival_distance:float=0., avoid_collisions:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        assert self.ship.sector
 
-        self.target = target
-        self.eow = core.EntityOrderWatch(self, target)
+        if target_image:
+            self.target = target_image
+        elif target:
+            self.target = self.ship.sector.sensor_manager.target(target, self.ship)
+        else:
+            raise ValueError("must provide either the target entity or a sensor image for the target")
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
 
-        if arrival_distance is None:
-            self.arrival_distance = target.radius/5.
-        else:
-            self.arrival_distance = arrival_distance
+        self.arrival_distance = arrival_distance
 
         self.avoid_collisions=avoid_collisions
 
@@ -485,10 +493,11 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         self._complete()
 
     def is_complete(self) -> bool:
-        return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) < self.arrival_distance
+        return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) < self.arrival_distance or not self.target.is_active()
 
     def act(self, dt:float) -> None:
         assert self.ship.sector
+        self.target.update()
         # we won't get called if we're complete
 
         # interception algorithm:
@@ -507,7 +516,8 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
         target_velocity, _, self.intercept_time, self.intercept_location = collision.find_intercept_v(
                 self.ship.phys,
-                self.target.phys,
+                cymunk.Vec2d(self.target.loc),
+                cymunk.Vec2d(self.target.velocity),
                 self.arrival_distance,
                 self.ship.max_acceleration(),
                 self.ship.max_angular_acceleration(),

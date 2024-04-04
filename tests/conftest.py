@@ -3,7 +3,7 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate, interface
+from stellarpunk import core, sim, generate, interface, sensors
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
@@ -34,6 +34,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_name = "Sector"
 
     sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name)
+    sector.sensor_manager = sensors.SensorManager(sector)
     gamestate.sectors[sector.entity_id] = sector
 
     return sector

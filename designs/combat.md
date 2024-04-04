@@ -91,3 +91,28 @@ active craft has 100x the profile of a passive stationary one. Turning on the
 transponder increases the profile 1000x over a passive stationary craft and can
 almost always be seen in the sector.
 
+## Engaging Combat
+
+If a craft launches an attack on a target, the target should respond
+tactically. This means they should know when the attack has been launched, if
+sensors allow.
+
+A target might face many threats (e.g. several incoming missiles), and there
+might be several attackers. The target needs to track all of these. And this
+set of threats might change during the engagement.
+
+## Fighting
+
+Attackers want to:
+ * keep confidence in sensor readings of target
+   * have an fresh sensor reading of the target
+   * search for the target if not fresh
+ * get into standoff range appropriate for available/preferred weapons
+ * launch attacks when ready, in range, confident in hitting target
+ * stay hidden
+
+Targets want to:
+ * potentially shift into attacking (depending on ???)
+ * stay hidden
+ * get far away from attacker and threats (i.e. missiles)
+ * have fresh-ish sensor reading of threats (especially inbound missiles)
