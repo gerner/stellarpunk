@@ -82,6 +82,9 @@ class AbstractSensorManager:
     @abc.abstractmethod
     def set_transponder(self, ship:SectorEntity, on:bool) -> None: ...
 
+    @abc.abstractmethod
+    def sensor_ranges(self, ship:SectorEntity) -> Tuple[float, float, float]: ...
+
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 

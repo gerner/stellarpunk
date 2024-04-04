@@ -2,7 +2,7 @@ import curses
 import uuid
 import math
 import functools
-from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union
+from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable
 
 import cymunk # type: ignore
 import drawille # type: ignore
@@ -18,7 +18,7 @@ SENSOR_ANGLE_BINS = np.linspace(0, 2*np.pi, 64)
 #NEIGHBORHOOD_RADIUS_BINS = np.linspace(100., 1e3, 64)
 
 #@jit(cache=True, nopython=True, fastmath=True)
-def quantize(a:float, error:float) -> float:
+def quantize(a:float, error:float=0.1) -> float:
     exp = math.floor(math.log(a) / math.log(2))
     return (a/(2** exp) // error * error ) * 2 ** exp
 
@@ -38,6 +38,31 @@ def compute_sensor_cone_memoize(stopped:bool, angle:float, neighborhood_radius:f
         offset_y,
         *meters_per_char)
     content = util.lines_to_dict(c.rows(d_x, d_y), bounds=bounds)
+
+    return content
+
+@functools.lru_cache
+def compute_sensor_rings_memoize(radii:Iterable[float], width:float, height:float, bounds:Tuple[int, int, int, int], meters_per_char:Tuple[float, float]) -> Mapping[Tuple[int, int], str]:
+    canvas = drawille.Canvas()
+    for r in radii:
+        util.drawille_circle(
+            r,
+            meters_per_char[0]*4,
+            width,
+            height,
+            *meters_per_char,
+            canvas=canvas
+        )
+
+    # get upper left corner position so drawille canvas fills the screen
+    (d_x, d_y) = util.sector_to_drawille(
+            -width/2, -height/2,
+            *meters_per_char)
+
+    # draw the grid to the screen
+    text = canvas.rows(d_x, d_y)
+
+    content = util.lines_to_dict(text, bounds=bounds)
 
     return content
 
@@ -354,4 +379,26 @@ class Presenter:
         #assert isinstance(self.view.viewscreen, interface.Canvas)
         #window = self.view.viewscreen.window
         #util.draw_canvas_at(c, window, s_y, s_x, bounds=self.view.viewscreen_bounds)
+
+    def draw_sensor_rings(self, ship:core.SectorEntity) -> None:
+        radii = self.sector.sensor_manager.sensor_ranges(ship)
+        content = compute_sensor_rings_memoize(
+            tuple(map(quantize, radii)),
+            self.perspective.bbox[2] - self.perspective.bbox[0],
+            self.perspective.bbox[3] - self.perspective.bbox[1],
+            self.view.viewscreen_bounds,
+            self.perspective.meters_per_char
+        )
+
+        sensor_color = self.view.interface.get_color(interface.Color.SENSOR_RING)
+        for (y,x), c in content.items():
+            self.view.viewscreen.addstr(y, x, c, sensor_color)
+
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[0], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "A")
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "B")
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[2], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "C")
+
 

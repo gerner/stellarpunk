@@ -71,34 +71,74 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
 
 class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
     """ Objective is to destroy a target. """
-    def __init__(self, target:core.SectorEntity, *args:Any, distance_min:float=1.5e5, distance_max:float=5e5, **kwargs:Any) -> None:
+    def __init__(self, target:core.SectorEntity, *args:Any, distance_min:float=2.5e5, distance_max:float=5e5, max_active_age:float=35, max_passive_age:float=30, search_distance:float=5e4, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.target = target
-        self.target.observe(self)
+        assert self.ship.sector
+        self.target = self.ship.sector.sensor_manager.target(target, self.ship)
         self.distance_min = distance_min
         self.distance_max = distance_max
+        self.max_active_age = max_active_age
+        self.max_passive_age = max_passive_age
+        self.search_distance = search_distance
         self.standoff_order:Optional[core.Order] = None
 
-
-    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        if to_sector == self.ship.sector and to_sector == self.target.sector:
-            pass
-
-        self.cancel_order()
-
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self.target:
-            self.complete_order()
+    def __str__(self) -> str:
+        return f'Attack: age:{self.target.age} dist:{np.linalg.norm(self.target.loc-self.ship.loc)}'
 
     def _complete(self) -> None:
         if self.standoff_order:
             self.standoff_order = None
-        self.ship.unobserve(self)
-        self.target.unobserve(self)
 
     def _cancel(self) -> None:
         self._complete()
+
+    def is_complete(self) -> bool:
+        return self.completed_at > 0. or not self.target.is_active()
+
+    def _keep_image_fresh(self, dt:float) -> bool:
+        assert self.ship.sector
+        # keep sensor image fresh
+        if self.target.age > self.max_active_age:
+            # actively search for the target
+            self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
+            if self.target.update():
+                return True
+            if np.linalg.norm(self.target.loc - self.ship.loc) > self.search_distance:
+                self.standoff_order = movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.search_distance*0.8)
+            else:
+                # TODO: search pattern
+                pass
+            return False
+        elif self.target.age > self.max_passive_age:
+            # go active, but make no other effort to re-acquire target
+            self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
+            self.target.update()
+            return True
+        else:
+            # image fresh enough make sure our sensors are off
+            self.ship.sector.sensor_manager.set_sensors(self.ship, 0.0)
+            return True
+
+    def _maintain_standoff(self, dt:float) -> bool:
+        # TODO: determine our standoff range
+
+        # get to a standoff distance
+        distance = np.linalg.norm(self.target.loc - self.ship.loc)
+        if distance > self.distance_max:
+            self.standoff_order = movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min))
+            self._add_child(self.standoff_order)
+            return False
+        elif distance < self.distance_min:
+            self.standoff_order = movement.EvadeOrder(self.ship, self.gamestate, target_image=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min))
+            self._add_child(self.standoff_order)
+            return False
+
+        if self.standoff_order:
+            assert self.standoff_order.is_complete()
+            self.standoff_order = None
+
+        return True
 
     def _move_shadow_target(self, dt:float) -> float:
         assert self.ship.sector
@@ -119,27 +159,13 @@ class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
 
     def act(self, dt:float) -> None:
         assert self.ship.sector
-        assert self.target.sector == self.ship.sector
+        self.target.update()
 
-        # TODO: keep sensor image fresh
-
-        # TODO: determine our standoff range
-
-        # get to a standoff distance
-        distance = np.linalg.norm(self.target.loc - self.ship.loc)
-        if distance > self.distance_max:
-            self.standoff_order = movement.PursueOrder(self.ship, self.gamestate, target=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min))
-            self._add_child(self.standoff_order)
-            return
-        elif distance < self.distance_min:
-            self.standoff_order = movement.EvadeOrder(self.ship, self.gamestate, target=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min))
-            self._add_child(self.standoff_order)
+        if not self._keep_image_fresh(dt):
             return
 
-        if self.standoff_order:
-            assert self.standoff_order.is_complete()
-            self.standoff_order = None
-
+        if not self._maintain_standoff(dt):
+            return
         # inside standoff zone, move shadow the target
         shadow_time = self._move_shadow_target(dt)
 

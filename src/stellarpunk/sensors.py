@@ -7,47 +7,51 @@ import numpy as np
 
 from stellarpunk import core, config, util
 
+ZERO_VECTOR = np.array((0.,0.))
+ZERO_VECTOR.flags.writeable = False
+
 class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
-    def __init__(self, target:core.SectorEntity, ship:core.SectorEntity, sensor_manager:"SensorManager") -> None:
+    def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager") -> None:
         self._sensor_manager = sensor_manager
         self._ship:Optional[core.SectorEntity] = ship
         ship.observe(self)
         self._target:Optional[core.SectorEntity] = target
-        target.observe(self)
-        self._last_update = core.Gamestate.gamestate.timestamp
-        self._loc = target.loc
-        self._velocity = target.velocity
+        if target:
+            target.observe(self)
+        self._last_update = 0.
+        self._base_ts = 0.
+        self._loc = ZERO_VECTOR
+        self._velocity = ZERO_VECTOR
         self._is_active = True
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        assert self._target
-        assert self._ship
         if entity == self._target:
-            if self._sensor_manager.detected(self._target, self._ship):
+            # might be risky checking if detected on logically destroyed entity
+            if self._ship and self._sensor_manager.detected(entity, self._ship):
                 self._is_active = False
             self._target = None
-            self._ship.unobserve(self)
+            if self._ship:
+                self._ship.unobserve(self)
             self._ship = None
         elif entity == self._ship:
-            self._target.unobserve(self)
-            self._target = None
+            if self._target:
+                self._target.unobserve(self)
+                self._target = None
             self._ship = None
         else:
             raise ValueError(f'got entity_destroyed for unexpected entity {entity}')
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        assert self._target
-        assert self._ship
         if entity == self._target:
-            if self._sensor_manager.detected(self._target, self._ship):
+            # might be risky checking if detected on logically migrated entity
+            if self._ship and self._sensor_manager.detected(entity, self._ship):
                 self._is_active = False
             self._target.unobserve(self)
             self._target = None
-            self._ship.unobserve(self)
-            self._ship = None
         elif entity == self._ship:
-            self._target.unobserve(self)
-            self._target = None
+            if self._target:
+                self._target.unobserve(self)
+                self._target = None
             self._ship.unobserve(self)
             self._ship = None
         else:
@@ -59,7 +63,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def loc(self) -> npt.NDArray[np.float64]:
-        return self._loc + self._velocity * (core.Gamestate.gamestate.timestamp - self._last_update)
+        return self._loc + self._velocity * (core.Gamestate.gamestate.timestamp - self._base_ts)
 
     @property
     def velocity(self) -> npt.NDArray[np.float64]:
@@ -69,14 +73,16 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         return self._is_active
 
     def update(self) -> bool:
-        if self._target and self._ship and self._sensor_manager.detected(self._target, self._ship):
-            self._last_update = core.Gamestate.gamestate.timestamp
-            self._loc = self._target.loc
-            self._velocity = self._target.velocity
-            return True
+        if self._target and self._ship:
+            if self._sensor_manager.detected(self._target, self._ship):
+                self._last_update = core.Gamestate.gamestate.timestamp
+                self._base_ts = core.Gamestate.gamestate.timestamp
+                self._loc = self._target.loc
+                self._velocity = self._target.velocity
+                return True
+            else:
+                return False
         else:
-            assert self._target is None
-            assert self._ship is None
             return False
 
 class SensorManager(core.AbstractSensorManager):
@@ -109,7 +115,7 @@ class SensorManager(core.AbstractSensorManager):
 
     def compute_sensor_threshold(self, ship:core.SectorEntity) -> float:
         """ computes the sensor threshold accounting for sensor power """
-        return config.Settings.sensors.COEFF_THRESHOLD / (ship.sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
+        return config.Settings.sensors.COEFF_THRESHOLD / (self.compute_decayed_sensor_power(ship) + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
 
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > self.compute_sensor_threshold(detector)
@@ -120,14 +126,18 @@ class SensorManager(core.AbstractSensorManager):
                 yield hit
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity) -> core.AbstractSensorImage:
-        return SensorImage(target, detector, self)
+        image = SensorImage(target, detector, self)
+        image.update()
+        return image
 
     def set_sensors(self, entity:core.SectorEntity, level:float) -> None:
         # keep track of spikes in sensor usage so the impact on profile can
         # decay with time
         new_level = level * entity.max_sensor_power
+        if new_level == entity.sensor_power:
+            return
         decayed_power = self.compute_decayed_sensor_power(entity)
-        entity.last_sensor_power = max(new_level, decayed_power)
+        entity.last_sensor_power = decayed_power
         entity.last_sensor_power_ts = core.Gamestate.gamestate.timestamp
         entity.sensor_power = new_level
 
@@ -138,3 +148,18 @@ class SensorManager(core.AbstractSensorManager):
             entity.last_transponder_ts = core.Gamestate.gamestate.timestamp
         entity.transponder_on = on
 
+    def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
+        # passive
+        passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS) * self.sector.weather_factor
+        # full thrust
+        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST * self.sector.weather_factor
+        # max sesnsors
+        sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
+
+        threshold = self.compute_sensor_threshold(entity)
+
+        return (
+            np.sqrt(passive_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
+            np.sqrt(thrust_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
+            np.sqrt(sensor_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
+        )

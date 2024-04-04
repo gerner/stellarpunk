@@ -43,18 +43,16 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     attack_order_ref = weakref.ref(attack_order)
 
     target = None
+    assert target_ref() is None
     missile = None
-    # missile and attack orders still hold on to these
-    assert target_ref() is not None
+    # missile order still holds on to this
     assert missile_ref() is not None
 
     missile_order = None
     assert missile_order_ref() is None
-    assert target_ref() is not None
     assert missile_ref() is None
     attack_order = None
 
-    assert target_ref() is None
     assert missile_order_ref() is None
     assert attack_order_ref() is None
 

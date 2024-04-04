@@ -487,6 +487,42 @@ def compute_uigrid(
         lines_to_dict(text, bounds=bounds)
     )
 
+def drawille_circle(radius:float, tick_spacing:float, width:float, height:float, meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+    if canvas is None:
+        canvas = drawille.Canvas()
+
+    # shortcut if the entire circle falls outside the bbox
+    if radius > width and radius > height:
+        return canvas
+
+    # perfect arc length is minor tick spacing, but we want an arc length
+    # closest to that which will divide the circle into a whole number of
+    # pieces divisible by 4 (so the circle dots match the cross)
+    theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (tick_spacing / radius) / 4))
+    # we'll just iterate over a single quadrant and mirror it
+    thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
+    for theta in thetas:
+        # skip dots that fall on cross
+        if np.isclose(theta % (math.pi/2), 0.):
+            continue
+        dot_x, dot_y = polar_to_cartesian(radius, theta)
+
+        # skip dots outside bbox
+        if dot_x > width/2:
+            continue
+        if dot_y > height/2:
+            continue
+
+        d_x, d_y = sector_to_drawille(
+                dot_x, dot_y,
+                meters_per_char_x, meters_per_char_y)
+        canvas.set(d_x, d_y)
+        canvas.set(-d_x, d_y)
+        canvas.set(-d_x, -d_y)
+        canvas.set(d_x, -d_y)
+
+    return canvas
+
 def compute_uiradar(
         center:Tuple[float, float],
         bbox:Tuple[float, float, float, float],
@@ -544,32 +580,7 @@ def compute_uiradar(
     # iterate over rings at major tickSpacing
     max_radius = magnitude(bbox[2] - bbox[0], bbox[3] - bbox[1])/2
     for r in np.linspace(major_ticks_x.tickSpacing, max_radius, int(max_radius/major_ticks_x.tickSpacing), endpoint=False):
-        # perfect arc length is minor tick spacing, but we want an arc length
-        # closest to that which will divide the circle into a whole number of
-        # pieces divisible by 4 (so the circle dots match the cross)
-        theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (minor_ticks_x.tickSpacing / r) / 4))
-        # we'll just iterate over a single quadrant and mirror it
-        thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
-        for theta in thetas:
-            # skip dots that fall on cross
-            if np.isclose(theta % (math.pi/2), 0.):
-                continue
-            dot_x, dot_y = polar_to_cartesian(r, theta)
-
-            # skip dots outside bbox
-            if dot_x > (bbox[2] - bbox[0])/2:
-                continue
-            if dot_y > (bbox[3] - bbox[1])/2:
-                continue
-
-            d_x, d_y = sector_to_drawille(
-                    dot_x, dot_y,
-                    meters_per_char_x, meters_per_char_y)
-            c.set(d_x, d_y)
-            c.set(-d_x, d_y)
-            c.set(-d_x, -d_y)
-            c.set(d_x, -d_y)
-
+        drawille_circle(r, minor_ticks_x.tickSpacing, (bbox[2] - bbox[0]), (bbox[3] - bbox[1]), meters_per_char_x, meters_per_char_y, canvas=c)
     # get upper left corner position so drawille canvas fills the screen
     (d_x, d_y) = sector_to_drawille(
             -(bbox[2] - bbox[0])/2, -(bbox[3]-bbox[1])/2,

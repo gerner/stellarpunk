@@ -358,11 +358,11 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.ship.sector.sensor_manager.set_sensors(self.ship, 1.)
 
         def toggle_transponder(args:Sequence[str]) -> None:
-            self.interface.logger.info(f'toggle_transponder {core.Gamestate.gamestate.timestamp}')
+            assert self.ship.sector
             self.ship.sector.sensor_manager.set_transponder(self.ship, not self.ship.transponder_on)
 
         def cache_stats(args:Sequence[str]) -> None:
-            self.logger.info(presenter.compute_sensor_cone_memoize.cache_info())
+            self.logger.info(presenter.compute_sensor_rings_memoize.cache_info())
 
         return [
             self.bind_command("orders", show_orders),
@@ -596,8 +596,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, radar_content = self._cached_radar
 
+        radar_color = self.interface.get_color(interface.Color.RADAR_RING)
         for (y,x), c in radar_content.items():
-            self.viewscreen.addstr(y, x, c, curses.color_pair(29))
+            self.viewscreen.addstr(y, x, c, radar_color)
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -605,14 +606,14 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             s_x, s_y = self.perspective.sector_to_screen(
                     i+self.perspective.cursor[0], self.perspective.cursor[1]
             )
-            self.viewscreen.addstr(s_y, s_x, util.human_distance(i), curses.color_pair(29))
+            self.viewscreen.addstr(s_y, s_x, util.human_distance(i), radar_color)
             i += major_ticks_x.tickSpacing
         j = major_ticks_y.niceMin
         while j <= major_ticks_y.niceMax:
             s_x, s_y = self.perspective.sector_to_screen(
                     self.perspective.cursor[0], j+self.perspective.cursor[1]
             )
-            self.viewscreen.addstr(s_y, s_x, util.human_distance(j), curses.color_pair(29))
+            self.viewscreen.addstr(s_y, s_x, util.human_distance(j), radar_color)
             j += major_ticks_y.tickSpacing
 
         # draw degree indicators
@@ -623,19 +624,19 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             s_x, s_y = self.perspective.sector_to_screen(
                     self.perspective.cursor[0]+x, self.perspective.cursor[1]+y
             )
-            self.viewscreen.addstr(s_y, s_x, f'{math.degrees(theta):.0f}°', curses.color_pair(29))
+            self.viewscreen.addstr(s_y, s_x, f'{math.degrees(theta):.0f}°', radar_color)
 
         # add a scale near corner
         scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
         scale_x = self.interface.viewscreen.width - len(scale_label) - 2
         scale_y = self.interface.viewscreen.height - 2
-        self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
+        self.viewscreen.addstr(scale_y, scale_x, scale_label, radar_color)
 
         # add center position near corner
         pos_label = f'({self.perspective.cursor[0]:.0f},{self.perspective.cursor[1]:.0f})'
         pos_x = self.interface.viewscreen.width - len(pos_label) - 2
         pos_y = self.interface.viewscreen.height - 1
-        self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
+        self.viewscreen.addstr(pos_y, pos_x, pos_label, radar_color)
 
     def _draw_target_indicators(self) -> None:
         current_order = self.ship.current_order()
@@ -852,6 +853,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.starfield.draw_starfield(self.viewscreen)
         self.presenter.draw_shapes(self.ship)
         self._draw_radar()
+        self.presenter.draw_sensor_rings(self.ship)
         self.presenter.draw_sector_map(self.ship)
 
         # draw hud overlay on top of everything else
