@@ -1,5 +1,6 @@
 """ Combat """
 
+import enum
 from typing import Optional, Tuple, Any
 import math
 import numpy as np
@@ -40,8 +41,8 @@ class Missile(core.Ship):
 class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
-    @classmethod
-    def spawn_missile(cls, ship:core.Ship, target:SectorEntity, gamestate:Gamestate) -> Missile:
+    @staticmethod
+    def spawn_missile(ship:core.Ship, target:SectorEntity, gamestate:Gamestate) -> Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(100, ship.angle), occupied_radius=75, radius=100)
         v = util.polar_to_cartesian(100, ship.angle) + ship.velocity
@@ -85,8 +86,17 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self.cancel_order()
         self.gamestate.destroy_sector_entity(target)
 
-class AttackOrder(movement.AbstractSteeringOrder, core.OrderObserver):
+class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
+
+    class State(enum.Enum):
+        APPROACH = enum.auto()
+        WITHDRAW = enum.auto()
+        SHADOW = enum.auto()
+        FIRE = enum.auto()
+        LAST_LOCATION = enum.auto()
+        SEARCH = enum.auto()
+
     def __init__(self, target:core.SectorEntity, *args:Any, distance_min:float=2.5e5, distance_max:float=5e5, max_active_age:float=35, max_passive_age:float=30, search_distance:float=5e4, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -97,65 +107,34 @@ class AttackOrder(movement.AbstractSteeringOrder, core.OrderObserver):
         self.max_active_age = max_active_age
         self.max_passive_age = max_passive_age
         self.search_distance = search_distance
+        self.ttl_order_time = 5
+
+        self.state = AttackOrder.State.APPROACH
 
     def __str__(self) -> str:
-        return f'Attack: {self.target.short_id()} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
+        return f'Attack: {self.target.short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
 
     def is_complete(self) -> bool:
         return self.completed_at > 0. or not self.target.is_active()
 
-    #def order_complete(self, order:core.Order) -> None:
-    #    self.gamestate.schedule_order_immediate(self)
-
-    #def order_cancelled(self, order:core.Order) -> None:
-    #    self.gamestate.schedule_order_immediate(self)
-
-    def _sub_attack_order(self, order:core.Order) -> None:
-        order.observe(self)
-        TimedOrderTask.ttl_order(order, 5)
-        assert self.ship.current_order() == self
+    def _ttl_order(self, order:core.Order) -> None:
+        TimedOrderTask.ttl_order(order, self.ttl_order_time)
         self._add_child(order)
 
-    def _keep_image_fresh(self, dt:float) -> bool:
-        assert self.ship.sector
-        # keep sensor image fresh
-        if self.target.age > self.max_active_age:
-            # actively search for the target
-            self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
-            if self.target.update():
-                return True
-            if np.linalg.norm(self.target.loc - self.ship.loc) > self.search_distance:
-                self._sub_attack_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.search_distance*0.8))
-                return False
-            else:
-                # TODO: search pattern
-                #return False
-                return True
-        elif self.target.age > self.max_passive_age:
-            # go active, but make no other effort to re-acquire target
-            self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
-            self.target.update()
-            return True
-        else:
-            # image fresh enough make sure our sensors are off
-            self.ship.sector.sensor_manager.set_sensors(self.ship, 0.0)
-            return True
+    def _do_last_location(self) -> None:
+        self._ttl_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
 
-    def _maintain_standoff(self, dt:float) -> bool:
-        # TODO: determine our standoff range
+    def _do_search(self) -> None:
+        #TODO: search, for now give up
+        self.cancel_order()
 
-        # get to a standoff distance
-        distance = np.linalg.norm(self.target.loc - self.ship.loc)
-        if distance > self.distance_max:
-            self._sub_attack_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min)))
-            return False
-        elif distance < self.distance_min:
-            self._sub_attack_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
-            return False
+    def _do_approach(self) -> None:
+        self._ttl_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min), max_speed=self.ship.max_speed()*2.))
 
-        return True
+    def _do_withdraw(self) -> None:
+        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
 
-    def _move_shadow_target(self, dt:float) -> float:
+    def _do_shadow(self, dt:float) -> None:
         assert self.ship.sector
         # make velocity parallel to target (i.e. want relative velocity to be zero)
         target_velocity = self.target.velocity
@@ -170,27 +149,61 @@ class AttackOrder(movement.AbstractSteeringOrder, core.OrderObserver):
 
         # TODO: choose a max thrust appropriate for desired sensor profile
 
-        return collision.accelerate_to(self.ship.phys, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+        shadow_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+        self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
+
+    def _do_fire(self) -> None:
+        #TODO: fire weapons
+        self.cancel_order()
+
+    def _set_sensors(self) -> None:
+        assert self.ship.sector
+        if self.target.age > self.max_passive_age:
+            self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
+        else:
+            self.ship.sector.sensor_manager.set_sensors(self.ship, 0.0)
+
+    def _choose_state(self) -> "AttackOrder.State":
+        distance = np.linalg.norm(self.target.loc - self.ship.loc)
+        if self.target.age > self.max_active_age:
+            if distance > self.search_distance:
+                return AttackOrder.State.LAST_LOCATION
+            else:
+                return AttackOrder.State.SEARCH
+
+        if distance > self.distance_max:
+            return AttackOrder.State.APPROACH
+        elif distance < self.distance_min:
+            return AttackOrder.State.WITHDRAW
+
+        # TODO: attacking
+        # if weapon systems not ready, ready weapons
+        # if we've got enough confidence take shot, else gain confidence
+
+        return AttackOrder.State.SHADOW
 
     def act(self, dt:float) -> None:
         assert self.ship.sector
         self.target.update()
 
-        if not self._keep_image_fresh(dt):
-            return
+        self._set_sensors()
 
-        if not self._maintain_standoff(dt):
-            return
-        # inside standoff zone, move shadow the target
-        shadow_time = self._move_shadow_target(dt)
+        self.state = self._choose_state()
 
-        # TODO: make attacks
-        # if weapon systems are ready, else ready weapons
-        # if we've got enough confidence in taking a shot, else gain confidence
-        # take the shot
-
-        assert self.ship.current_order() == self
-        self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
+        if self.state == AttackOrder.State.LAST_LOCATION:
+            self._do_last_location()
+        elif self.state == AttackOrder.State.SEARCH:
+            self._do_search()
+        elif self.state == AttackOrder.State.APPROACH:
+            self._do_approach()
+        elif self.state == AttackOrder.State.WITHDRAW:
+            self._do_withdraw()
+        elif self.state == AttackOrder.State.SHADOW:
+            self._do_shadow(dt)
+        elif self.state == AttackOrder.State.FIRE:
+            self._do_fire()
+        else:
+            raise ValueError(f'unknown attack order state {self.state}')
 
 class FleeOrder(movement.AbstractSteeringOrder):
     pass

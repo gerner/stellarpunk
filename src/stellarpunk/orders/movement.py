@@ -469,7 +469,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
 class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     """ Steer toward a collision with the target """
-    def __init__(self, *args:Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, arrival_distance:float=0., avoid_collisions:bool=True, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         assert self.ship.sector
 
@@ -486,6 +486,14 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         self.arrival_distance = arrival_distance
 
         self.avoid_collisions=avoid_collisions
+        if max_speed:
+            self.max_speed = max_speed
+        else:
+            self.max_speed = self.ship.max_speed()
+        if final_speed:
+            self.final_speed = final_speed
+        else:
+            self.final_speed = self.ship.max_thrust / self.ship.mass * 0.5
 
     def __str__(self) -> str:
         return f'Pursue: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
@@ -515,8 +523,6 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         # this is on top of the target's velocity
         # a large value here reduces intercept time
         # a small value here makes it easy to correct at the last minute
-        final_speed = self.ship.max_thrust / self.ship.mass * 0.5
-
 
         target_velocity, _, self.intercept_time, self.intercept_location = collision.find_intercept_v(
                 self.ship.phys,
@@ -525,10 +531,9 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
                 self.arrival_distance,
                 self.ship.max_acceleration(),
                 self.ship.max_angular_acceleration(),
-                self.ship.max_speed(),
+                self.max_speed,
                 dt,
-                final_speed)
-
+                self.final_speed)
 
         if self.avoid_collisions:
             # avoid collisions
@@ -543,7 +548,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
                 self.ship.phys,
                 target_velocity,
                 dt,
-                self.ship.max_speed(),
+                self.max_speed,
                 self.ship.max_torque,
                 self.ship.max_thrust,
                 self.ship.max_fine_thrust
