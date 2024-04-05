@@ -639,16 +639,21 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(pos_y, pos_x, pos_label, radar_color)
 
     def _draw_target_indicators(self) -> None:
+        top_order = self.ship.top_order()
         current_order = self.ship.current_order()
         if isinstance(current_order, movement.GoToLocation):
             s_x, s_y = self.perspective.sector_to_screen(*current_order._target_location)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
-        elif isinstance(current_order, movement.EvadeOrder):
+        elif isinstance(current_order, movement.EvadeOrder) or isinstance(current_order, movement.PursueOrder):
             s_x, s_y = self.perspective.sector_to_screen(*current_order.intercept_location)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
 
+        if isinstance(top_order, combat.AttackOrder):
+            s_x, s_y = self.perspective.sector_to_screen(*top_order.target.loc)
+
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_INDICATOR))
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.
@@ -757,6 +762,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         label_location = "location:"
         label_heading = "heading:"
         label_course = "course:"
+        label_top_order = "top order:"
         label_order = "order:"
         label_eta = "eta:"
         # convert heading so 0, North is negative y, instead of positive x
@@ -769,12 +775,23 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
-        self.viewscreen.addstr(status_y+7, status_x, f'{label_order:>12} {current_order}')
-        status_y += 8
+        status_y += 7
+
         if current_order is not None:
+            ancestor_order = current_order
+            while ancestor_order.parent_order is not None:
+                ancestor_order = ancestor_order.parent_order
+            if ancestor_order != current_order:
+                self.viewscreen.addstr(status_y, status_x, f'{label_top_order:>12} {ancestor_order}')
+                status_y += 1
+
+            self.viewscreen.addstr(status_y, status_x, f'{label_order:>12} {current_order}')
             eta = current_order.estimate_eta()
-            self.viewscreen.addstr(status_y, status_x, f'{label_eta:>12} {eta:.1f}s')
-            status_y += 1
+            self.viewscreen.addstr(status_y+1, status_x, f'{label_eta:>12} {eta:.1f}s')
+            status_y += 2
+            if not self.gamestate.is_order_scheduled(current_order):
+                self.viewscreen.addstr(status_y, status_x, f'order is not scheduled!', self.interface.get_color(interface.Color.ERROR))
+                status_y +=1
 
         if isinstance(current_order, movement.GoToLocation):
             # distance

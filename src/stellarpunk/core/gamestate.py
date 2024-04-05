@@ -103,6 +103,9 @@ class AbstractGenerator:
     @abc.abstractmethod
     def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
 
+class ScheduledTask:
+    @abc.abstractmethod
+    def act(self) -> None: ...
 
 class Gamestate(EntityRegistry):
     gamestate:"Gamestate" = None # type: ignore
@@ -148,7 +151,8 @@ class Gamestate(EntityRegistry):
 
         # priority queue of agenda items in form (scheduled timestamp, agendum)
         self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
-        #self.scheduled_agenda:Set[Agendum] = set()
+
+        self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
@@ -314,6 +318,24 @@ class Gamestate(EntityRegistry):
 
     def pop_current_agenda(self) -> Sequence[Agendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
+
+    def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:
+        self.schedule_task(self.timestamp + self.desired_dt, task, jitter)
+
+    def schedule_task(self, timestamp:float, task:ScheduledTask, jitter:float=0.) -> None:
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
+        self._task_schedule.push_task(timestamp, task)
+
+    def unschedule_task(self, task:ScheduledTask) -> None:
+        self._task_schedule.cancel_task(task)
+
+    def pop_current_task(self) -> Sequence[ScheduledTask]:
+        return self._task_schedule.pop_current_tasks(self.timestamp)
 
     def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
         self.logger.info(f'transaction: {product_id} from {buyer.agent_id} to {seller.agent_id} at ${price} x {amount} = ${price * amount}')

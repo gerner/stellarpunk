@@ -1,6 +1,7 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
 from typing import Tuple, Iterator, Optional
+import uuid
 
 import numpy.typing as npt
 import numpy as np
@@ -18,6 +19,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._target:Optional[core.SectorEntity] = target
         if target:
             target.observe(self)
+            self._entity_id = target.entity_id
+            self._short_id = target.short_id()
+        else:
+            self._entity_id = uuid.uuid4()
+            self._short_id = f'UNK-{self._entity_id.hex[:8]}'
         self._last_update = 0.
         self._base_ts = 0.
         self._loc = ZERO_VECTOR
@@ -56,6 +62,14 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             self._ship = None
         else:
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
+
+    @property
+    def entity_id(self) -> uuid.UUID:
+        return self._entity_id
+
+    def short_id(self) -> str:
+        """ first 32 bits as hex """
+        return self._short_id
 
     @property
     def age(self) -> float:

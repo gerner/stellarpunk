@@ -189,6 +189,10 @@ class Simulator(core.AbstractGameRuntime):
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
 
+    def _tick_tasks(self, dt:float) -> None:
+        for task in self.gamestate.pop_current_task():
+            task.act()
+
     def _tick_record(self, dt: float) -> None:
         # record some state about the final state of this tick
         if self.ticks_per_hist_sample > 0:
@@ -267,8 +271,8 @@ class Simulator(core.AbstractGameRuntime):
 
         self._tick_orders(dt)
         self._tick_effects(dt)
-
         self._tick_agenda(dt)
+        self._tick_tasks(dt)
 
         self.event_manager.tick()
 

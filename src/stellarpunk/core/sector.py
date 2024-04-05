@@ -54,6 +54,13 @@ class AbstractSensorImage:
         return true if we're able to detect the target. """
         ...
 
+    @abc.abstractmethod
+    def short_id(self) -> str: ...
+    @property
+    @abc.abstractmethod
+    def entity_id(self) -> uuid.UUID: ...
+
+
 class AbstractSensorManager:
     def __init__(self, sector:"Sector"):
         self.sector = sector

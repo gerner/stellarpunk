@@ -1,3 +1,4 @@
+import weakref
 from typing import Optional
 
 from stellarpunk.core import combat
@@ -17,8 +18,8 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
 
     testui.orders = [attack_order]
     testui.eta = 20
-    simulator.run()
 
+    simulator.run()
     assert attack_order.is_complete()
     assert missile_order.is_complete()
 
@@ -36,7 +37,6 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     # references like observer registrations or entity tracking, etc.
     testui.orders.clear()
     testui.complete_orders.clear()
-    import weakref
     target_ref = weakref.ref(target)
     missile_ref = weakref.ref(missile)
     missile_order_ref = weakref.ref(missile_order)
@@ -51,8 +51,8 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     missile_order = None
     assert missile_order_ref() is None
     assert missile_ref() is None
-    attack_order = None
 
+    attack_order = None
     assert missile_order_ref() is None
     assert attack_order_ref() is None
 

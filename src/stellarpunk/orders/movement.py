@@ -390,16 +390,19 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         # "volume" here is time between measurements
         # estimate of target velocity, weighted by amount of time since the
         # last estimate
-        self.est_tv_velocity = np.array((0.0, 0.0))
-        self.est_tv_volume = 0.
-        self.last_est_tv = 0.
+        #self.est_tv_velocity = np.array((0.0, 0.0))
+        #self.est_tv_volume = 0.
+        #self.last_est_tv = 0.
 
         self.escape_distance = escape_distance
 
-    def _begin(self) -> None:
-        self.est_tv_velocity = self.target.velocity
-        self.est_tv_volume = self.gamestate.dt
-        self.last_est_tv = self.gamestate.timestamp
+    def __str__(self) -> str:
+        return f'Evade: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
+
+    #def _begin(self) -> None:
+    #    self.est_tv_velocity = self.target.velocity
+    #    self.est_tv_volume = self.gamestate.dt
+    #    self.last_est_tv = self.gamestate.timestamp
 
     def is_complete(self) -> bool:
         # TODO: when do we stop evading?
@@ -431,13 +434,11 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         rel_speed = np.linalg.norm(rel_vel)
 
         if rel_speed < 5 or self.intercept_time > 5:
-            self.logger.info(f'flee mode {rel_dist}m {rel_speed}m/s {self.intercept_time}s')
             # plot a course away from that closest approach
             course = self.ship.loc - self.intercept_location
             course = course / np.linalg.norm(course)
             target_velocity = cymunk.Vec2d(course * self.ship.max_speed())
         else:
-            self.logger.info(f'dodge mode {rel_dist}m {rel_speed}m/s {self.intercept_time}s')
             # OPTION C:
             # want a velocity perpendicular to current relative velocity
             #self.est_tv_velocity, self.est_tv_volume = util.update_vema(self.est_tv_velocity, self.est_tv_volume, 0.05, self.target.velocity, self.gamestate.timestamp - self.last_est_tv)
@@ -485,6 +486,9 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         self.arrival_distance = arrival_distance
 
         self.avoid_collisions=avoid_collisions
+
+    def __str__(self) -> str:
+        return f'Pursue: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
 
     def estimate_eta(self) -> float:
         return self.intercept_time

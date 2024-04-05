@@ -174,6 +174,7 @@ class Order:
         self.started_at = -1.
         self.completed_at = -1.
         self.init_eta = np.inf
+        self.parent_order:Optional[Order] = None
         self.child_orders:Deque[Order] = collections.deque()
 
         self.observers:Set[OrderObserver] = set()
@@ -199,6 +200,7 @@ class Order:
             pass
 
     def _add_child(self, order:"Order", begin:bool=True) -> None:
+        order.parent_order = self
         self.child_orders.appendleft(order)
         self.ship.prepend_order(order, begin=begin)
 

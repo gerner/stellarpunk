@@ -131,6 +131,14 @@ class Ship(SectorEntity, Asset):
         order = self._orders.popleft()
         order.complete_order()
 
+    def top_order(self) -> Optional[Order]:
+        current_order = self.current_order()
+        if current_order is None:
+            return None
+        while current_order.parent_order is not None:
+            current_order = current_order.parent_order
+        return current_order
+
     def current_order(self) -> Optional[Order]:
         if len(self._orders) > 0:
             return self._orders[0]

@@ -8,9 +8,25 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core
 from stellarpunk.orders import movement, collision
-from stellarpunk.core.gamestate import Gamestate
+from stellarpunk.core.gamestate import Gamestate, ScheduledTask
 from .sector_entity import SectorEntity, ObjectType
 from .order import Effect
+
+class TimedOrderTask(ScheduledTask, core.OrderObserver):
+    @staticmethod
+    def ttl_order(order:core.Order, ttl:float) -> "TimedOrderTask":
+        tot = TimedOrderTask(order)
+        Gamestate.gamestate.schedule_task(Gamestate.gamestate.timestamp + ttl, tot)
+        return tot
+    def __init__(self, order:core.Order) -> None:
+        self.order = order
+        order.observe(self)
+    def order_cancel(self, order:core.Order) -> None:
+        Gamestate.gamestate.unschedule_task(self)
+    def order_complete(self, order:core.Order) -> None:
+        Gamestate.gamestate.unschedule_task(self)
+    def act(self) -> None:
+        self.order.cancel_order()
 
 class Missile(core.Ship):
     id_prefix = "MSL"
@@ -69,7 +85,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self.cancel_order()
         self.gamestate.destroy_sector_entity(target)
 
-class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
+class AttackOrder(movement.AbstractSteeringOrder, core.OrderObserver):
     """ Objective is to destroy a target. """
     def __init__(self, target:core.SectorEntity, *args:Any, distance_min:float=2.5e5, distance_max:float=5e5, max_active_age:float=35, max_passive_age:float=30, search_distance:float=5e4, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -81,20 +97,24 @@ class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
         self.max_active_age = max_active_age
         self.max_passive_age = max_passive_age
         self.search_distance = search_distance
-        self.standoff_order:Optional[core.Order] = None
 
     def __str__(self) -> str:
-        return f'Attack: age:{self.target.age} dist:{np.linalg.norm(self.target.loc-self.ship.loc)}'
-
-    def _complete(self) -> None:
-        if self.standoff_order:
-            self.standoff_order = None
-
-    def _cancel(self) -> None:
-        self._complete()
+        return f'Attack: {self.target.short_id()} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
 
     def is_complete(self) -> bool:
         return self.completed_at > 0. or not self.target.is_active()
+
+    #def order_complete(self, order:core.Order) -> None:
+    #    self.gamestate.schedule_order_immediate(self)
+
+    #def order_cancelled(self, order:core.Order) -> None:
+    #    self.gamestate.schedule_order_immediate(self)
+
+    def _sub_attack_order(self, order:core.Order) -> None:
+        order.observe(self)
+        TimedOrderTask.ttl_order(order, 5)
+        assert self.ship.current_order() == self
+        self._add_child(order)
 
     def _keep_image_fresh(self, dt:float) -> bool:
         assert self.ship.sector
@@ -105,11 +125,12 @@ class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
             if self.target.update():
                 return True
             if np.linalg.norm(self.target.loc - self.ship.loc) > self.search_distance:
-                self.standoff_order = movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.search_distance*0.8)
+                self._sub_attack_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.search_distance*0.8))
+                return False
             else:
                 # TODO: search pattern
-                pass
-            return False
+                #return False
+                return True
         elif self.target.age > self.max_passive_age:
             # go active, but make no other effort to re-acquire target
             self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
@@ -126,17 +147,11 @@ class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
         # get to a standoff distance
         distance = np.linalg.norm(self.target.loc - self.ship.loc)
         if distance > self.distance_max:
-            self.standoff_order = movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min))
-            self._add_child(self.standoff_order)
+            self._sub_attack_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min)))
             return False
         elif distance < self.distance_min:
-            self.standoff_order = movement.EvadeOrder(self.ship, self.gamestate, target_image=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min))
-            self._add_child(self.standoff_order)
+            self._sub_attack_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
             return False
-
-        if self.standoff_order:
-            assert self.standoff_order.is_complete()
-            self.standoff_order = None
 
         return True
 
@@ -174,6 +189,7 @@ class AttackOrder(movement.AbstractSteeringOrder, core.SectorEntityObserver):
         # if we've got enough confidence in taking a shot, else gain confidence
         # take the shot
 
+        assert self.ship.current_order() == self
         self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
 
 class FleeOrder(movement.AbstractSteeringOrder):
