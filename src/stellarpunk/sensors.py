@@ -203,11 +203,11 @@ class SensorManager(core.AbstractSensorManager):
         return image
 
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
-        # passive
+        # range to detect passive targets
         passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS) * self.sector.weather_factor
-        # full thrust
+        # range to detect full thrust targets
         thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST * self.sector.weather_factor
-        # max sesnsors
+        # range to detect active sesnsor targets
         sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
 
         threshold = entity.sensor_settings.effective_threshold()
@@ -220,8 +220,11 @@ class SensorManager(core.AbstractSensorManager):
 
     def profile_ranges(self, entity:core.SectorEntity) -> Tuple[float, float]:
         profile = self.compute_effective_profile(entity)
+
+        # range we're detected by passive threats
         passive_threshold = config.Settings.sensors.COEFF_THRESHOLD / (config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
 
+        # range we're detected by active threats
         active_threshold = config.Settings.sensors.COEFF_THRESHOLD / (config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
 
         return (
