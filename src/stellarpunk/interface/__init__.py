@@ -58,6 +58,7 @@ class Color(enum.Enum):
     ERROR = enum.auto()
     RADAR_RING = enum.auto()
     SENSOR_RING = enum.auto()
+    PROFILE_RING = enum.auto()
 
 class Icons:
 
@@ -867,6 +868,8 @@ class Interface(AbstractInterface):
             return curses.color_pair(29)
         elif color == Color.SENSOR_RING:
             return curses.color_pair(34)
+        elif color == Color.PROFILE_RING:
+            return curses.color_pair(198)
         else:
             raise ValueError(f'unknown color {color}')
 

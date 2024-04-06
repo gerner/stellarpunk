@@ -173,7 +173,8 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         period = collision.accelerate_to(
                 self.ship.phys, cymunk.Vec2d(0,0), self.gamestate.dt,
                 self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust)
+                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.sensor_settings)
 
     def rotate(self, scale:float) -> None:
         """ Rotates the ship in desired direction
@@ -351,15 +352,13 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.interface.log_message(f'sensor_cone {cone_txt_state}')
 
         def toggle_sensors(args:Sequence[str]) -> None:
-            assert self.ship.sector
-            if self.ship.sensor_power > 0.:
-                self.ship.sector.sensor_manager.set_sensors(self.ship, 0.)
+            if self.ship.sensor_settings.sensor_power > 0.:
+                self.ship.sensor_settings.set_sensors(0.)
             else:
-                self.ship.sector.sensor_manager.set_sensors(self.ship, 1.)
+                self.ship.sensor_settings.set_sensors(1.)
 
         def toggle_transponder(args:Sequence[str]) -> None:
-            assert self.ship.sector
-            self.ship.sector.sensor_manager.set_transponder(self.ship, not self.ship.transponder_on)
+            self.ship.sensor_settings.set_transponder(self.ship.sensor_settings.transponder)
 
         def cache_stats(args:Sequence[str]) -> None:
             self.logger.info(presenter.compute_sensor_rings_memoize.cache_info())
@@ -871,6 +870,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.presenter.draw_shapes(self.ship)
         self._draw_radar()
         self.presenter.draw_sensor_rings(self.ship)
+        self.presenter.draw_profile_rings(self.ship)
         self.presenter.draw_sector_map(self.ship)
 
         # draw hud overlay on top of everything else

@@ -93,6 +93,8 @@ class Character(Entity):
         for observer in self.observers.copy():
             observer.character_destroyed(self)
         self.observers.clear()
+        for agendum in self.agenda:
+            agendum.stop()
         self.location = None
 
     def observe(self, observer:CharacterObserver) -> None:

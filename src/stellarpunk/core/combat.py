@@ -78,7 +78,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         # assume if that happens it got unregistered
         if self.ship.sector:
             self.ship.sector.unregister_collision_observer(self.ship.entity_id, self)
-        self.gamestate.destroy_sector_entity(self.ship)
+        self.gamestate.destroy_entity(self.ship)
 
     def _cancel(self) -> None:
         self._complete()
@@ -90,7 +90,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self.logger.debug(f'missile {self.ship} hit {target} impulse: {impulse} ke: {ke}!')
 
         self.cancel_order()
-        self.gamestate.destroy_sector_entity(target)
+        self.gamestate.destroy_entity(target)
 
 class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
@@ -119,7 +119,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
         #TODO: this is a temporary hack to get something reasonable for firing
         self.last_fire_ts = 0.
-        self.fire_period = 10.
+        self.fire_period = 15.
 
     def __str__(self) -> str:
         return f'Attack: {self.target.short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
@@ -159,7 +159,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
         # TODO: choose a max thrust appropriate for desired sensor profile
 
-        shadow_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+        shadow_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
         self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
 
     def _do_fire(self) -> None:
@@ -171,9 +171,9 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def _set_sensors(self) -> None:
         assert self.ship.sector
         if self.target.age > self.max_passive_age:
-            self.ship.sector.sensor_manager.set_sensors(self.ship, 1.0)
+            self.ship.sensor_settings.set_sensors(1.0)
         else:
-            self.ship.sector.sensor_manager.set_sensors(self.ship, 0.0)
+            self.ship.sensor_settings.set_sensors(0.0)
 
     def _choose_state(self) -> "AttackOrder.State":
         distance = np.linalg.norm(self.target.loc - self.ship.loc)

@@ -257,11 +257,18 @@ class Simulator(core.AbstractGameRuntime):
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
+    def _tick_destroy(self, dt:float) -> None:
+        for entity in self.gamestate.entity_destroy_list:
+            self.gamestate.handle_destroy(entity)
+        self.gamestate.entity_destroy_list.clear()
+        self.gamestate.entity_destroy_set.clear()
+
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
         self._tick_space(dt)
         self._tick_collisions(dt)
+        self._tick_destroy(dt)
 
         # at this point all physics sim is done for the tick and the gamestate
         # is up to date across the universe

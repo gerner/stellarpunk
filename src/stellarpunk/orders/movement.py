@@ -80,7 +80,8 @@ class KillVelocityOrder(AbstractSteeringOrder):
         period = collision.accelerate_to(
                 self.ship.phys, cymunk.Vec2d(0,0), dt,
                 self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust)
+                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.sensor_settings)
         # don't need to wake up again until the acceleration is complete
         if period < math.inf:
             self.gamestate.schedule_order(self.gamestate.timestamp + period, self)
@@ -277,7 +278,7 @@ class GoToLocation(AbstractSteeringOrder):
         # check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
-            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST_CT] += continue_time
 
@@ -318,7 +319,7 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
             self._desired_velocity = self.target_v
@@ -357,7 +358,7 @@ class GoToLocation(AbstractSteeringOrder):
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+            continue_time = collision.accelerate_to(self.ship.phys, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 
@@ -462,7 +463,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         if not util.both_almost_zero(collision_dv) or approach_time < self.intercept_time:
             target_velocity = self.ship.phys.velocity + collision_dv
 
-        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, max_speed, self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust)
+        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, max_speed, self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
 
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
         self.gamestate.schedule_order(next_ts, self)
@@ -551,7 +552,8 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
                 self.max_speed,
                 self.ship.max_torque,
                 self.ship.max_thrust,
-                self.ship.max_fine_thrust
+                self.ship.max_fine_thrust,
+                self.ship.sensor_settings
         )
 
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
@@ -573,7 +575,8 @@ class WaitOrder(AbstractSteeringOrder):
         period = collision.accelerate_to(
                 self.ship.phys, cymunk.Vec2d(0,0), dt,
                 self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust)
+                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.sensor_settings)
 
         if period < np.inf:
             # don't need to wake up again until the acceleration is complete

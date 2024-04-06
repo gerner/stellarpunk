@@ -8,7 +8,7 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List, Type
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List, Type, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -182,7 +182,13 @@ class Gamestate(EntityRegistry):
         self.sector_starfield:Sequence[StarfieldLayer] = []
         self.portrait_starfield:Sequence[StarfieldLayer] = []
 
+        # list for in iterator appends
+        # set for destroying exactly once
+        self.entity_destroy_list:List[Entity] = []
+        self.entity_destroy_set:Set[Entity] = set()
+
     def register_entity(self, entity: Entity) -> narrative.EventContext:
+        self.logger.debug(f'registering {entity}')
         if entity.entity_id in self.entities:
             raise ValueError(f'entity {entity.entity_id} already registered!')
         if entity.short_id_int() in self.entities_short:
@@ -193,6 +199,7 @@ class Gamestate(EntityRegistry):
         return self.entity_context_store.register_entity(entity.short_id_int())
 
     def unregister_entity(self, entity: Entity) -> None:
+        self.logger.debug(f'unregistering {entity}')
         self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
@@ -234,7 +241,8 @@ class Gamestate(EntityRegistry):
 
     def withdraw_agent(self, entity_id:uuid.UUID) -> None:
         try:
-            self.econ_agents.pop(entity_id)
+            agent = self.econ_agents.pop(entity_id)
+            self.destroy_entity(agent)
         except KeyError:
             pass
 
@@ -250,15 +258,31 @@ class Gamestate(EntityRegistry):
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
 
-    def destroy_character(self, character:Character) -> None:
-        character.destroy()
+    def handle_destroy(self, entity:Entity) -> None:
+        self.logger.debug(f'destroying {entity}')
+        if isinstance(entity, SectorEntity):
+            for character in self.characters_by_location[entity.entity_id]:
+                self.destroy_entity(character)
+            if entity.sector is not None:
+                entity.sector.remove_entity(entity)
+            entity.destroy()
+        else:
+            entity.destroy()
 
-    def destroy_sector_entity(self, entity:SectorEntity) -> None:
-        for character in self.characters_by_location[entity.entity_id]:
-            self.destroy_character(character)
-        if entity.sector is not None:
-            entity.sector.remove_entity(entity)
-        entity.destroy()
+    def destroy_entity(self, entity:Entity) -> None:
+        if entity not in self.entity_destroy_set:
+            self.entity_destroy_list.append(entity)
+            self.entity_destroy_set.add(entity)
+
+    #def destroy_character(self, character:Character) -> None:
+    #    character.destroy()
+
+    #def destroy_sector_entity(self, entity:SectorEntity) -> None:
+    #    for character in self.characters_by_location[entity.entity_id]:
+    #        self.destroy_character(character)
+    #    if entity.sector is not None:
+    #        entity.sector.remove_entity(entity)
+    #    entity.destroy()
 
     def is_order_scheduled(self, order:Order) -> bool:
         return self._order_schedule.is_task_scheduled(order)

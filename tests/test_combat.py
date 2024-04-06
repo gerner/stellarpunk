@@ -56,3 +56,20 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     assert missile_order_ref() is None
     assert attack_order_ref() is None
 
+def test_two_missiles(gamestate, generator, sector, testui, simulator):
+    missile1 = generator.spawn_missile(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    missile2 = generator.spawn_missile(sector, 3000, 0, v=(0,0), w=0, theta=0)
+
+    missile_order1 = combat.MissileOrder(missile1, gamestate, target=missile2)
+    missile1.prepend_order(missile_order1)
+    missile_order2 = combat.MissileOrder(missile2, gamestate, target=missile1)
+    missile2.prepend_order(missile_order2)
+
+    testui.orders = [missile_order1, missile_order2]
+    testui.eta = 20
+
+    simulator.run()
+    assert missile_order1.is_complete()
+    assert missile_order2.is_complete()
+    assert missile1.sector is None
+    assert missile2.sector is None

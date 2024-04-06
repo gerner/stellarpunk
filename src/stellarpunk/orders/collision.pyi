@@ -108,7 +108,8 @@ def rotate_to(
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
-        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float: ...
+        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
+        sensor_settings:Any) -> float: ...
 
 def migrate_threat_location(
         inref_loc:cymunk.Vec2d, inref_radius:float,

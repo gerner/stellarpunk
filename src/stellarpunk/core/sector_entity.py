@@ -95,7 +95,7 @@ class SectorEntity(Entity):
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"sector.AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector:Optional["sector.Sector"] = None
@@ -123,14 +123,7 @@ class SectorEntity(Entity):
 
         self.observers:Set[SectorEntityObserver] = set()
 
-        self.max_sensor_power = 0.
-        self.sensor_power = 0.
-        self.transponder_on = False
-
-        # keeps track of history on sensor spikes
-        self.last_sensor_power = 0.
-        self.last_sensor_power_ts = 0.
-        self.last_transponder_ts = 0.
+        self.sensor_settings=sensor_settings
 
     def observe(self, observer:SectorEntityObserver) -> None:
         self.observers.add(observer)

@@ -401,4 +401,22 @@ class Presenter:
         s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[2], ship.loc[1])
         self.view.viewscreen.addstr(s_y, s_x, "C")
 
+    def draw_profile_rings(self, ship:core.SectorEntity) -> None:
+        radii = self.sector.sensor_manager.profile_ranges(ship)
+        content = compute_sensor_rings_memoize(
+            tuple(map(quantize, radii)),
+            self.perspective.bbox[2] - self.perspective.bbox[0],
+            self.perspective.bbox[3] - self.perspective.bbox[1],
+            self.view.viewscreen_bounds,
+            self.perspective.meters_per_char
+        )
+
+        sensor_color = self.view.interface.get_color(interface.Color.PROFILE_RING)
+        for (y,x), c in content.items():
+            self.view.viewscreen.addstr(y, x, c, sensor_color)
+
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[0], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "A")
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "B")
 

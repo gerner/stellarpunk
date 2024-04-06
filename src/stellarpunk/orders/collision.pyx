@@ -1715,7 +1715,8 @@ def find_intercept_v(body:cymunk.Body, target_loc:cymunk.Vec2d, target_v:cymunk.
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
-        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float:
+        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
+        sensor_settings:Any) -> float:
 
     cdef ccymunk.Vec2d cyvelocity = <ccymunk.Vec2d?>target_velocity
     cdef ccymunk.Body cybody = <ccymunk.Body?>body
@@ -1735,8 +1736,10 @@ def accelerate_to(
         cybody._body.f = ZERO_VECTOR
         if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:
             cybody._body.w = 0.
+        sensor_settings.set_thrust(0.)
     else:
         cybody._body.f = ft_result.force
+        sensor_settings.set_thrust(ccymunk.cpvlength(ft_result.force))
 
     if ft_result.torque != 0.:
         cybody._body.t = ft_result.torque

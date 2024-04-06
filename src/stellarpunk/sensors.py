@@ -106,25 +106,80 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             self._short_id = self._short_id
         return image
 
+class SensorSettings(core.AbstractSensorSettings):
+    def __init__(self, max_sensor_power:float=0.) -> None:
+        self._max_sensor_power = max_sensor_power
+        self._sensor_power = 0.
+        self._transponder_on = False
+        self._thrust = 0.
+
+        # keeps track of history on sensor spikes
+        self._last_sensor_power = 0.
+        self._last_sensor_power_ts = 0.
+        self._last_transponder_ts = 0.
+        self._last_thrust = 0.
+        self._last_thrust_ts = 0.
+
+    @property
+    def sensor_power(self) -> float:
+        return self._sensor_power
+    @property
+    def transponder(self) -> bool:
+        return self._transponder_on
+
+    def effective_sensor_power(self) -> float:
+        if self._last_sensor_power == self._sensor_power:
+            return self._sensor_power
+        return (self._last_sensor_power - self._sensor_power) * config.Settings.sensors.DECAY_SENSORS ** (core.Gamestate.gamestate.timestamp - self._last_sensor_power_ts) + self._sensor_power
+    def effective_transponder(self) -> float:
+        if self._transponder_on:
+            return 1.0
+        return config.Settings.sensors.DECAY_TRANSPONDER ** (core.Gamestate.gamestate.timestamp - self._last_transponder_ts)
+    def effective_thrust(self) -> float:
+        if self._last_thrust == self._thrust:
+            return self._thrust
+        return (self._last_thrust - self._thrust) * config.Settings.sensors.DECAY_THRUST ** (core.Gamestate.gamestate.timestamp - self._last_thrust_ts) + self._thrust
+    def effective_threshold(self) -> float:
+        """ computes the sensor threshold accounting for sensor power """
+        return config.Settings.sensors.COEFF_THRESHOLD / (self.effective_sensor_power() + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
+
+    def set_sensors(self, ratio:float) -> None:
+        # keep track of spikes in sensors so impact on profile decays with time
+        # sensors decay up and down
+        new_level = ratio * self._max_sensor_power
+        if new_level == self._sensor_power:
+            return
+        decayed_power = self.effective_sensor_power()
+        self._last_sensor_power = decayed_power
+        self._last_sensor_power_ts = core.Gamestate.gamestate.timestamp
+        self._sensor_power = new_level
+    def set_transponder(self, on:bool) -> None:
+        # keep track of transponder so impact on profile decays with time
+        if self._transponder_on:
+            self._last_transponder_ts = core.Gamestate.gamestate.timestamp
+        self._transponder_on = on
+    def set_thrust(self, thrust:float) -> None:
+        # keep track of spikes in thrust so impact on profile decays with time
+        # thrust only decays down, it spikes instantly up
+        if thrust == self._thrust:
+            return
+        decayed_thrust = self.effective_thrust()
+        if thrust > decayed_thrust:
+            self._last_thrust = thrust
+        else:
+            self._last_thrust = decayed_thrust
+        self._last_thrust_ts = core.Gamestate.gamestate.timestamp
+        self._thrust = thrust
+
 class SensorManager(core.AbstractSensorManager):
     """ Models sensors for a sector """
 
     def __init__(self, sector:core.Sector):
         self.sector = sector
 
-    def compute_decayed_sensor_power(self, entity:core.SectorEntity) -> float:
-        if entity.last_sensor_power == entity.sensor_power:
-            return entity.sensor_power
-        return (entity.last_sensor_power - entity.sensor_power) * config.Settings.sensors.DECAY_SENSORS ** (core.Gamestate.gamestate.timestamp - entity.last_sensor_power_ts) + entity.sensor_power
-
-    def compute_decayed_transponder(self, entity:core.SectorEntity) -> float:
-        if entity.transponder_on:
-            return 1.0
-        return config.Settings.sensors.DECAY_TRANSPONDER ** (core.Gamestate.gamestate.timestamp - entity.last_transponder_ts)
-
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
-        return (config.Settings.sensors.COEFF_MASS * ship.mass + config.Settings.sensors.COEFF_RADIUS * ship.radius + config.Settings.sensors.COEFF_FORCE * ship.phys.force.length + config.Settings.sensors.COEFF_SENSORS * self.compute_decayed_sensor_power(ship) + config.Settings.sensors.COEFF_TRANSPONDER * self.compute_decayed_transponder(ship)) * self.sector.weather_factor
+        return (config.Settings.sensors.COEFF_MASS * ship.mass + config.Settings.sensors.COEFF_RADIUS * ship.radius + config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust() + config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() + config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()) * self.sector.weather_factor
 
     def compute_target_profile(self, target:core.SectorEntity, detector:core.SectorEntity) -> float:
         """ computes detector-specific profile of target """
@@ -134,12 +189,8 @@ class SensorManager(core.AbstractSensorManager):
 
         return self.compute_effective_profile(target) / (config.Settings.sensors.COEFF_DISTANCE * distance ** 2.)
 
-    def compute_sensor_threshold(self, ship:core.SectorEntity) -> float:
-        """ computes the sensor threshold accounting for sensor power """
-        return config.Settings.sensors.COEFF_THRESHOLD / (self.compute_decayed_sensor_power(ship) + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
-
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
-        return self.compute_target_profile(target, detector) > self.compute_sensor_threshold(detector)
+        return self.compute_target_profile(target, detector) > detector.sensor_settings.effective_threshold()
 
     def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
         for hit in self.sector.spatial_query(bbox):
@@ -151,24 +202,6 @@ class SensorManager(core.AbstractSensorManager):
         image.update()
         return image
 
-    def set_sensors(self, entity:core.SectorEntity, level:float) -> None:
-        # keep track of spikes in sensor usage so the impact on profile can
-        # decay with time
-        new_level = level * entity.max_sensor_power
-        if new_level == entity.sensor_power:
-            return
-        decayed_power = self.compute_decayed_sensor_power(entity)
-        entity.last_sensor_power = decayed_power
-        entity.last_sensor_power_ts = core.Gamestate.gamestate.timestamp
-        entity.sensor_power = new_level
-
-    def set_transponder(self, entity:core.SectorEntity, on:bool) -> None:
-        # keep track of the last time the transponder was on so it's impact to
-        # profile can decay with time
-        if entity.transponder_on:
-            entity.last_transponder_ts = core.Gamestate.gamestate.timestamp
-        entity.transponder_on = on
-
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
         # passive
         passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS) * self.sector.weather_factor
@@ -177,10 +210,21 @@ class SensorManager(core.AbstractSensorManager):
         # max sesnsors
         sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
 
-        threshold = self.compute_sensor_threshold(entity)
+        threshold = entity.sensor_settings.effective_threshold()
 
         return (
             np.sqrt(passive_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
             np.sqrt(thrust_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
             np.sqrt(sensor_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
+        )
+
+    def profile_ranges(self, entity:core.SectorEntity) -> Tuple[float, float]:
+        profile = self.compute_effective_profile(entity)
+        passive_threshold = config.Settings.sensors.COEFF_THRESHOLD / (config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
+
+        active_threshold = config.Settings.sensors.COEFF_THRESHOLD / (config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
+
+        return (
+            np.sqrt(profile / passive_threshold / config.Settings.sensors.COEFF_DISTANCE),
+            np.sqrt(profile / active_threshold / config.Settings.sensors.COEFF_DISTANCE),
         )

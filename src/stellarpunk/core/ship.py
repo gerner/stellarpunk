@@ -73,6 +73,7 @@ class Ship(SectorEntity, Asset):
 
     def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
         self.phys.force = cymunk.vec2d.Vec2d(*force)
+        self.sensor_settings.set_thrust(self.phys.force.length)
 
     def apply_torque(self, torque: float, persistent:bool) -> None:
         self.phys.torque = torque
