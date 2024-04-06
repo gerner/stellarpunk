@@ -120,8 +120,12 @@ class CommandInput(interface.View):
             self.command += chr(key)
             self.partial = self.command
         elif key == curses.ascii.BS:
-            self.command = self.command[:-1]
-            self.partial = self.command
+            if len(self.command) == 0:
+                self.interface.status_message()
+                self.interface.close_view(self)
+            else:
+                self.command = self.command[:-1]
+                self.partial = self.command
         elif key == curses.ascii.TAB:
             if " " not in self.command:
                 self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial
