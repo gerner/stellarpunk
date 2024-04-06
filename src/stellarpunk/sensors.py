@@ -99,6 +99,13 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         else:
             return False
 
+    def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
+        image = SensorImage(self._target, detector, self._sensor_manager)
+        if self._target is None:
+            self._entity_id = self._entity_id
+            self._short_id = self._short_id
+        return image
+
 class SensorManager(core.AbstractSensorManager):
     """ Models sensors for a sector """
 

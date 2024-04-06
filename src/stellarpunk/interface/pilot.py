@@ -343,7 +343,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def spawn_missile(args:Sequence[str]) -> None:
             if self.selected_entity is None:
                 raise command_input.UserError("no target")
-            combat.MissileOrder.spawn_missile(self.ship, self.selected_entity, self.gamestate)
+            combat.MissileOrder.spawn_missile(self.ship, self.gamestate, target=self.selected_entity)
 
         def toggle_sensor_cone(args:Sequence[str]) -> None:
             self.presenter.show_sensor_cone = not self.presenter.show_sensor_cone

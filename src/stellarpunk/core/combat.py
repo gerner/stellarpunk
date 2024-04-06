@@ -42,14 +42,20 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, target:SectorEntity, gamestate:Gamestate) -> Missile:
+    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None) -> Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(100, ship.angle), occupied_radius=75, radius=100)
         v = util.polar_to_cartesian(100, ship.angle) + ship.velocity
         new_entity = gamestate.generator.spawn_sector_entity(Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
         assert isinstance(new_entity, Missile)
         missile:Missile = new_entity
-        missile_order = MissileOrder(missile, gamestate, target=target)
+        if target:
+            target_image = ship.sector.sensor_manager.target(target, missile)
+        elif target_image:
+            target_image = target_image.copy(missile)
+        else:
+            raise ValueError("one of target or target_image must be set")
+        missile_order = MissileOrder(missile, gamestate, target_image=target_image)
         missile.prepend_order(missile_order)
 
         return missile
@@ -111,6 +117,10 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
         self.state = AttackOrder.State.APPROACH
 
+        #TODO: this is a temporary hack to get something reasonable for firing
+        self.last_fire_ts = 0.
+        self.fire_period = 10.
+
     def __str__(self) -> str:
         return f'Attack: {self.target.short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
 
@@ -153,8 +163,10 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
 
     def _do_fire(self) -> None:
-        #TODO: fire weapons
-        self.cancel_order()
+        MissileOrder.spawn_missile(self.ship, self.gamestate, target_image=self.target)
+        self.last_fire_ts = self.gamestate.timestamp
+
+        self.gamestate.schedule_order_immediate(self)
 
     def _set_sensors(self) -> None:
         assert self.ship.sector
@@ -179,6 +191,9 @@ class AttackOrder(movement.AbstractSteeringOrder):
         # TODO: attacking
         # if weapon systems not ready, ready weapons
         # if we've got enough confidence take shot, else gain confidence
+
+        if self.gamestate.timestamp - self.last_fire_ts > self.fire_period:
+            return AttackOrder.State.FIRE
 
         return AttackOrder.State.SHADOW
 

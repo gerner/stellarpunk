@@ -60,6 +60,9 @@ class AbstractSensorImage:
     @abc.abstractmethod
     def entity_id(self) -> uuid.UUID: ...
 
+    @abc.abstractmethod
+    def copy(self, detector:SectorEntity) -> "AbstractSensorImage": ...
+
 
 class AbstractSensorManager:
     def __init__(self, sector:"Sector"):
