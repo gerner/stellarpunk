@@ -116,3 +116,13 @@ Targets want to:
  * stay hidden
  * get far away from attacker and threats (i.e. missiles)
  * have fresh-ish sensor reading of threats (especially inbound missiles)
+
+## Defense
+
+Primarily ships depend on stealth and evasion for defense. If a craft is
+threatened, the best thing they can do is deactivate their transponder and
+active sensors and flee. Failing that, a craft can depend on point defense
+systems to shoot down incoming missiles.
+
+Point defense systems work by firing projectiles at an incoming threat to try
+and destroy the threat and alter it's trajectory by kinetic energy.

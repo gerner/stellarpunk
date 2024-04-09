@@ -344,7 +344,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def spawn_missile(args:Sequence[str]) -> None:
             if self.selected_entity is None:
                 raise command_input.UserError("no target")
-            combat.MissileOrder.spawn_missile(self.ship, self.gamestate, target=self.selected_entity)
+            missile = combat.MissileOrder.spawn_missile(self.ship, self.gamestate, target=self.selected_entity, spawn_radius=10000)
+            pde = combat.PointDefenseEffect(self.ship, self.sector.sensor_manager.target(missile, self.ship), self.sector, self.gamestate)
+            self.sector.add_effect(pde)
 
         def toggle_sensor_cone(args:Sequence[str]) -> None:
             self.presenter.show_sensor_cone = not self.presenter.show_sensor_cone
@@ -398,11 +400,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         if entity == self.selected_entity:
             self._select_target(None)
             self.interface.log_message("target destroyed")
-        if entity == self.ship:
-            # TODO: is this the right way to handle the interface when we've
-            # been destroyed?
-            # only swap the view if we have focus
-            self.interface.close_view(self)
+        # interface manager handles destroy of play ship
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         if entity != self.selected_entity:

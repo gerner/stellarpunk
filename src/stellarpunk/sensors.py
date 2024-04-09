@@ -93,6 +93,8 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._base_ts = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
                 self._velocity = self._target.velocity
+                if self._sensor_manager.detected(self._ship, self._target):
+                    self._target.target(self._ship)
                 return True
             else:
                 return False
@@ -179,15 +181,21 @@ class SensorManager(core.AbstractSensorManager):
 
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
-        return (config.Settings.sensors.COEFF_MASS * ship.mass + config.Settings.sensors.COEFF_RADIUS * ship.radius + config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust() + config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() + config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()) * self.sector.weather_factor
+        return (
+            config.Settings.sensors.COEFF_MASS * ship.mass +
+            config.Settings.sensors.COEFF_RADIUS * ship.radius +
+            config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust() +
+            config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
+            config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
+        ) * self.sector.weather_factor
 
     def compute_target_profile(self, target:core.SectorEntity, detector:core.SectorEntity) -> float:
         """ computes detector-specific profile of target """
-        distance = util.distance(target.loc, detector.loc)
-        if distance == 0.:
-            distance = 1.
+        distance_sq = target.phys.position.get_dist_sqrd(detector.phys.position)
+        if distance_sq == 0.:
+            distance_sq = 1.
 
-        return self.compute_effective_profile(target) / (config.Settings.sensors.COEFF_DISTANCE * distance ** 2.)
+        return self.compute_effective_profile(target) / (config.Settings.sensors.COEFF_DISTANCE * distance_sq)
 
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > detector.sensor_settings.effective_threshold()

@@ -1,7 +1,8 @@
 """ Combat """
 
 import enum
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Set, List, Deque
+import collections
 import math
 import numpy as np
 import numpy.typing as npt
@@ -42,10 +43,10 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None) -> Missile:
+    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100) -> Missile:
         assert ship.sector
-        loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(100, ship.angle), occupied_radius=75, radius=100)
-        v = util.polar_to_cartesian(100, ship.angle) + ship.velocity
+        loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius)
+        v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity
         new_entity = gamestate.generator.spawn_sector_entity(Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
         assert isinstance(new_entity, Missile)
         missile:Missile = new_entity
@@ -113,7 +114,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.max_active_age = max_active_age
         self.max_passive_age = max_passive_age
         self.search_distance = search_distance
-        self.ttl_order_time = 5
+        self.ttl_order_time = 5.
 
         self.state = AttackOrder.State.APPROACH
 
@@ -220,5 +221,149 @@ class AttackOrder(movement.AbstractSteeringOrder):
         else:
             raise ValueError(f'unknown attack order state {self.state}')
 
-class FleeOrder(movement.AbstractSteeringOrder):
-    pass
+class Projectile(core.SectorEntity):
+    id_prefix = "PJT"
+    object_type = ObjectType.PROJECTILE
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.created_at = core.Gamestate.gamestate.timestamp
+
+class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionObserver):
+    def __init__(self, craft:core.SectorEntity, target:core.AbstractSensorImage, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.craft = craft
+        self.heading = self.craft.angle
+        self.cone:float = 60.
+        # phalanx has rof of 4500/min = 75/sec, muzzle velocity of 1100 m/s
+        self.rof:float = 75.
+        self.muzzle_velocity = 3000.
+        self.projectile_ttl = 5.
+        self.target_max_age = 120.
+        self.dispersion_angle = 0.0083
+        self.target:core.AbstractSensorImage = target
+
+        self.last_shot_ts = 0.
+        self.projectiles:Deque[cymunk.shape] = collections.deque()
+
+    def _begin(self) -> None:
+        self.last_shot_ts = core.Gamestate.gamestate.timestamp
+        self.craft.observe(self)
+        self.gamestate.schedule_effect_immediate(self, jitter=0.1)
+
+    def _complete(self) -> None:
+        while len(self.projectiles) > 0:
+            p = self.projectiles.popleft()
+            p.unobserve(self)
+            core.Gamestate.gamestate.destroy_entity(p)
+
+    def _cancel(self) -> None:
+        self._complete()
+
+    def is_complete(self) -> bool:
+        return self.completed_at > 0. or not self.target.is_active() or self.target.age > self.target_max_age
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if isinstance(entity, Projectile):
+            self.projectiles.remove(entity)
+        elif self.craft == entity:
+            self.cancel_effect()
+        else:
+            raise ValueError(f'got unexpected entity {entity}')
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if isinstance(entity, Projectile):
+            entity.unobserve(self)
+            self.projectiles.remove(entity)
+        elif self.craft == entity:
+            self.craft.unobserve(self)
+            self.cancel_effect()
+        else:
+            raise ValueError(f'got unexpected entity {entity}')
+
+    def collision(self, projectile:core.SectorEntity, target:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
+
+        self.gamestate.destroy_entity(target)
+        self.gamestate.destroy_entity(projectile)
+
+    def bbox(self) -> Tuple[float, float, float, float]:
+        return (0., 0., 0., 0.)
+
+    def act(self, dt:float) -> None:
+        self.target.update()
+        if self.is_complete():
+            self.logger.debug(f'point defense is complete')
+            self.cancel_effect()
+
+        # kill old projectiles
+        expiration_time = core.Gamestate.gamestate.timestamp - self.projectile_ttl
+        while len(self.projectiles) > 0 and self.projectiles[0].created_at < expiration_time:
+            p = self.projectiles.popleft()
+            p.unobserve(self)
+            core.Gamestate.gamestate.destroy_entity(p)
+
+        # aim point defense
+        intercept_time, intercept_loc, intercept_angle = collision.find_intercept_heading(cymunk.Vec2d(self.craft.loc), cymunk.Vec2d(self.craft.velocity), cymunk.Vec2d(self.target.loc), cymunk.Vec2d(self.target.velocity), self.muzzle_velocity)
+
+        if intercept_time > 0 and intercept_time < self.projectile_ttl:
+            # add some projectiles at rof
+            # projectiles have trajectory for intercept given current information
+            # projectiles should be physically simulated
+            # projectiles should last for some fixed lifetime and then be removed
+            num_shots = int((core.Gamestate.gamestate.timestamp - self.last_shot_ts) * self.rof)
+
+            next_index = None
+            for i in range(num_shots):
+                angle = intercept_angle + core.Gamestate.gamestate.random.uniform(-self.dispersion_angle/2., self.dispersion_angle/2.)
+                loc, next_index = core.Gamestate.gamestate.generator.gen_projectile_location(self.craft.loc + util.polar_to_cartesian(self.craft.radius+5, angle), next_index)
+                v = util.polar_to_cartesian(self.muzzle_velocity, angle) + self.craft.velocity
+                new_entity = core.Gamestate.gamestate.generator.spawn_sector_entity(Projectile, self.sector, loc[0], loc[1], v=v, w=0.0)
+                new_entity.observe(self)
+                self.sector.register_collision_observer(new_entity.entity_id, self)
+
+                self.projectiles.append(new_entity)
+        self.last_shot_ts = core.Gamestate.gamestate.timestamp
+        self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 1/10., self)
+
+class FleeOrder(core.Order):
+    """ Keeps track of threats and flees from them until "safe" """
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.threats:Set[core.AbstractSensorImage] = set()
+        self.threat_ttl = 120.
+        self.ttl_order_time = 5.
+
+    def _ttl_order(self, order:core.Order) -> None:
+        TimedOrderTask.ttl_order(order, self.ttl_order_time)
+        self._add_child(order)
+
+    def add_threat(self, threat:core.SectorEntity) -> None:
+        pass
+
+    def is_complete(self) -> bool:
+        return self.completed_at > 0 or len(self.threats) == 0
+
+    def act(self, dt:float) -> None:
+
+        # first remove eliminated/expired threats
+        closest_dist = np.inf
+        closest_threat:Optional[core.AbstractSensorImage] = None
+        dead_threats:List[core.AbstractSensorImage] = []
+        for t in self.threats:
+            if not t.is_active() or t.age > self.threat_ttl:
+                dead_threats.append(t)
+            else:
+                dist = util.distance(t.loc, self.ship.loc)
+                if dist < closest_dist:
+                    closest_threat = t
+                    closest_dist = dist
+        for t in dead_threats:
+            self.threats.remove(t)
+
+        if closest_threat is None:
+            self.complete_order()
+            return
+
+        #TODO: better logic on how to evade
+        # evade closest threat
+        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=closest_threat))

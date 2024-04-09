@@ -374,7 +374,7 @@ class GoToLocation(AbstractSteeringOrder):
         return
 
 class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
-    def __init__(self, *args: Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, escape_distance:float=np.inf, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         assert self.ship.sector
         if target_image:
@@ -396,6 +396,12 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         #self.last_est_tv = 0.
 
         self.escape_distance = escape_distance
+        if max_thrust:
+            self.max_thrust = max_thrust
+            self.max_fine_thrust = min(max_thrust, self.ship.max_fine_thrust)
+        else:
+            self.max_thrust = self.ship.max_thrust
+            self.max_fine_thrust = self.ship.max_fine_thrust
 
     def __str__(self) -> str:
         return f'Evade: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
@@ -413,6 +419,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         assert self.ship.sector
         self.target.update()
 
+        # basically ignore max_speed
         max_speed = self.ship.max_speed() * 100000
 
         # OPTION A:
@@ -463,14 +470,14 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         if not util.both_almost_zero(collision_dv) or approach_time < self.intercept_time:
             target_velocity = self.ship.phys.velocity + collision_dv
 
-        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, max_speed, self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
+        continue_time = collision.accelerate_to(self.ship.phys, target_velocity, dt, max_speed, self.ship.max_torque, self.max_thrust, self.max_fine_thrust, self.ship.sensor_settings)
 
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
         self.gamestate.schedule_order(next_ts, self)
 
 class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     """ Steer toward a collision with the target """
-    def __init__(self, *args:Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         assert self.ship.sector
 
@@ -491,10 +498,18 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             self.max_speed = max_speed
         else:
             self.max_speed = self.ship.max_speed()
+
+        if max_thrust:
+            self.max_thrust = max_thrust
+            self.max_fine_thrust = min(max_thrust, self.ship.max_fine_thrust)
+        else:
+            self.max_thrust = self.ship.max_thrust
+            self.max_fine_thrust = self.ship.max_fine_thrust
+
         if final_speed:
             self.final_speed = final_speed
         else:
-            self.final_speed = self.ship.max_thrust / self.ship.mass * 0.5
+            self.final_speed = self.max_thrust / self.ship.mass * 0.5
 
     def __str__(self) -> str:
         return f'Pursue: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
@@ -551,8 +566,8 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
                 dt,
                 self.max_speed,
                 self.ship.max_torque,
-                self.ship.max_thrust,
-                self.ship.max_fine_thrust,
+                self.max_thrust,
+                self.max_fine_thrust,
                 self.ship.sensor_settings
         )
 

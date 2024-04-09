@@ -86,6 +86,19 @@ class Presenter:
         self.debug_entity_vectors = False
         self.show_sensor_cone = False
 
+        self.cached_entities:List[core.SectorEntity] = []
+        self.cached_entities_ts = -1.
+
+    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Sequence[core.SectorEntity]:
+        if self.gamestate.timestamp == self.cached_entities_ts:
+            return self.cached_entities
+        if perspective_ship:
+            self.cached_entities = list(self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox))
+        else:
+            self.cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
+        self.cached_entities_ts = self.gamestate.timestamp
+        return self.cached_entities
+
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching
         if ship.phys.velocity.get_length_sqrd() == 0.:
@@ -266,7 +279,7 @@ class Presenter:
             last_x = hist_x
             last_y = hist_y
 
-        if not isinstance(entity, core.Asteroid):
+        if not isinstance(entity, core.Asteroid) and not isinstance(entity, combat.Projectile):
             speed = entity.speed
             if speed > 0.:
                 name_tag = f' {entity.short_id()} {speed:.0f}'
@@ -318,16 +331,17 @@ class Presenter:
             if util.intersects(effect.bbox(), self.perspective.bbox):
                 self.draw_effect(effect)
 
-        if perspective_ship:
-            entity_source = self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox)
-        else:
-            entity_source = self.sector.spatial_query(self.perspective.bbox)
-        for entity in entity_source:
-            screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
+        for entity in self.visible_entities(perspective_ship):
+            screen_x, screen_y = self.perspective.sector_to_screen(entity.phys.position[0], entity.phys.position[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
+                if isinstance(entity, combat.Projectile):
+                        continue
                 entities = occupied[last_loc]
-                entities.append(entity)
+                if isinstance(entities[0], combat.Projectile):
+                    occupied[last_loc] = [entity]
+                else:
+                    entities.append(entity)
             else:
                 occupied[last_loc] = [entity]
 
@@ -347,12 +361,7 @@ class Presenter:
             self.draw_entity_vectors(screen_y, screen_x, entity)
 
     def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
-        if perspective_ship:
-            entity_source = self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox)
-        else:
-            entity_source = self.sector.spatial_query(self.perspective.bbox)
-
-        for entity in entity_source:
+        for entity in self.visible_entities(perspective_ship):
             if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
                 self.draw_entity_shape(entity)
 

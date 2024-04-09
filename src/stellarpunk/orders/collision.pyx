@@ -250,6 +250,10 @@ cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointS
 cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     cdef NeighborAnalysis *analysis = <NeighborAnalysis *>data
 
+    # ignore projectile group
+    if shape.group == 1:
+        return
+
     # ignore ourself
     if shape.body == analysis.body:
         return
@@ -1712,6 +1716,34 @@ def find_intercept_v(body:cymunk.Body, target_loc:cymunk.Vec2d, target_v:cymunk.
 
     return cpvtoVec2d(ccymunk.cpvadd(result.target_velocity, cTargetV.v)), result.distance, intercept_time, cpvtoVec2d(intercept_location)
 
+def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_loc:cymunk.Vec2d, target_v:cymunk.Vec2d, muzzle_velocity:float) -> Tuple[float, cymunk.Vec2d, float]:
+    cdef ccymunk.cpVect s_loc = (<ccymunk.Vec2d?>start_loc).v
+    cdef ccymunk.cpVect s_v = (<ccymunk.Vec2d?>start_v).v
+    cdef ccymunk.cpVect t_loc = (<ccymunk.Vec2d?>target_loc).v
+    cdef ccymunk.cpVect t_v = (<ccymunk.Vec2d?>target_v).v
+    cdef double muzzle_v = muzzle_velocity
+
+    cdef ccymunk.cpVect rel_pos = ccymunk.cpvsub(t_loc, s_loc)
+    cdef ccymunk.cpVect rel_vel = ccymunk.cpvsub(t_v, s_v)
+
+    # Quadratic equation coefficients a*t^2 + b*t + c = 0
+    cdef double a = ccymunk.cpvdot(rel_vel, rel_vel) - muzzle_v*muzzle_v
+    cdef double b = 2.0*ccymunk.cpvdot(rel_vel, rel_pos)
+    cdef double c = ccymunk.cpvdot(rel_pos, rel_pos)
+
+    cdef double det = b*b - 4.0*a*c
+
+    # If the determinant is negative, then there is no solution
+    if det <= 0.:
+        return (-1.0, PY_ZERO_VECTOR, 0.0);
+    cdef double intercept_time = 2.0*c/(sqrt(det) - b)
+
+    cdef ccymunk.cpVect rel_intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(rel_vel, intercept_time))
+    cdef ccymunk.cpVect intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(t_v, intercept_time))
+
+    cdef double intercept_heading = ccymunk.cpvtoangle(ccymunk.cpvsub(rel_intercept_loc, s_loc))
+
+    return (float(intercept_time), cpvtoVec2d(intercept_loc), float(intercept_heading))
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,

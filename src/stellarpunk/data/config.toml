@@ -329,6 +329,16 @@
 
             MAX_SENSOR_POWER = 100
 
+        [generate.SectorEntities.projectile]
+            # Phalanx CIWS fires 20x102mm tungsten alloy shell
+            # weighing 300g
+            MASS = 0.3
+            RADIUS = 0.1
+            MAX_THRUST = 0.0
+            MAX_FINE_THRUST = 0.0
+            MAX_TORQUE = 0.0
+            MAX_SENSOR_POWER = 0.0
+
 [sensors]
     # these are tuned so a stationary, passive ship under normal sector
     # conditions has a profile of just over 100 at 100km

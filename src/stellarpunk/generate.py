@@ -132,6 +132,12 @@ def generate_starfield(random:np.random.Generator, radius:float, desired_stars_p
 
     return starfield
 
+def is_occupied(loc:npt.NDArray[np.float64], prev_locs:Sequence[npt.NDArray[np.float64]], occupied_radius:float) -> bool:
+    for prev_loc in prev_locs:
+        if util.distance(loc, prev_loc) < occupied_radius:
+            return True
+    return False
+
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
     INPUT_CONSTRAINTS = enum.auto()
@@ -192,6 +198,9 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.portraits:List[core.Sprite] = []
         self.station_sprites:List[core.Sprite] = []
+
+        self.num_projectile_spawn_locs = 100
+        self.projectile_spawn_pattern:List[npt.NDArray[np.float64]] = []
 
     def _random_bipartite_graph(
             self,
@@ -293,6 +302,11 @@ class UniverseGenerator(core.AbstractGenerator):
             loc = self.r.normal(0, 1, 2) * radius + center
 
         return loc
+
+    def gen_projectile_location(self, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> Tuple[npt.NDArray[np.float64], int]:
+        if index is None:
+            index = self.r.integers(self.num_projectile_spawn_locs-1)
+        return self.projectile_spawn_pattern[index%self.num_projectile_spawn_locs] + center, (index+1) % self.num_projectile_spawn_locs
 
     def _gen_sector_name(self) -> str:
         return "Some Sector"
@@ -477,9 +491,18 @@ class UniverseGenerator(core.AbstractGenerator):
             #for i in range(len(self.station_sprites)):
             #    self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
+    def _prepare_projectile_spawn_pattern(self) -> None:
+        radius = 2
+        for i in range(self.num_projectile_spawn_locs):
+            loc = self.r.normal(0, 1, 2) * radius
+            while is_occupied(loc, self.projectile_spawn_pattern, 0.5):
+                loc = self.r.normal(0, 1, 2) * radius
+            self.projectile_spawn_pattern.append(loc)
+
     def initialize(self, starfield_composite:bool=True) -> None:
         self.gamestate.generator = self
         self._prepare_sprites(starfield_composite=starfield_composite)
+        self._prepare_projectile_spawn_pattern()
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
@@ -634,6 +657,52 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
+    def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> combat.Projectile:
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER)
+        ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
+        ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.projectile.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.projectile.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.projectile.MAX_TORQUE
+
+        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship = combat.Projectile(
+            np.array((ship_x, ship_y), dtype=np.float64),
+            ship_body,
+            self.gamestate.production_chain.shape[0],
+            sensor_settings,
+            self.gamestate,
+            self._gen_ship_name(),
+            entity_id=entity_id
+        )
+
+        shape = self._phys_shape(ship_body, ship, ship_radius)
+        shape.group = 1
+
+        ship.mass = ship_mass
+        ship.moment = ship_body.moment
+        ship.radius = ship_radius
+        #ship.max_thrust = max_thrust
+        #ship.max_fine_thrust = max_fine_thrust
+        #ship.max_torque = max_torque
+
+        if v is None:
+            v = (self.r.normal(0, 50, 2))
+        ship_body.velocity = cymunk.vec2d.Vec2d(*v)
+        ship_body.angle = ship_body.velocity.angle
+
+        if theta is not None:
+            ship_body.angle = theta
+
+        if w is None:
+            ship_body.angular_velocity = self.r.normal(0, 0.08)
+        else:
+            ship_body.angular_velocity = w
+
+        sector.add_entity(ship)
+
+        return ship
+
     def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None) -> core.TravelGate:
 
         gate_radius = 50
@@ -705,6 +774,8 @@ class UniverseGenerator(core.AbstractGenerator):
     def spawn_sector_entity(self, klass:Type, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> core.SectorEntity:
         if klass == combat.Missile:
             return self.spawn_missile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
+        elif klass == combat.Projectile:
+            return self.spawn_projectile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
         else:
             raise ValueError(f'do not know how to spawn {klass}')
 
@@ -765,12 +836,22 @@ class UniverseGenerator(core.AbstractGenerator):
     def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
         if isinstance(asset, core.Ship):
             if asset in mining_ships:
+                character.add_agendum(agenda.CaptainAgendum(
+                    craft=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
                 character.add_agendum(agenda.MiningAgendum(
                     ship=asset,
                     character=character,
                     gamestate=self.gamestate
                 ))
             elif asset in trading_ships:
+                character.add_agendum(agenda.CaptainAgendum(
+                    craft=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
                 character.add_agendum(agenda.TradingAgendum(
                     ship=asset,
                     character=character,

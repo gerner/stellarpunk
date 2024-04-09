@@ -76,6 +76,7 @@ class Icons:
     DERELICT = "\u2302" # "⌂" house symbol (kinda looks like a gravestone?)
     ASTEROID = "\u25C7" # "◇" \u25C7 white diamond
     TRAVEL_GATE = "\u25CC" # "◌" \u25CC dotted circle
+    PROJECTILE = "·"
 
     MULTIPLE = "*"
 
@@ -187,6 +188,8 @@ class Icons:
             icon = Icons.ASTEROID
         elif isinstance(entity, core.TravelGate):
             icon = Icons.TRAVEL_GATE
+        elif isinstance(entity, combat.Projectile):
+            icon = Icons.PROJECTILE
         else:
             icon = "?"
         return icon

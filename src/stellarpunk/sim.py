@@ -428,7 +428,7 @@ def main() -> None:
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
-        logging.getLogger("stellarpunk").level = logging.INFO
+        logging.getLogger("stellarpunk").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions

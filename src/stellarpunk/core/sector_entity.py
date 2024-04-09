@@ -25,6 +25,7 @@ class ObjectType(enum.IntEnum):
     ASTEROID = enum.auto()
     TRAVEL_GATE = enum.auto()
     MISSILE = enum.auto()
+    PROJECTILE = enum.auto()
 
 
 #class ObjectFlag(enum.IntFlag):
@@ -88,6 +89,9 @@ class SectorEntityObserver:
         pass
 
     def entity_destroyed(self, entity:"SectorEntity") -> None:
+        pass
+
+    def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
         pass
 
 class SectorEntity(Entity):
@@ -161,6 +165,10 @@ class SectorEntity(Entity):
     def _destroy(self) -> None:
         pass
 
+    def target(self, threat:"SectorEntity") -> None:
+        for o in self.observers.copy():
+            o.entity_targeted(self, threat)
+
     @property
     def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
     @property
@@ -204,7 +212,6 @@ class SectorEntity(Entity):
             return f'{self.short_id()}@{self.sector.short_id()}'
         else:
             return f'{self.short_id()}@None'
-
 
 class Planet(SectorEntity, Asset):
 
