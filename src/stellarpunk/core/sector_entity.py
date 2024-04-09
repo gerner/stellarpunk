@@ -265,6 +265,14 @@ class TravelGate(SectorEntity):
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
 
+class Projectile(SectorEntity):
+    id_prefix = "PJT"
+    object_type = ObjectType.PROJECTILE
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        # projectiles don't run transponders
+        self.transponder_on = False
 
 def write_history_to_file(entity:Union["sector.Sector", SectorEntity], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
     fout:TextIO

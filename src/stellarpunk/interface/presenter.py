@@ -279,7 +279,7 @@ class Presenter:
             last_x = hist_x
             last_y = hist_y
 
-        if not isinstance(entity, core.Asteroid) and not isinstance(entity, combat.Projectile):
+        if not isinstance(entity, core.Asteroid) and not isinstance(entity, core.Projectile):
             speed = entity.speed
             if speed > 0.:
                 name_tag = f' {entity.short_id()} {speed:.0f}'
@@ -335,10 +335,10 @@ class Presenter:
             screen_x, screen_y = self.perspective.sector_to_screen(entity.phys.position[0], entity.phys.position[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
-                if isinstance(entity, combat.Projectile):
+                if isinstance(entity, core.Projectile):
                         continue
                 entities = occupied[last_loc]
-                if isinstance(entities[0], combat.Projectile):
+                if isinstance(entities[0], core.Projectile):
                     occupied[last_loc] = [entity]
                 else:
                     entities.append(entity)

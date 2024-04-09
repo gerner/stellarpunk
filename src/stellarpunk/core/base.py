@@ -39,6 +39,7 @@ class Entity(abc.ABC):
         self.name = name
 
         self.description = description or name
+        self.created_at:float = 0.
 
         self.entity_registry = entity_registry
         self.context = self.entity_registry.register_entity(self)

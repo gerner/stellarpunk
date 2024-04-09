@@ -197,6 +197,7 @@ class Gamestate(EntityRegistry):
 
         self.entities[entity.entity_id] = entity
         self.entities_short[entity.short_id_int()] = entity
+        entity.created_at = self.timestamp
         return self.entity_context_store.register_entity(entity.short_id_int())
 
     def unregister_entity(self, entity: Entity) -> None:

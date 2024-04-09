@@ -1,6 +1,7 @@
 import weakref
 from typing import Optional
 
+from stellarpunk import core
 from stellarpunk.core import combat
 
 def test_missile_attack(gamestate, generator, sector, testui, simulator):
@@ -8,7 +9,7 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     target = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
 
 
-    missile:Optional[combat.Missile] = combat.MissileOrder.spawn_missile(ship, gamestate, target=target)
+    missile:Optional[core.Missile] = combat.MissileOrder.spawn_missile(ship, gamestate, target=target)
     assert missile
     missile_order = missile.current_order()
     assert missile_order

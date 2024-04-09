@@ -30,26 +30,17 @@ class TimedOrderTask(ScheduledTask, core.OrderObserver):
     def act(self) -> None:
         self.order.cancel_order()
 
-class Missile(core.Ship):
-    id_prefix = "MSL"
-    object_type = ObjectType.MISSILE
-
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        # missiles don't run transponders
-        self.transponder_on = False
-
 class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100) -> Missile:
+    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100) -> core.Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius)
         v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity
-        new_entity = gamestate.generator.spawn_sector_entity(Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
-        assert isinstance(new_entity, Missile)
-        missile:Missile = new_entity
+        new_entity = gamestate.generator.spawn_sector_entity(core.Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
+        assert isinstance(new_entity, core.Missile)
+        missile:core.Missile = new_entity
         if target:
             target_image = ship.sector.sensor_manager.target(target, missile)
         elif target_image:
@@ -221,14 +212,6 @@ class AttackOrder(movement.AbstractSteeringOrder):
         else:
             raise ValueError(f'unknown attack order state {self.state}')
 
-class Projectile(core.SectorEntity):
-    id_prefix = "PJT"
-    object_type = ObjectType.PROJECTILE
-
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.created_at = core.Gamestate.gamestate.timestamp
-
 class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionObserver):
     def __init__(self, craft:core.SectorEntity, target:core.AbstractSensorImage, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -264,7 +247,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         return self.completed_at > 0. or not self.target.is_active() or self.target.age > self.target_max_age
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if isinstance(entity, Projectile):
+        if isinstance(entity, core.Projectile):
             self.projectiles.remove(entity)
         elif self.craft == entity:
             self.cancel_effect()
@@ -272,7 +255,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             raise ValueError(f'got unexpected entity {entity}')
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        if isinstance(entity, Projectile):
+        if isinstance(entity, core.Projectile):
             entity.unobserve(self)
             self.projectiles.remove(entity)
         elif self.craft == entity:
@@ -317,7 +300,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
                 angle = intercept_angle + core.Gamestate.gamestate.random.uniform(-self.dispersion_angle/2., self.dispersion_angle/2.)
                 loc, next_index = core.Gamestate.gamestate.generator.gen_projectile_location(self.craft.loc + util.polar_to_cartesian(self.craft.radius+5, angle), next_index)
                 v = util.polar_to_cartesian(self.muzzle_velocity, angle) + self.craft.velocity
-                new_entity = core.Gamestate.gamestate.generator.spawn_sector_entity(Projectile, self.sector, loc[0], loc[1], v=v, w=0.0)
+                new_entity = core.Gamestate.gamestate.generator.spawn_sector_entity(core.Projectile, self.sector, loc[0], loc[1], v=v, w=0.0)
                 new_entity.observe(self)
                 self.sector.register_collision_observer(new_entity.entity_id, self)
 

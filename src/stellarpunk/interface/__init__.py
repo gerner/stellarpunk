@@ -178,7 +178,7 @@ class Icons:
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
-        if isinstance(entity, core.Ship) or isinstance(entity, combat.Missile):
+        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
         elif isinstance(entity, core.Station):
             icon = Icons.STATION
@@ -188,7 +188,7 @@ class Icons:
             icon = Icons.ASTEROID
         elif isinstance(entity, core.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif isinstance(entity, combat.Projectile):
+        elif isinstance(entity, core.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = "?"

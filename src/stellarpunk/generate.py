@@ -612,7 +612,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
-    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> combat.Missile:
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Missile:
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
         ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
@@ -621,7 +621,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_torque = config.Settings.generate.SectorEntities.missile.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
-        ship = combat.Missile(
+        ship = core.Missile(
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
             self.gamestate.production_chain.shape[0],
@@ -657,7 +657,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
-    def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> combat.Projectile:
+    def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Projectile:
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER)
         ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
         ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
@@ -666,7 +666,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_torque = config.Settings.generate.SectorEntities.projectile.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
-        ship = combat.Projectile(
+        ship = core.Projectile(
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
             self.gamestate.production_chain.shape[0],
@@ -772,9 +772,9 @@ class UniverseGenerator(core.AbstractGenerator):
         return asteroid
 
     def spawn_sector_entity(self, klass:Type, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> core.SectorEntity:
-        if klass == combat.Missile:
+        if klass == core.Missile:
             return self.spawn_missile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
-        elif klass == combat.Projectile:
+        elif klass == core.Projectile:
             return self.spawn_projectile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
         else:
             raise ValueError(f'do not know how to spawn {klass}')

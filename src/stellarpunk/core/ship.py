@@ -145,3 +145,13 @@ class Ship(SectorEntity, Asset):
             return self._orders[0]
         else:
             return None
+
+class Missile(Ship):
+    id_prefix = "MSL"
+    object_type = ObjectType.MISSILE
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        # missiles don't run transponders
+        self.transponder_on = False
+
