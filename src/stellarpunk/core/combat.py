@@ -217,7 +217,6 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         super().__init__(*args, **kwargs)
         self.craft = craft
         self.heading = self.craft.angle
-        self.cone:float = 60.
         # phalanx has rof of 4500/min = 75/sec, muzzle velocity of 1100 m/s
         self.rof:float = 75.
         self.muzzle_velocity = 3000.
@@ -277,6 +276,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         if self.is_complete():
             self.logger.debug(f'point defense is complete')
             self.cancel_effect()
+            return
 
         # kill old projectiles
         expiration_time = core.Gamestate.gamestate.timestamp - self.projectile_ttl
@@ -286,6 +286,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             core.Gamestate.gamestate.destroy_entity(p)
 
         # aim point defense
+        #TODO: what if there's another target that is likely to be hit by PD?
         intercept_time, intercept_loc, intercept_angle = collision.find_intercept_heading(cymunk.Vec2d(self.craft.loc), cymunk.Vec2d(self.craft.velocity), cymunk.Vec2d(self.target.loc), cymunk.Vec2d(self.target.velocity), self.muzzle_velocity)
 
         if intercept_time > 0 and intercept_time < self.projectile_ttl:

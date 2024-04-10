@@ -73,7 +73,7 @@ $p_{target} > q$
 That is, a ship is detected if it's target profile exceeds the sensor
 threshold of the detector.
 
-### Tuning
+### Tuning Sensors
 
 Note that collision detection looks for collision threats in a disk of radius
 between 500m and 10km and a triangle forward of height up to 45km and base up
@@ -124,5 +124,49 @@ threatened, the best thing they can do is deactivate their transponder and
 active sensors and flee. Failing that, a craft can depend on point defense
 systems to shoot down incoming missiles.
 
+### Point Defense
+
 Point defense systems work by firing projectiles at an incoming threat to try
-and destroy the threat and alter it's trajectory by kinetic energy.
+and destroy the threat and alter it's trajectory by kinetic energy. The idea is
+to fire many projectiles rapidly along the incoming threat trajectory. Point
+defense can be used offensively, but generally it operates as close range, a
+few km to 10 or 20 km.
+
+Point defense isn't perfect. It operates by predicting motion of a threat to
+try and get a projectile to intercept the threat. This can be easy to defeat.
+On the other hand PD systems have very high rates of fire with reasonably high
+muzzle velocities, so they can fire more projectiles quickly to account for
+threat course changes. Still, it's possible, inevitable that a threat will get
+through eventually.
+
+### Decoys
+
+Decoys try to confuse sensor systems, especially simple sensor systems like
+those on missiles or drones or sensors operating at long range. Decoys work
+best when a threat is reacquiring a target after losing sensor contact,
+especially if the decoy is positioned close to the predicted location based on
+last sensor contact. The longer a decoy is in sensor contact, the more likely
+it is to fail to confuse a threat's sesnsors.
+
+## Damage and Destruction
+
+Crafts are fragile. A coolant leak, losing cabin pressure, electrical or
+control system damage can all disable or destroy a craft. However, one-shot
+kills are still moderately uncommon. Ships have systems that can take damage
+and become disabled before the entire craft is inoperable.
+
+Independent systems take damage or become disabled? Has impact on gameplay?
+Ship or component hitpoints?
+Based on location where damage occurs? (e.g. stern vs bow of the craft)
+
+### Damage Control/Mechanics
+
+Gameplay mechanics to repair or work around component damage?
+Ship performance impacted by damage? (if so, it should make sense like
+positional damage)
+
+### Collateral Damage
+
+What happens if a third party gets hit during a firefight? By AI? By player?
+X handles this with temporary hostility and some interaction between that
+temporary hostility with faction-wide relations.

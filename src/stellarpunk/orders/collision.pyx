@@ -1736,7 +1736,16 @@ def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_
     # If the determinant is negative, then there is no solution
     if det <= 0.:
         return (-1.0, PY_ZERO_VECTOR, 0.0);
-    cdef double intercept_time = 2.0*c/(sqrt(det) - b)
+    cdef double intercept_a = (-b - sqrt(det)) / (2*a)
+    cdef double intercept_b = (-b + sqrt(det)) / (2*a)
+    cdef double intercept_time = 0.
+    if intercept_a < 0.:
+        intercept_time = intercept_b
+    elif intercept_b < 0.:
+        intercept_time = intercept_a
+    else:
+        intercept_time = min(intercept_a, intercept_b)
+    #cdef double intercept_time = 2.0*c/(sqrt(det) - b)
 
     cdef ccymunk.cpVect rel_intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(rel_vel, intercept_time))
     cdef ccymunk.cpVect intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(t_v, intercept_time))

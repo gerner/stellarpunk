@@ -16,6 +16,17 @@ from .character import Asset
 if TYPE_CHECKING:
     from .gamestate import Gamestate
 
+class PointDefenseSettings:
+    def __init__(self) -> None:
+        self.rof:float = 0.
+        self.muzzle_velocity:float = 0.
+        self.dispersion_angle:float = 0.
+        self.projectile_ttl:float = 0.
+        self.target_max_age:float = 0.
+        self.fire_arc:float = 0.
+        self.max_angular_velocity:float = 0.
+
+        self.heading:float = 0.
 
 class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
