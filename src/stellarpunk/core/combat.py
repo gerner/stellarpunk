@@ -4,6 +4,7 @@ import enum
 from typing import Optional, Tuple, Any, Set, List, Deque
 import collections
 import math
+import uuid
 import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
@@ -79,7 +80,10 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time
     def collision(self, missile:SectorEntity, target:SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         assert missile == self.ship
-        self.logger.debug(f'missile {self.ship} hit {target} impulse: {impulse} ke: {ke}!')
+        if target.entity_id == self.target.target_entity_id:
+            self.logger.debug(f'missile hit desired target {target} impulse: {impulse} ke: {ke}!')
+        else:
+            self.logger.debug(f'missile hit collateral target {target} impulse: {impulse} ke: {ke}!')
 
         self.cancel_order()
         self.gamestate.destroy_entity(target)
@@ -92,6 +96,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         WITHDRAW = enum.auto()
         SHADOW = enum.auto()
         FIRE = enum.auto()
+        AIM = enum.auto()
         LAST_LOCATION = enum.auto()
         SEARCH = enum.auto()
 
@@ -112,9 +117,14 @@ class AttackOrder(movement.AbstractSteeringOrder):
         #TODO: this is a temporary hack to get something reasonable for firing
         self.last_fire_ts = 0.
         self.fire_period = 15.
+        self.missiles_fired = 0
 
     def __str__(self) -> str:
-        return f'Attack: {self.target.short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
+        return f'Attack: {self.target.target_short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
+
+    def _begin(self) -> None:
+        super()._begin()
+        self.logger.debug(f'beginning attack on {self.target.target_short_id()}')
 
     def is_complete(self) -> bool:
         return self.completed_at > 0. or not self.target.is_active()
@@ -128,6 +138,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
+        self.logger.debug(f'giving up search for target {self.target.target_short_id()}')
         self.cancel_order()
 
     def _do_approach(self) -> None:
@@ -156,9 +167,15 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
     def _do_fire(self) -> None:
         MissileOrder.spawn_missile(self.ship, self.gamestate, target_image=self.target)
+        self.missiles_fired += 1
         self.last_fire_ts = self.gamestate.timestamp
 
         self.gamestate.schedule_order_immediate(self)
+
+    def _do_aim(self, dt:float) -> None:
+        bearing = util.bearing(self.ship.loc, self.target.loc)
+        rotate_time = collision.rotate_to(self.ship.phys, bearing, dt, self.ship.max_torque)
+        self.gamestate.schedule_order(self.gamestate.timestamp + min(rotate_time, 1/10), self)
 
     def _set_sensors(self) -> None:
         assert self.ship.sector
@@ -180,12 +197,16 @@ class AttackOrder(movement.AbstractSteeringOrder):
         elif distance < self.distance_min:
             return AttackOrder.State.WITHDRAW
 
-        # TODO: attacking
+        #TODO: more complex logic around firing weapons, also some limit on
+        # weapon use
         # if weapon systems not ready, ready weapons
         # if we've got enough confidence take shot, else gain confidence
-
+        # only fire a missile if we're vaguely pointed toward the target
         if self.gamestate.timestamp - self.last_fire_ts > self.fire_period:
-            return AttackOrder.State.FIRE
+            if abs(util.normalize_angle(util.bearing(self.ship.loc, self.target.loc) - self.ship.angle, shortest=True)) < np.pi/4:
+                return AttackOrder.State.FIRE
+            else:
+                return AttackOrder.State.AIM
 
         return AttackOrder.State.SHADOW
 
@@ -209,6 +230,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
             self._do_shadow(dt)
         elif self.state == AttackOrder.State.FIRE:
             self._do_fire()
+        elif self.state == AttackOrder.State.AIM:
+            self._do_aim(dt)
         else:
             raise ValueError(f'unknown attack order state {self.state}')
 
@@ -227,6 +250,8 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
 
         self.last_shot_ts = 0.
         self.projectiles:Deque[cymunk.shape] = collections.deque()
+        self.projectiles_fired = 0
+        self.targets_destroyed = 0
 
     def _begin(self) -> None:
         self.last_shot_ts = core.Gamestate.gamestate.timestamp
@@ -243,7 +268,15 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         self._complete()
 
     def is_complete(self) -> bool:
-        return self.completed_at > 0. or not self.target.is_active() or self.target.age > self.target_max_age
+        if self.completed_at > 0.:
+            return True
+        if not self.target.is_active():
+            self.logger.debug(f'threat {self.target.target_short_id()} no longer active')
+            return True
+        if self.target.age > self.target_max_age:
+            self.logger.debug(f'lost threat {self.target.target_short_id()} after {self.target.age}s')
+            return True
+        return False
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if isinstance(entity, core.Projectile):
@@ -267,6 +300,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
 
         self.gamestate.destroy_entity(target)
         self.gamestate.destroy_entity(projectile)
+        self.targets_destroyed += 1
 
     def bbox(self) -> Tuple[float, float, float, float]:
         return (0., 0., 0., 0.)
@@ -306,6 +340,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
                 self.sector.register_collision_observer(new_entity.entity_id, self)
 
                 self.projectiles.append(new_entity)
+                self.projectiles_fired += 1
         self.last_shot_ts = core.Gamestate.gamestate.timestamp
         self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 1/10., self)
 
@@ -314,27 +349,48 @@ class FleeOrder(core.Order):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.threats:Set[core.AbstractSensorImage] = set()
+        self.threat_ids:Set[uuid.UUID] = set()
         self.threat_ttl = 120.
         self.ttl_order_time = 5.
+
+        self.point_defense:Optional[PointDefenseEffect] = None
 
     def _ttl_order(self, order:core.Order) -> None:
         TimedOrderTask.ttl_order(order, self.ttl_order_time)
         self._add_child(order)
 
-    def add_threat(self, threat:core.SectorEntity) -> None:
-        pass
+    def has_threat(self, threat_id:uuid.UUID) -> bool:
+        return threat_id in self.threat_ids
+
+    def add_threat(self, threat:core.AbstractSensorImage) -> None:
+        self.logger.debug(f'adding threat {threat}')
+        self.threats.add(threat)
+        self.threat_ids.add(threat.target_entity_id)
+
+    def _complete(self) -> None:
+        if self.point_defense:
+            self.point_defense.cancel_effect()
+
+    def _cancel(self) -> None:
+        if self.point_defense:
+            self.point_defense.cancel_effect()
 
     def is_complete(self) -> bool:
-        return self.completed_at > 0 or len(self.threats) == 0
+        if self.completed_at > 0:
+            return True
+        elif len(self.threats) == 0:
+            return True
+        return False
 
     def act(self, dt:float) -> None:
-
         # first remove eliminated/expired threats
         closest_dist = np.inf
         closest_threat:Optional[core.AbstractSensorImage] = None
         dead_threats:List[core.AbstractSensorImage] = []
         for t in self.threats:
+            t.update()
             if not t.is_active() or t.age > self.threat_ttl:
+                self.logger.debug(f'dropping threat {t}')
                 dead_threats.append(t)
             else:
                 dist = util.distance(t.loc, self.ship.loc)
@@ -343,11 +399,23 @@ class FleeOrder(core.Order):
                     closest_dist = dist
         for t in dead_threats:
             self.threats.remove(t)
+            self.threat_ids.remove(t.target_entity_id)
 
         if closest_threat is None:
+            self.logger.debug(f'no more threats, completing flee order')
             self.complete_order()
             return
 
-        #TODO: better logic on how to evade
+        # aim point defense at the closest threat
+        if not self.point_defense or self.point_defense.is_complete():
+            assert self.ship.sector
+            self.logger.debug(f'initiating point defense at {closest_threat}')
+            self.point_defense = PointDefenseEffect(self.ship, closest_threat, self.ship.sector, self.gamestate)
+            self.ship.sector.add_effect(self.point_defense)
+        else:
+            self.point_defense.target = closest_threat
+
+        #TODO: better logic on how to evade all the threats simultaneously
         # evade closest threat
+        self.logger.debug(f'initiating flee from {closest_threat}')
         self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=closest_threat))

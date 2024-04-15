@@ -117,6 +117,10 @@ class Effect(abc.ABC):
         Anyone can call this.
         """
 
+        if self.completed_at > 0:
+            return
+        self.completed_at = self.gamestate.timestamp
+
         self.gamestate.unschedule_effect(self)
         try:
             self.sector.remove_effect(self)

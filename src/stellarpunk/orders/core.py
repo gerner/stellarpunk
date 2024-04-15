@@ -79,10 +79,10 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         distance = util.distance(self.ship.loc,self.target.loc) - self.target.radius
         if distance > self.max_dist:
             order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
-            self.ship.prepend_order(order)
+            self._add_child(order)
 
         elif movement.KillVelocityOrder.in_motion(self.ship):
-            self.ship.prepend_order(movement.KillVelocityOrder(self.ship, self.gamestate, observer=self))
+            self._add_child(movement.KillVelocityOrder(self.ship, self.gamestate, observer=self))
         elif not self.mining_effect:
             assert self.ship.phys.torque == 0.
             assert self.ship.sector is not None
@@ -143,7 +143,7 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
         distance = util.distance(self.ship.loc, self.target.loc) - self.target.radius
         if distance > self.max_dist:
             order = DockingOrder(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
-            self.ship.prepend_order(order)
+            self._add_child(order)
             return
 
         #TODO: multiple goods? transfer from us to them?

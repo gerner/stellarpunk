@@ -759,6 +759,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         label_location = "location:"
         label_heading = "heading:"
         label_course = "course:"
+        label_fuel = "propellant:"
         label_top_order = "top order:"
         label_order = "order:"
         label_eta = "eta:"
@@ -772,7 +773,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
-        status_y += 7
+        self.viewscreen.addstr(status_y+7, status_x, f'{label_fuel:>12} {self.ship.sensor_settings.thrust_seconds / 4435.:.0f}')
+        status_y += 8
 
         if current_order is not None:
             ancestor_order = current_order

@@ -236,19 +236,23 @@
             MASS = 2e6
             RADIUS = 1000
             MAX_SENSOR_POWER = 100
+            SENSOR_INTERCEPT = 100.0
         [generate.SectorEntities.asteroid]
             MASS = 2e5
             RADIUS = 300
             MAX_SENSOR_POWER = 0
+            SENSOR_INTERCEPT = 1e100
         [generate.SectorEntities.station]
             MASS = 2e5
             RADIUS = 300
             MAX_SENSOR_POWER = 100
+            SENSOR_INTERCEPT = 100.0
         [generate.SectorEntities.ship]
 
             # soyuz 5000 - 10000kg
             # dragon capsule 4000kg
             # shuttle orbiter 78000kg
+            # SS external fuel tank fully fueled 760000kg
 
             # ship mass in kilograms
             MASS = 2e3
@@ -296,7 +300,14 @@
             # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
             MAX_TORQUE = 2.7e6
 
-            MAX_SENSOR_POWER = 100
+            MAX_SENSOR_POWER = 100.0
+            SENSOR_INTERCEPT = 100.0
+
+            # mass flow rate/exhaust velocity used to model fuel consumption
+            # SSME (RS-25) has a mass flow rate of 513kg/s and v_e = 4435m/s
+            # assuming specific impulse, I_sp = 452.3 and thrust approx above
+            MASS_FLOW_RATE = 513 #kg/s
+            EXHAUST_VELOCITY = 4435 #m/s, mass flow rate = F_thrust / v_e
 
         [generate.SectorEntities.missile]
             # for comparison, a sidewinder missile:
@@ -327,7 +338,8 @@
             MAX_FINE_THRUST = 5e3
             MAX_TORQUE = 9e4
 
-            MAX_SENSOR_POWER = 100
+            MAX_SENSOR_POWER = 25.0
+            SENSOR_INTERCEPT = 1000.0
 
         [generate.SectorEntities.projectile]
             # Phalanx CIWS fires 20x102mm tungsten alloy shell
@@ -338,6 +350,7 @@
             MAX_FINE_THRUST = 0.0
             MAX_TORQUE = 0.0
             MAX_SENSOR_POWER = 0.0
+            SENSOR_INTERCEPT = 1e100
 
 [sensors]
     # these are tuned so a stationary, passive ship under normal sector

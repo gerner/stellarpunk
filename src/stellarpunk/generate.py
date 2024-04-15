@@ -512,7 +512,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         station_radius = config.Settings.generate.SectorEntities.station.RADIUS
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.station.SENSOR_INTERCEPT)
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
@@ -542,7 +542,7 @@ class UniverseGenerator(core.AbstractGenerator):
     def spawn_planet(self, sector:core.Sector, x:float, y:float, entity_id:Optional[uuid.UUID]=None) -> core.Planet:
         planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.planet.SENSOR_INTERCEPT)
         #TODO: stations are static?
         planet_body = self._phys_body()
         planet = core.Planet(
@@ -565,7 +565,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.ship.MASS
         ship_radius = config.Settings.generate.SectorEntities.ship.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
@@ -613,7 +613,7 @@ class UniverseGenerator(core.AbstractGenerator):
         return ship
 
     def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Missile:
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
         ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.missile.MAX_THRUST
@@ -658,7 +658,7 @@ class UniverseGenerator(core.AbstractGenerator):
         return ship
 
     def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Projectile:
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
         ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.projectile.MAX_THRUST
@@ -747,7 +747,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float, entity_id:Optional[uuid.UUID]=None) -> core.Asteroid:
         asteroid_radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT)
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -1641,7 +1641,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self.gamestate.player.character = player_character
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
-        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate))
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
 
         # set up tutorial flags
         assert refinery.captain

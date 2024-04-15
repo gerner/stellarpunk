@@ -1,5 +1,15 @@
 ## Ideas
 
+### News
+
+Telephone style information where you get imperfect info that's.
+
+Player wants deltas as events unfold. How to visualize this in a strategic
+layer?
+
+Heatmap of universe-wide traffic: thicker, brighter links with high traffic.
+Holes or dark areas indicate low traffic for some reason.
+
 ### Comms Chatter
 
 Have a broadcast channel in a sector (or localized in some radius in a sector?)

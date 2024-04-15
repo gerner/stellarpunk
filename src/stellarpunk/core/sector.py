@@ -1,5 +1,6 @@
 """ Sector, containing space filled with SectorEntity objects """
 
+import logging
 import collections
 import uuid
 import abc
@@ -9,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
+from stellarpunk import util
 from .base import Entity
 from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate
 from .ship import Ship
@@ -55,10 +57,15 @@ class AbstractSensorImage:
         ...
 
     @abc.abstractmethod
-    def short_id(self) -> str: ...
+    def target_short_id(self) -> str: ...
     @property
     @abc.abstractmethod
-    def entity_id(self) -> uuid.UUID: ...
+    def target_entity_id(self) -> uuid.UUID: ...
+    @abc.abstractmethod
+    def detector_short_id(self) -> str: ...
+    @property
+    @abc.abstractmethod
+    def detector_entity_id(self) -> uuid.UUID: ...
 
     @abc.abstractmethod
     def copy(self, detector:SectorEntity) -> "AbstractSensorImage": ...
@@ -84,6 +91,9 @@ class AbstractSensorSettings:
     def set_transponder(self, on:bool) -> None: ...
     @abc.abstractmethod
     def set_thrust(self, thrust:float) -> None: ...
+    @property
+    @abc.abstractmethod
+    def thrust_seconds(self) -> float: ...
 
 class AbstractSensorManager:
     def __init__(self, sector:"Sector"):
@@ -96,7 +106,7 @@ class AbstractSensorManager:
         return 100.
 
     def compute_sensor_threshold(self, ship:SectorEntity) -> float:
-        return 100.
+        return ship.sensor_settings.effective_threshold()
 
     def detected(self, target:SectorEntity, detector:SectorEntity) -> bool:
         return True
@@ -118,6 +128,8 @@ class Sector(Entity):
 
     def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
+
+        self.logger = logging.getLogger(util.fullname(self))
 
         # sector's position in the universe
         self.loc = loc
@@ -203,6 +215,7 @@ class Sector(Entity):
         self.entities[entity.entity_id] = entity
 
     def remove_entity(self, entity:SectorEntity) -> None:
+        self.logger.debug(f'removing {entity} {entity.sensor_settings.thrust_seconds=}')
 
         if entity.entity_id not in self.entities:
             raise ValueError(f'entity {entity.entity_id} not in this sector')

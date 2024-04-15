@@ -859,6 +859,12 @@ cdef class Navigator:
             "nnd": self.analysis.nearest_neighbor_dist
         }
         if self.analysis.threat_count > 0:
+            # it's possible that the collision threat got removed from the
+            # space by the time we are pulling telemtry. if so, space.shapes
+            # won't have it, so let's not prepare any collision threat
+            # telemetry in that case
+            if self.analysis.threat_shape.hashid_private not in self.space.shapes:
+                return telemetry
             telemetry.update({
                 "ct": self.space.shapes[self.analysis.threat_shape.hashid_private].body,
                 "ct_ms": self.analysis.minimum_separation,
@@ -1745,7 +1751,7 @@ def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_
         intercept_time = intercept_a
     else:
         intercept_time = min(intercept_a, intercept_b)
-    #cdef double intercept_time = 2.0*c/(sqrt(det) - b)
+    #cdef double intercept_time_alt = 2.0*c/(sqrt(det) - b)
 
     cdef ccymunk.cpVect rel_intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(rel_vel, intercept_time))
     cdef ccymunk.cpVect intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(t_v, intercept_time))

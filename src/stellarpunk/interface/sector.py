@@ -166,6 +166,9 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
 
         self.presenter.draw_shapes()
         self.draw_grid()
+        if self.selected_entity:
+            self.presenter.draw_sensor_rings(self.selected_entity)
+            self.presenter.draw_profile_rings(self.selected_entity)
         self.presenter.draw_sector_map()
 
     def _draw_target_info(self) -> None:
@@ -333,6 +336,12 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
 
             self.perspective.cursor = (x,y)
 
+        def show_orders(args:Sequence[str])->None:
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise command_input.UserError(f'can only pilot a selected ship target')
+            for o in self.selected_entity._orders:
+                self.interface.log_message(f'{o}')
+
         return [
             self.bind_command("debug_entity", debug_entity),
             self.bind_command("debug_vectors", debug_vectors),
@@ -342,6 +351,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
             self.bind_command("spawn_ship", spawn_ship),
             self.bind_command("spawn_collision", spawn_collision),
             self.bind_command("spawn_resources", spawn_resources),
+            self.bind_command("orders", show_orders),
             self.bind_command("goto", goto),
             self.bind_command("wait", wait),
 

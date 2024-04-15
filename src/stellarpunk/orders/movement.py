@@ -225,6 +225,7 @@ class GoToLocation(AbstractSteeringOrder):
         self._desired_velocity = CYZERO_VECTOR
         # the next time we should do a costly computation of desired velocity
         self._next_compute_ts = 0.
+        self._nts = 0.
 
     def set_target_location(self, target_location:cymunk.Vec2d) -> None:
         """ For testing support """
@@ -232,7 +233,6 @@ class GoToLocation(AbstractSteeringOrder):
         self.neighbor_analyzer.set_location_params(
                 self._target_location, self.arrival_distance, self.min_distance
         )
-
 
     def to_history(self) -> dict:
         data = super().to_history()
@@ -248,7 +248,7 @@ class GoToLocation(AbstractSteeringOrder):
         return data
 
     def __str__(self) -> str:
-        return f'GoToLocation: {self._target_location} ad:{self.arrival_distance} sf:{self.safety_factor}'
+        return f'GoToLocation: {self._target_location} nts:{self._nts}s'
 
     def estimate_eta(self) -> float:
         return GoToLocation.compute_eta(self.ship, np.array(self._target_location), self.safety_factor)
@@ -284,6 +284,7 @@ class GoToLocation(AbstractSteeringOrder):
 
             # don't need to wake up again until the acceleration is complete
             next_ts = min(self._next_compute_ts, self.gamestate.timestamp + continue_time)
+            self._nts = next_ts - self.gamestate.timestamp
             self.gamestate.schedule_order(next_ts, self)
             return
 
@@ -368,7 +369,8 @@ class GoToLocation(AbstractSteeringOrder):
                 nts = nts_low
 
         self._next_compute_ts = self.gamestate.timestamp + nts
-        next_ts = self.gamestate.timestamp + min(nts, continue_time)
+        self._nts = min(nts, continue_time)
+        next_ts = self.gamestate.timestamp + self._nts
         self.gamestate.schedule_order(next_ts, self)
 
         return
@@ -404,7 +406,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             self.max_fine_thrust = self.ship.max_fine_thrust
 
     def __str__(self) -> str:
-        return f'Evade: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
+        return f'Evade: {self.target.target_short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
 
     #def _begin(self) -> None:
     #    self.est_tv_velocity = self.target.velocity
@@ -419,8 +421,9 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         assert self.ship.sector
         self.target.update()
 
-        # basically ignore max_speed
-        max_speed = self.ship.max_speed() * 100000
+        # have a high max speed, but not crazy since we still need to avoid
+        # collisions and recover from the evasion once we're done
+        max_speed = self.ship.max_thrust / self.ship.mass * 90
 
         # OPTION A:
         # plot a course away from intercept location
@@ -445,7 +448,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             # plot a course away from that closest approach
             course = self.ship.loc - self.intercept_location
             course = course / np.linalg.norm(course)
-            target_velocity = cymunk.Vec2d(course * self.ship.max_speed())
+            target_velocity = cymunk.Vec2d(course * max_speed)
         else:
             # OPTION C:
             # want a velocity perpendicular to current relative velocity
@@ -512,7 +515,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             self.final_speed = self.max_thrust / self.ship.mass * 0.5
 
     def __str__(self) -> str:
-        return f'Pursue: {self.target.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
+        return f'Pursue: {self.target.target_short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
 
     def estimate_eta(self) -> float:
         return self.intercept_time

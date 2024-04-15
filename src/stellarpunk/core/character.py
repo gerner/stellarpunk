@@ -52,8 +52,21 @@ class Agendum(CharacterObserver):
     def _stop(self) -> None:
         pass
 
+    def _unpause(self) -> None:
+        pass
+
+    def _pause(self) -> None:
+        pass
+
     def start(self) -> None:
         self._start()
+
+    def unpause(self) -> None:
+        self._unpause()
+
+    def pause(self) -> None:
+        self._pause()
+        self.gamestate.unschedule_agendum(self)
 
     def stop(self) -> None:
         self._stop()
@@ -90,6 +103,7 @@ class Character(Entity):
         self.observers:Set[CharacterObserver] = set()
 
     def destroy(self) -> None:
+        super().destroy()
         for observer in self.observers.copy():
             observer.character_destroyed(self)
         self.observers.clear()

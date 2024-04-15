@@ -150,6 +150,11 @@ def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
     return magnitude((s - t)[0], (s - t)[1])
 
 @jit(cache=True, nopython=True, fastmath=True)
+def bearing(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
+    course = t - s
+    return normalize_angle(math.atan2(course[1], course[0]), shortest=True)
+
+@jit(cache=True, nopython=True, fastmath=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
     r = math.hypot(x, y)
     a = math.atan2(y, x)

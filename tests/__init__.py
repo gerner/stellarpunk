@@ -177,7 +177,9 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
         self.max_timestamp = np.inf
 
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
+        self.collisions_allowed=False
         self.complete_orders:List[core.Order] = []
+
 
         self.done = False
 
@@ -226,7 +228,8 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
             o.observe(self)
 
     def tick(self, timeout:float, dt:float) -> None:
-        assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
+        if not self.collisions_allowed:
+            assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
             assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]}, {self.agenda})'

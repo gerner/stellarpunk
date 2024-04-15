@@ -1,7 +1,7 @@
 import weakref
 from typing import Optional
 
-from stellarpunk import core
+from stellarpunk import core, agenda
 from stellarpunk.core import combat
 
 def test_missile_attack(gamestate, generator, sector, testui, simulator):
@@ -74,3 +74,26 @@ def test_two_missiles(gamestate, generator, sector, testui, simulator):
     assert missile_order2.is_complete()
     assert missile1.sector is None
     assert missile2.sector is None
+
+def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
+    # simulates an attack run by a single ship on another single ship
+    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0)
+    attacker.sensor_settings._sensor_power = attacker.sensor_settings._max_sensor_power
+    attacker.sensor_settings._last_sensor_power = attacker.sensor_settings._max_sensor_power
+    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+
+    defender_owner = generator.spawn_character(defender)
+    defender_owner.take_ownership(defender)
+    defender_owner.add_agendum(agenda.CaptainAgendum(defender, defender_owner, gamestate))
+
+    attack_order = combat.AttackOrder(defender, attacker, gamestate)
+    attacker.prepend_order(attack_order)
+
+    testui.orders = [attack_order]
+    testui.eta = 2000
+    testui.collisions_allowed = True
+
+    simulator.notify_on_collision = True
+    simulator.run()
+
+    #TODO: what are we verifying?

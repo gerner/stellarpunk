@@ -1,6 +1,6 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
-from typing import Tuple, Iterator, Optional
+from typing import Tuple, Iterator, Optional, Any
 import uuid
 
 import numpy.typing as npt
@@ -15,20 +15,37 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager") -> None:
         self._sensor_manager = sensor_manager
         self._ship:Optional[core.SectorEntity] = ship
-        ship.observe(self)
+        self._detector_entity_id = ship.entity_id
+        self._detector_short_id = ship.short_id()
         self._target:Optional[core.SectorEntity] = target
         if target:
+            self._target_entity_id = target.entity_id
+            self._target_short_id = target.short_id()
             target.observe(self)
-            self._entity_id = target.entity_id
-            self._short_id = target.short_id()
         else:
-            self._entity_id = uuid.uuid4()
-            self._short_id = f'UNK-{self._entity_id.hex[:8]}'
+            # we should never need these. the only valid case where we don't
+            # have a target is if we're copied from another SensorImage in
+            # which case we should have gotten their _target_entity_id /
+            # _short_id
+            self._target_entity_id = uuid.uuid4()
+            self._target_short_id = f'UNK-{self._target_entity_id.hex[:8]}'
+        ship.observe(self)
         self._last_update = 0.
         self._base_ts = 0.
         self._loc = ZERO_VECTOR
         self._velocity = ZERO_VECTOR
         self._is_active = True
+
+    def __str__(self) -> str:
+        return f'{self._target_short_id} detected by {self._detector_short_id} {self.age}s old'
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, core.AbstractSensorImage):
+            return False
+        return self._target_entity_id == other.target_entity_id and self._detector_entity_id == other.detector_entity_id
+
+    def __hash__(self) -> int:
+        return hash((self._target_entity_id, self._detector_entity_id))
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self._target:
@@ -64,12 +81,15 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
     @property
-    def entity_id(self) -> uuid.UUID:
-        return self._entity_id
-
-    def short_id(self) -> str:
-        """ first 32 bits as hex """
-        return self._short_id
+    def target_entity_id(self) -> uuid.UUID:
+        return self._target_entity_id
+    def target_short_id(self) -> str:
+        return self._target_short_id
+    @property
+    def detector_entity_id(self) -> uuid.UUID:
+        return self._detector_entity_id
+    def detector_short_id(self) -> str:
+        return self._detector_short_id
 
     @property
     def age(self) -> float:
@@ -93,6 +113,8 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._base_ts = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
                 self._velocity = self._target.velocity
+
+                # let the target know they've been targeted by us
                 if self._sensor_manager.detected(self._ship, self._target):
                     self._target.target(self._ship)
                 return True
@@ -104,13 +126,14 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
         image = SensorImage(self._target, detector, self._sensor_manager)
         if self._target is None:
-            self._entity_id = self._entity_id
-            self._short_id = self._short_id
+            self._target_entity_id = self._target_entity_id
+            self._target_short_id = self._target_short_id
         return image
 
 class SensorSettings(core.AbstractSensorSettings):
-    def __init__(self, max_sensor_power:float=0.) -> None:
+    def __init__(self, max_sensor_power:float=0., sensor_intercept:float=100.0) -> None:
         self._max_sensor_power = max_sensor_power
+        self._sensor_intercept = sensor_intercept
         self._sensor_power = 0.
         self._transponder_on = False
         self._thrust = 0.
@@ -118,9 +141,11 @@ class SensorSettings(core.AbstractSensorSettings):
         # keeps track of history on sensor spikes
         self._last_sensor_power = 0.
         self._last_sensor_power_ts = 0.
-        self._last_transponder_ts = 0.
+        self._last_transponder_ts = -np.inf
         self._last_thrust = 0.
         self._last_thrust_ts = 0.
+
+        self._thrust_seconds = 0.
 
     @property
     def sensor_power(self) -> float:
@@ -143,7 +168,7 @@ class SensorSettings(core.AbstractSensorSettings):
         return (self._last_thrust - self._thrust) * config.Settings.sensors.DECAY_THRUST ** (core.Gamestate.gamestate.timestamp - self._last_thrust_ts) + self._thrust
     def effective_threshold(self) -> float:
         """ computes the sensor threshold accounting for sensor power """
-        return config.Settings.sensors.COEFF_THRESHOLD / (self.effective_sensor_power() + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
+        return config.Settings.sensors.COEFF_THRESHOLD / (self.effective_sensor_power() + config.Settings.sensors.COEFF_THRESHOLD/self._sensor_intercept)
 
     def set_sensors(self, ratio:float) -> None:
         # keep track of spikes in sensors so impact on profile decays with time
@@ -170,14 +195,23 @@ class SensorSettings(core.AbstractSensorSettings):
             self._last_thrust = thrust
         else:
             self._last_thrust = decayed_thrust
+        self._thrust_seconds += self._thrust * (core.Gamestate.gamestate.timestamp - self._last_thrust_ts)
         self._last_thrust_ts = core.Gamestate.gamestate.timestamp
         self._thrust = thrust
+
+    @property
+    def thrust_seconds(self) -> float:
+        return self._thrust_seconds
+
 
 class SensorManager(core.AbstractSensorManager):
     """ Models sensors for a sector """
 
     def __init__(self, sector:core.Sector):
         self.sector = sector
+
+    def compute_effective_threshold(self, ship:core.SectorEntity) -> float:
+        return ship.sensor_settings.effective_threshold() * self.sector.weather_factor
 
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
@@ -198,7 +232,7 @@ class SensorManager(core.AbstractSensorManager):
         return self.compute_effective_profile(target) / (config.Settings.sensors.COEFF_DISTANCE * distance_sq)
 
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
-        return self.compute_target_profile(target, detector) > detector.sensor_settings.effective_threshold()
+        return self.compute_target_profile(target, detector) > self.compute_effective_threshold(detector)
 
     def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
         for hit in self.sector.spatial_query(bbox):
@@ -206,6 +240,8 @@ class SensorManager(core.AbstractSensorManager):
                 yield hit
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity) -> core.AbstractSensorImage:
+        if not self.detected(target, detector):
+            raise ValueError(f'{detector} cannot detect {target}')
         image = SensorImage(target, detector, self)
         image.update()
         return image
@@ -218,7 +254,7 @@ class SensorManager(core.AbstractSensorManager):
         # range to detect active sesnsor targets
         sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
 
-        threshold = entity.sensor_settings.effective_threshold()
+        threshold = self.compute_effective_threshold(entity)
 
         return (
             np.sqrt(passive_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),

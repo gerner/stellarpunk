@@ -10,6 +10,7 @@ import numpy.typing as npt
 
 from stellarpunk import core, econ, util
 import stellarpunk.orders.core as ocore
+from stellarpunk.core import combat
 from stellarpunk.orders import movement
 
 def possible_buys(
@@ -199,10 +200,13 @@ class EntityOperatorAgendum(core.Agendum, core.SectorEntityObserver):
         if entity == self.craft:
             self.stop()
 
-class CaptainAgendum(EntityOperatorAgendum):
-    def __init__(self, *args: Any, threat_response:bool=True, **kwargs: Any) -> None:
+class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
+    def __init__(self, *args: Any, enable_threat_response:bool=True, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.threat_response = threat_response
+        assert isinstance(self.craft, core.Ship)
+        self.ship:core.Ship = self.craft
+        self.enable_threat_response = enable_threat_response
+        self.threat_response:Optional[combat.FleeOrder] = None
 
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
@@ -217,8 +221,31 @@ class CaptainAgendum(EntityOperatorAgendum):
         self.craft.captain = None
         #TODO: kill other EOAs?
 
+    def order_completed(self, order:core.Order) -> None:
+        if order == self.threat_response:
+            self.threat_response = None
+        for a in self.character.agenda:
+            if isinstance(a, EntityOperatorAgendum):
+                a.unpause()
+
+    def order_cancelled(self, order:core.Order) -> None:
+        if order == self.threat_response:
+            self.threat_response = None
+        for a in self.character.agenda:
+            if isinstance(a, EntityOperatorAgendum):
+                a.unpause()
+
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
-        if not self.threat_response:
+        assert self.craft.sector
+        if not self.enable_threat_response:
+            return
+
+        # ignore if we're already handling threats
+        if self.threat_response:
+            if self.threat_response.has_threat(threat.entity_id):
+                return
+            threat_image = self.craft.sector.sensor_manager.target(threat, craft)
+            self.threat_response.add_threat(threat_image)
             return
 
         #TODO: determine if threat is hostile:
@@ -228,10 +255,24 @@ class CaptainAgendum(EntityOperatorAgendum):
         # is it running with its transponder off?
         if not threat.sensor_settings.transponder:
             hostile = True
+        # is it otherwise operating in a hostile manner (e.g. firing weapons)
 
-        #TODO: decide how to proceed:
-        # if not hostile, ignore
-        # if first threat, pause other activities (agenda), start fleeing
+        # decide how to proceed:
+        if not hostile:
+            return
+        # if first threat, pause other ship-operating activities (agenda), start fleeing
+        self.logger.debug(f'initiating defensive maneuvers against threat {threat}')
+        #TODO: is it weird for one agendum to manipulate another?
+        for a in self.character.agenda:
+            if isinstance(a, EntityOperatorAgendum):
+                a.pause()
+
+        # engage in defense
+        self.threat_response = combat.FleeOrder(self.ship, self.gamestate)
+        self.threat_response.observe(self)
+        threat_image = self.craft.sector.sensor_manager.target(threat, self.craft)
+        self.threat_response.add_threat(threat_image)
+        self.ship.prepend_order(self.threat_response)
 
 class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
     """ Managing a ship for mining.
@@ -345,6 +386,20 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         assert self.state == MiningAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
+    def _unpause(self) -> None:
+        super()._unpause()
+        assert self.state == MiningAgendum.State.IDLE
+        self.gamestate.schedule_agendum_immediate(self, jitter=5.)
+
+    def _pause(self) -> None:
+        super()._pause()
+        if self.state == MiningAgendum.State.MINING:
+            assert self.mining_order is not None
+            self.mining_order.cancel_order()
+        elif self.state == MiningAgendum.State.TRADING:
+            assert self.transfer_order is not None
+            self.transfer_order.cancel_order()
+
     def _stop(self) -> None:
         super()._stop()
         if self.state == MiningAgendum.State.MINING:
@@ -353,7 +408,6 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         elif self.state == MiningAgendum.State.TRADING:
             assert self.transfer_order is not None
             self.transfer_order.cancel_order()
-        self.gamestate.unschedule_agendum(self)
 
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.round_trips >= self.max_trips
@@ -484,6 +538,20 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         assert self.state == TradingAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
+    def _unpause(self) -> None:
+        super()._unpause()
+        assert self.state == TradingAgendum.State.IDLE
+        self.gamestate.schedule_agendum_immediate(self, jitter=5.)
+
+    def _pause(self) -> None:
+        super()._pause()
+        if self.state == TradingAgendum.State.BUYING:
+            assert self.buy_order is not None
+            self.buy_order.cancel_order()
+        elif self.state == TradingAgendum.State.SELLING:
+            assert self.sell_order is not None
+            self.sell_order.cancel_order()
+
     def _stop(self) -> None:
         super()._stop()
         if self.state == TradingAgendum.State.BUYING:
@@ -595,13 +663,11 @@ class StationManager(EntityOperatorAgendum):
         )
         self.produced_batches = 0
 
-        #TODO: how do we keep this up to date if there's a change?
-        self.gamestate.representing_agent(station.entity_id, self.agent)
-
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
         self.craft.captain = self.character
         super()._start()
+        self.gamestate.representing_agent(self.station.entity_id, self.agent)
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
@@ -658,7 +724,6 @@ class StationManager(EntityOperatorAgendum):
         next_production_ts = self._produce_at_station()
 
         #TODO: price and budget setting stuff goes here and should run periodically
-
         self.gamestate.schedule_agendum(next_production_ts, self, jitter=1.0)
 
 class PlanetManager(EntityOperatorAgendum):
@@ -676,13 +741,11 @@ class PlanetManager(EntityOperatorAgendum):
             self.gamestate
         )
 
-        #TODO: how do we keep this up to date if there's a change?
-        self.gamestate.representing_agent(planet.entity_id, self.agent)
-
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
         self.craft.captain = self.character
         super()._start()
+        self.gamestate.representing_agent(self.planet.entity_id, self.agent)
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
@@ -692,5 +755,5 @@ class PlanetManager(EntityOperatorAgendum):
 
     def act(self) -> None:
         assert self.gamestate.econ_agents[self.planet.entity_id] == self.agent
-        # price and budget setting stuff goes here and should run periodically
+        #TODO: price and budget setting stuff goes here and should run periodically
         pass
