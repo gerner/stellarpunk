@@ -101,6 +101,45 @@ cdef void log(ccymunk.Body body, message, eid_prefix=""):
         if str(body.data.entity_id).startswith(eid_prefix):
             print(f'{body.data.entity_id}\t{message}')
 
+# modelling aspects of running a rocket engine
+cdef class RocketModel:
+    cdef double param_decay_thrust
+    cdef double last_thrust
+    cdef double last_thrust_ts
+    cdef double thrust
+    cdef double thrust_seconds
+
+    def __cinit__(self, decay_thrust:float) -> None:
+        self.param_decay_thrust = decay_thrust
+        self.last_thrust = 0.
+        self.last_thrust_ts = 0.
+        self.thrust = 0.
+        self.thrust_seconds = 0.
+
+    def get_thrust_seconds(self):
+        return self.thrust_seconds
+
+    cdef double c_effective_thrust(self, double timestamp):
+        if self.last_thrust == self.thrust:
+            return self.thrust
+        return (self.last_thrust - self.thrust) * self.param_decay_thrust ** (timestamp - self.last_thrust_ts) + self.thrust
+    def effective_thrust(self, timestamp:float) -> float:
+        return self.c_effective_thrust(timestamp)
+
+    cdef void c_set_thrust(self, double thrust, double timestamp):
+        if thrust == self._thrust:
+            return
+        cdef double decayed_thrust = self.c_effective_thrust(timestamp)
+        if thrust > decayed_thrust:
+            self.last_thrust = thrust
+        else:
+            self.last_thrust = decayed_thrust
+        self.thrust_seconds += self.thrust * (timestamp - self.last_thrust_ts)
+        self.last_thrust_ts = timestamp
+        self.thrust = thrust
+    def set_thrust(self, thrust:float, timestamp:float) -> None:
+        self.c_set_thrust(thrust, timestamp)
+
 # collision detection types
 
 cdef struct CollisionThreat:
@@ -251,8 +290,8 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     cdef NeighborAnalysis *analysis = <NeighborAnalysis *>data
 
     # ignore projectile group
-    if shape.group == 1:
-        return
+    #if shape.group == 1:
+    #    return
 
     # ignore ourself
     if shape.body == analysis.body:
@@ -1441,6 +1480,8 @@ cdef struct ForceTorqueResult:
     ccymunk.cpVect force
     double torque
     double continue_time
+    double dv_mag
+    double dv_angle
 
 cdef double _rotation_time(
         double delta_angle, double angular_velocity,
@@ -1566,7 +1607,7 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     if difference_mag < VELOCITY_EPS:
         difference_angle = body.a
         if fabs(body.w) < ANGLE_EPS:
-            return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY)
+            return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY, difference_mag, difference_angle)
 
     cdef double delta_heading = normalize_angle(body.a-difference_angle, shortest=1)
     cdef double rot_time = _rotation_time(delta_heading, body.w, max_torque/body.i)
@@ -1606,7 +1647,7 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     else:
         continue_time = min(torque_result.continue_time, force_result.continue_time)
 
-    return ForceTorqueResult(force_result.force, torque_result.torque, continue_time)
+    return ForceTorqueResult(force_result.force, torque_result.torque, continue_time, difference_mag, difference_angle)
 
 def rotate_to(
         body:cymunk.Body, target_angle:float, dt:float,
@@ -1778,7 +1819,7 @@ def accelerate_to(
 
     assert ft_result.continue_time > 0.
 
-    if ccymunk.cpvlength(ft_result.force) < VELOCITY_EPS:
+    if ccymunk.cpvlength(ft_result.force) < VELOCITY_EPS and ft_result.dv_mag < VELOCITY_EPS:
         cybody._body.v = cyvelocity.v
         cybody._body.f = ZERO_VECTOR
         if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:

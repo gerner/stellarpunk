@@ -165,4 +165,5 @@ class Missile(Ship):
         super().__init__(*args, **kwargs)
         # missiles don't run transponders
         self.transponder_on = False
+        self.firer:Optional[SectorEntity] = None
 

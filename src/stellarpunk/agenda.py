@@ -236,27 +236,17 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
                 a.unpause()
 
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
+        assert craft == self.craft
         assert self.craft.sector
         if not self.enable_threat_response:
             return
 
         # ignore if we're already handling threats
         if self.threat_response:
-            if self.threat_response.has_threat(threat.entity_id):
-                return
-            threat_image = self.craft.sector.sensor_manager.target(threat, craft)
-            self.threat_response.add_threat(threat_image)
             return
 
-        #TODO: determine if threat is hostile:
-        hostile = False
-        # is it a weapon (e.g. missile)
-        # is it known to be hostile?
-        # is it running with its transponder off?
-        if not threat.sensor_settings.transponder:
-            hostile = True
-        # is it otherwise operating in a hostile manner (e.g. firing weapons)
-
+        # determine in threat is hostile
+        hostile = combat.is_hostile(self.craft, threat)
         # decide how to proceed:
         if not hostile:
             return
@@ -268,6 +258,10 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
                 a.pause()
 
         # engage in defense
+        if self.threat_response:
+            threat_image = self.craft.sector.sensor_manager.target(threat, craft)
+            self.threat_response.add_threat(threat_image)
+            return
         self.threat_response = combat.FleeOrder(self.ship, self.gamestate)
         self.threat_response.observe(self)
         threat_image = self.craft.sector.sensor_manager.target(threat, self.craft)

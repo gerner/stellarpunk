@@ -141,12 +141,34 @@ through eventually.
 
 ### Decoys
 
+POTENTIALLY
+
 Decoys try to confuse sensor systems, especially simple sensor systems like
 those on missiles or drones or sensors operating at long range. Decoys work
 best when a threat is reacquiring a target after losing sensor contact,
 especially if the decoy is positioned close to the predicted location based on
 last sensor contact. The longer a decoy is in sensor contact, the more likely
 it is to fail to confuse a threat's sesnsors.
+
+### Environmental Stealth
+
+POTENTIALLY
+
+Localized particle or debris fields help hide ships by reducing a ship's sensor
+profile. The tradeoff is that sensor threshold (ability to detect other ships)
+is also reduced. But for a fleeing ship a sensor impacting area can be a safe
+destination within a sector. Once a ship enters the area it can travel
+unpredictably making the attacker lose the fleeing ship.
+
+### Running out of Fuel
+
+POTENTIALLY
+
+Running out of fuel can be a death sentence for a ship. Even if a defender's
+destruction is inevitable, it's not generally worth it to sacrifice the
+attacker's ship by spending all fuel hunting the target down. An effective
+defense strategy is simply to run away and wait out the attacker. At some point
+the attacker has to give up the hunt.
 
 ## Damage and Destruction
 

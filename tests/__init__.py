@@ -2,8 +2,9 @@ import functools
 import os
 import json
 import uuid
-from typing import Optional, List, Tuple, Union, Any
+from typing import Optional, List, Tuple, Union, Any, Callable
 from dataclasses import dataclass
+import logging
 
 import numpy as np
 import numpy.typing as npt
@@ -164,6 +165,7 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
 class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
     def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger(util.fullname(self))
         self.sector = sector
         self.margin = 2e2
         self.min_neighbor_dist = np.inf
@@ -189,6 +191,8 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
 
         self.last_status_message = ""
 
+        self.tick_callback:Optional[Callable[[], None]] = None
+
     @property
     def player(self) -> core.Player:
         return self.gamestate.player
@@ -212,6 +216,12 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
             aspect_ratio:float) -> interface.BasicCanvas:
         return interface.BasicCanvas(height, width, y, x, aspect_ratio)
 
+    def add_order(self, order:core.Order) -> None:
+        if order in self.orders:
+            return
+        self.orders.append(order)
+        order.observe(self)
+
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
 
@@ -219,6 +229,7 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
         self.order_complete(order)
 
     def order_complete(self, order:core.Order) -> None:
+        self.logger.debug(f'{order} complete at {self.gamestate.timestamp}')
         self.complete_orders.append(order)
         if len(self.orders) > 0 and len(set(self.orders) - set(self.complete_orders)) == 0:
             self.done = True
@@ -232,7 +243,7 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
             assert not self.collisions, f'collided! {self.collisions[0][0].entity_id} and {self.collisions[0][1].entity_id}'
 
         if self.eta < np.inf:
-            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[x.ship.entity_id for x in self.orders if x not in self.complete_orders]}, {self.agenda})'
+            assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[(x.ship.entity_id, x) for x in self.orders if x not in self.complete_orders]}, {self.agenda})'
         else:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))*self.order_eta_error_factor, "exceeded max eta over all orders"
 
@@ -256,6 +267,9 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
 
         if self.gamestate.timestamp > self.max_timestamp:
             self.gamestate.quit()
+
+        if self.tick_callback:
+            self.tick_callback()
 
 class MonitoringSimulator(sim.Simulator):
     def __init__(self, gamestate:core.Gamestate, testui:MonitoringUI) -> None:

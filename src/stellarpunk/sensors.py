@@ -1,6 +1,6 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
-from typing import Tuple, Iterator, Optional, Any
+from typing import Tuple, Iterator, Optional, Any, Union
 import uuid
 
 import numpy.typing as npt
@@ -31,7 +31,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             self._target_short_id = f'UNK-{self._target_entity_id.hex[:8]}'
         ship.observe(self)
         self._last_update = 0.
-        self._base_ts = 0.
+        self._last_profile = 0.
         self._loc = ZERO_VECTOR
         self._velocity = ZERO_VECTOR
         self._is_active = True
@@ -97,7 +97,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def loc(self) -> npt.NDArray[np.float64]:
-        return self._loc + self._velocity * (core.Gamestate.gamestate.timestamp - self._base_ts)
+        return self._loc + self._velocity * (core.Gamestate.gamestate.timestamp - self._last_update)
+
+    @property
+    def profile(self) -> float:
+        return self._last_profile
 
     @property
     def velocity(self) -> npt.NDArray[np.float64]:
@@ -109,10 +113,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def update(self) -> bool:
         if self._target and self._ship:
             if self._sensor_manager.detected(self._target, self._ship):
+                self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
                 self._last_update = core.Gamestate.gamestate.timestamp
-                self._base_ts = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
-                self._velocity = self._target.velocity
+                self._velocity = np.array(self._target.velocity)
 
                 # let the target know they've been targeted by us
                 if self._sensor_manager.detected(self._ship, self._target):
@@ -128,6 +132,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         if self._target is None:
             self._target_entity_id = self._target_entity_id
             self._target_short_id = self._target_short_id
+        image._last_update = self._last_update
+        image._last_profile = self._last_profile
+        image._loc = self._loc
+        image._velocity = self._velocity
+        image._is_active = self._is_active
         return image
 
 class SensorSettings(core.AbstractSensorSettings):
@@ -148,11 +157,18 @@ class SensorSettings(core.AbstractSensorSettings):
         self._thrust_seconds = 0.
 
     @property
+    def max_sensor_power(self) -> float:
+        return self._max_sensor_power
+    @property
     def sensor_power(self) -> float:
         return self._sensor_power
     @property
     def transponder(self) -> bool:
         return self._transponder_on
+
+    @property
+    def max_threshold(self) -> float:
+        return config.Settings.sensors.COEFF_THRESHOLD / (self._max_sensor_power + config.Settings.sensors.COEFF_THRESHOLD/self._sensor_intercept)
 
     def effective_sensor_power(self) -> float:
         if self._last_sensor_power == self._sensor_power:
@@ -166,9 +182,11 @@ class SensorSettings(core.AbstractSensorSettings):
         if self._last_thrust == self._thrust:
             return self._thrust
         return (self._last_thrust - self._thrust) * config.Settings.sensors.DECAY_THRUST ** (core.Gamestate.gamestate.timestamp - self._last_thrust_ts) + self._thrust
-    def effective_threshold(self) -> float:
+    def effective_threshold(self, effective_sensor_power:Optional[float]=None) -> float:
         """ computes the sensor threshold accounting for sensor power """
-        return config.Settings.sensors.COEFF_THRESHOLD / (self.effective_sensor_power() + config.Settings.sensors.COEFF_THRESHOLD/self._sensor_intercept)
+        if effective_sensor_power is None:
+            effective_sensor_power = self.effective_sensor_power()
+        return config.Settings.sensors.COEFF_THRESHOLD / (effective_sensor_power + config.Settings.sensors.COEFF_THRESHOLD/self._sensor_intercept)
 
     def set_sensors(self, ratio:float) -> None:
         # keep track of spikes in sensors so impact on profile decays with time
@@ -223,9 +241,12 @@ class SensorManager(core.AbstractSensorManager):
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
         ) * self.sector.weather_factor
 
-    def compute_target_profile(self, target:core.SectorEntity, detector:core.SectorEntity) -> float:
+    def compute_target_profile(self, target:core.SectorEntity, detector_or_distance_sq:Union[core.SectorEntity, float]) -> float:
         """ computes detector-specific profile of target """
-        distance_sq = target.phys.position.get_dist_sqrd(detector.phys.position)
+        if isinstance(detector_or_distance_sq, float):
+            distance_sq = detector_or_distance_sq
+        else:
+            distance_sq = target.phys.position.get_dist_sqrd(detector_or_distance_sq.phys.position)
         if distance_sq == 0.:
             distance_sq = 1.
 
@@ -275,3 +296,22 @@ class SensorManager(core.AbstractSensorManager):
             np.sqrt(profile / passive_threshold / config.Settings.sensors.COEFF_DISTANCE),
             np.sqrt(profile / active_threshold / config.Settings.sensors.COEFF_DISTANCE),
         )
+
+    def compute_thrust_for_profile(self, ship:core.SectorEntity, distance_sq:float, threshold:float) -> float:
+        # solve effective_profile equation for thrust
+
+        # target_profile = effective_profile / (c * dist ** 2)
+        # y = (a + b + c_1 * x + d) * w / (c_2 * dist**2)
+        # x = ((a + b + d) * w - y * (c_2 * dist**2) ) / (-c_1 * w)
+        profile_base = (
+            config.Settings.sensors.COEFF_MASS * ship.mass +
+            config.Settings.sensors.COEFF_RADIUS * ship.radius +
+            config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
+            config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
+        ) * self.sector.weather_factor
+
+        return (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE * self.sector.weather_factor)
+
+    def compute_thrust_for_sensor_power(self, ship:core.SectorEntity, distance_sq:float, sensor_power:float) -> float:
+        threshold = config.Settings.sensors.COEFF_THRESHOLD / (sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
+        return self.compute_thrust_for_profile(ship, distance_sq, threshold)

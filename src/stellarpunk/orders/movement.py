@@ -399,8 +399,8 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
         self.escape_distance = escape_distance
         if max_thrust:
-            self.max_thrust = max_thrust
-            self.max_fine_thrust = min(max_thrust, self.ship.max_fine_thrust)
+            self.max_thrust = max(0.0, min(max_thrust, self.ship.max_thrust))
+            self.max_fine_thrust = max(0.0, min(max_thrust, self.ship.max_fine_thrust))
         else:
             self.max_thrust = self.ship.max_thrust
             self.max_fine_thrust = self.ship.max_fine_thrust
@@ -441,14 +441,19 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
         # OPTION B:
         # estimate our closest approach and flee from there
-        rel_dist, self.intercept_time, _, rel_vel, _, self.intercept_location, _ = self.neighbor_analyzer.analyze_neighbor(cymunk.Vec2d(self.target.loc), cymunk.Vec2d(self.target.velocity), 0.0, 1e6)
+        rel_dist, self.intercept_time, rel_pos, rel_vel, _, self.intercept_location, _ = self.neighbor_analyzer.analyze_neighbor(cymunk.Vec2d(self.target.loc), cymunk.Vec2d(self.target.velocity), 0.0, 1e6)
         rel_speed = np.linalg.norm(rel_vel)
 
         if rel_speed < 5 or self.intercept_time > 5:
             # plot a course away from that closest approach
             course = self.ship.loc - self.intercept_location
-            course = course / np.linalg.norm(course)
-            target_velocity = cymunk.Vec2d(course * max_speed)
+            course_mag = util.magnitude_sq(*course)
+            if course_mag == 0:
+                target_velocity = rel_pos / rel_dist * max_speed
+                raise Exception()
+            else:
+                course = course / course_mag
+                target_velocity = cymunk.Vec2d(course * max_speed)
         else:
             # OPTION C:
             # want a velocity perpendicular to current relative velocity
@@ -515,13 +520,10 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             self.final_speed = self.max_thrust / self.ship.mass * 0.5
 
     def __str__(self) -> str:
-        return f'Pursue: {self.target.target_short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
+        return f'PursueOrder: {self.target.target_short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
 
     def estimate_eta(self) -> float:
         return self.intercept_time
-
-    def _cancel(self) -> None:
-        self._complete()
 
     def is_complete(self) -> bool:
         return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) < self.arrival_distance or not self.target.is_active()

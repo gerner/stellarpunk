@@ -142,6 +142,14 @@ def circle_bbox(loc:npt.NDArray[np.float64], r:float) -> Tuple[float, float, flo
     return (loc[0]-r, loc[1]-r, loc[0]+r, loc[1]+r)
 
 @jit(cache=True, nopython=True, fastmath=True)
+def magnitude_sq(x:float, y:float) -> float:
+    return x*x + y*y
+
+@jit(cache=True, nopython=True, fastmath=True)
+def distance_sq(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
+    return magnitude_sq((s - t)[0], (s - t)[1])
+
+@jit(cache=True, nopython=True, fastmath=True)
 def magnitude(x:float, y:float) -> float:
     return math.sqrt(x*x + y*y)
 

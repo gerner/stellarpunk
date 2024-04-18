@@ -50,6 +50,16 @@ class AbstractSteeringOrder(core.Order):
                 neighborhood_radius,
         )
 
+    def _cancel(self) -> None:
+        self.logger.debug(f'cancel at {self.gamestate.timestamp}')
+        self.ship.apply_force(ZERO_VECTOR, False)
+        self.ship.apply_torque(0., False)
+
+    def _complete(self) -> None:
+        self.logger.debug(f'complete at {self.gamestate.timestamp}')
+        self.ship.apply_force(ZERO_VECTOR, False)
+        self.ship.apply_torque(0., False)
+
     @property
     def collision_cbdr(self) -> bool: return self.neighbor_analyzer.get_collision_cbdr()
     @property

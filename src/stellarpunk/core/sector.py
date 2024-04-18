@@ -45,6 +45,9 @@ class AbstractSensorImage:
     def velocity(self) -> npt.NDArray[np.float64]:
         """ Predicted velocity of the image """
         ...
+    @property
+    @abc.abstractmethod
+    def profile(self) -> float: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
         """ False iff we saw the target destroyed or leaving the sector """
@@ -73,6 +76,9 @@ class AbstractSensorImage:
 class AbstractSensorSettings:
     @property
     @abc.abstractmethod
+    def max_sensor_power(self) -> float: ...
+    @property
+    @abc.abstractmethod
     def sensor_power(self) -> float: ...
     @property
     @abc.abstractmethod
@@ -84,7 +90,10 @@ class AbstractSensorSettings:
     @abc.abstractmethod
     def effective_thrust(self) -> float: ...
     @abc.abstractmethod
-    def effective_threshold(self) -> float: ...
+    def effective_threshold(self, sensor_power:Optional[float]=None) -> float: ...
+    @property
+    @abc.abstractmethod
+    def max_threshold(self) -> float: ...
     @abc.abstractmethod
     def set_sensors(self, ratio:float) -> None: ...
     @abc.abstractmethod
@@ -120,6 +129,12 @@ class AbstractSensorManager:
     def sensor_ranges(self, ship:SectorEntity) -> Tuple[float, float, float]: ...
     @abc.abstractmethod
     def profile_ranges(self, ship:SectorEntity) -> Tuple[float, float]: ...
+
+    @abc.abstractmethod
+    def compute_thrust_for_profile(self, ship:SectorEntity, distance_sq:float, profile:float) -> float: ...
+    @abc.abstractmethod
+    def compute_thrust_for_sensor_power(self, ship:SectorEntity, distance_sq:float, sensor_power:float) -> float: ...
+
 
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
