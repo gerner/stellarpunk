@@ -36,6 +36,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._velocity = ZERO_VECTOR
         self._is_active = True
 
+        self._loc_bias = np.array((0.0, 0.0))
+        self._velocity_bias = np.array((0.0, 0.0))
+        self._last_bias_update_ts = 0
+
     def __str__(self) -> str:
         return f'{self._target_short_id} detected by {self._detector_short_id} {self.age}s old'
 
@@ -257,6 +261,11 @@ class SensorManager(core.AbstractSensorManager):
 
     def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
         for hit in self.sector.spatial_query(bbox):
+            if self.detected(hit, detector):
+                yield hit
+
+    def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.SectorEntity]:
+        for hit in self.sector.spatial_point(point, max_dist):
             if self.detected(hit, detector):
                 yield hit
 

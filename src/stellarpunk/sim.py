@@ -268,7 +268,6 @@ class Simulator(core.AbstractGameRuntime):
 
         self._tick_space(dt)
         self._tick_collisions(dt)
-        self._tick_destroy(dt)
 
         # at this point all physics sim is done for the tick and the gamestate
         # is up to date across the universe
@@ -287,6 +286,7 @@ class Simulator(core.AbstractGameRuntime):
         self.gamestate.timestamp += dt
 
         self._tick_record(dt)
+        self._tick_destroy(dt)
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.time_accel_rate, self.fast_mode

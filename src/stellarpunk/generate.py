@@ -202,6 +202,9 @@ class UniverseGenerator(core.AbstractGenerator):
         self.num_projectile_spawn_locs = 100
         self.projectile_spawn_pattern:List[npt.NDArray[np.float64]] = []
 
+        self.habitable_sectors:List[core.Sector] = []
+        self.non_habitable_sectors:List[core.Sector] = []
+
     def _random_bipartite_graph(
             self,
             n:int, m:int, k:int,
@@ -294,12 +297,24 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return adj_matrix
 
-    def gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None)->npt.NDArray[np.float64]:
+    def gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False, min_dist:float=0.)->npt.NDArray[np.float64]:
         if radius is None:
             radius = sector.radius
-        loc = self.r.normal(0, 1, 2) * radius + center
-        while occupied_radius >= 0. and sector.is_occupied(loc[0], loc[1], eps=occupied_radius):
-            loc = self.r.normal(0, 1, 2) * radius + center
+        if min_dist >= radius:
+            raise ValueError(f'{min_dist=} must be < {radius=}')
+        center = np.array(center)
+
+        if strict:
+            r:npt.NDArray[np.float64] = util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2. - 1. # type: ignore
+        else:
+            r = self.r.normal(0, 1, 2)
+        loc = r * radius + center
+        while (occupied_radius >= 0. and sector.is_occupied(loc[0], loc[1], eps=occupied_radius)) or util.distance(loc, center) < min_dist:
+            if strict:
+                r = util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2. - 1. # type:ignore
+            else:
+                r = self.r.normal(0, 1, 2)
+            loc = r * radius + center
 
         return loc
 
@@ -492,11 +507,11 @@ class UniverseGenerator(core.AbstractGenerator):
             #    self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
     def _prepare_projectile_spawn_pattern(self) -> None:
-        radius = 2
+        radius = 5
         for i in range(self.num_projectile_spawn_locs):
-            loc = self.r.normal(0, 1, 2) * radius
+            loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
             while is_occupied(loc, self.projectile_spawn_pattern, 0.5):
-                loc = self.r.normal(0, 1, 2) * radius
+                loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
             self.projectile_spawn_pattern.append(loc)
 
     def initialize(self, starfield_composite:bool=True) -> None:
@@ -1505,7 +1520,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # implies a bigger population
         for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
             # mypy thinks idx is an int
-            self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            self.habitable_sectors.append(sector)
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
@@ -1521,6 +1537,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
             # mypy thinks idx is an int
             self.gamestate.add_sector(sector, idx[0]) # type: ignore
+
+            self.non_habitable_sectors.append(sector)
 
         # set up connectivity between sectors
         distances = distance.squareform(distance.pdist(sector_coords))
@@ -1638,7 +1656,6 @@ class UniverseGenerator(core.AbstractGenerator):
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
 
-        self.gamestate.player.character = player_character
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
@@ -1659,6 +1676,32 @@ class UniverseGenerator(core.AbstractGenerator):
         self.logger.info(f'tutorial guy is {refinery.captain.short_id()} in {refinery.captain.location.address_str()} {refinery.captain.name}')
         self.logger.info(f'refinery is {refinery.address_str()} {refinery.name}')
         self.logger.info(f'asteroid is {asteroid.address_str()} {asteroid.name}')
+
+    def generate_player_for_combat_test(self) -> None:
+        # choose an uninhabited sector
+        sector = self.r.choice(self.non_habitable_sectors, 1)[0] # type: ignore
+
+        # spawn the player, character, ship, etc.
+        ship_loc = np.array((0., 0.))
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
+
+        self.gamestate.player = self.spawn_player(ship, balance=2e3)
+        player_character = self.gamestate.player.character
+
+        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
+
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
+
+        # spawn an NPC ship/character with orders to attack the player
+        threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=4e5, occupied_radius=5e2, min_dist=3e5, strict=True)
+        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
+        character = self.spawn_character(threat)
+        character.take_ownership(threat)
+        character.add_agendum(agenda.CaptainAgendum(threat, character, self.gamestate, enable_threat_response=False))
+
+        order = combat.HuntOrder(ship.entity_id, threat, self.gamestate, start_loc=ship.loc)
+        threat.clear_orders(self.gamestate)
+        threat.prepend_order(order)
 
     def generate_starfields(self) -> None:
         self.logger.info(f'generating universe_starfield...')
@@ -1705,7 +1748,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        self.generate_player()
+        #self.generate_player()
+        self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

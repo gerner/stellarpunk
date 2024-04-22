@@ -124,6 +124,9 @@ class AbstractSensorManager:
         return self.sector.spatial_query(bbox)
 
     @abc.abstractmethod
+    def spatial_point(self, detector:SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
+
+    @abc.abstractmethod
     def target(self, target:SectorEntity, detector:SectorEntity) -> AbstractSensorImage: ...
     @abc.abstractmethod
     def sensor_ranges(self, ship:SectorEntity) -> Tuple[float, float, float]: ...

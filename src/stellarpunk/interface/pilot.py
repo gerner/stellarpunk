@@ -6,7 +6,9 @@ Sits within a sector view.
 import math
 import curses
 import enum
-from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict
+import collections
+import uuid
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping
 
 import numpy as np
 import cymunk # type: ignore
@@ -263,6 +265,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         self.starfield = starfield.Starfield(self.gamestate.sector_starfield, self.perspective)
 
+        self.targeted_notification_backoff = 30.
+        self.targeted_ts:MutableMapping[uuid.UUID, float] = collections.defaultdict(lambda: -self.targeted_notification_backoff)
+
     def open_station_view(self, dock_station: core.Station) -> None:
         # TODO: make sure we're within docking range?
         station_view = v_station.StationView(dock_station, self.ship, self.interface)
@@ -408,6 +413,13 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         if to_sector != self.sector:
             self._select_target(None)
             self.interface.log_message("target left the sector")
+
+    def entity_targeted(self, entity:core.SectorEntity, threat:core.SectorEntity) -> None:
+        if entity == self.ship:
+            if self.gamestate.timestamp - self.targeted_ts[threat.entity_id] > self.targeted_notification_backoff:
+                self.interface.log_message(f'you have been targed by {threat}')
+            self.targeted_ts[threat.entity_id] = self.gamestate.timestamp
+
 
     def _clear_control_order(self, order: core.Order) -> None:
         self.logger.debug("clearing pilot control order")

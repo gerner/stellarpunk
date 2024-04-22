@@ -50,7 +50,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     @staticmethod
     def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[SectorEntity]=None) -> core.Missile:
         assert ship.sector
-        loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius)
+        loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius, strict=True)
         v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity
         new_entity = gamestate.generator.spawn_sector_entity(core.Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
         assert isinstance(new_entity, core.Missile)
@@ -93,8 +93,11 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self._complete()
 
     def is_complete(self) -> bool:
-        return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time
+        return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time or not self.target.is_active()
+
     def collision(self, missile:SectorEntity, target:SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
+        #if self.ship.firer == target:
+        #    raise Exception()
         assert missile == self.ship
         if target.entity_id == self.target.target_entity_id:
             self.logger.debug(f'missile hit desired target {target} impulse: {impulse} ke: {ke}!')
@@ -203,6 +206,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
         rel_bearing = util.normalize_angle(util.bearing(self.ship.loc, self.target.loc) - self.ship.angle, shortest=True)
         missile = MissileOrder.spawn_missile(self.ship, self.gamestate, target_image=self.target, owner=self.ship)
         self.logger.debug(f'firing missile {missile} at distance {util.distance(self.ship.loc, self.target.loc)}m {rel_bearing=} with ptr {self.target.profile / self.ship.sensor_settings.max_threshold}')
+
+        assert util.distance(missile.loc, self.target.loc) < util.distance(self.ship.loc, self.target.loc)
         self.missiles_fired += 1
         self.last_fire_ts = self.gamestate.timestamp
 
@@ -350,7 +355,6 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             raise ValueError(f'got unexpected entity {entity}')
 
     def collision(self, projectile:core.SectorEntity, target:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
-
         self.logger.debug(f'point defense from {self.craft} hit {target} with {projectile} at distance {util.distance(self.craft.loc, target.loc)}m age {self.gamestate.timestamp - projectile.created_at}s')
 
         self.gamestate.destroy_entity(target)
@@ -396,6 +400,47 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         self.last_shot_ts = core.Gamestate.gamestate.timestamp
         self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 1/10., self)
 
+class HuntOrder(core.Order):
+    def __init__(self, target_id:uuid.UUID, *args:Any, start_loc:Optional[npt.NDArray[np.float64]], **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.target_id = target_id
+        if start_loc is None:
+            self.start_loc = self.ship.loc
+        else:
+            self.start_loc = start_loc
+
+        self.ttl_order_time = 5.
+
+    def _ttl_order(self, order:core.Order, ttl:Optional[float]=None) -> None:
+        if ttl is None:
+            ttl = self.ttl_order_time
+        TimedOrderTask.ttl_order(order, ttl)
+        self._add_child(order)
+
+    def _scan_target(self) -> Optional[core.SectorEntity]:
+        assert self.ship.sector
+        # note: the model is that this ship doesn't know if the target is in
+        # sector or not. we're reaching inside sector.entities for convenience
+        if self.target_id in self.ship.sector.entities:
+            target = self.ship.sector.entities[self.target_id]
+            if self.ship.sector.sensor_manager.detected(target, self.ship):
+                return target
+        return None
+
+    def act(self, dt:float) -> None:
+        # alternate between traveling to a search point and scanning for the
+        # target
+        target = self._scan_target()
+        if target:
+            self.attack_order = AttackOrder(target, self.ship, self.gamestate)
+            self._add_child(self.attack_order)
+            return
+        else:
+            # choose a search location
+            loc = self.start_loc
+            # go there for a bit
+            self._ttl_order(movement.GoToLocation(loc, self.ship, self.gamestate))
+
 class FleeOrder(core.Order, core.SectorEntityObserver):
     """ Keeps track of threats and flees from them until "safe" """
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -410,6 +455,7 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         self.point_defense_count = 0
 
         self.last_target_ts = 0.
+        self.max_thrust = self.ship.max_thrust
 
     def _ttl_order(self, order:core.Order) -> None:
         TimedOrderTask.ttl_order(order, self.ttl_order_time)
@@ -491,17 +537,23 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         # ideally we'd choose a thrust that keeps us hidden under active
         # sensors but at least we should choose a thrust that requires active
         # sensors
-        max_thrust = self.ship.max_thrust
+        max_active_thrust = self.ship.max_thrust
+        max_passive_thrust = self.ship.max_thrust
         for threat in self.threats:
             dist_sq = util.distance_sq(self.ship.loc, threat.loc)
             active_threshold_thrust = self.ship.sector.sensor_manager.compute_thrust_for_profile(self.ship, dist_sq, self.ship.sensor_settings.effective_threshold(self.ship.sensor_settings.max_sensor_power))
             passive_threshold_thrust = self.ship.sector.sensor_manager.compute_thrust_for_sensor_power(self.ship, dist_sq, 0.0)
-            if active_threshold_thrust > 0 and active_threshold_thrust < max_thrust:
-                max_thrust = active_threshold_thrust * 0.8
-            elif passive_threshold_thrust > 0 and passive_threshold_thrust < max_thrust:
-                max_thrust = passive_threshold_thrust * 0.8
+            if active_threshold_thrust < max_active_thrust:
+                max_active_thrust = active_threshold_thrust
+            if passive_threshold_thrust < max_passive_thrust:
+                max_passive_thrust = passive_threshold_thrust
 
-        return max_thrust
+        if max_active_thrust > 0.:
+            return max_active_thrust * 0.8
+        elif max_passive_thrust > 0.:
+            return max_passive_thrust * 0.8
+        else:
+            return self.ship.max_thrust
 
     def act(self, dt:float) -> None:
         self.logger.debug(f'act at {self.gamestate.timestamp}')
@@ -524,5 +576,5 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         #TODO: better logic on how to evade all the threats simultaneously
         # evade closest threat
 
-        max_thrust = self._choose_thrust()
-        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.closest_threat, max_thrust=max_thrust))
+        self.max_thrust = self._choose_thrust()
+        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.closest_threat, max_thrust=self.max_thrust))
