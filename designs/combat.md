@@ -91,6 +91,20 @@ active craft has 100x the profile of a passive stationary one. Turning on the
 transponder increases the profile 1000x over a passive stationary craft and can
 almost always be seen in the sector.
 
+### Sensor Noise
+
+Model noise as a bias in our sensor readings: location and velocity. The
+magnitude of this bias increases with decreasing sensor fidelity. The bias also
+drifts over time. We can model this by recomputing the bias every time a sensor
+reading is updated and mixing the new reading with the old one weighting the
+new bias more with increasing time between measurements.
+
+```
+coeff = -param / (x+param) + 1
+effective_bias = coeff * new_bias + (1-coeff) old_bias
+```
+
+
 ## Engaging Combat
 
 If a craft launches an attack on a target, the target should respond

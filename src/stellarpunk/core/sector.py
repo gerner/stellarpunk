@@ -103,6 +103,9 @@ class AbstractSensorSettings:
     @property
     @abc.abstractmethod
     def thrust_seconds(self) -> float: ...
+    @property
+    @abc.abstractmethod
+    def ignore_bias(self) -> bool: ...
 
 class AbstractSensorManager:
     def __init__(self, sector:"Sector"):

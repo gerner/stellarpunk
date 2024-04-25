@@ -2,11 +2,14 @@
 
 from typing import Tuple, Iterator, Optional, Any, Union
 import uuid
+import logging
 
 import numpy.typing as npt
 import numpy as np
 
 from stellarpunk import core, config, util
+
+logger = logging.getLogger(__name__)
 
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
@@ -36,9 +39,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._velocity = ZERO_VECTOR
         self._is_active = True
 
+        # models noise in the sensors
         self._loc_bias = np.array((0.0, 0.0))
         self._velocity_bias = np.array((0.0, 0.0))
-        self._last_bias_update_ts = 0
+        self._last_bias_update_ts = -np.inf
 
     def __str__(self) -> str:
         return f'{self._target_short_id} detected by {self._detector_short_id} {self.age}s old'
@@ -59,7 +63,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             self._target = None
             if self._ship:
                 self._ship.unobserve(self)
-            self._ship = None
         elif entity == self._ship:
             if self._target:
                 self._target.unobserve(self)
@@ -80,7 +83,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._target.unobserve(self)
                 self._target = None
             self._ship.unobserve(self)
-            self._ship = None
         else:
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
@@ -101,7 +103,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def loc(self) -> npt.NDArray[np.float64]:
-        return self._loc + self._velocity * (core.Gamestate.gamestate.timestamp - self._last_update)
+        assert self._ship
+        if self._ship.sensor_settings.ignore_bias:
+            return (self._loc) + (self._velocity) * (core.Gamestate.gamestate.timestamp - self._last_update)
+        else:
+            return (self._loc + self._loc_bias) + (self._velocity + self._velocity_bias) * (core.Gamestate.gamestate.timestamp - self._last_update)
 
     @property
     def profile(self) -> float:
@@ -109,14 +115,35 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def velocity(self) -> npt.NDArray[np.float64]:
-        return self._velocity
+        assert self._ship
+        if self._ship.sensor_settings.ignore_bias:
+            return self._velocity
+        else:
+            return self._velocity + self._velocity_bias
 
     def is_active(self) -> bool:
         return self._is_active
 
+    def _update_bias(self) -> None:
+        # update bias noise
+        loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
+        new_loc_bias = self._sensor_manager.mix_bias(loc_bias, self._loc_bias, self._last_bias_update_ts)
+        new_velocity_bias = self._sensor_manager.mix_bias(velocity_bias, self._velocity_bias, self._last_bias_update_ts)
+
+        logger.debug(f'updating bias {self._loc_bias=} -> {new_loc_bias}, {self._velocity_bias=} -> {new_velocity_bias} after {core.Gamestate.gamestate.timestamp-self._last_bias_update_ts}s')
+
+        self._loc_bias = new_loc_bias
+        self._velocity_bias = new_velocity_bias
+        self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
+
+
+
     def update(self) -> bool:
         if self._target and self._ship:
+            # update sensor reading if possible
             if self._sensor_manager.detected(self._target, self._ship):
+                self._update_bias()
+
                 self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
                 self._last_update = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
@@ -141,6 +168,13 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         image._loc = self._loc
         image._velocity = self._velocity
         image._is_active = self._is_active
+
+        image._loc_bias = self._loc_bias
+        image._velocity_bias = self._velocity_bias
+        image._last_bias_update_ts = self._last_bias_update_ts
+
+        assert image._ship
+
         return image
 
 class SensorSettings(core.AbstractSensorSettings):
@@ -159,6 +193,8 @@ class SensorSettings(core.AbstractSensorSettings):
         self._last_thrust_ts = 0.
 
         self._thrust_seconds = 0.
+
+        self._ignore_bias = False
 
     @property
     def max_sensor_power(self) -> float:
@@ -225,6 +261,10 @@ class SensorSettings(core.AbstractSensorSettings):
     def thrust_seconds(self) -> float:
         return self._thrust_seconds
 
+    @property
+    def ignore_bias(self) -> bool:
+        return self._ignore_bias
+
 
 class SensorManager(core.AbstractSensorManager):
     """ Models sensors for a sector """
@@ -268,6 +308,31 @@ class SensorManager(core.AbstractSensorManager):
         for hit in self.sector.spatial_point(point, max_dist):
             if self.detected(hit, detector):
                 yield hit
+
+    def bias_pair(self, target:core.SectorEntity, detector:core.SectorEntity) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        ptr = self.compute_target_profile(target, detector) / self.compute_effective_threshold(detector)
+        assert ptr >= 1.
+
+        rands:Sequence[float] = util.peaked_bounded_random(core.Gamestate.gamestate.random, 0.75, 0.1, 2) # type:ignore
+        loc_mag = rands[0] / ptr * config.Settings.sensors.COEFF_BIAS_LOC
+        velocity_mag = rands[1] / ptr * config.Settings.sensors.COEFF_BIAS_VELOCITY
+
+        loc_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
+        loc_bias = loc_bias / util.magnitude(*loc_bias) * loc_mag
+        velocity_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
+        velocity_bias = velocity_bias / util.magnitude(*velocity_bias) * velocity_mag
+
+        return (loc_bias, velocity_bias)
+
+    def mix_bias(self, new_bias:npt.NDArray[np.float64], old_bias:npt.NDArray[np.float64], last_ts:float) -> npt.NDArray[np.float64]:
+        # coeff ranges from 0 to 1, expoentially decaying to 1 with increasing
+        # time since the last bias update
+        # the parameter controls how slowly we hit 1, larger values use the old
+        # bias for longer
+        # coeff = -param / (x+param) + 1
+        #coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX/(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) + 1
+        coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX ** -(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) +1
+        return coeff * new_bias + (1. - coeff) * old_bias
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity) -> core.AbstractSensorImage:
         if not self.detected(target, detector):

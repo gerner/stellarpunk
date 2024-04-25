@@ -140,7 +140,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
         self.last_fire_ts = -3600.
         #TODO: fire period is a temporary hack to limit firing
-        self.fire_period = 5.
+        self.fire_period = 15.
         self.missiles_fired = 0
 
     def __str__(self) -> str:
@@ -404,6 +404,7 @@ class HuntOrder(core.Order):
     def __init__(self, target_id:uuid.UUID, *args:Any, start_loc:Optional[npt.NDArray[np.float64]], **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.target_id = target_id
+        self.attack_order:Optional[AttackOrder] = None
         if start_loc is None:
             self.start_loc = self.ship.loc
         else:
@@ -427,6 +428,8 @@ class HuntOrder(core.Order):
                 return target
         return None
 
+    #TODO: is_complete?
+
     def act(self, dt:float) -> None:
         # alternate between traveling to a search point and scanning for the
         # target
@@ -434,7 +437,6 @@ class HuntOrder(core.Order):
         if target:
             self.attack_order = AttackOrder(target, self.ship, self.gamestate)
             self._add_child(self.attack_order)
-            return
         else:
             # choose a search location
             loc = self.start_loc
