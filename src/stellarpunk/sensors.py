@@ -126,6 +126,8 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     def _update_bias(self) -> None:
         # update bias noise
+        assert self._target
+        assert self._ship
         loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
         new_loc_bias = self._sensor_manager.mix_bias(loc_bias, self._loc_bias, self._last_bias_update_ts)
         new_velocity_bias = self._sensor_manager.mix_bias(velocity_bias, self._velocity_bias, self._last_bias_update_ts)

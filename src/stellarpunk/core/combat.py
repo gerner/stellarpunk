@@ -1,7 +1,8 @@
 """ Combat """
 
+import logging
 import enum
-from typing import Optional, Tuple, Any, Set, List, Deque
+from typing import Optional, Tuple, Any, Set, List, Deque, Iterator
 import collections
 import math
 import uuid
@@ -43,6 +44,73 @@ def is_hostile(craft:core.SectorEntity, threat:core.SectorEntity) -> bool:
         hostile = True
     # is it otherwise operating in a hostile manner (e.g. firing weapons)
     return hostile
+
+class ThreatTracker(core.SectorEntityObserver):
+    def __init__(self, craft:core.SectorEntity, threat_ttl:float=120.) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
+        self.craft:core.SectorEntity = craft
+        self.threats:Set[core.AbstractSensorImage] = set()
+        self.threat_ids:Set[uuid.UUID] = set()
+        self.last_target_ts = -np.inf
+        self.closest_threat:Optional[core.AbstractSensorImage] = None
+
+        self.threat_ttl = threat_ttl
+
+    def __len__(self) -> int:
+        return len(self.threats)
+
+    def __iter__(self) -> Iterator[core.AbstractSensorImage]:
+        for x in self.threats:
+            yield x
+
+    def start_tracking(self) -> None:
+        self.craft.observe(self)
+        self.last_target_ts = -np.inf
+
+    def stop_tracking(self) -> None:
+        self.craft.unobserve(self)
+
+    def add_threat(self, threat:core.AbstractSensorImage) -> None:
+        if threat.target_entity_id in self.threat_ids:
+            return
+        self.logger.debug(f'adding threat {threat}')
+        self.threats.add(threat)
+        self.threat_ids.add(threat.target_entity_id)
+
+    def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
+        assert craft == self.craft
+        assert self.craft.sector
+        if threat.entity_id in self.threat_ids:
+            self.last_target_ts = core.Gamestate.gamestate.timestamp
+            return
+
+        # no need to worry about non-hostile threats
+        if not is_hostile(self.craft, threat):
+            return
+
+        self.last_target_ts = core.Gamestate.gamestate.timestamp
+        self.add_threat(self.craft.sector.sensor_manager.target(threat, self.craft))
+
+    def update_threats(self) -> Optional[core.AbstractSensorImage]:
+        # first remove eliminated/expired threats
+        closest_dist = np.inf
+        self.closest_threat = None
+        dead_threats:List[core.AbstractSensorImage] = []
+        for t in self.threats:
+            t.update()
+            if not t.is_active() or t.age > self.threat_ttl:
+                self.logger.debug(f'dropping threat {t}')
+                dead_threats.append(t)
+            else:
+                dist = util.distance(t.loc, self.craft.loc)
+                if dist < closest_dist:
+                    self.closest_threat = t
+                    closest_dist = dist
+        for t in dead_threats:
+            self.threats.remove(t)
+            self.threat_ids.remove(t.target_entity_id)
+
+        return self.closest_threat
 
 class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
@@ -291,18 +359,26 @@ class AttackOrder(movement.AbstractSteeringOrder):
             raise ValueError(f'unknown attack order state {self.state}')
 
 class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionObserver):
-    def __init__(self, craft:core.SectorEntity, target:core.AbstractSensorImage, *args:Any, **kwargs:Any) -> None:
+    class State(enum.Enum):
+        IDLE = enum.auto()
+        ACTIVE = enum.auto()
+
+    def __init__(self, craft:core.SectorEntity, *args:Any, threat_tracker:Optional[ThreatTracker]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.craft = craft
-        self.heading = self.craft.angle
+        if threat_tracker is None:
+            self.threat_tracker = ThreatTracker(craft)
+            self.own_tracker = True
+        else:
+            self.threat_tracker = threat_tracker
+            self.own_tracker = False
         # phalanx has rof of 4500/min = 75/sec, muzzle velocity of 1100 m/s
         self.rof:float = 100.
         self.muzzle_velocity = 3000.
-        self.projectile_ttl = 3.0
-        self.target_max_age = 120.
+        self.projectile_ttl = 5.0
         self.dispersion_angle = 0.0083
-        self.target:core.AbstractSensorImage = target
 
+        self.state = PointDefenseEffect.State.IDLE
         self.last_shot_ts = 0.
         self.projectiles:Deque[cymunk.shape] = collections.deque()
         self.projectiles_fired = 0
@@ -315,26 +391,20 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             core.Gamestate.gamestate.destroy_entity(p)
 
     def _begin(self) -> None:
-        self.last_shot_ts = core.Gamestate.gamestate.timestamp
+        if self.own_tracker:
+            self.threat_tracker.start_tracking()
+        self.state = PointDefenseEffect.State.IDLE
         self.craft.observe(self)
         self.gamestate.schedule_effect_immediate(self, jitter=0.1)
 
     def _complete(self) -> None:
+        if self.own_tracker:
+            self.threat_tracker.stop_tracking()
         self._expire_projectiles()
+        self.craft.unobserve(self)
 
     def _cancel(self) -> None:
         self._complete()
-
-    def is_complete(self) -> bool:
-        if self.completed_at > 0.:
-            return True
-        if not self.target.is_active():
-            self.logger.debug(f'threat {self.target.target_short_id()} no longer active')
-            return True
-        if self.target.age > self.target_max_age:
-            self.logger.debug(f'lost threat {self.target.target_short_id()} after {self.target.age}s')
-            return True
-        return False
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if isinstance(entity, core.Projectile):
@@ -365,10 +435,22 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         return (0., 0., 0., 0.)
 
     def act(self, dt:float) -> None:
-        self.target.update()
         if self.is_complete():
             self.logger.debug(f'point defense is complete')
             self.cancel_effect()
+            return
+
+        if self.own_tracker:
+            self.threat_tracker.update_threats()
+        target = self.threat_tracker.closest_threat
+        if target is None:
+            self.state = PointDefenseEffect.State.IDLE
+            self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 5., self)
+            return
+        if self.state == PointDefenseEffect.State.IDLE:
+            self.state = PointDefenseEffect.State.ACTIVE
+            self.last_shot_ts = core.Gamestate.gamestate.timestamp
+            self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 1/10., self)
             return
 
         # kill old projectiles
@@ -377,7 +459,8 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
 
         # aim point defense
         #TODO: what if there's another target that is likely to be hit by PD?
-        intercept_time, intercept_loc, intercept_angle = collision.find_intercept_heading(cymunk.Vec2d(self.craft.loc), cymunk.Vec2d(self.craft.velocity), cymunk.Vec2d(self.target.loc), cymunk.Vec2d(self.target.velocity), self.muzzle_velocity)
+        # (e.g. station between us and a missile
+        intercept_time, intercept_loc, intercept_angle = collision.find_intercept_heading(cymunk.Vec2d(self.craft.loc), cymunk.Vec2d(self.craft.velocity), cymunk.Vec2d(target.loc), cymunk.Vec2d(target.velocity), self.muzzle_velocity)
 
         if intercept_time > 0 and intercept_time < self.projectile_ttl:
             # add some projectiles at rof
@@ -447,14 +530,12 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
     """ Keeps track of threats and flees from them until "safe" """
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.threats:Set[core.AbstractSensorImage] = set()
-        self.closest_threat:Optional[core.AbstractSensorImage] = None
-        self.threat_ids:Set[uuid.UUID] = set()
-        self.threat_ttl = 120.
         self.ttl_order_time = 5.
 
-        self.point_defense:Optional[PointDefenseEffect] = None
-        self.point_defense_count = 0
+        self.threat_tracker = ThreatTracker(self.ship)
+
+        assert self.ship.sector
+        self.point_defense = PointDefenseEffect(self.ship, self.ship.sector, self.gamestate, threat_tracker=self.threat_tracker)
 
         self.last_target_ts = 0.
         self.max_thrust = self.ship.max_thrust
@@ -464,74 +545,32 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         self._add_child(order)
 
     def add_threat(self, threat:core.AbstractSensorImage) -> None:
-        if threat.target_entity_id in self.threat_ids:
-            return
-        self.logger.debug(f'adding threat {threat}')
-        self.threats.add(threat)
-        self.threat_ids.add(threat.target_entity_id)
-
-    def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
-        assert craft == self.ship
-        assert self.ship.sector
-        if threat.entity_id in self.threat_ids:
-            self.last_target_ts = self.gamestate.timestamp
-            return
-
-        # no need to worry about non-hostile threats
-        if not is_hostile(self.ship, threat):
-            return
-
-        self.last_target_ts = self.gamestate.timestamp
-        self.add_threat(self.ship.sector.sensor_manager.target(threat, self.ship))
+        self.threat_tracker.add_threat(threat)
 
     def _begin(self) -> None:
+        assert self.ship.sector
         self.ship.sensor_settings.set_sensors(0.0)
-        self.ship.observe(self)
-        self.last_target_ts = self.gamestate.timestamp
+        self.threat_tracker.start_tracking()
+        self.ship.sector.add_effect(self.point_defense)
 
     def _complete(self) -> None:
-        if self.point_defense:
-            self.point_defense.cancel_effect()
+        self.point_defense.cancel_effect()
         self.ship.sensor_settings.set_sensors(1.0)
-        self.ship.unobserve(self)
+        self.threat_tracker.stop_tracking()
 
     def _cancel(self) -> None:
-        if self.point_defense:
-            self.point_defense.cancel_effect()
         self.ship.sensor_settings.set_sensors(1.0)
-        self.ship.unobserve(self)
+        self.threat_tracker.stop_tracking()
 
     def is_complete(self) -> bool:
         if self.completed_at > 0:
             return True
-        elif len(self.threats) == 0:
+        elif len(self.threat_tracker) == 0:
             return True
         return False
 
-    def _find_closest_threat(self) -> Optional[core.AbstractSensorImage]:
-        # first remove eliminated/expired threats
-        closest_dist = np.inf
-        self.closest_threat = None
-        dead_threats:List[core.AbstractSensorImage] = []
-        for t in self.threats:
-            t.update()
-            if not t.is_active() or t.age > self.threat_ttl:
-                self.logger.debug(f'dropping threat {t}')
-                dead_threats.append(t)
-            else:
-                dist = util.distance(t.loc, self.ship.loc)
-                if dist < closest_dist:
-                    self.closest_threat = t
-                    closest_dist = dist
-        for t in dead_threats:
-            self.threats.remove(t)
-            self.threat_ids.remove(t.target_entity_id)
-
-        return self.closest_threat
-
     def _choose_thrust(self) -> float:
         assert self.ship.sector
-        assert self.closest_threat
         # determine thrust we want to use to evade
         # if we've got low pressure to get away fast, we want to minimize
         # thrust in order to minimize our sensor profile
@@ -541,7 +580,7 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         # sensors
         max_active_thrust = self.ship.max_thrust
         max_passive_thrust = self.ship.max_thrust
-        for threat in self.threats:
+        for threat in self.threat_tracker:
             dist_sq = util.distance_sq(self.ship.loc, threat.loc)
             active_threshold_thrust = self.ship.sector.sensor_manager.compute_thrust_for_profile(self.ship, dist_sq, self.ship.sensor_settings.effective_threshold(self.ship.sensor_settings.max_sensor_power))
             passive_threshold_thrust = self.ship.sector.sensor_manager.compute_thrust_for_sensor_power(self.ship, dist_sq, 0.0)
@@ -559,24 +598,14 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
 
     def act(self, dt:float) -> None:
         self.logger.debug(f'act at {self.gamestate.timestamp}')
-        self._find_closest_threat()
-        if self.closest_threat is None:
+        self.threat_tracker.update_threats()
+        if self.threat_tracker.closest_threat is None:
             self.logger.debug(f'no more threats, completing flee order')
             self.complete_order()
             return
-
-        # aim point defense at the closest threat
-        if not self.point_defense or self.point_defense.is_complete():
-            assert self.ship.sector
-            self.logger.debug(f'initiating point defense at {self.closest_threat}')
-            self.point_defense = PointDefenseEffect(self.ship, self.closest_threat, self.ship.sector, self.gamestate)
-            self.point_defense_count += 1
-            self.ship.sector.add_effect(self.point_defense)
-        else:
-            self.point_defense.target = self.closest_threat
 
         #TODO: better logic on how to evade all the threats simultaneously
         # evade closest threat
 
         self.max_thrust = self._choose_thrust()
-        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.closest_threat, max_thrust=self.max_thrust))
+        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.threat_tracker.closest_threat, max_thrust=self.max_thrust))

@@ -175,7 +175,12 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
 
     assert attacker not in set(functools.reduce(lambda x, y: x + [y[0], y[1]], testui.collisions, list()))
 
+    assert len(testui.orders) == 2
+    flee_order = testui.orders[1]
+    assert isinstance(flee_order, combat.FleeOrder)
+
     logging.info(f'{attacker.sector=} {defender.sector=} in {gamestate.timestamp}s')
     logging.info(f'target avg age: {age_sum/attack_ticks}s avg dist: {util.human_distance(dist_sum/ticks_fleeing)}')
     logging.info(f'missiles fired: {attack_order.missiles_fired}')
+    logging.info(f'threats destroyed: {flee_order.point_defense.targets_destroyed}')
 

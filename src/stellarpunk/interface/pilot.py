@@ -268,6 +268,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.targeted_notification_backoff = 30.
         self.targeted_ts:MutableMapping[uuid.UUID, float] = collections.defaultdict(lambda: -self.targeted_notification_backoff)
 
+        self.point_defense:Optional[combat.PointDefenseEffect] = None
+
     def open_station_view(self, dock_station: core.Station) -> None:
         # TODO: make sure we're within docking range?
         station_view = v_station.StationView(dock_station, self.ship, self.interface)
@@ -383,6 +385,15 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             else:
                 raise command_input.UserError("not targeting")
 
+        def toggle_point_defense(args:Sequence[str]) -> None:
+            assert self.ship.sector
+            if self.point_defense is None:
+                self.point_defense = combat.PointDefenseEffect(self.ship, self.ship.sector, self.gamestate)
+                self.ship.sector.add_effect(self.point_defense)
+            else:
+                self.point_defense.cancel_effect()
+                self.point_defense = None
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
@@ -397,6 +408,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("toggle_sensor_cone", toggle_sensor_cone),
             self.bind_command("toggle_sensors", toggle_sensors),
             self.bind_command("toggle_transponder", toggle_transponder),
+            self.bind_command("point_defense", toggle_point_defense),
             self.bind_command("cache_stats", cache_stats),
             self.bind_command("target_image", target_image),
         ]
@@ -888,6 +900,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.selected_entity.unobserve(self)
         if self.control_order:
             self.control_order.cancel_order()
+        if self.point_defense:
+            self.point_defense.cancel_effect()
 
     def focus(self) -> None:
         super().focus()
