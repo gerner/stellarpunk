@@ -8,7 +8,7 @@ from libcpp.list cimport list
 from libcpp.queue cimport priority_queue
 from libcpp cimport bool
 from libc.stdlib cimport malloc
-from libc.stdio cimport fprintf, fflush, stderr, stdout
+from libc.stdio cimport FILE, fopen, fclose, fprintf, fflush, stderr, stdout
 from libc.math cimport fabs, sqrt, pi, isnan, isinf, atan2
 import math as pymath
 
@@ -964,7 +964,7 @@ cdef class Navigator:
         locs = []
         for shape_id in self.prior_threat_ids:
             shape = self.space._shapes.get(shape_id)
-            if shape_id is not None:
+            if shape is not None:
                 # we strongly assume that all values in space._shape are Shapes
                 cyshape = <ccymunk.Shape> shape
                 locs.append((cyshape._shape.body.p.x, cyshape._shape.body.p.y))
