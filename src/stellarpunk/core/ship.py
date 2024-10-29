@@ -16,6 +16,17 @@ from .character import Asset
 if TYPE_CHECKING:
     from .gamestate import Gamestate
 
+class PointDefenseSettings:
+    def __init__(self) -> None:
+        self.rof:float = 0.
+        self.muzzle_velocity:float = 0.
+        self.dispersion_angle:float = 0.
+        self.projectile_ttl:float = 0.
+        self.target_max_age:float = 0.
+        self.fire_arc:float = 0.
+        self.max_angular_velocity:float = 0.
+
+        self.heading:float = 0.
 
 class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
@@ -39,6 +50,11 @@ class Ship(SectorEntity, Asset):
         self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: Order(ship, gamestate)
 
         self.collision_threat: Optional[SectorEntity] = None
+
+        self.transponder_on = False#True
+
+    def _destroy(self) -> None:
+        self._clear_orders()
 
     def get_history(self) -> Sequence[HistoryEntry]:
         return self.history
@@ -68,6 +84,7 @@ class Ship(SectorEntity, Asset):
 
     def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
         self.phys.force = cymunk.vec2d.Vec2d(*force)
+        self.sensor_settings.set_thrust(self.phys.force.length)
 
     def apply_torque(self, torque: float, persistent:bool) -> None:
         self.phys.torque = torque
@@ -111,9 +128,12 @@ class Ship(SectorEntity, Asset):
         if co is not None and not co.gamestate.is_order_scheduled(co):
             co.gamestate.schedule_order_immediate(co)
 
-    def clear_orders(self, gamestate:"Gamestate") -> None:
+    def _clear_orders(self) -> None:
         while self._orders:
             self._orders[0].cancel_order()
+
+    def clear_orders(self, gamestate:"Gamestate") -> None:
+        self._clear_orders()
         self.prepend_order(self.default_order(gamestate))
 
     def pop_current_order(self) -> None:
@@ -123,8 +143,27 @@ class Ship(SectorEntity, Asset):
         order = self._orders.popleft()
         order.complete_order()
 
+    def top_order(self) -> Optional[Order]:
+        current_order = self.current_order()
+        if current_order is None:
+            return None
+        while current_order.parent_order is not None:
+            current_order = current_order.parent_order
+        return current_order
+
     def current_order(self) -> Optional[Order]:
         if len(self._orders) > 0:
             return self._orders[0]
         else:
             return None
+
+class Missile(Ship):
+    id_prefix = "MSL"
+    object_type = ObjectType.MISSILE
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        # missiles don't run transponders
+        self.transponder_on = False
+        self.firer:Optional[SectorEntity] = None
+

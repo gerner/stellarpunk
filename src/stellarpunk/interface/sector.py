@@ -17,7 +17,7 @@ import numpy as np
 from stellarpunk import util, core, interface, orders, effects, config
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
-class SectorView(interface.View, interface.PerspectiveObserver):
+class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -41,7 +41,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.interface.viewscreen,
             zoom=self.sector.radius/80/2,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=25*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
+            max_zoom=25*8*config.Settings.generate.SectorEntities.ship.RADIUS/80.,
         )
         self.perspective.observe(self)
 
@@ -88,6 +88,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         if target_id == self.selected_target:
             # no-op selecting the same target
             return
+        if self.selected_entity:
+            self.selected_entity.unobserve(self)
         self.selected_target = target_id
         self.selected_entity = entity
 
@@ -95,6 +97,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         self.logger.info(f'selected target {entity}')
         if entity:
+            entity.observe(self)
             if isinstance(entity, core.Ship):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} order: {entity.current_order()}')
                 #TODO: display queued orders?
@@ -110,6 +113,16 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         if focus:
             self.focus_target()
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.selected_entity:
+            self.interface.log_message(f'target destroyed')
+            self.select_target(None, None)
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity == self.selected_entity and to_sector != self.sector:
+            self.interface.log_message(f'target left sector')
+            self.select_target(None, None)
 
     def _compute_grid(self, max_ticks:int=10) -> None:
         self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
@@ -153,6 +166,9 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
         self.presenter.draw_shapes()
         self.draw_grid()
+        if self.selected_entity:
+            self.presenter.draw_sensor_rings(self.selected_entity)
+            self.presenter.draw_profile_rings(self.selected_entity)
         self.presenter.draw_sector_map()
 
     def _draw_target_info(self) -> None:
@@ -180,6 +196,8 @@ class SectorView(interface.View, interface.PerspectiveObserver):
         #TODO: not sure we want this at all, but it's a quick way to see some character info
         if self.selected_character is None:
             return
+
+        assert self.selected_character.location
 
         info_x = 1
         info_y = 1
@@ -318,6 +336,12 @@ class SectorView(interface.View, interface.PerspectiveObserver):
 
             self.perspective.cursor = (x,y)
 
+        def show_orders(args:Sequence[str])->None:
+            if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
+                raise command_input.UserError(f'can only pilot a selected ship target')
+            for o in self.selected_entity._orders:
+                self.interface.log_message(f'{o}')
+
         return [
             self.bind_command("debug_entity", debug_entity),
             self.bind_command("debug_vectors", debug_vectors),
@@ -327,6 +351,7 @@ class SectorView(interface.View, interface.PerspectiveObserver):
             self.bind_command("spawn_ship", spawn_ship),
             self.bind_command("spawn_collision", spawn_collision),
             self.bind_command("spawn_resources", spawn_resources),
+            self.bind_command("orders", show_orders),
             self.bind_command("goto", goto),
             self.bind_command("wait", wait),
 

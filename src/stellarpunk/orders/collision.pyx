@@ -8,7 +8,7 @@ from libcpp.list cimport list
 from libcpp.queue cimport priority_queue
 from libcpp cimport bool
 from libc.stdlib cimport malloc
-from libc.stdio cimport fprintf, fflush, stderr, stdout
+from libc.stdio cimport FILE, fopen, fclose, fprintf, fflush, stderr, stdout
 from libc.math cimport fabs, sqrt, pi, isnan, isinf, atan2
 import math as pymath
 
@@ -100,6 +100,45 @@ cdef void log(ccymunk.Body body, message, eid_prefix=""):
     if LOGGING_ENABLED:
         if str(body.data.entity_id).startswith(eid_prefix):
             print(f'{body.data.entity_id}\t{message}')
+
+# modelling aspects of running a rocket engine
+cdef class RocketModel:
+    cdef double param_decay_thrust
+    cdef double last_thrust
+    cdef double last_thrust_ts
+    cdef double thrust
+    cdef double thrust_seconds
+
+    def __cinit__(self, decay_thrust:float) -> None:
+        self.param_decay_thrust = decay_thrust
+        self.last_thrust = 0.
+        self.last_thrust_ts = 0.
+        self.thrust = 0.
+        self.thrust_seconds = 0.
+
+    def get_thrust_seconds(self):
+        return self.thrust_seconds
+
+    cdef double c_effective_thrust(self, double timestamp):
+        if self.last_thrust == self.thrust:
+            return self.thrust
+        return (self.last_thrust - self.thrust) * self.param_decay_thrust ** (timestamp - self.last_thrust_ts) + self.thrust
+    def effective_thrust(self, timestamp:float) -> float:
+        return self.c_effective_thrust(timestamp)
+
+    cdef void c_set_thrust(self, double thrust, double timestamp):
+        if thrust == self._thrust:
+            return
+        cdef double decayed_thrust = self.c_effective_thrust(timestamp)
+        if thrust > decayed_thrust:
+            self.last_thrust = thrust
+        else:
+            self.last_thrust = decayed_thrust
+        self.thrust_seconds += self.thrust * (timestamp - self.last_thrust_ts)
+        self.last_thrust_ts = timestamp
+        self.thrust = thrust
+    def set_thrust(self, thrust:float, timestamp:float) -> None:
+        self.c_set_thrust(thrust, timestamp)
 
 # collision detection types
 
@@ -195,12 +234,8 @@ def cpvtoTuple(ccymunk.cpVect v):
 cdef ccymunk.cpVect tupletocpv(v):
     return ccymunk.cpv(v[0], v[1])
 
-cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpShape *shape, double margin):
+cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, const ccymunk.cpVect &entity_pos, const ccymunk.cpVect &entity_v, double margin):
     # we make the assumption that all shapes are circles here
-    cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
-    cdef double entity_radius = circle_shape.r
-    cdef ccymunk.cpVect entity_pos = shape.body.p
-    cdef ccymunk.cpVect entity_v = shape.body.v
     cdef ccymunk.cpVect rel_pos = ccymunk.cpvsub(entity_pos ,analysis.body.p)
     cdef ccymunk.cpVect rel_vel = ccymunk.cpvsub(entity_v, analysis.body.v)
 
@@ -209,19 +244,19 @@ cdef AnalyzedNeighbor _analyze_neighbor(NeighborAnalysis *analysis, ccymunk.cpSh
 
     # check for parallel paths
     if rel_speed == 0:
-        if rel_dist < margin + entity_radius:
+        if rel_dist < margin:
             # this can cause discontinuities in approach_time
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
-        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, ZERO_VECTOR, ccymunk.INFINITY)
+        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, entity_pos, ccymunk.INFINITY)
 
     cdef ccymunk.cpVect rel_tangent = ccymunk.cpvmult(rel_vel, 1. / rel_speed)
     cdef double approach_t = -1 * ccymunk.cpvdot(rel_tangent, rel_pos) / rel_speed
 
     if approach_t <= 0:
-        if rel_dist < margin + entity_radius:
+        if rel_dist < margin:
             # this can cause discontinuities in approach_time
             return AnalyzedNeighbor(rel_dist, 0., rel_pos, rel_vel, rel_dist, entity_pos, 0.)
-        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, ZERO_VECTOR, ccymunk.INFINITY)
+        return AnalyzedNeighbor(rel_dist, ccymunk.INFINITY, rel_pos, rel_vel, ccymunk.INFINITY, entity_pos, ccymunk.INFINITY)
 
     cdef double speed = ccymunk.cpvlength(analysis.body.v)
     # compute the closest approach within max_distance
@@ -254,6 +289,10 @@ cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointS
 cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     cdef NeighborAnalysis *analysis = <NeighborAnalysis *>data
 
+    # ignore projectile group
+    #if shape.group == 1:
+    #    return
+
     # ignore ourself
     if shape.body == analysis.body:
         return
@@ -265,7 +304,8 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     # keep track of shapes we've considered (we can compose multiple queries)
     analysis.considered_shapes.insert(shape.hashid_private)
 
-    cdef AnalyzedNeighbor neighbor = _analyze_neighbor(analysis, shape, analysis.ship_radius+analysis.margin)
+    cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
+    cdef AnalyzedNeighbor neighbor = _analyze_neighbor(analysis, shape.body.p, shape.body.v, analysis.ship_radius+analysis.margin + circle_shape.r)
 
     #if neighbor.rel_dist < analysis.neighborhood_radius:
     analysis.neighborhood_size += 1
@@ -280,7 +320,6 @@ cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
 
     # we need to keep track of all collision threats for coalescing later
     analysis.collision_threats.push_back(CollisionThreat(shape, neighbor.c_loc))
-    cdef cpCircleShape *circle_shape = <cpCircleShape *>shape
     cdef double entity_radius = circle_shape.r
     if neighbor.min_sep > entity_radius + analysis.ship_radius + analysis.margin:
         return
@@ -654,6 +693,48 @@ cdef double _update_collision_margin_histeresis(double collision_margin_histeres
         # if there's no overlap, start collapsing collision margin
         return collision_margin_histeresis * COLLISION_MARGIN_HISTERESIS_FACTOR
 
+cdef ccymunk.cpVect _compute_neighborhood_center(ccymunk.Body body, double neighborhood_radius, double margin):
+    cdef double speed = ccymunk.cpvlength(body._body.v)
+    cdef double neighborhood_offset
+    if speed > 0:
+        # offset looking for threats in the direction we're travelling,
+        # depending on our speed
+        neighborhood_offset = clip(
+                interpolate(
+                    NOFF_SPEED_LOW, NOFF_LOW, NOFF_SPEED_HIGH, NOFF_HIGH,
+                    speed
+                ),
+                0, neighborhood_radius - margin)
+        return ccymunk.cpvadd(body._body.p, ccymunk.cpvmult(body._body.v, neighborhood_offset / speed))
+    else:
+        return body._body.p
+
+def compute_neighborhood_center(body:cymunk.Body, neighborhood_radius:float, margin:float) -> cymunk.Vec2d:
+    return cpvtoVec2d(_compute_neighborhood_center(<ccymunk.Body?>body, neighborhood_radius, margin))
+
+cdef void _compute_sensor_cone(ccymunk.cpVect course, double neighborhood_radius, double margin, ccymunk.cpVect cneighborhood_loc, double radius, ccymunk.cpVect[4] sensor_cone):
+    # look for threats in a cone facing the direction of our velocity
+    # cone is truncated, starts at the edge of our nearest point query circle
+    # goes until another 4 neighborhood radii in direction of our velocity
+    # cone starts at margin
+    cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(course)
+    cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(course, neighborhood_radius-margin))
+    cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(course, neighborhood_radius*3))
+
+    # points are ordered to get a convex shape with the proper winding
+    sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (radius+margin*2)))
+    sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(radius+margin*2)))
+    sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (radius+margin)*5))
+    sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(radius+margin)*5))
+
+def compute_sensor_cone(course:cymunk.Vec2d, neighborhood_radius:float, margin:float, neighborhood_loc:cymunk.Vec2d, radius:float) -> Tuple[cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d]:
+    cdef ccymunk.cpVect sensor_cone[4]
+    cdef ccymunk.cpVect ccourse = (<ccymunk.Vec2d?>course).v
+    _compute_sensor_cone(ccourse, neighborhood_radius, margin, neighborhood_loc.v, radius, sensor_cone)
+    return (cpvtoVec2d(sensor_cone[0]), cpvtoVec2d(sensor_cone[1]), cpvtoVec2d(sensor_cone[2]), cpvtoVec2d(sensor_cone[3]))
+
+
+
 cdef struct RelPosHistoryEntry:
     double timestamp
     ccymunk.cpVect rel_pos
@@ -817,6 +898,12 @@ cdef class Navigator:
             "nnd": self.analysis.nearest_neighbor_dist
         }
         if self.analysis.threat_count > 0:
+            # it's possible that the collision threat got removed from the
+            # space by the time we are pulling telemtry. if so, space.shapes
+            # won't have it, so let's not prepare any collision threat
+            # telemetry in that case
+            if self.analysis.threat_shape.hashid_private not in self.space.shapes:
+                return telemetry
             telemetry.update({
                 "ct": self.space.shapes[self.analysis.threat_shape.hashid_private].body,
                 "ct_ms": self.analysis.minimum_separation,
@@ -877,7 +964,7 @@ cdef class Navigator:
         locs = []
         for shape_id in self.prior_threat_ids:
             shape = self.space._shapes.get(shape_id)
-            if shape_id is not None:
+            if shape is not None:
                 # we strongly assume that all values in space._shape are Shapes
                 cyshape = <ccymunk.Shape> shape
                 locs.append((cyshape._shape.body.p.x, cyshape._shape.body.p.y))
@@ -1064,9 +1151,31 @@ cdef class Navigator:
             delta speed between current and target
         """
 
-        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, self.max_speed, dt, safety_factor)
+        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, self.max_speed, dt, safety_factor, 0.0)
 
         return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
+
+    def analyze_neighbor(self, entity_loc:cymunk.Vec2d, entity_velocity:cymunk.Vec2d, margin:float, max_distance:float
+            ) -> Tuple[
+                    float,
+                    float,
+                    cymunk.Vec2d,
+                    cymunk.Vec2d,
+                    float,
+                    cymunk.Vec2d,
+                    float
+            ]:
+
+        cdef double cmargin = margin
+
+        cdef ccymunk.Vec2d centity_loc = <ccymunk.Vec2d?>entity_loc
+        cdef ccymunk.Vec2d centity_velocity = <ccymunk.Vec2d?>entity_velocity
+        self.analysis.max_distance = max_distance
+        self.analysis.body = self.body._body
+        cdef AnalyzedNeighbor result = _analyze_neighbor(&self.analysis, entity_loc.v, entity_velocity.v, self.analysis.ship_radius+margin)
+
+        return (result.rel_dist, result.approach_t, cpvtoVec2d(result.rel_pos), cpvtoVec2d(result.rel_vel), result.min_sep, cpvtoVec2d(result.c_loc), result.collision_distance)
+
 
     def analyze_neighbors(
             self,
@@ -1093,9 +1202,6 @@ cdef class Navigator:
 
         cdef ccymunk.cpShape *ct
         cdef ccymunk.Body cythreat_body
-        cdef double speed = ccymunk.cpvlength(self.body._body.v)
-        cdef double neighborhood_offset
-        cdef ccymunk.cpVect cneighborhood_loc
         cdef set[ccymunk.cpHashValue] prior_shapes
         cdef int prior_threat_count
         cdef ccymunk.cpHashValue prior_threat_id
@@ -1106,19 +1212,6 @@ cdef class Navigator:
 
         # and expand based on if we're trying to avoid a target
         cdef double margin = self.margin + self.collision_margin_histeresis
-
-        if speed > 0:
-            # offset looking for threats in the direction we're travelling,
-            # depending on our speed
-            neighborhood_offset = clip(
-                    interpolate(
-                        NOFF_SPEED_LOW, NOFF_LOW, NOFF_SPEED_HIGH, NOFF_HIGH,
-                        speed
-                    ),
-                    0, self.neighborhood_radius - margin)
-            cneighborhood_loc = ccymunk.cpvadd(self.body._body.p, ccymunk.cpvmult(self.body._body.v, neighborhood_offset / speed))
-        else:
-            cneighborhood_loc = self.body._body.p
 
         # stash the prior threat circle to smooth threat location transitions
         cdef ccymunk.cpVect prior_threat_location = self.analysis.threat_loc
@@ -1145,30 +1238,21 @@ cdef class Navigator:
         # start by considering prior threats
         for shape_id in self.prior_threat_ids:
             shape = self.space._shapes.get(shape_id)
-            if shape_id is not None:
-                _analyze_neighbor_callback((<ccymunk.Shape>shape)._shape, &self.analysis)
+            if shape is not None:
+                _analyze_neighbor_callback((<ccymunk.Circle>shape)._shape, &self.analysis)
 
         # grab a copy of the shape ids for prior shapes
         cdef set[ccymunk.cpHashValue] prior_shape_ids = self.analysis.considered_shapes
 
+        # construct the shape of the area we'll look for threats in
+        cdef ccymunk.cpVect cneighborhood_loc = _compute_neighborhood_center(self.body, self.neighborhood_radius, margin)
+        cdef ccymunk.cpVect course = ccymunk.cpvnormalize(self.body._body.v)
+        cdef ccymunk.cpVect sensor_cone[4]
+        _compute_sensor_cone(course, self.neighborhood_radius, margin, cneighborhood_loc, self.radius, sensor_cone)
+
         # look for threats in a circle
         ccymunk.cpSpaceNearestPointQuery(self.space._space, cneighborhood_loc, self.neighborhood_radius, 1, 0, _sensor_point_callback, &self.analysis)
 
-        # look for threats in a cone facing the direction of our velocity
-        # cone is truncated, starts at the edge of our nearest point query circle
-        # goes until another 4 neighborhood radii in direction of our velocity
-        # cone starts at margin
-        cdef ccymunk.cpVect v_normalized = ccymunk.cpvnormalize(self.body._body.v)
-        cdef ccymunk.cpVect v_perp = ccymunk.cpvperp(v_normalized)
-        cdef ccymunk.cpVect start_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, self.neighborhood_radius-margin))
-        cdef ccymunk.cpVect end_point = ccymunk.cpvadd(cneighborhood_loc, ccymunk.cpvmult(v_normalized, self.neighborhood_radius*3))
-
-        cdef ccymunk.cpVect sensor_cone[4]
-        # points are ordered to get a convex shape with the proper winding
-        sensor_cone[1] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, (self.radius+margin*2)))
-        sensor_cone[0] = ccymunk.cpvadd(start_point, ccymunk.cpvmult(v_perp, -(self.radius+margin*2)))
-        sensor_cone[2] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, (self.radius+margin)*5))
-        sensor_cone[3] = ccymunk.cpvadd(end_point, ccymunk.cpvmult(v_perp, -(self.radius+margin)*5))
 
         cdef ccymunk.cpShape *sensor_cone_shape = ccymunk.cpPolyShapeNew(NULL, 4, sensor_cone, ZERO_VECTOR)
         ccymunk.cpShapeUpdate(sensor_cone_shape, ZERO_VECTOR, ONE_VECTOR)
@@ -1396,6 +1480,8 @@ cdef struct ForceTorqueResult:
     ccymunk.cpVect force
     double torque
     double continue_time
+    double dv_mag
+    double dv_angle
 
 cdef double _rotation_time(
         double delta_angle, double angular_velocity,
@@ -1521,7 +1607,7 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     if difference_mag < VELOCITY_EPS:
         difference_angle = body.a
         if fabs(body.w) < ANGLE_EPS:
-            return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY)
+            return ForceTorqueResult(ZERO_VECTOR, 0., ccymunk.INFINITY, difference_mag, difference_angle)
 
     cdef double delta_heading = normalize_angle(body.a-difference_angle, shortest=1)
     cdef double rot_time = _rotation_time(delta_heading, body.w, max_torque/body.i)
@@ -1561,7 +1647,7 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     else:
         continue_time = min(torque_result.continue_time, force_result.continue_time)
 
-    return ForceTorqueResult(force_result.force, torque_result.torque, continue_time)
+    return ForceTorqueResult(force_result.force, torque_result.torque, continue_time, difference_mag, difference_angle)
 
 def rotate_to(
         body:cymunk.Body, target_angle:float, dt:float,
@@ -1599,7 +1685,7 @@ cdef struct DeltaVResult:
     bool cannot_stop
     double delta_speed
 
-cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_location, double arrival_distance, double min_distance, double max_acceleration, double max_angular_acceleration, double max_speed, double dt, double safety_factor):
+cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_location, double arrival_distance, double min_distance, double max_acceleration, double max_angular_acceleration, double max_speed, double dt, double safety_factor, double final_speed):
     """ Given goto location params, determine the desired velocity.
 
     returns a tuple:
@@ -1648,17 +1734,77 @@ cdef DeltaVResult _find_target_v(ccymunk.cpBody *body, ccymunk.cpVect target_loc
         if s < 0:
             s = 0
 
-        desired_speed = (-2. * a * rot_time + sqrt((2. * a  * rot_time) ** 2. + 8 * a * s))/2.
+        desired_speed = (-2. * a * rot_time + sqrt((2. * a  * rot_time) ** 2. + 8 * a * s))/2. + final_speed
         desired_speed = clip(desired_speed/safety_factor, 0, max_speed)
 
         target_v = ccymunk.cpvmult(ccymunk.cpvmult(course, 1./distance), desired_speed)
 
     return DeltaVResult(target_v, distance, distance_estimate, cannot_stop, fabs(ccymunk.cpvlength(body.v) - desired_speed))
 
+def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_radius:float, min_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, safety_factor:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]:
+    cdef ccymunk.Body cBody = <ccymunk.Body?> body
+    cdef DeltaVResult result = _find_target_v(cBody._body, target_location.v, arrival_radius, min_distance, max_acceleration, max_angular_acceleration, max_speed, dt, safety_factor, final_speed)
+
+    return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
+
+def find_intercept_v(body:cymunk.Body, target_loc:cymunk.Vec2d, target_v:cymunk.Vec2d, arrival_radius:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, cymunk.Vec2d]:
+    cdef ccymunk.Body cBody = <ccymunk.Body?> body
+    cdef ccymunk.Vec2d cTargetLoc = <ccymunk.Vec2d?> target_loc
+    cdef ccymunk.Vec2d cTargetV = <ccymunk.Vec2d?> target_v
+    cdef DeltaVResult result = _find_target_v(cBody._body, cTargetLoc.v, arrival_radius, 0.0, max_acceleration, max_angular_acceleration, max_speed, dt, 1.0, final_speed)
+
+    # crude estimate time and location of intercept for debugging/viz
+    cdef ccymunk.cpVect current_loc_diff = ccymunk.cpvsub(cBody._body.p, cTargetLoc.v)
+
+    cdef ccymunk.cpVect normalized_loc_diff = ccymunk.cpvmult(current_loc_diff, 1.0/result.distance)
+    cdef double speed_projection = cBody._body.v.x * normalized_loc_diff.x + cBody._body.v.y * normalized_loc_diff.y
+    cdef double intercept_time = (-speed_projection + sqrt(speed_projection*speed_projection - 2 * max_acceleration * (-result.distance)) ) / max_acceleration
+    cdef ccymunk.cpVect intercept_location = ccymunk.cpvadd(cTargetLoc.v, ccymunk.cpvmult(cTargetV.v, intercept_time))
+
+    return cpvtoVec2d(ccymunk.cpvadd(result.target_velocity, cTargetV.v)), result.distance, intercept_time, cpvtoVec2d(intercept_location)
+
+def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_loc:cymunk.Vec2d, target_v:cymunk.Vec2d, muzzle_velocity:float) -> Tuple[float, cymunk.Vec2d, float]:
+    cdef ccymunk.cpVect s_loc = (<ccymunk.Vec2d?>start_loc).v
+    cdef ccymunk.cpVect s_v = (<ccymunk.Vec2d?>start_v).v
+    cdef ccymunk.cpVect t_loc = (<ccymunk.Vec2d?>target_loc).v
+    cdef ccymunk.cpVect t_v = (<ccymunk.Vec2d?>target_v).v
+    cdef double muzzle_v = muzzle_velocity
+
+    cdef ccymunk.cpVect rel_pos = ccymunk.cpvsub(t_loc, s_loc)
+    cdef ccymunk.cpVect rel_vel = ccymunk.cpvsub(t_v, s_v)
+
+    # Quadratic equation coefficients a*t^2 + b*t + c = 0
+    cdef double a = ccymunk.cpvdot(rel_vel, rel_vel) - muzzle_v*muzzle_v
+    cdef double b = 2.0*ccymunk.cpvdot(rel_vel, rel_pos)
+    cdef double c = ccymunk.cpvdot(rel_pos, rel_pos)
+
+    cdef double det = b*b - 4.0*a*c
+
+    # If the determinant is negative, then there is no solution
+    if det <= 0.:
+        return (-1.0, PY_ZERO_VECTOR, 0.0);
+    cdef double intercept_a = (-b - sqrt(det)) / (2*a)
+    cdef double intercept_b = (-b + sqrt(det)) / (2*a)
+    cdef double intercept_time = 0.
+    if intercept_a < 0.:
+        intercept_time = intercept_b
+    elif intercept_b < 0.:
+        intercept_time = intercept_a
+    else:
+        intercept_time = min(intercept_a, intercept_b)
+    #cdef double intercept_time_alt = 2.0*c/(sqrt(det) - b)
+
+    cdef ccymunk.cpVect rel_intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(rel_vel, intercept_time))
+    cdef ccymunk.cpVect intercept_loc = ccymunk.cpvadd(t_loc, ccymunk.cpvmult(t_v, intercept_time))
+
+    cdef double intercept_heading = ccymunk.cpvtoangle(ccymunk.cpvsub(rel_intercept_loc, s_loc))
+
+    return (float(intercept_time), cpvtoVec2d(intercept_loc), float(intercept_heading))
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
-        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float:
+        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
+        sensor_settings:Any) -> float:
 
     cdef ccymunk.Vec2d cyvelocity = <ccymunk.Vec2d?>target_velocity
     cdef ccymunk.Body cybody = <ccymunk.Body?>body
@@ -1673,13 +1819,15 @@ def accelerate_to(
 
     assert ft_result.continue_time > 0.
 
-    if ccymunk.cpvlength(ft_result.force) < VELOCITY_EPS:
+    if ccymunk.cpvlength(ft_result.force) < VELOCITY_EPS and ft_result.dv_mag < VELOCITY_EPS:
         cybody._body.v = cyvelocity.v
         cybody._body.f = ZERO_VECTOR
         if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:
             cybody._body.w = 0.
+        sensor_settings.set_thrust(0.)
     else:
         cybody._body.f = ft_result.force
+        sensor_settings.set_thrust(ccymunk.cpvlength(ft_result.force))
 
     if ft_result.torque != 0.:
         cybody._body.t = ft_result.torque

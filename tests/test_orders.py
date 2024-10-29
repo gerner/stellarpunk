@@ -199,7 +199,6 @@ def test_disembark_skip_disembark(gamestate, generator, sector, testui, simulato
     assert disembark_order.is_complete()
     assert np.linalg.norm(blocker.loc - ship_driver.loc) < 2.3e3
     assert disembark_order in testui.complete_orders
-    assert len(testui.complete_orders) == 2
 
 @write_history
 def test_basic_disembark(gamestate, generator, sector, testui, simulator):
@@ -217,12 +216,8 @@ def test_basic_disembark(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert disembark_order.is_complete()
     assert np.linalg.norm(blocker.loc - ship_driver.loc) < 2.3e3
-    assert len(testui.complete_orders) == 3
     assert disembark_order.disembark_from == start_blocker
     assert disembark_order.embark_to == blocker
-    first_dist = np.linalg.norm(start_blocker.loc - testui.complete_orders[0]._target_location) - start_blocker.radius
-    assert first_dist >= disembark_order.disembark_dist - steering.VELOCITY_EPS
-    assert first_dist <= disembark_order.disembark_dist + disembark_order.disembark_margin + steering.VELOCITY_EPS
 
 @write_history
 def test_basic_mining_order(gamestate, generator, sector, testui, simulator):

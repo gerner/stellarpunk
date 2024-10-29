@@ -6,12 +6,15 @@ Sits within a sector view.
 import math
 import curses
 import enum
-from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict
+import collections
+import uuid
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping
 
 import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders, config
+from stellarpunk.core import combat
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
 from stellarpunk.orders import steering, movement, collision
@@ -61,7 +64,8 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.has_command = False
+        self.has_thrust_command = False
+        self.has_torque_command = False
 
     def _clip_force_to_max_speed(self, force:Tuple[float, float], max_thrust:float) -> Tuple[float, float]:
         # clip force s.t. resulting speed (after dt) is at most max_speed
@@ -121,32 +125,36 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
     def act(self, dt:float) -> None:
         # if the player is controlling, do nothing and wait until next tick
-        if self.has_command:
-            self.has_command = False
-            self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
-            return
-
-        self.ship.apply_force(steering.ZERO_VECTOR, False)
-        # otherwise try to kill rotation
-        # apply torque up to max torque to kill angular velocity
-        # torque = moment * angular_acceleration
-        # the perfect acceleration would be -1 * angular_velocity / timestep
-        # implies torque = moment * -1 * angular_velocity / timestep
-        t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.max_torque, self.ship.max_torque)
-        if t == 0:
-            self.ship.phys.angular_velocity = 0
-            # schedule again to get cleaned up on next tick
-            self.ship.apply_torque(0., False)
-            self.gamestate.schedule_order(self.gamestate.timestamp + 1/10, self)
+        if self.has_thrust_command:
+            self.has_thrust_command = False
         else:
-            self.ship.apply_torque(t, True)
+            self.ship.apply_force(steering.ZERO_VECTOR, False)
 
-            self.gamestate.schedule_order_immediate(self)
+        rotate_time = 1/15
+        if self.has_torque_command:
+            self.has_torque_command = False
+        else:
+            # otherwise try to kill rotation
+            # apply torque up to max torque to kill angular velocity
+            # torque = moment * angular_acceleration
+            # the perfect acceleration would be -1 * angular_velocity / timestep
+            # implies torque = moment * -1 * angular_velocity / timestep
+            t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.max_torque, self.ship.max_torque)
+            if t == 0:
+                self.ship.phys.angular_velocity = 0
+                # schedule again to get cleaned up on next tick
+                self.ship.apply_torque(0., False)
+            else:
+                self.ship.apply_torque(t, True)
+                rotate_time = 1/60
+
+        self.gamestate.schedule_order(self.gamestate.timestamp + min(rotate_time, 1/15), self)
+
 
     # action functions, imply player direct input
 
     def accelerate(self) -> None:
-        self.has_command = True
+        self.has_thrust_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_thrust, self.ship.angle)
 
@@ -159,14 +167,16 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             self.ship.apply_force(steering.ZERO_VECTOR, False)
 
     def kill_velocity(self) -> None:
-        self.has_command = True
+        self.has_thrust_command = True
+        self.has_rotate_command = True
         if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
             return
         #TODO: handle continuous force/torque
         period = collision.accelerate_to(
                 self.ship.phys, cymunk.Vec2d(0,0), self.gamestate.dt,
                 self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust)
+                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.sensor_settings)
 
     def rotate(self, scale:float) -> None:
         """ Rotates the ship in desired direction
@@ -174,7 +184,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         scale is the direction 1 is clockwise,-1 is counter clockwise
         """
 
-        self.has_command = True
+        self.has_rotate_command = True
         #TODO: up to max angular acceleration?
         self.ship.apply_force(steering.ZERO_VECTOR, False)
         self.ship.apply_torque(
@@ -192,7 +202,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         direction is an angle relative to heading
         """
 
-        self.has_command = True
+        self.has_thrust_command = True
         #TODO: up to max speed?
         force = util.polar_to_cartesian(self.ship.max_fine_thrust, self.ship.angle + direction)
 
@@ -211,7 +221,7 @@ class MouseState(enum.Enum):
     EMPTY = enum.auto()
     GOTO = enum.auto()
 
-class PilotView(interface.View, interface.PerspectiveObserver):
+class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
@@ -220,6 +230,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.ship = ship
         if self.ship.sector is None:
             raise ValueError("ship must be in a sector to pilot")
+        self.sector = self.ship.sector
 
         # perspective on the sector, zoomed so the player ship's shape is
         # barely visible on screen
@@ -227,7 +238,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.interface.viewscreen,
             zoom=self.ship.radius,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=2*8*config.Settings.generate.SectorEntities.SHIP_RADIUS/80.,
+            max_zoom=2*8*config.Settings.generate.SectorEntities.ship.RADIUS/80.,
         )
         self.perspective.observe(self)
 
@@ -241,7 +252,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self._cached_radar_zoom = 0.
         self._cached_radar:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
 
-        self.presenter = presenter.Presenter(self.gamestate, self, self.ship.sector, self.perspective)
+        self.presenter = presenter.Presenter(self.gamestate, self, self.sector, self.perspective)
 
         # indicates if the ship should follow its orders, or direct player
         # control
@@ -254,12 +265,21 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         self.starfield = starfield.Starfield(self.gamestate.sector_starfield, self.perspective)
 
+        self.targeted_notification_backoff = 30.
+        self.targeted_ts:MutableMapping[uuid.UUID, float] = collections.defaultdict(lambda: -self.targeted_notification_backoff)
+
+        self.point_defense:Optional[combat.PointDefenseEffect] = None
+
     def open_station_view(self, dock_station: core.Station) -> None:
         # TODO: make sure we're within docking range?
         station_view = v_station.StationView(dock_station, self.ship, self.interface)
         self.interface.open_view(station_view, deactivate_views=True)
 
     def command_list(self) -> Collection[interface.CommandBinding]:
+
+        def show_orders(args:Sequence[str]) -> None:
+            for order in self.ship._orders:
+                self.interface.log_message(f'{order}')
 
         def order_jump(args:Sequence[str]) -> None:
             if self.selected_entity is None or not isinstance(self.selected_entity, core.TravelGate):
@@ -288,6 +308,29 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
+        def order_pursue(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+            order = movement.PursueOrder(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
+        def order_evade(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+
+            order = movement.EvadeOrder(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
+        def order_attack(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+
+            order = combat.AttackOrder(self.selected_entity, self.ship, self.gamestate)
+            self.ship.clear_orders(self.gamestate)
+            self.ship.prepend_order(order)
+
         def log_cargo(args:Sequence[str]) -> None:
             if np.sum(self.ship.cargo) == 0.:
                 self.interface.log_message("No cargo on ship")
@@ -305,21 +348,104 @@ class PilotView(interface.View, interface.PerspectiveObserver):
                 cargo_lines.append(f'\t{name:>{resource_width}}: {amount:>{amount_width}.2f}')
             self.interface.log_message("\n".join(cargo_lines))
 
+        def spawn_missile(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+            missile = combat.MissileOrder.spawn_missile(self.ship, self.gamestate, target=self.selected_entity, spawn_radius=10000)
+            pde = combat.PointDefenseEffect(self.ship, self.sector.sensor_manager.target(missile, self.ship), self.sector, self.gamestate)
+            self.sector.add_effect(pde)
+
+        def toggle_sensor_cone(args:Sequence[str]) -> None:
+            self.presenter.show_sensor_cone = not self.presenter.show_sensor_cone
+            cone_txt_state = "on" if self.presenter.show_sensor_cone else "off"
+            self.interface.log_message(f'sensor_cone {cone_txt_state}')
+
+        def toggle_sensors(args:Sequence[str]) -> None:
+            if self.ship.sensor_settings.sensor_power > 0.:
+                self.ship.sensor_settings.set_sensors(0.)
+            else:
+                self.ship.sensor_settings.set_sensors(1.)
+
+        def toggle_transponder(args:Sequence[str]) -> None:
+            self.ship.sensor_settings.set_transponder(self.ship.sensor_settings.transponder)
+
+        def cache_stats(args:Sequence[str]) -> None:
+            self.logger.info(presenter.compute_sensor_rings_memoize.cache_info())
+
+        def target_image(args:Sequence[str]) -> None:
+            if self.selected_entity is None:
+                raise command_input.UserError("no target")
+            if not isinstance(self.selected_entity, core.Ship):
+                raise command_input.UserError("not a ship")
+            target_order:Optional[core.Order] = self.selected_entity.top_order()
+            if isinstance(target_order, combat.HuntOrder):
+                target_order = target_order.attack_order
+            if isinstance(target_order, combat.AttackOrder) or isinstance(target_order, combat.MissileOrder):
+                self.interface.log_message(f'{target_order.target.loc}, {target_order.target.velocity}')
+            else:
+                raise command_input.UserError("not targeting")
+
+        def toggle_point_defense(args:Sequence[str]) -> None:
+            assert self.ship.sector
+            if self.point_defense is None:
+                self.point_defense = combat.PointDefenseEffect(self.ship, self.ship.sector, self.gamestate)
+                self.ship.sector.add_effect(self.point_defense)
+            else:
+                self.point_defense.cancel_effect()
+                self.point_defense = None
+
         return [
+            self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
             self.bind_command("dock", order_dock),
+            self.bind_command("pursue", order_pursue),
+            self.bind_command("evade", order_evade),
+            self.bind_command("attack", order_attack),
             self.bind_command("cargo", log_cargo),
+            self.bind_command("spawn_missile", spawn_missile),
+            self.bind_command("toggle_sensor_cone", toggle_sensor_cone),
+            self.bind_command("toggle_sensors", toggle_sensors),
+            self.bind_command("toggle_transponder", toggle_transponder),
+            self.bind_command("point_defense", toggle_point_defense),
+            self.bind_command("cache_stats", cache_stats),
+            self.bind_command("target_image", target_image),
         ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:
+        # observe target in case it is destroyed or migrates so we deselect it
+        if self.selected_entity is not None and self.selected_entity != self.ship:
+            # make sure not to unobserve self.ship
+            self.selected_entity.unobserve(self)
+
         if entity is None:
             self.selected_entity = None
             self.presenter.selected_target = None
         else:
             self.selected_entity = entity
             self.presenter.selected_target = entity.entity_id
+            self.selected_entity.observe(self)
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity == self.selected_entity:
+            self._select_target(None)
+            self.interface.log_message("target destroyed")
+        # interface manager handles destroy of play ship
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity != self.selected_entity:
+            return
+        if to_sector != self.sector:
+            self._select_target(None)
+            self.interface.log_message("target left the sector")
+
+    def entity_targeted(self, entity:core.SectorEntity, threat:core.SectorEntity) -> None:
+        if entity == self.ship:
+            if self.gamestate.timestamp - self.targeted_ts[threat.entity_id] > self.targeted_notification_backoff:
+                self.interface.log_message(f'you have been targed by {threat}')
+            self.targeted_ts[threat.entity_id] = self.gamestate.timestamp
+
 
     def _clear_control_order(self, order: core.Order) -> None:
         self.logger.debug("clearing pilot control order")
@@ -505,8 +631,9 @@ class PilotView(interface.View, interface.PerspectiveObserver):
 
         major_ticks_x, minor_ticks_y, major_ticks_y, minor_ticks_x, radar_content = self._cached_radar
 
+        radar_color = self.interface.get_color(interface.Color.RADAR_RING)
         for (y,x), c in radar_content.items():
-            self.viewscreen.addstr(y, x, c, curses.color_pair(29))
+            self.viewscreen.addstr(y, x, c, radar_color)
 
         # draw location indicators
         i = major_ticks_x.niceMin
@@ -514,14 +641,14 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             s_x, s_y = self.perspective.sector_to_screen(
                     i+self.perspective.cursor[0], self.perspective.cursor[1]
             )
-            self.viewscreen.addstr(s_y, s_x, util.human_distance(i), curses.color_pair(29))
+            self.viewscreen.addstr(s_y, s_x, util.human_distance(i), radar_color)
             i += major_ticks_x.tickSpacing
         j = major_ticks_y.niceMin
         while j <= major_ticks_y.niceMax:
             s_x, s_y = self.perspective.sector_to_screen(
                     self.perspective.cursor[0], j+self.perspective.cursor[1]
             )
-            self.viewscreen.addstr(s_y, s_x, util.human_distance(j), curses.color_pair(29))
+            self.viewscreen.addstr(s_y, s_x, util.human_distance(j), radar_color)
             j += major_ticks_y.tickSpacing
 
         # draw degree indicators
@@ -532,26 +659,50 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             s_x, s_y = self.perspective.sector_to_screen(
                     self.perspective.cursor[0]+x, self.perspective.cursor[1]+y
             )
-            self.viewscreen.addstr(s_y, s_x, f'{math.degrees(theta):.0f}°', curses.color_pair(29))
+            self.viewscreen.addstr(s_y, s_x, f'{math.degrees(theta):.0f}°', radar_color)
 
         # add a scale near corner
         scale_label = f'scale {util.human_distance(major_ticks_x.tickSpacing)}'
         scale_x = self.interface.viewscreen.width - len(scale_label) - 2
         scale_y = self.interface.viewscreen.height - 2
-        self.viewscreen.addstr(scale_y, scale_x, scale_label, curses.color_pair(29))
+        self.viewscreen.addstr(scale_y, scale_x, scale_label, radar_color)
 
         # add center position near corner
         pos_label = f'({self.perspective.cursor[0]:.0f},{self.perspective.cursor[1]:.0f})'
         pos_x = self.interface.viewscreen.width - len(pos_label) - 2
         pos_y = self.interface.viewscreen.height - 1
-        self.viewscreen.addstr(pos_y, pos_x, pos_label, curses.color_pair(29))
+        self.viewscreen.addstr(pos_y, pos_x, pos_label, radar_color)
 
     def _draw_target_indicators(self) -> None:
+        top_order = self.ship.top_order()
         current_order = self.ship.current_order()
         if isinstance(current_order, movement.GoToLocation):
             s_x, s_y = self.perspective.sector_to_screen(*current_order._target_location)
 
             self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
+        elif isinstance(current_order, movement.EvadeOrder) or isinstance(current_order, movement.PursueOrder):
+            s_x, s_y = self.perspective.sector_to_screen(*current_order.intercept_location)
+
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.LOCATION_INDICATOR, curses.color_pair(interface.Icons.COLOR_LOCATION_INDICATOR))
+
+        if isinstance(top_order, combat.AttackOrder):
+            s_x, s_y = self.perspective.sector_to_screen(*top_order.target.loc)
+
+            self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_INDICATOR))
+
+            #self.ship.sensor_settings._ignore_bias=False
+            #s_x, s_y = self.perspective.sector_to_screen(*top_order.target.loc)
+            #self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(100))
+            #self.ship.sensor_settings._ignore_bias=True
+
+        # for debugging: draw selected entity's notion of where their target is
+        if self.selected_entity and isinstance(self.selected_entity, core.Ship):
+            target_order:Optional[core.Order] = self.selected_entity.top_order()
+            if isinstance(target_order, combat.HuntOrder):
+                target_order = target_order.attack_order
+            if isinstance(target_order, combat.AttackOrder) or isinstance(target_order, combat.MissileOrder):
+                s_x, s_y = self.perspective.sector_to_screen(*target_order.target.loc)
+                self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.
@@ -592,6 +743,7 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.viewscreen.addstr(status_y, status_x, "Target Info:")
 
         label_id = "id:"
+        label_sensor_profile = "s profile:"
         label_speed = "speed:"
         label_location = "location:"
         label_bearing = "bearing:"
@@ -626,15 +778,16 @@ class PilotView(interface.View, interface.PerspectiveObserver):
             closest_approach = math.inf
 
         self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.selected_entity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_speed:>12} {util.human_speed(self.selected_entity.speed)}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
-        self.viewscreen.addstr(status_y+5, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
-        self.viewscreen.addstr(status_y+6, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_target_profile(self.selected_entity, self.ship)}')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.selected_entity.speed)}')
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.selected_entity.loc[0]:.0f},{self.selected_entity.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+5, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
+        self.viewscreen.addstr(status_y+6, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
+        self.viewscreen.addstr(status_y+7, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
         if approach_t < 60*60:
-            self.viewscreen.addstr(status_y+7, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
+            self.viewscreen.addstr(status_y+8, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
 
-        status_y += 8
+        status_y += 9
 
         if isinstance(self.selected_entity, core.Station):
             assert self.selected_entity.resource is not None
@@ -652,23 +805,44 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         status_y = 1
         self.viewscreen.addstr(status_y, status_x, "Status:")
 
+        label_sensor_profile = "s profile:"
+        label_sensor_threshold = "s threshold:"
         label_speed = "speed:"
         label_location = "location:"
         label_heading = "heading:"
+        label_course = "course:"
+        label_fuel = "propellant:"
+        label_top_order = "top order:"
         label_order = "order:"
         label_eta = "eta:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
+        course = self.ship.phys.velocity.get_angle() + np.pi/2
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_order:>12} {current_order}')
-        status_y += 5
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship)}')
+        self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_threshold:>12} {self.sector.sensor_manager.compute_sensor_threshold(self.ship)}')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
+        self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
+        self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
+        self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
+        self.viewscreen.addstr(status_y+7, status_x, f'{label_fuel:>12} {self.ship.sensor_settings.thrust_seconds / 4435.:.0f}')
+        status_y += 8
+
         if current_order is not None:
+            ancestor_order = current_order
+            while ancestor_order.parent_order is not None:
+                ancestor_order = ancestor_order.parent_order
+            if ancestor_order != current_order:
+                self.viewscreen.addstr(status_y, status_x, f'{label_top_order:>12} {ancestor_order}')
+                status_y += 1
+
+            self.viewscreen.addstr(status_y, status_x, f'{label_order:>12} {current_order}')
             eta = current_order.estimate_eta()
-            self.viewscreen.addstr(status_y, status_x, f'{label_eta:>12} {eta:.1f}s')
-            status_y += 1
+            self.viewscreen.addstr(status_y+1, status_x, f'{label_eta:>12} {eta:.1f}s')
+            status_y += 2
+            if not self.gamestate.is_order_scheduled(current_order):
+                self.viewscreen.addstr(status_y, status_x, f'order is not scheduled!', self.interface.get_color(interface.Color.ERROR))
+                status_y +=1
 
         if isinstance(current_order, movement.GoToLocation):
             # distance
@@ -718,27 +892,40 @@ class PilotView(interface.View, interface.PerspectiveObserver):
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
         self.perspective.update_bbox()
         self.interface.reinitialize_screen(name="Pilot's Seat")
+        self.ship.observe(self)
 
     def terminate(self) -> None:
+        if self.ship:
+            self.ship.unobserve(self)
+        if self.selected_entity:
+            self.selected_entity.unobserve(self)
         if self.control_order:
             self.control_order.cancel_order()
+        if self.point_defense:
+            self.point_defense.cancel_effect()
 
     def focus(self) -> None:
         super().focus()
         self.interface.reinitialize_screen(name="Pilot's Seat")
         self.active=True
 
+
     def update_display(self) -> None:
         if self.gamestate.timestamp > self.mouse_state_clear_time:
             self.mouse_state = MouseState.EMPTY
+
+        if self.selected_entity and not self.sector.sensor_manager.detected(self.selected_entity, self.ship):
+            self._select_target(None)
 
         self._auto_pan()
 
         self.viewscreen.erase()
         self.starfield.draw_starfield(self.viewscreen)
-        self.presenter.draw_shapes()
+        self.presenter.draw_shapes(self.ship)
         self._draw_radar()
-        self.presenter.draw_sector_map()
+        self.presenter.draw_sensor_rings(self.ship)
+        self.presenter.draw_profile_rings(self.ship)
+        self.presenter.draw_sector_map(self.ship)
 
         # draw hud overlay on top of everything else
         self._draw_hud()

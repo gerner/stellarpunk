@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import util, core, config, generate
+from stellarpunk.core import combat
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -55,6 +56,9 @@ class Settings:
 
 class Color(enum.Enum):
     ERROR = enum.auto()
+    RADAR_RING = enum.auto()
+    SENSOR_RING = enum.auto()
+    PROFILE_RING = enum.auto()
 
 class Icons:
 
@@ -72,6 +76,7 @@ class Icons:
     DERELICT = "\u2302" # "⌂" house symbol (kinda looks like a gravestone?)
     ASTEROID = "\u25C7" # "◇" \u25C7 white diamond
     TRAVEL_GATE = "\u25CC" # "◌" \u25CC dotted circle
+    PROJECTILE = "·"
 
     MULTIPLE = "*"
 
@@ -84,6 +89,7 @@ class Icons:
     TARGET_DIRECTION_INDICATOR = "t"
 
     LOCATION_INDICATOR = "X"
+    TARGET_INDICATOR = "X"
 
     STAR_LARGE = "*" #"🞣"
     STAR_SMALL = "." #"🞟"
@@ -141,6 +147,8 @@ class Icons:
     COLOR_VELOCITY_INDICATOR = 47
     COLOR_TARGET_DIRECTION_INDICATOR = 47
     COLOR_LOCATION_INDICATOR = 47
+    COLOR_TARGET_INDICATOR = 10
+    COLOR_TARGET_IMAGE_INDICATOR = 100
 
     COLOR_UNIVERSE_SECTOR = 29
     COLOR_UNIVERSE_EDGE = 40
@@ -171,7 +179,7 @@ class Icons:
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
-        if isinstance(entity, core.Ship):
+        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
         elif isinstance(entity, core.Station):
             icon = Icons.STATION
@@ -181,6 +189,8 @@ class Icons:
             icon = Icons.ASTEROID
         elif isinstance(entity, core.TravelGate):
             icon = Icons.TRAVEL_GATE
+        elif isinstance(entity, core.Projectile):
+            icon = Icons.PROJECTILE
         else:
             icon = "?"
         return icon
@@ -489,9 +499,6 @@ class AbstractInterface(abc.ABC):
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         pass
 
-    def order_complete(self, order:core.Order) -> None:
-        pass
-
     @abc.abstractmethod
     def tick(self, timeout:float, dt:float) -> None:
         pass
@@ -504,6 +511,8 @@ class AbstractInterface(abc.ABC):
 
     def handle_input(self, key:int, dt:float) -> bool:
         self.status_message()
+        if len(self.views) == 0:
+            return False
         v = self.views[-1]
         assert v.has_focus
         if key == curses.KEY_MOUSE:
@@ -536,6 +545,7 @@ class AbstractInterface(abc.ABC):
         view.terminate()
         if len(self.views) > 0:
             self.views[-1].focus()
+        #TODO: else case, other code assumes there's always a view
 
     def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
         if old_view is not None:
@@ -858,6 +868,12 @@ class Interface(AbstractInterface):
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:
             return curses.color_pair(1)
+        elif color == Color.RADAR_RING:
+            return curses.color_pair(29)
+        elif color == Color.SENSOR_RING:
+            return curses.color_pair(34)
+        elif color == Color.PROFILE_RING:
+            return curses.color_pair(198)
         else:
             raise ValueError(f'unknown color {color}')
 
@@ -1037,5 +1053,5 @@ class Interface(AbstractInterface):
                 view.initialize()
             return
 
-        self.logger.debug(f'keypress {key}')
+        #self.logger.debug(f'keypress {key}')
         self.handle_input(key, dt)

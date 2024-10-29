@@ -82,6 +82,8 @@ class PlayerReceiveBroadcast(events.Action):
     ) -> None:
         sender = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.MESSAGE_SENDER)]]
         assert isinstance(sender, core.Character)
+        assert sender.location
+        assert character.location
         distance = util.distance(character.location.loc, sender.location.loc)
         self.interface.log_message(f'Bcast from {sender.address_str()} at {distance:.0f}m:\n{event_args["message"]}')
 

@@ -232,54 +232,146 @@
         ]
 
     [generate.SectorEntities]
-        STATION_RADIUS = 300
+        [generate.SectorEntities.planet]
+            MASS = 2e6
+            RADIUS = 1000
+            MAX_SENSOR_POWER = 100
+            SENSOR_INTERCEPT = 100.0
+        [generate.SectorEntities.asteroid]
+            MASS = 2e5
+            RADIUS = 300
+            MAX_SENSOR_POWER = 0
+            SENSOR_INTERCEPT = 1e100
+        [generate.SectorEntities.station]
+            MASS = 2e5
+            RADIUS = 300
+            MAX_SENSOR_POWER = 100
+            SENSOR_INTERCEPT = 100.0
+        [generate.SectorEntities.ship]
 
-        # soyuz 5000 - 10000kg
-        # dragon capsule 4000kg
-        # shuttle orbiter 78000kg
+            # soyuz 5000 - 10000kg
+            # dragon capsule 4000kg
+            # shuttle orbiter 78000kg
+            # SS external fuel tank fully fueled 760000kg
 
-        # ship mass in kilograms
-        SHIP_MASS = 2e3
+            # ship mass in kilograms
+            MASS = 2e3
 
-        # soyuz: 7-10m long
-        # shuttle orbiter: 37m long
-        # spacex dragon: 6.1m
-        # spacex starship: 120m long
+            # soyuz: 7-10m long
+            # shuttle orbiter: 37m long
+            # spacex dragon: 6.1m
+            # spacex starship: 120m long
 
-        # ship radius in meters
-        SHIP_RADIUS = 30.0
+            # ship radius in meters
+            RADIUS = 30.0
 
-        # one raptor: 1.81 MN
-        # one SSME: 2.279 MN
-        # OMS main engine: 26.7 kN
-        # KTDU-80 main engine: 2.95 kN
-        #max_thrust = 5e5
-        # 5e5 translates to 250m/s^2 which is over 25 gs
+            # one raptor: 1.81 MN
+            # one SSME: 2.279 MN
+            # OMS main engine: 26.7 kN
+            # KTDU-80 main engine: 2.95 kN
+            #max_thrust = 5e5
+            # 5e5 translates to 250m/s^2 which is over 25 gs
 
-        # max forward thrust in newtons
-        MAX_THRUST = 2e5
+            # max forward thrust in newtons
+            MAX_THRUST = 2e5
 
-        # one draco: 400 N (x16 on Dragon)
-        # OMS aft RCS: 3.87 kN
-        # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
-        # some speculation that starship thrusters can do 100-200 kN
-        #max_fine_thrust = 5e3
+            # one draco: 400 N (x16 on Dragon)
+            # OMS aft RCS: 3.87 kN
+            # KTDU-80 11D428A-16: 129.16 N (x16 on the Soyuz)
+            # some speculation that starship thrusters can do 100-200 kN
+            #max_fine_thrust = 5e3
 
-        # max unidirectional thrust in newtons
-        MAX_FINE_THRUST = 1.5e4
+            # max unidirectional thrust in newtons
+            MAX_FINE_THRUST = 1.5e4
 
-        # note about g-forces:
-        # assuming circle of radius 30m, mass 2e3 kg
-        # mass moment 18,000,000 kg m^2
-        # centriptal acceleration = r * w^2
-        # 1g at 30m with angular velocity of 0.57 rad/sec
-        # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
-        # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
-        # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
-        # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
-        # starting from zero
-        # space shuttle doesn't exeed 3g during ascent
+            # note about g-forces:
+            # assuming circle of radius 30m, mass 2e3 kg
+            # mass moment 18,000,000 kg m^2
+            # centriptal acceleration = r * w^2
+            # 1g at 30m with angular velocity of 0.57 rad/sec
+            # 5000 * 30 N m can get 2e3kg, 30m circle up to half a g in 60 seconds
+            # 10000 * 30 N m can get 2e3kg, 30m circle up to half a g in 30 seconds
+            # 30000 * 30 N m can get 2e3kg, 30m circle up to half a g in 10 seconds
+            # 90000 * 30 N m can get 2e3kg, 30m circle up to half a g in 3.33 seconds
+            # starting from zero
+            # space shuttle doesn't exeed 3g during ascent
 
-        # max torque in newton-meters
-        # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
-        MAX_TORQUE = 2.7e6
+            # max torque in newton-meters
+            # MAX_FINE_THRUST * 6 * RADIUS = 2.7e6
+            MAX_TORQUE = 2.7e6
+
+            MAX_SENSOR_POWER = 100.0
+            SENSOR_INTERCEPT = 100.0
+
+            # mass flow rate/exhaust velocity used to model fuel consumption
+            # SSME (RS-25) has a mass flow rate of 513kg/s and v_e = 4435m/s
+            # assuming specific impulse, I_sp = 452.3 and thrust approx above
+            MASS_FLOW_RATE = 513 #kg/s
+            EXHAUST_VELOCITY = 4435 #m/s, mass flow rate = F_thrust / v_e
+
+        [generate.SectorEntities.missile]
+            # for comparison, a sidewinder missile:
+            # https://en.wikipedia.org/wiki/AIM-9_Sidewinder
+            # https://www.ewarbirds.org/missiles/aim9sidewinder.shtml
+            # 85.5kg
+            # 3 meters long, 13cm diameter
+            # 17,800N of thrust (~210m/s^2)
+
+            # for comparison, a tomahawk missile:
+            # https://en.wikipedia.org/wiki/Tomahawk_(missile)
+            # https://en.wikipedia.org/wiki/Williams_F107
+            # 1300kg
+            # 6.3m long, 0.5m diameter
+            # 1,900N of thrust
+
+
+            # for comparison, Kh-47M2 Kinzhal Russian hypersonic missile
+            # https://en.wikipedia.org/wiki/Kh-47M2_Kinzhal
+            # 700-4300kg
+            # 7.2m long, 1.2m diameter
+            # max speed mach 10, solid rocket propulsion, probably similar
+            # acceleration as a sidewinder?
+            # ~250,000N of thrust?
+            MASS = 2e2
+            RADIUS = 3
+            MAX_THRUST = 1e5
+            MAX_FINE_THRUST = 5e3
+            MAX_TORQUE = 9e4
+
+            MAX_SENSOR_POWER = 25.0
+            SENSOR_INTERCEPT = 1000.0
+
+        [generate.SectorEntities.projectile]
+            # Phalanx CIWS fires 20x102mm tungsten alloy shell
+            # weighing 300g
+            MASS = 0.3
+            RADIUS = 0.1
+            MAX_THRUST = 0.0
+            MAX_FINE_THRUST = 0.0
+            MAX_TORQUE = 0.0
+            MAX_SENSOR_POWER = 0.0
+            SENSOR_INTERCEPT = 1e100
+
+[sensors]
+    # these are tuned so a stationary, passive ship under normal sector
+    # conditions has a profile of just over 100 at 100km
+    COEFF_MASS = 0.045
+    COEFF_RADIUS = 0.335
+    COEFF_FORCE = 0.005
+    COEFF_SENSORS = 100
+    COEFF_TRANSPONDER = 1e5
+    COEFF_DISTANCE = 1e-10
+
+    # these are tuned so a passiv ship has a threshold of 100 and an active
+    # ship has a threshold of 10
+    COEFF_THRESHOLD = 1000
+    INTERCEPT_THRESHOLD = 100
+
+    DECAY_SENSORS = 0.02
+    DECAY_TRANSPONDER = 0.01
+    DECAY_THRUST = 0.05
+
+    COEFF_BIAS_LOC = 1e5
+    COEFF_BIAS_VELOCITY = 1e3
+    #COEFF_BIAS_TIME_MIX = 5.0
+    COEFF_BIAS_TIME_MIX = 1.1

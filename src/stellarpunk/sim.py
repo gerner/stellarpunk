@@ -79,21 +79,24 @@ class Simulator(core.AbstractGameRuntime):
         self.reference_realtime = 0.
         self.reference_gametime = 0.
 
-    def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:#, space:pymunk.Space, data:Mapping[str, Any]) -> bool:
-        # which ship(s) are colliding?
+    def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:
+        return self.enable_collisions
 
+    def _ship_collision_handler(self, arbiter:cymunk.Arbiter) -> None:
+        # which ship(s) are colliding?
         (shape_a, shape_b) = arbiter.shapes
 
-        # ignore collisions between the same bodies on consecutive ticks
+        # keep track of collisions in consecutive ticks so we can ignore them
+        # later, but still process them for physics purposes
         colliders = "".join(sorted(map(str, [shape_a.body.data.entity_id, shape_b.body.data.entity_id])))
         self._colliders.add(colliders)
         if colliders in self._last_colliders:
-            return self.enable_collisions
+            return
 
         sector = shape_a.body.data.sector
 
         tons_of_tnt = arbiter.total_ke / 4.184e9
-        self.logger.debug(f'collision detected in {sector.short_id()}, between {shape_a.body.data.address_str()} {shape_b.body.data.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
+        self.logger.info(f'collision detected in {sector.short_id()}, between {shape_a.body.data.address_str()} {shape_b.body.data.address_str()} with {arbiter.total_impulse}N and {arbiter.total_ke}j ({tons_of_tnt} tons of tnt)')
 
         self._collisions.append((
             shape_a.body.data,
@@ -102,14 +105,11 @@ class Simulator(core.AbstractGameRuntime):
             arbiter.total_ke,
         ))
 
-        # return if the collision should happen
-        return self.enable_collisions
-
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         self.gamestate.game_runtime = self
         for sector in self.gamestate.sectors.values():
-            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected)
+            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected, post_solve = self._ship_collision_handler)
 
     def _tick_space(self, dt: float) -> None:
         # update physics simulations
@@ -138,6 +138,18 @@ class Simulator(core.AbstractGameRuntime):
                 for entity_a, entity_b, impulse, ke in self._collisions:
                     self.ui.collision_detected(entity_a, entity_b, impulse, ke)
 
+            for entity_a, entity_b, impulse, ke in self._collisions:
+                if entity_a.sector is None or entity_a.sector != entity_b.sector:
+                    raise Exception(f'collision between entities in different or null sectors {entity_a.sector} != {entity_b.sector}')
+
+                sector = entity_a.sector
+                if entity_a.entity_id in sector.collision_observers:
+                    for observer in sector.collision_observers[entity_a.entity_id].copy():
+                        observer.collision(entity_a, entity_b, impulse, ke)
+                if entity_b.entity_id in sector.collision_observers:
+                    for observer in sector.collision_observers[entity_b.entity_id].copy():
+                        observer.collision(entity_b, entity_a, impulse, ke)
+
             # keep _collisions clear for next time
             self._collisions.clear()
 
@@ -157,11 +169,6 @@ class Simulator(core.AbstractGameRuntime):
                         #TODO: this is kind of janky, can't we just demand that orders schedule themselves?
                         # what about the order queue being simply a queue?
                         self.gamestate.schedule_order_immediate(next_order)
-
-                    #TODO: seems like we don't want this any more (why does the UI need
-                    #to know when every single order is complete? I think this was a
-                    #testing hook. but that's not probably the right way to do this
-                    self.ui.order_complete(order)
                 else:
                     order.act(dt)
             else:
@@ -181,6 +188,10 @@ class Simulator(core.AbstractGameRuntime):
         # let characters act on their (scheduled) agenda items
         for agendum in self.gamestate.pop_current_agenda():
             agendum.act()
+
+    def _tick_tasks(self, dt:float) -> None:
+        for task in self.gamestate.pop_current_task():
+            task.act()
 
     def _tick_record(self, dt: float) -> None:
         # record some state about the final state of this tick
@@ -246,6 +257,12 @@ class Simulator(core.AbstractGameRuntime):
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
 
+    def _tick_destroy(self, dt:float) -> None:
+        for entity in self.gamestate.entity_destroy_list:
+            self.gamestate.handle_destroy(entity)
+        self.gamestate.entity_destroy_list.clear()
+        self.gamestate.entity_destroy_set.clear()
+
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
@@ -260,8 +277,8 @@ class Simulator(core.AbstractGameRuntime):
 
         self._tick_orders(dt)
         self._tick_effects(dt)
-
         self._tick_agenda(dt)
+        self._tick_tasks(dt)
 
         self.event_manager.tick()
 
@@ -269,6 +286,7 @@ class Simulator(core.AbstractGameRuntime):
         self.gamestate.timestamp += dt
 
         self._tick_record(dt)
+        self._tick_destroy(dt)
 
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.time_accel_rate, self.fast_mode

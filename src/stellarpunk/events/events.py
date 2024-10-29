@@ -126,8 +126,9 @@ class BroadcastAction(ecore.Action):
         event_args: Mapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
+        assert character.location is not None
+        assert character.location.sector is not None
         sector = character.location.sector
-        assert sector is not None
         loc = character.location.loc
         radius = action_args["radius"]
         message_id = action_args["message_id"]
@@ -194,8 +195,9 @@ class MessageAction(ecore.Action):
         else:
             sender = character
 
+        assert sender.location is not None
+        assert sender.location.sector is not None
         sector = sender.location.sector
-        assert sector is not None
         message_id = action_args["message_id"]
         format_args = dict(event_args)
         format_args["_character"] = sender

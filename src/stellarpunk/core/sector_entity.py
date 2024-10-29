@@ -5,7 +5,7 @@ import uuid
 import collections
 import gzip
 import json
-from typing import Optional, Dict, Mapping, Any, Deque, Sequence, Union, TextIO, Iterable, TYPE_CHECKING
+from typing import Optional, Dict, Mapping, Any, Deque, Sequence, Union, TextIO, Iterable, TYPE_CHECKING, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -24,15 +24,18 @@ class ObjectType(enum.IntEnum):
     PLANET = enum.auto()
     ASTEROID = enum.auto()
     TRAVEL_GATE = enum.auto()
+    MISSILE = enum.auto()
+    PROJECTILE = enum.auto()
 
 
-class ObjectFlag(enum.IntFlag):
-    # note: with pymunk we get up to 32 of these (depending on the c-type?)
-    SHIP = enum.auto()
-    STATION = enum.auto()
-    PLANET = enum.auto()
-    ASTEROID = enum.auto()
-    GATE = enum.auto()
+#class ObjectFlag(enum.IntFlag):
+#    # note: with pymunk we get up to 32 of these (depending on the c-type?)
+#    SHIP = enum.auto()
+#    STATION = enum.auto()
+#    PLANET = enum.auto()
+#    ASTEROID = enum.auto()
+#    GATE = enum.auto()
+#    MISSILE = enum.auto()
 
 
 class HistoryEntry:
@@ -81,13 +84,22 @@ class HistoryEntry:
             "o": self.order_hist,
         }
 
+class SectorEntityObserver:
+    def entity_migrated(self, entity:"SectorEntity", from_sector:"sector.Sector", to_sector:"sector.Sector") -> None:
+        pass
+
+    def entity_destroyed(self, entity:"SectorEntity") -> None:
+        pass
+
+    def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
+        pass
 
 class SectorEntity(Entity):
     """ An entity in space in a sector. """
 
     object_type = ObjectType.OTHER
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"sector.AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector:Optional["sector.Sector"] = None
@@ -113,6 +125,50 @@ class SectorEntity(Entity):
         # who is responsible for this entity?
         self.captain: Optional["character.Character"] = None
 
+        self.observers:Set[SectorEntityObserver] = set()
+
+        self.sensor_settings=sensor_settings
+
+    def observe(self, observer:SectorEntityObserver) -> None:
+        self.observers.add(observer)
+
+    def unobserve(self, observer:SectorEntityObserver) -> None:
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
+
+    def migrate(self, to_sector:"sector.Sector") -> None:
+        if self.sector is None:
+            raise Exception("cannot migrate if from sector is None")
+        from_sector = self.sector
+        if self.sector is not None:
+            self.sector.remove_entity(self)
+        to_sector.add_entity(self)
+        for o in self.observers.copy():
+            o.entity_migrated(self, from_sector, to_sector)
+
+        self._migrate(to_sector)
+
+    def _migrate(self, to_sector:"sector.Sector") -> None:
+        pass
+
+    def destroy(self) -> None:
+        for o in self.observers.copy():
+            o.entity_destroyed(self)
+        self.observers.clear()
+
+        self._destroy()
+        self.phys.data = None
+        super().destroy()
+
+    def _destroy(self) -> None:
+        pass
+
+    def target(self, threat:"SectorEntity") -> None:
+        for o in self.observers.copy():
+            o.entity_targeted(self, threat)
+
     @property
     def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
     @property
@@ -125,6 +181,8 @@ class SectorEntity(Entity):
     def angular_velocity(self) -> float: return self.phys.angular_velocity
 
     def distance_to(self, other:"SectorEntity") -> float:
+        if other.sector != self.sector:
+            raise ValueError(f'other in sector {other.sector} but we are in sector {self.sector}')
         return util.distance(self.loc, other.loc) - self.radius - other.radius
 
     def cargo_full(self) -> bool:
@@ -155,7 +213,6 @@ class SectorEntity(Entity):
         else:
             return f'{self.short_id()}@None'
 
-
 class Planet(SectorEntity, Asset):
 
     id_prefix = "HAB"
@@ -164,6 +221,8 @@ class Planet(SectorEntity, Asset):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.population = 0.
+
+        self.transponder_on = True
 
 
 class Station(SectorEntity, Asset):
@@ -180,6 +239,7 @@ class Station(SectorEntity, Asset):
 
         self.sprite = sprite
 
+        self.transponder_on = True
 
 class Asteroid(SectorEntity):
 
@@ -205,6 +265,14 @@ class TravelGate(SectorEntity):
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
 
+class Projectile(SectorEntity):
+    id_prefix = "PJT"
+    object_type = ObjectType.PROJECTILE
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        # projectiles don't run transponders
+        self.transponder_on = False
 
 def write_history_to_file(entity:Union["sector.Sector", SectorEntity], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
     fout:TextIO

@@ -1,12 +1,70 @@
 import curses
 import uuid
 import math
-from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union
+import functools
+from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable
 
+import cymunk # type: ignore
 import drawille # type: ignore
 import numpy as np
+from numba import jit # type: ignore
 
 from stellarpunk import core, interface, util, effects
+from stellarpunk.core import combat
+from stellarpunk.orders import steering, collision
+
+SENSOR_ANGLE_BINS = np.linspace(0, 2*np.pi, 64)
+#COLLISION_MARGIN_BINS = np.linspace(0, 5e3, 128)
+#NEIGHBORHOOD_RADIUS_BINS = np.linspace(100., 1e3, 64)
+
+#@jit(cache=True, nopython=True, fastmath=True)
+def quantize(a:float, error:float=0.1) -> float:
+    exp = math.floor(math.log(a) / math.log(2))
+    return (a/(2** exp) // error * error ) * 2 ** exp
+
+@functools.lru_cache(maxsize=256)
+def compute_sensor_cone_memoize(stopped:bool, angle:float, neighborhood_radius:float, collision_margin:float, radius:float, offset_x:float, offset_y:float, bounds:Tuple[int, int, int, int], meters_per_char:Tuple[float, float]) -> Mapping[Tuple[int, int], str]:
+    sensor_cone = collision.compute_sensor_cone(cymunk.Vec2d(*util.polar_to_cartesian(0.0 if stopped else 1.0, angle)), neighborhood_radius, collision_margin, steering.CYZERO_VECTOR, radius)
+
+    c = util.make_circle_canvas(neighborhood_radius, *meters_per_char)
+    c = util.drawille_line(sensor_cone[0], sensor_cone[1], *meters_per_char, canvas = c)
+    c = util.drawille_line(sensor_cone[1], sensor_cone[2], *meters_per_char, canvas = c)
+    c = util.drawille_line(sensor_cone[2], sensor_cone[3], *meters_per_char, canvas = c)
+    c = util.drawille_line(sensor_cone[3], sensor_cone[0], *meters_per_char, canvas = c)
+
+    # appears to fill the whole screen
+    (d_x, d_y) = util.sector_to_drawille(
+        offset_x,
+        offset_y,
+        *meters_per_char)
+    content = util.lines_to_dict(c.rows(d_x, d_y), bounds=bounds)
+
+    return content
+
+@functools.lru_cache
+def compute_sensor_rings_memoize(radii:Iterable[float], width:float, height:float, bounds:Tuple[int, int, int, int], meters_per_char:Tuple[float, float]) -> Mapping[Tuple[int, int], str]:
+    canvas = drawille.Canvas()
+    for r in radii:
+        util.drawille_circle(
+            r,
+            meters_per_char[0]*4,
+            width,
+            height,
+            *meters_per_char,
+            canvas=canvas
+        )
+
+    # get upper left corner position so drawille canvas fills the screen
+    (d_x, d_y) = util.sector_to_drawille(
+            -width/2, -height/2,
+            *meters_per_char)
+
+    # draw the grid to the screen
+    text = canvas.rows(d_x, d_y)
+
+    content = util.lines_to_dict(text, bounds=bounds)
+
+    return content
 
 class Presenter:
     """ Prsents entities in a sector. """
@@ -26,6 +84,37 @@ class Presenter:
         self.debug_entity = False
         self.selected_target:Optional[uuid.UUID] = None
         self.debug_entity_vectors = False
+        self.show_sensor_cone = False
+
+        self.cached_entities:List[core.SectorEntity] = []
+        self.cached_entities_ts = -1.
+
+    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Sequence[core.SectorEntity]:
+        if self.gamestate.timestamp == self.cached_entities_ts:
+            return self.cached_entities
+        if perspective_ship:
+            self.cached_entities = list(self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox))
+        else:
+            self.cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
+        self.cached_entities_ts = self.gamestate.timestamp
+        return self.cached_entities
+
+    def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
+        # quantize parameters for caching
+        if ship.phys.velocity.get_length_sqrd() == 0.:
+            stopped = True
+            quantized_theta = 0.0
+        else:
+            stopped = False
+            theta = util.normalize_angle(ship.phys.velocity.get_angle())
+            quantized_theta = SENSOR_ANGLE_BINS[np.digitize(theta, SENSOR_ANGLE_BINS)-1]
+
+        neighborhood_radius = quantize(neighborhood_radius, 0.1)#NEIGHBORHOOD_RADIUS_BINS[np.digitize(neigborhood_radius, NEIGHBORHOOD_RADIUS_BINS)]
+        collision_margin = quantize(collision_margin, 0.1)#COLLISION_MARGIN_BINS[np.digitize(collision_margin, COLLISION_MARGIN_BINS)]
+        radius = quantize(ship.radius, 0.1)
+
+        return compute_sensor_cone_memoize(stopped, quantized_theta, neighborhood_radius, collision_margin, ship.radius, -(self.perspective.bbox[2]-self.perspective.bbox[0])/2, -(self.perspective.bbox[3]-self.perspective.bbox[1])/2, self.view.viewscreen_bounds, self.perspective.meters_per_char)
+
 
     def draw_effect(self, effect:core.Effect) -> None:
         """ Draws an effect (if visible) on the map. """
@@ -190,7 +279,7 @@ class Presenter:
             last_x = hist_x
             last_y = hist_y
 
-        if not isinstance(entity, core.Asteroid):
+        if not isinstance(entity, core.Asteroid) and not isinstance(entity, core.Projectile):
             speed = entity.speed
             if speed > 0.:
                 name_tag = f' {entity.short_id()} {speed:.0f}'
@@ -229,7 +318,7 @@ class Presenter:
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
-    def draw_sector_map(self) -> None:
+    def draw_sector_map(self, perspective_ship:Optional[core.Ship]=None) -> None:
         collision_threats = []
         for ship in self.sector.ships:
             if ship.collision_threat:
@@ -242,16 +331,26 @@ class Presenter:
             if util.intersects(effect.bbox(), self.perspective.bbox):
                 self.draw_effect(effect)
 
-        for entity in self.sector.spatial_query(self.perspective.bbox):
-            screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
+        for entity in self.visible_entities(perspective_ship):
+            screen_x, screen_y = self.perspective.sector_to_screen(entity.phys.position[0], entity.phys.position[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
+                if isinstance(entity, core.Projectile):
+                        continue
                 entities = occupied[last_loc]
-                entities.append(entity)
+                if isinstance(entities[0], core.Projectile):
+                    occupied[last_loc] = [entity]
+                else:
+                    entities.append(entity)
             else:
                 occupied[last_loc] = [entity]
 
         self.draw_cells(occupied, collision_threats)
+
+        if self.show_sensor_cone and self.selected_target:
+            selected_entity = self.sector.entities[self.selected_target]
+            if isinstance(selected_entity, core.Ship):
+                self.draw_sensor_cone(selected_entity)
 
         #TODO: draw an indicator for off-screen targeted entities
 
@@ -261,7 +360,72 @@ class Presenter:
 
             self.draw_entity_vectors(screen_y, screen_x, entity)
 
-    def draw_shapes(self) -> None:
-        for entity in self.sector.spatial_query(self.perspective.bbox):
+    def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
+        for entity in self.visible_entities(perspective_ship):
             if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
                 self.draw_entity_shape(entity)
+
+    def draw_sensor_cone(self, ship:core.Ship) -> None:
+        """ Visualize sensor cone used, e.g. in navigation/collision avoid """
+        # these are upper bounds on what gets used in collision avoidance
+        neighborhood_radius = 8.5e3
+        collision_margin = 1e3
+
+        current_order = ship.current_order()
+        if isinstance(current_order, steering.AbstractSteeringOrder):
+            neighborhood_radius = current_order.computed_neighborhood_radius
+            collision_margin = current_order.collision_margin
+
+        neighborhood_loc = collision.compute_neighborhood_center(ship.phys, neighborhood_radius, collision_margin)
+
+        content = self.compute_sensor_cone(ship, neighborhood_radius, collision_margin)
+
+        s_x, s_y = (neighborhood_loc - self.perspective.cursor) / self.perspective.meters_per_char
+        s_x = int(round(s_x))
+        s_y = int(round(s_y))
+        for (y,x), c in content.items():
+            self.view.viewscreen.addstr(y+s_y, x+s_x, c)
+        #assert isinstance(self.view.viewscreen, interface.Canvas)
+        #window = self.view.viewscreen.window
+        #util.draw_canvas_at(c, window, s_y, s_x, bounds=self.view.viewscreen_bounds)
+
+    def draw_sensor_rings(self, ship:core.SectorEntity) -> None:
+        radii = self.sector.sensor_manager.sensor_ranges(ship)
+        content = compute_sensor_rings_memoize(
+            tuple(map(quantize, radii)),
+            self.perspective.bbox[2] - self.perspective.bbox[0],
+            self.perspective.bbox[3] - self.perspective.bbox[1],
+            self.view.viewscreen_bounds,
+            self.perspective.meters_per_char
+        )
+
+        sensor_color = self.view.interface.get_color(interface.Color.SENSOR_RING)
+        for (y,x), c in content.items():
+            self.view.viewscreen.addstr(y, x, c, sensor_color)
+
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[0], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "A", sensor_color)
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "B", sensor_color)
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[2], ship.loc[1])
+        self.view.viewscreen.addstr(s_y, s_x, "C", sensor_color)
+
+    def draw_profile_rings(self, ship:core.SectorEntity) -> None:
+        radii = self.sector.sensor_manager.profile_ranges(ship)
+        content = compute_sensor_rings_memoize(
+            tuple(map(quantize, radii)),
+            self.perspective.bbox[2] - self.perspective.bbox[0],
+            self.perspective.bbox[3] - self.perspective.bbox[1],
+            self.view.viewscreen_bounds,
+            self.perspective.meters_per_char
+        )
+
+        sensor_color = self.view.interface.get_color(interface.Color.PROFILE_RING)
+        for (y,x), c in content.items():
+            self.view.viewscreen.addstr(y, x, c, sensor_color)
+
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[0], ship.loc[1])
+        self.view.viewscreen.addstr(s_y+1, s_x, "A", sensor_color)
+        s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
+        self.view.viewscreen.addstr(s_y+1, s_x, "B", sensor_color)
+

@@ -2,7 +2,7 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection
+from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
 import importlib.resources
 import itertools
 import enum
@@ -17,7 +17,8 @@ import cymunk # type: ignore
 from rtree import index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ, config, events
+from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
+from stellarpunk.core import combat
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -131,6 +132,12 @@ def generate_starfield(random:np.random.Generator, radius:float, desired_stars_p
 
     return starfield
 
+def is_occupied(loc:npt.NDArray[np.float64], prev_locs:Sequence[npt.NDArray[np.float64]], occupied_radius:float) -> bool:
+    for prev_loc in prev_locs:
+        if util.distance(loc, prev_loc) < occupied_radius:
+            return True
+    return False
+
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
     INPUT_CONSTRAINTS = enum.auto()
@@ -164,7 +171,7 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
-class UniverseGenerator:
+class UniverseGenerator(core.AbstractGenerator):
     @staticmethod
     def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
         g = graphviz.Digraph("product_name_graph", graph_attr={"rankdir": "TB"})
@@ -191,6 +198,12 @@ class UniverseGenerator:
 
         self.portraits:List[core.Sprite] = []
         self.station_sprites:List[core.Sprite] = []
+
+        self.num_projectile_spawn_locs = 100
+        self.projectile_spawn_pattern:List[npt.NDArray[np.float64]] = []
+
+        self.habitable_sectors:List[core.Sector] = []
+        self.non_habitable_sectors:List[core.Sector] = []
 
     def _random_bipartite_graph(
             self,
@@ -284,14 +297,31 @@ class UniverseGenerator:
 
         return adj_matrix
 
-    def _gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None)->npt.NDArray[np.float64]:
+    def gen_sector_location(self, sector:core.Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False, min_dist:float=0.)->npt.NDArray[np.float64]:
         if radius is None:
             radius = sector.radius
-        loc = self.r.normal(0, 1, 2) * radius + center
-        while occupied_radius >= 0. and sector.is_occupied(loc[0], loc[1], eps=occupied_radius):
-            loc = self.r.normal(0, 1, 2) * radius + center
+        if min_dist >= radius:
+            raise ValueError(f'{min_dist=} must be < {radius=}')
+        center = np.array(center)
+
+        if strict:
+            r:npt.NDArray[np.float64] = util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2. - 1. # type: ignore
+        else:
+            r = self.r.normal(0, 1, 2)
+        loc = r * radius + center
+        while (occupied_radius >= 0. and sector.is_occupied(loc[0], loc[1], eps=occupied_radius)) or util.distance(loc, center) < min_dist:
+            if strict:
+                r = util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2. - 1. # type:ignore
+            else:
+                r = self.r.normal(0, 1, 2)
+            loc = r * radius + center
 
         return loc
+
+    def gen_projectile_location(self, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> Tuple[npt.NDArray[np.float64], int]:
+        if index is None:
+            index = self.r.integers(self.num_projectile_spawn_locs-1)
+        return self.projectile_spawn_pattern[index%self.num_projectile_spawn_locs] + center, (index+1) % self.num_projectile_spawn_locs
 
     def _gen_sector_name(self) -> str:
         return "Some Sector"
@@ -442,13 +472,13 @@ class UniverseGenerator:
         self.logger.info(f'loading sprites...')
         # load character portraits
         self.portraits = core.Sprite.load_sprites(
-                importlib.resources.read_text("stellarpunk.data", "portraits.txt"),
+                importlib.resources.files("stellarpunk.data").joinpath("portraits.txt").read_text(),
                 (32//2, 32//4)
         )
 
         # load station sprites
         self.station_sprites = core.Sprite.load_sprites(
-                importlib.resources.read_text("stellarpunk.data", "stations.txt"),
+                importlib.resources.files("stellarpunk.data").joinpath("stations.txt").read_text(),
                 (96//2, 96//4)
         )
 
@@ -476,8 +506,18 @@ class UniverseGenerator:
             #for i in range(len(self.station_sprites)):
             #    self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
+    def _prepare_projectile_spawn_pattern(self) -> None:
+        radius = 5
+        for i in range(self.num_projectile_spawn_locs):
+            loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
+            while is_occupied(loc, self.projectile_spawn_pattern, 0.5):
+                loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
+            self.projectile_spawn_pattern.append(loc)
+
     def initialize(self, starfield_composite:bool=True) -> None:
+        self.gamestate.generator = self
         self._prepare_sprites(starfield_composite=starfield_composite)
+        self._prepare_projectile_spawn_pattern()
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
@@ -485,8 +525,9 @@ class UniverseGenerator:
 
         assert resource < self.gamestate.production_chain.num_products
 
-        station_radius = config.Settings.generate.SectorEntities.STATION_RADIUS
+        station_radius = config.Settings.generate.SectorEntities.station.RADIUS
 
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.station.SENSOR_INTERCEPT)
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
@@ -495,6 +536,7 @@ class UniverseGenerator:
             np.array((x, y), dtype=np.float64),
             station_body,
             self.gamestate.production_chain.shape[0],
+            sensor_settings,
             self.gamestate,
             self._gen_station_name(),
             entity_id=entity_id,
@@ -506,20 +548,23 @@ class UniverseGenerator:
         assert station.cargo.sum() <= station.cargo_capacity
 
         self._phys_shape(station_body, station, station_radius)
+        station.mass = config.Settings.generate.SectorEntities.station.MASS
 
         sector.add_entity(station)
 
         return station
 
     def spawn_planet(self, sector:core.Sector, x:float, y:float, entity_id:Optional[uuid.UUID]=None) -> core.Planet:
-        planet_radius = 1000.
+        planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.planet.SENSOR_INTERCEPT)
         #TODO: stations are static?
         planet_body = self._phys_body()
         planet = core.Planet(
             np.array((x, y), dtype=np.float64),
             planet_body,
             self.gamestate.production_chain.shape[0],
+            sensor_settings,
             self.gamestate,
             self._gen_planet_name(),
             entity_id=entity_id
@@ -527,6 +572,7 @@ class UniverseGenerator:
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
         self._phys_shape(planet_body, planet, planet_radius)
+        planet.mass = config.Settings.generate.SectorEntities.planet.MASS
 
         sector.add_entity(planet)
 
@@ -534,17 +580,19 @@ class UniverseGenerator:
 
     def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
 
-        ship_mass = config.Settings.generate.SectorEntities.SHIP_MASS
-        ship_radius = config.Settings.generate.SectorEntities.SHIP_RADIUS
-        max_thrust = config.Settings.generate.SectorEntities.MAX_THRUST
-        max_fine_thrust = config.Settings.generate.SectorEntities.MAX_FINE_THRUST
-        max_torque = config.Settings.generate.SectorEntities.MAX_TORQUE
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT)
+        ship_mass = config.Settings.generate.SectorEntities.ship.MASS
+        ship_radius = config.Settings.generate.SectorEntities.ship.RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.ship.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.ship.MAX_TORQUE
 
         ship_body = self._phys_body(ship_mass, ship_radius)
         ship = core.Ship(
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
             self.gamestate.production_chain.shape[0],
+            sensor_settings,
             self.gamestate,
             self._gen_ship_name(),
             entity_id=entity_id
@@ -579,6 +627,97 @@ class UniverseGenerator:
 
         return ship
 
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Missile:
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT)
+        ship_mass = config.Settings.generate.SectorEntities.missile.MASS
+        ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.missile.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.missile.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.missile.MAX_TORQUE
+
+        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship = core.Missile(
+            np.array((ship_x, ship_y), dtype=np.float64),
+            ship_body,
+            self.gamestate.production_chain.shape[0],
+            sensor_settings,
+            self.gamestate,
+            self._gen_ship_name(),
+            entity_id=entity_id
+        )
+
+        self._phys_shape(ship_body, ship, ship_radius)
+
+        ship.mass = ship_mass
+        ship.moment = ship_body.moment
+        ship.radius = ship_radius
+        ship.max_thrust = max_thrust
+        ship.max_fine_thrust = max_fine_thrust
+        ship.max_torque = max_torque
+
+        if v is None:
+            v = (self.r.normal(0, 50, 2))
+        ship_body.velocity = cymunk.vec2d.Vec2d(*v)
+        ship_body.angle = ship_body.velocity.angle
+
+        if theta is not None:
+            ship_body.angle = theta
+
+        if w is None:
+            ship_body.angular_velocity = self.r.normal(0, 0.08)
+        else:
+            ship_body.angular_velocity = w
+
+        sector.add_entity(ship)
+
+        return ship
+
+    def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Projectile:
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT)
+        ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
+        ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
+        max_thrust = config.Settings.generate.SectorEntities.projectile.MAX_THRUST
+        max_fine_thrust = config.Settings.generate.SectorEntities.projectile.MAX_FINE_THRUST
+        max_torque = config.Settings.generate.SectorEntities.projectile.MAX_TORQUE
+
+        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship = core.Projectile(
+            np.array((ship_x, ship_y), dtype=np.float64),
+            ship_body,
+            self.gamestate.production_chain.shape[0],
+            sensor_settings,
+            self.gamestate,
+            self._gen_ship_name(),
+            entity_id=entity_id
+        )
+
+        shape = self._phys_shape(ship_body, ship, ship_radius)
+        shape.group = 1
+
+        ship.mass = ship_mass
+        ship.moment = ship_body.moment
+        ship.radius = ship_radius
+        #ship.max_thrust = max_thrust
+        #ship.max_fine_thrust = max_fine_thrust
+        #ship.max_torque = max_torque
+
+        if v is None:
+            v = (self.r.normal(0, 50, 2))
+        ship_body.velocity = cymunk.vec2d.Vec2d(*v)
+        ship_body.angle = ship_body.velocity.angle
+
+        if theta is not None:
+            ship_body.angle = theta
+
+        if w is None:
+            ship_body.angular_velocity = self.r.normal(0, 0.08)
+        else:
+            ship_body.angular_velocity = w
+
+        sector.add_entity(ship)
+
+        return ship
+
     def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None) -> core.TravelGate:
 
         gate_radius = 50
@@ -601,6 +740,7 @@ class UniverseGenerator:
         theta = self.r.uniform(min_theta, max_theta)
         x,y = util.polar_to_cartesian(r, theta)
 
+        sensor_settings = sensors.SensorSettings()
         body = self._phys_body()
         gate = core.TravelGate(
             destination,
@@ -608,6 +748,7 @@ class UniverseGenerator:
             np.array((x,y), dtype=np.float64),
             body,
             self.gamestate.production_chain.shape[0],
+            sensor_settings,
             self.gamestate,
             self._gen_gate_name(destination),
             entity_id=entity_id
@@ -620,7 +761,8 @@ class UniverseGenerator:
         return gate
 
     def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float, entity_id:Optional[uuid.UUID]=None) -> core.Asteroid:
-        asteroid_radius = 100
+        asteroid_radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT)
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -631,16 +773,26 @@ class UniverseGenerator:
             np.array((x,y), dtype=np.float64),
             body,
             self.gamestate.production_chain.shape[0],
+            sensor_settings,
             self.gamestate,
             self._gen_asteroid_name(),
             entity_id=entity_id
         )
 
         self._phys_shape(body, asteroid, asteroid_radius)
+        asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
 
         sector.add_entity(asteroid)
 
         return asteroid
+
+    def spawn_sector_entity(self, klass:Type, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> core.SectorEntity:
+        if klass == core.Missile:
+            return self.spawn_missile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
+        elif klass == core.Projectile:
+            return self.spawn_projectile(sector, ship_x, ship_y, v, w, theta, entity_id=entity_id)
+        else:
+            raise ValueError(f'do not know how to spawn {klass}')
 
     def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
@@ -699,12 +851,22 @@ class UniverseGenerator:
     def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
         if isinstance(asset, core.Ship):
             if asset in mining_ships:
+                character.add_agendum(agenda.CaptainAgendum(
+                    craft=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
                 character.add_agendum(agenda.MiningAgendum(
                     ship=asset,
                     character=character,
                     gamestate=self.gamestate
                 ))
             elif asset in trading_ships:
+                character.add_agendum(agenda.CaptainAgendum(
+                    craft=asset,
+                    character=character,
+                    gamestate=self.gamestate
+                ))
                 character.add_agendum(agenda.TradingAgendum(
                     ship=asset,
                     character=character,
@@ -752,6 +914,7 @@ class UniverseGenerator:
             self._gen_sector_name(),
             entity_id=entity_id
         )
+        sector.sensor_manager = sensors.SensorManager(sector)
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
         # habitable planet
         # plenty of resources
@@ -781,7 +944,7 @@ class UniverseGenerator:
             # generate a field for each one
             asteroids[resource] = []
             for field_amount in field_amounts:
-                loc = self._gen_sector_location(sector)
+                loc = self.gen_sector_location(sector)
                 asteroids[resource].extend(self.spawn_resource_field(sector, loc[0], loc[1], resource, amount))
             self.logger.info(f'generated {len(asteroids[resource])} asteroids for resource {resource} in sector {sector.short_id()}')
 
@@ -802,7 +965,7 @@ class UniverseGenerator:
         for i in range(num_agents):
             # find the one resource this agent produces
             resource = agent_goods[i].argmax()
-            entity_loc = self._gen_sector_location(sector)
+            entity_loc = self.gen_sector_location(sector)
             for build_resource, amount in enumerate(raw_needs[:,RESOURCE_REL_STATION]):
                 self.harvest_resources(sector, entity_loc[0], entity_loc[1], build_resource, amount)
             station = self.spawn_station(
@@ -813,7 +976,7 @@ class UniverseGenerator:
         # consume resources to establish and support population
 
         # set up population according to production capacity
-        entity_loc = self._gen_sector_location(sector)
+        entity_loc = self.gen_sector_location(sector)
         planet = self.spawn_planet(sector, entity_loc[0], entity_loc[1])
         assets.append(planet)
 
@@ -824,7 +987,7 @@ class UniverseGenerator:
         self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
         mining_ships = set()
         for i in range(num_mining_ships):
-            ship_x, ship_y = self._gen_sector_location(sector)
+            ship_x, ship_y = self.gen_sector_location(sector)
             ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
             assets.append(ship)
             mining_ships.add(ship)
@@ -837,7 +1000,7 @@ class UniverseGenerator:
 
         trading_ships = set()
         for i in range(num_trading_ships):
-            ship_x, ship_y = self._gen_sector_location(sector)
+            ship_x, ship_y = self.gen_sector_location(sector)
             ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait)
             assets.append(ship)
             trading_ships.add(ship)
@@ -1357,7 +1520,8 @@ class UniverseGenerator:
         # implies a bigger population
         for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
             # mypy thinks idx is an int
-            self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            self.habitable_sectors.append(sector)
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
@@ -1369,9 +1533,12 @@ class UniverseGenerator:
                 self._gen_sector_name(),
                 entity_id=entity_id
             )
+            sector.sensor_manager = sensors.SensorManager(sector)
 
             # mypy thinks idx is an int
             self.gamestate.add_sector(sector, idx[0]) # type: ignore
+
+            self.non_habitable_sectors.append(sector)
 
         # set up connectivity between sectors
         distances = distance.squareform(distance.pdist(sector_coords))
@@ -1477,25 +1644,25 @@ class UniverseGenerator:
 
         asteroid_loc = refinery.loc
         while not 5e3 < util.distance(asteroid_loc, refinery.loc) < 1e4:
-            asteroid_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
+            asteroid_loc = self.gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         assert refinery.resource is not None
         asteroid = self.spawn_asteroid(refinery.sector, asteroid_loc[0], asteroid_loc[1], resource=self.gamestate.production_chain.inputs_of(refinery.resource)[0], amount=1e5)
 
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
-            ship_loc = self._gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
+            ship_loc = self.gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
         ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
 
-        self.gamestate.player.character = player_character
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
-        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate))
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
 
         # set up tutorial flags
         assert refinery.captain
+        assert refinery.captain.location
         asteroid.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_ASTEROID), asteroid.short_id_int())
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
         refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
@@ -1509,6 +1676,32 @@ class UniverseGenerator:
         self.logger.info(f'tutorial guy is {refinery.captain.short_id()} in {refinery.captain.location.address_str()} {refinery.captain.name}')
         self.logger.info(f'refinery is {refinery.address_str()} {refinery.name}')
         self.logger.info(f'asteroid is {asteroid.address_str()} {asteroid.name}')
+
+    def generate_player_for_combat_test(self) -> None:
+        # choose an uninhabited sector
+        sector = self.r.choice(self.non_habitable_sectors, 1)[0] # type: ignore
+
+        # spawn the player, character, ship, etc.
+        ship_loc = np.array((0., 0.))
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
+
+        self.gamestate.player = self.spawn_player(ship, balance=2e3)
+        player_character = self.gamestate.player.character
+
+        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
+
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
+
+        # spawn an NPC ship/character with orders to attack the player
+        threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=4e5, occupied_radius=5e2, min_dist=3e5, strict=True)
+        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
+        character = self.spawn_character(threat)
+        character.take_ownership(threat)
+        character.add_agendum(agenda.CaptainAgendum(threat, character, self.gamestate, enable_threat_response=False))
+
+        order = combat.HuntOrder(ship.entity_id, threat, self.gamestate, start_loc=ship.loc)
+        threat.clear_orders(self.gamestate)
+        threat.prepend_order(order)
 
     def generate_starfields(self) -> None:
         self.logger.info(f'generating universe_starfield...')
@@ -1528,7 +1721,7 @@ class UniverseGenerator:
             radius=8*config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
             desired_stars_per_char=(3/80.)**2,
             min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
-            max_zoom=config.Settings.generate.SectorEntities.SHIP_RADIUS*2,
+            max_zoom=config.Settings.generate.SectorEntities.ship.RADIUS*2,
             layer_zoom_step=0.25,
         )
 
@@ -1555,7 +1748,8 @@ class UniverseGenerator:
         )
 
         # generate the player
-        self.generate_player()
+        #self.generate_player()
+        self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

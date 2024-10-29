@@ -138,12 +138,29 @@ def screen_to_sector(
     )
 
 @jit(cache=True, nopython=True, fastmath=True)
+def circle_bbox(loc:npt.NDArray[np.float64], r:float) -> Tuple[float, float, float, float]:
+    return (loc[0]-r, loc[1]-r, loc[0]+r, loc[1]+r)
+
+@jit(cache=True, nopython=True, fastmath=True)
+def magnitude_sq(x:float, y:float) -> float:
+    return x*x + y*y
+
+@jit(cache=True, nopython=True, fastmath=True)
+def distance_sq(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
+    return magnitude_sq((s - t)[0], (s - t)[1])
+
+@jit(cache=True, nopython=True, fastmath=True)
 def magnitude(x:float, y:float) -> float:
     return math.sqrt(x*x + y*y)
 
 @jit(cache=True, nopython=True, fastmath=True)
 def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
     return magnitude((s - t)[0], (s - t)[1])
+
+@jit(cache=True, nopython=True, fastmath=True)
+def bearing(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
+    course = t - s
+    return normalize_angle(math.atan2(course[1], course[0]), shortest=True)
 
 @jit(cache=True, nopython=True, fastmath=True)
 def cartesian_to_polar(x:float, y:float) -> tuple[float, float]:
@@ -318,6 +335,26 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
+def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None) -> drawille.Canvas:
+    if canvas is None:
+        canvas = drawille.Canvas()
+    course = np.array(end) - np.array(start)
+    distance = np.linalg.norm(course)
+    if distance == 0:
+        d_x, d_y = sector_to_drawille(start[0], start[1], meters_per_char_x, meters_per_char_y)
+        canvas.set(d_x, d_y)
+        return canvas
+    unit_course = course / distance
+    if step is None:
+        step = 2.*meters_per_char_x
+    d = 0.
+    while d <= distance:
+        point = unit_course * d + start
+        d_x, d_y = sector_to_drawille(point[0], point[1], meters_per_char_x, meters_per_char_y)
+        canvas.set(d_x, d_y)
+        d += step
+    return canvas
+
 def draw_line(y:int, x:int, line:str, screen:curses.window, attr:int=0, bounds:Tuple[int, int, int, int]=(0,0,sys.maxsize,sys.maxsize)) -> None:
     if y < bounds[1] or y >= bounds[3]:
         return
@@ -463,6 +500,42 @@ def compute_uigrid(
         lines_to_dict(text, bounds=bounds)
     )
 
+def drawille_circle(radius:float, tick_spacing:float, width:float, height:float, meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+    if canvas is None:
+        canvas = drawille.Canvas()
+
+    # shortcut if the entire circle falls outside the bbox
+    if radius > width and radius > height:
+        return canvas
+
+    # perfect arc length is minor tick spacing, but we want an arc length
+    # closest to that which will divide the circle into a whole number of
+    # pieces divisible by 4 (so the circle dots match the cross)
+    theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (tick_spacing / radius) / 4))
+    # we'll just iterate over a single quadrant and mirror it
+    thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
+    for theta in thetas:
+        # skip dots that fall on cross
+        if np.isclose(theta % (math.pi/2), 0.):
+            continue
+        dot_x, dot_y = polar_to_cartesian(radius, theta)
+
+        # skip dots outside bbox
+        if dot_x > width/2:
+            continue
+        if dot_y > height/2:
+            continue
+
+        d_x, d_y = sector_to_drawille(
+                dot_x, dot_y,
+                meters_per_char_x, meters_per_char_y)
+        canvas.set(d_x, d_y)
+        canvas.set(-d_x, d_y)
+        canvas.set(-d_x, -d_y)
+        canvas.set(d_x, -d_y)
+
+    return canvas
+
 def compute_uiradar(
         center:Tuple[float, float],
         bbox:Tuple[float, float, float, float],
@@ -520,32 +593,7 @@ def compute_uiradar(
     # iterate over rings at major tickSpacing
     max_radius = magnitude(bbox[2] - bbox[0], bbox[3] - bbox[1])/2
     for r in np.linspace(major_ticks_x.tickSpacing, max_radius, int(max_radius/major_ticks_x.tickSpacing), endpoint=False):
-        # perfect arc length is minor tick spacing, but we want an arc length
-        # closest to that which will divide the circle into a whole number of
-        # pieces divisible by 4 (so the circle dots match the cross)
-        theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (minor_ticks_x.tickSpacing / r) / 4))
-        # we'll just iterate over a single quadrant and mirror it
-        thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
-        for theta in thetas:
-            # skip dots that fall on cross
-            #if np.isclose(theta % (math.pi/2), 0.):
-            #    continue
-            dot_x, dot_y = polar_to_cartesian(r, theta)
-
-            # skip dots outside bbox
-            if dot_x > (bbox[2] - bbox[0])/2:
-                continue
-            if dot_y > (bbox[3] - bbox[1])/2:
-                continue
-
-            d_x, d_y = sector_to_drawille(
-                    dot_x, dot_y,
-                    meters_per_char_x, meters_per_char_y)
-            c.set(d_x, d_y)
-            c.set(-d_x, d_y)
-            c.set(-d_x, -d_y)
-            c.set(d_x, -d_y)
-
+        drawille_circle(r, minor_ticks_x.tickSpacing, (bbox[2] - bbox[0]), (bbox[3] - bbox[1]), meters_per_char_x, meters_per_char_y, canvas=c)
     # get upper left corner position so drawille canvas fills the screen
     (d_x, d_y) = sector_to_drawille(
             -(bbox[2] - bbox[0])/2, -(bbox[3]-bbox[1])/2,
@@ -562,7 +610,7 @@ def compute_uiradar(
         lines_to_dict(text, bounds=bounds)
     )
 
-def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None) -> drawille.Canvas:
+def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0.) -> drawille.Canvas:
     c = drawille.Canvas()
     if isclose(r, 0.):
         c.set(0,0)
@@ -572,7 +620,7 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
         step = 2/r*meters_per_char_x
     while theta < 2*math.pi:
         c_x, c_y = polar_to_cartesian(r, theta)
-        d_x, d_y = sector_to_drawille(c_x, c_y, meters_per_char_x, meters_per_char_y)
+        d_x, d_y = sector_to_drawille(c_x+offset_x, c_y+offset_y, meters_per_char_x, meters_per_char_y)
         c.set(d_x, d_y)
         theta += step
     return c
@@ -605,6 +653,9 @@ def update_vema(value_estimate:float, volume_estimate:float, alpha:float, value:
 
 @overload
 def update_vema(value_estimate:npt.NDArray[np.float64], volume_estimate:npt.NDArray[np.float64], alpha:float, value:npt.NDArray[np.float64], volume:npt.NDArray[np.float64]) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+@overload
+def update_vema(value_estimate:npt.NDArray[np.float64], volume_estimate:float, alpha:float, value:npt.NDArray[np.float64], volume:float) -> Tuple[npt.NDArray[np.float64], float]: ...
 
 def update_vema(value_estimate:float | npt.NDArray[np.float64], volume_estimate:float | npt.NDArray[np.float64], alpha:float, value:float | npt.NDArray[np.float64], volume:float | npt.NDArray[np.float64]) -> Tuple[float | npt.NDArray[np.float64], float | npt.NDArray[np.float64]]:
     """ Update volume weighted moving average parameters (value, volume). """

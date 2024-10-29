@@ -37,7 +37,8 @@ def dict_to_simplenamespace(d:Dict[str, Any]) -> types.SimpleNamespace:
     return types.SimpleNamespace(**d)
 
 def load_config(config_file:Optional[TextIO]=None) -> types.SimpleNamespace:
-    config = toml.loads(importlib.resources.read_text("stellarpunk.data", "config.toml"))
+    #config = toml.loads(importlib.resources.read_text("stellarpunk.data", "config.toml"))
+    config = toml.loads(importlib.resources.files("stellarpunk.data").joinpath("config.toml").read_text())
     if config_file:
         override = toml.load(config_file)
         merge(config, override)
@@ -48,11 +49,13 @@ def load_config(config_file:Optional[TextIO]=None) -> types.SimpleNamespace:
     return Settings
 
 def load_dialogs() -> Dict[str, Any]:
-    dialogs = toml.loads(importlib.resources.read_text("stellarpunk.data", "dialogs.toml"))
+    #dialogs = toml.loads(importlib.resources.read_text("stellarpunk.data", "dialogs.toml"))
+    dialogs = toml.loads(importlib.resources.files("stellarpunk.data").joinpath("dialogs.toml").read_text())
     return dialogs
 
 def load_events() -> Dict[str, Any]:
-    events = toml.loads(importlib.resources.read_text("stellarpunk.data", "events.toml"))
+    #events = toml.loads(importlib.resources.read_text("stellarpunk.data", "events.toml"))
+    events = toml.loads(importlib.resources.files("stellarpunk.data").joinpath("events.toml").read_text())
     return events
 
 def key_help(obj: object, k: str) -> str:

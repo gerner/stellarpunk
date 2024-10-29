@@ -3,8 +3,8 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate, interface
-from . import MonitoringUI, MonitoringEconDataLogger
+from stellarpunk import core, sim, generate, interface, sensors
+from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
 def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
@@ -18,6 +18,7 @@ def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
     ug.initialize(starfield_composite=False)
     gamestate.random = ug.r
+    gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
             max_fraction_one_to_one=1.,
             max_fraction_single_input=1.,
@@ -33,6 +34,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_name = "Sector"
 
     sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name)
+    sector.sensor_manager = sensors.SensorManager(sector)
     gamestate.sectors[sector.entity_id] = sector
 
     return sector
@@ -57,7 +59,7 @@ def econ_logger() -> MonitoringEconDataLogger:
 
 @pytest.fixture
 def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
-    simulation = sim.Simulator(gamestate, testui, ticks_per_hist_sample=1)
+    simulation = MonitoringSimulator(gamestate, testui)
     gamestate.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
 

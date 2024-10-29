@@ -8,6 +8,19 @@ def make_enclosing_circle(
 
 def collision_dv(entity_pos:cymunk.Vec2d, entity_vel:cymunk.Vec2d, pos:cymunk.Vec2d, vel:cymunk.Vec2d, margin:float, v_d:cymunk.Vec2d, cbdr:bool, cbdr_bias:float, delta_v_budget:float) -> cymunk.Vec2d: ...
 
+def find_target_v(body:cymunk.Body, target_location:cymunk.Vec2d, arrival_distance:float, min_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, safety_factor:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
+
+def find_intercept_v(body:cymunk.Body, target_loc:cymunk.Vec2d, target_v:cymunk.Vec2d, arrival_distance:float, max_acceleration:float, max_angular_acceleration:float, max_speed:float, dt:float, final_speed:float) -> Tuple[cymunk.Vec2d, float, float, cymunk.Vec2d]: ...
+
+def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_loc:cymunk.Vec2d, target_v:cymunk.Vec2d, muzzle_velocity:float) -> Tuple[float, cymunk.Vec2d, float]: ...
+
+def compute_neighborhood_center(body:cymunk.Body, neighborhood_radius:float, margin:float) -> cymunk.Vec2d: ...
+def compute_sensor_cone(course:cymunk.Vec2d, neighborhood_radius:float, margin:float, neighborhood_loc:cymunk.Vec2d, radius:float) -> Tuple[cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d]: ...
+
+class RocketModel:
+    def effective_thrust(self, timestamp:float) -> float: ...
+    def set_thrust(self, thrust:float, timestamp:float) -> None: ...
+
 class Navigator:
     def __init__(
             self, space:cymunk.Space, body:cymunk.Body,
@@ -47,6 +60,17 @@ class Navigator:
     def find_target_v(self,
             dt: float, safety_factor:float,
             ) -> Tuple[cymunk.Vec2d, float, float, bool, float]: ...
+
+    def analyze_neighbor(self, target_loc:cymunk.Vec2d, target_velocity:cymunk.Vec2d, margin:float, max_distance:float
+            ) -> Tuple[
+                    float,
+                    float,
+                    cymunk.Vec2d,
+                    cymunk.Vec2d,
+                    float,
+                    cymunk.Vec2d,
+                    float
+            ]: ...
 
     def analyze_neighbors(
             self,
@@ -90,7 +114,8 @@ def rotate_to(
 
 def accelerate_to(
         body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
-        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float) -> float: ...
+        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
+        sensor_settings:Any) -> float: ...
 
 def migrate_threat_location(
         inref_loc:cymunk.Vec2d, inref_radius:float,

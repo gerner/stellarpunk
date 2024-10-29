@@ -1,5 +1,6 @@
 """ Stellarpunk gamestate, a central repository for all gamestate """
 
+import abc
 import logging
 import enum
 import uuid
@@ -7,7 +8,7 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List, Type, Set
 
 import numpy as np
 import numpy.typing as npt
@@ -95,10 +96,24 @@ class AbstractGameRuntime:
     ) -> None:
         pass
 
+class AbstractGenerator:
+    @abc.abstractmethod
+    def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False)->npt.NDArray[np.float64]: ...
+    @abc.abstractmethod
+    def gen_projectile_location(self, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> Tuple[npt.NDArray[np.float64],int]: ...
+    @abc.abstractmethod
+    def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
+
+class ScheduledTask:
+    @abc.abstractmethod
+    def act(self) -> None: ...
 
 class Gamestate(EntityRegistry):
+    gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
+        Gamestate.gamestate = self
         self.logger = logging.getLogger(util.fullname(self))
+        self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
 
         self.random = np.random.default_rng()
@@ -137,7 +152,8 @@ class Gamestate(EntityRegistry):
 
         # priority queue of agenda items in form (scheduled timestamp, agendum)
         self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
-        #self.scheduled_agenda:Set[Agendum] = set()
+
+        self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
@@ -167,7 +183,13 @@ class Gamestate(EntityRegistry):
         self.sector_starfield:Sequence[StarfieldLayer] = []
         self.portrait_starfield:Sequence[StarfieldLayer] = []
 
+        # list for in iterator appends
+        # set for destroying exactly once
+        self.entity_destroy_list:List[Entity] = []
+        self.entity_destroy_set:Set[Entity] = set()
+
     def register_entity(self, entity: Entity) -> narrative.EventContext:
+        self.logger.debug(f'registering {entity}')
         if entity.entity_id in self.entities:
             raise ValueError(f'entity {entity.entity_id} already registered!')
         if entity.short_id_int() in self.entities_short:
@@ -175,9 +197,11 @@ class Gamestate(EntityRegistry):
 
         self.entities[entity.entity_id] = entity
         self.entities_short[entity.short_id_int()] = entity
+        entity.created_at = self.timestamp
         return self.entity_context_store.register_entity(entity.short_id_int())
 
     def unregister_entity(self, entity: Entity) -> None:
+        self.logger.debug(f'unregistering {entity}')
         self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
@@ -217,17 +241,50 @@ class Gamestate(EntityRegistry):
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
 
-    def withdraw_agent(self, entity_id:uuid.UUID) -> EconAgent:
-        return self.econ_agents.pop(entity_id)
+    def withdraw_agent(self, entity_id:uuid.UUID) -> None:
+        try:
+            agent = self.econ_agents.pop(entity_id)
+            self.destroy_entity(agent)
+        except KeyError:
+            pass
 
     def add_character(self, character:Character) -> None:
+        if character.location is None:
+            raise ValueError(f'tried to add character {character} with no location')
         self.characters[character.entity_id] = character
         self.characters_by_location[character.location.entity_id].append(character)
 
     def move_character(self, character:Character, location:SectorEntity) -> None:
-        self.characters_by_location[character.location.entity_id].remove(character)
+        if character.location is not None:
+            self.characters_by_location[character.location.entity_id].remove(character)
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
+
+    def handle_destroy(self, entity:Entity) -> None:
+        self.logger.debug(f'destroying {entity}')
+        if isinstance(entity, SectorEntity):
+            for character in self.characters_by_location[entity.entity_id]:
+                self.destroy_entity(character)
+            if entity.sector is not None:
+                entity.sector.remove_entity(entity)
+            entity.destroy()
+        else:
+            entity.destroy()
+
+    def destroy_entity(self, entity:Entity) -> None:
+        if entity not in self.entity_destroy_set:
+            self.entity_destroy_list.append(entity)
+            self.entity_destroy_set.add(entity)
+
+    #def destroy_character(self, character:Character) -> None:
+    #    character.destroy()
+
+    #def destroy_sector_entity(self, entity:SectorEntity) -> None:
+    #    for character in self.characters_by_location[entity.entity_id]:
+    #        self.destroy_character(character)
+    #    if entity.sector is not None:
+    #        entity.sector.remove_entity(entity)
+    #    entity.destroy()
 
     def is_order_scheduled(self, order:Order) -> bool:
         return self._order_schedule.is_task_scheduled(order)
@@ -287,6 +344,24 @@ class Gamestate(EntityRegistry):
 
     def pop_current_agenda(self) -> Sequence[Agendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
+
+    def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:
+        self.schedule_task(self.timestamp + self.desired_dt, task, jitter)
+
+    def schedule_task(self, timestamp:float, task:ScheduledTask, jitter:float=0.) -> None:
+        assert timestamp > self.timestamp
+        assert timestamp < np.inf
+
+        if jitter > 0.:
+            timestamp += self.random.uniform(high=jitter)
+
+        self._task_schedule.push_task(timestamp, task)
+
+    def unschedule_task(self, task:ScheduledTask) -> None:
+        self._task_schedule.cancel_task(task)
+
+    def pop_current_task(self) -> Sequence[ScheduledTask]:
+        return self._task_schedule.pop_current_tasks(self.timestamp)
 
     def transact(self, product_id:int, buyer:EconAgent, seller:EconAgent, price:float, amount:float) -> None:
         self.logger.info(f'transaction: {product_id} from {buyer.agent_id} to {seller.agent_id} at ${price} x {amount} = ${price * amount}')

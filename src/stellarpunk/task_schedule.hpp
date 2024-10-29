@@ -47,6 +47,13 @@ class cTaskSchedule {
         }
 
         void push(double timestamp, PyObject* task) {
+            if(count(task) > 0) {
+                ScheduledTask t = ScheduledTask(tasks[task], task);
+                assert(task_schedule.count(t) == 1);
+                task_schedule.erase(t);
+                task_schedule.insert(ScheduledTask(timestamp, task));
+                return;
+            }
             Py_XINCREF(task);
             task_schedule.insert(ScheduledTask(timestamp, task));
             tasks[task] = timestamp;

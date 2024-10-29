@@ -176,6 +176,54 @@ def test_collision_dv():
 
     assert all(np.isclose(delta_velocity, expected_dv))
 
+def test_intercept_heading():
+    start_loc = cymunk.Vec2d(0., 0.)
+    start_v = cymunk.Vec2d(0.0, 0.0)
+    target_loc = cymunk.Vec2d(10., 10.)
+    target_v = cymunk.Vec2d(0., 0.)
+    muzzle_velocity = 1000.
+
+    intercept_time, intercept_loc, intercept_heading = collision.find_intercept_heading(start_loc, start_v, target_loc, target_v, muzzle_velocity)
+
+    assert np.isclose(intercept_time, np.linalg.norm(target_loc) / muzzle_velocity)
+    assert np.isclose(intercept_heading, np.pi/4.)
+    assert all(np.isclose(intercept_loc, np.array((10., 10.))))
+
+    start_loc = cymunk.Vec2d(0., 0.)
+    start_v = cymunk.Vec2d(10., 10.)
+    target_loc = cymunk.Vec2d(10., 10.)
+    target_v = cymunk.Vec2d(10., 10.)
+    muzzle_velocity = 1000.
+
+    intercept_time, intercept_loc, intercept_heading = collision.find_intercept_heading(start_loc, start_v, target_loc, target_v, muzzle_velocity)
+
+    assert np.isclose(intercept_time, np.linalg.norm(target_loc) / muzzle_velocity)
+    assert np.isclose(intercept_heading, np.pi/4.)
+    assert all(np.isclose(intercept_loc, np.array((10., 10.))+target_v*intercept_time))
+    start_loc = cymunk.Vec2d(0., 0.)
+    start_v = cymunk.Vec2d(0., 0.)
+    target_loc = cymunk.Vec2d(10., 10.)
+    target_v = cymunk.Vec2d(-10., -10.)
+    muzzle_velocity = 1000.
+
+    intercept_time, intercept_loc, intercept_heading = collision.find_intercept_heading(start_loc, start_v, target_loc, target_v, muzzle_velocity)
+
+    assert np.isclose(intercept_time, np.linalg.norm(target_loc) / (muzzle_velocity + np.linalg.norm(target_v)))
+    assert np.isclose(intercept_heading, np.pi/4.)
+    assert all(np.isclose(intercept_loc, np.array((10., 10.))+target_v*intercept_time))
+    start_loc = cymunk.Vec2d(0., 0.)
+    start_v = cymunk.Vec2d(20.0, 0.0)
+    target_loc = cymunk.Vec2d(10., 10.)
+    target_v = cymunk.Vec2d(20., 0.)
+    muzzle_velocity = 1000.
+
+    intercept_time, intercept_loc, intercept_heading = collision.find_intercept_heading(start_loc, start_v, target_loc, target_v, muzzle_velocity)
+
+    assert np.isclose(intercept_time, np.linalg.norm(target_loc) / muzzle_velocity)
+    assert np.isclose(intercept_heading, np.pi/4.)
+    assert all(np.isclose(intercept_loc, np.array((10., 10.)+target_v*intercept_time)))
+
+
 def test_task_schedule():
     schedule:task_schedule.TaskSchedule[Tuple[str, int]] = task_schedule.TaskSchedule()
     schedule.push_task(5, ("a", 47))

@@ -3,11 +3,12 @@
 import abc
 import logging
 import collections
-from typing import Any, Optional, List, Tuple, Deque, TYPE_CHECKING
+import weakref
+from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set
 
 import numpy as np
 
-from stellarpunk import util
+from stellarpunk import util, core
 
 if TYPE_CHECKING:
     from .sector import Sector
@@ -35,7 +36,7 @@ class Effect(abc.ABC):
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
-        self.observers:List[EffectObserver] = []
+        self.observers:Set[EffectObserver] = set()
 
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -43,7 +44,13 @@ class Effect(abc.ABC):
             self.observe(observer)
 
     def observe(self, observer:EffectObserver) -> None:
-        self.observers.append(observer)
+        self.observers.add(observer)
+
+    def unobserve(self, observer:EffectObserver) -> None:
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
 
     def _begin(self) -> None:
         """ Called when the effect starts.
@@ -66,7 +73,7 @@ class Effect(abc.ABC):
         pass
 
     def is_complete(self) -> bool:
-        return True
+        return self.completed_at > 0
 
     def begin_effect(self) -> None:
         """ Triggers the event to start working.
@@ -89,6 +96,8 @@ class Effect(abc.ABC):
         effect is done. The default act will call this if is_complete.
         """
 
+        if self.completed_at > 0:
+            return
         self.completed_at = self.gamestate.timestamp
         self._complete()
 
@@ -96,6 +105,7 @@ class Effect(abc.ABC):
 
         for observer in self.observers:
             observer.effect_complete(self)
+        self.observers.clear()
 
         self.sector.remove_effect(self)
 
@@ -106,6 +116,10 @@ class Effect(abc.ABC):
 
         Anyone can call this.
         """
+
+        if self.completed_at > 0:
+            return
+        self.completed_at = self.gamestate.timestamp
 
         self.gamestate.unschedule_effect(self)
         try:
@@ -118,6 +132,7 @@ class Effect(abc.ABC):
 
         for observer in self.observers:
             observer.effect_cancel(self)
+        self.observers.clear()
 
     def act(self, dt:float) -> None:
         # by default we'll just complete the effect if it's done
@@ -128,11 +143,13 @@ class Effect(abc.ABC):
 class OrderLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, ship:"Ship", *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
-        self.ship = ship
+        self.ship = weakref.proxy(ship)
 
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
-        assert self.ship.sector is not None
-        return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
+        if self.ship.sector is None:
+            return f'{self.ship.short_id()}@None {msg}', kwargs
+        else:
+            return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
 
 class OrderObserver:
@@ -161,9 +178,10 @@ class Order:
         self.started_at = -1.
         self.completed_at = -1.
         self.init_eta = np.inf
+        self.parent_order:Optional[Order] = None
         self.child_orders:Deque[Order] = collections.deque()
 
-        self.observers:List[OrderObserver] = []
+        self.observers:Set[OrderObserver] = set()
         if observer is not None:
             self.observe(observer)
 
@@ -177,9 +195,16 @@ class Order:
             return self.init_eta
 
     def observe(self, observer:OrderObserver) -> None:
-        self.observers.append(observer)
+        self.observers.add(observer)
+
+    def unobserve(self, observer:OrderObserver) -> None:
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
 
     def _add_child(self, order:"Order", begin:bool=True) -> None:
+        order.parent_order = self
         self.child_orders.appendleft(order)
         self.ship.prepend_order(order, begin=begin)
 
@@ -189,7 +214,7 @@ class Order:
     def is_complete(self) -> bool:
         """ Indicates that this Order is ready to complete and be removed from
         the order queue. """
-        return False
+        return self.completed_at > 0
 
     def _begin(self) -> None:
         pass
@@ -215,24 +240,9 @@ class Order:
     def complete_order(self) -> None:
         """ Called when an order is_complete and about to be removed from the
         order queue. """
+        if self.completed_at > 0:
+            return
         self.completed_at = self.gamestate.timestamp
-        self._complete()
-
-        for observer in self.observers:
-            observer.order_complete(self)
-
-    def cancel_order(self) -> None:
-        """ Called when an order is removed from the order queue, but not
-        because it's complete. Note the order _might_ be complete in this case.
-        """
-        self.gamestate.unschedule_order(self)
-        for order in self.child_orders:
-            order.cancel_order()
-            try:
-                self.ship.remove_order(order)
-            except ValueError:
-                # order might already have been removed from the queue
-                pass
 
         try:
             self.ship.remove_order(self)
@@ -240,11 +250,52 @@ class Order:
             # order might already have been removed from the queue
             pass
 
-        self._cancel()
+        for order in self.child_orders:
+            order.cancel_order()
+            try:
+                self.ship.remove_order(order)
+            except ValueError:
+                # order might already have been removed from the queue
+                pass
+        self.child_orders.clear()
 
+        self._complete()
+        for observer in self.observers:
+            observer.order_complete(self)
+        self.observers.clear()
+        self.gamestate.unschedule_order(self)
+
+    def cancel_order(self) -> None:
+        """ Called when an order is removed from the order queue, but not
+        because it's complete. Note the order _might_ be complete in this case.
+        """
+        if self.completed_at > 0:
+            return
+        self.completed_at = self.gamestate.timestamp
+
+        try:
+            self.ship.remove_order(self)
+        except ValueError:
+            # order might already have been removed from the queue
+            pass
+
+        for order in self.child_orders:
+            order.cancel_order()
+            try:
+                self.ship.remove_order(order)
+            except ValueError:
+                # order might already have been removed from the queue
+                pass
+        self.child_orders.clear()
+
+        self._cancel()
         for observer in self.observers:
             observer.order_cancel(self)
+        self.observers.clear()
+        self.gamestate.unschedule_order(self)
 
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """
         pass
+
+

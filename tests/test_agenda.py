@@ -19,6 +19,7 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
 
     ship_owner = generator.spawn_character(ship)
     ship_owner.take_ownership(ship)
+    ship.captain = ship_owner
     mining_agendum = agenda.MiningAgendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
 
@@ -83,6 +84,7 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     price = 10.
     ship_owner = generator.spawn_character(ship)
     ship_owner.take_ownership(ship)
+    ship.captain = ship_owner
     mining_agendum = agenda.MiningAgendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
 
@@ -148,6 +150,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     initial_balance = trader_capacity*buy_price
     ship_owner = generator.spawn_character(ship, balance=initial_balance)
     ship_owner.take_ownership(ship)
+    ship.captain = ship_owner
     trading_agendum = agenda.TradingAgendum(ship=ship, character=ship_owner, gamestate=gamestate)
     trading_agendum.max_trips=2
     trader_agent = trading_agendum.agent
@@ -157,6 +160,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     producer_initial_balance = 0
     producer_owner = generator.spawn_character(station_producer, balance=producer_initial_balance)
     producer_owner.take_ownership(station_producer)
+    station_producer.captain = producer_owner
     producer_agendum = agenda.StationManager(station=station_producer, character=producer_owner, gamestate=gamestate)
     producer_owner.add_agendum(producer_agendum)
     producer_agent = gamestate.econ_agents[station_producer.entity_id]
@@ -169,6 +173,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     consumer_initial_balance = trader_capacity*2*buy_price*gamestate.production_chain.markup[consumer_resource]
     consumer_owner = generator.spawn_character(station_consumer, balance=consumer_initial_balance)
     consumer_owner.take_ownership(station_consumer)
+    station_consumer.captain = consumer_owner
     consumer_agendum = agenda.StationManager(station=station_consumer, character=consumer_owner, gamestate=gamestate)
     consumer_owner.add_agendum(consumer_agendum)
     consumer_agent = gamestate.econ_agents[station_consumer.entity_id]

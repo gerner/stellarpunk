@@ -109,7 +109,7 @@ class CommandInput(interface.View):
                     self.interface.status_message(f'error in "{self.command}" {str(e)}', curses.color_pair(1))
                 finally:
                     self._command_history.enter_command()
-            else:
+            elif command_name != "":
                 self.interface.status_message(f'unknown command "{self.command}" enter command mode with ":" and then "quit" to quit.', curses.color_pair(1))
             self.interface.close_view(self)
         elif key == curses.KEY_UP:
@@ -120,8 +120,12 @@ class CommandInput(interface.View):
             self.command += chr(key)
             self.partial = self.command
         elif key == curses.ascii.BS:
-            self.command = self.command[:-1]
-            self.partial = self.command
+            if len(self.command) == 0:
+                self.interface.status_message()
+                self.interface.close_view(self)
+            else:
+                self.command = self.command[:-1]
+                self.partial = self.command
         elif key == curses.ascii.TAB:
             if " " not in self.command:
                 self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial

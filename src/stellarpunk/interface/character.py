@@ -57,6 +57,7 @@ class CharacterView(interface.View):
         self.draw_detail()
 
     def draw_info(self) -> None:
+        assert self.character.location
         ui_util.draw_portrait(self.character.portrait, self.info_pad)
         self.info_pad.window.addstr('\n')
 
