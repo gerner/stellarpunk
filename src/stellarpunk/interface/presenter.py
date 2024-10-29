@@ -86,16 +86,19 @@ class Presenter:
         self.debug_entity_vectors = False
         self.show_sensor_cone = False
 
-        self.cached_entities:List[core.SectorEntity] = []
+        self.cached_entities:List[core.AbstractSensorImage] = []
         self.cached_entities_ts = -1.
 
-    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Sequence[core.SectorEntity]:
+    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Sequence[core.AbstractSensorImage]:
         if self.gamestate.timestamp == self.cached_entities_ts:
             return self.cached_entities
         if perspective_ship:
+            # viewing the sector from the perspective of a single ship
             self.cached_entities = list(self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox))
         else:
-            self.cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
+            # sector wide view without any player ship at the center
+            raise Exception("ohnoes")
+            #self.cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
         self.cached_entities_ts = self.gamestate.timestamp
         return self.cached_entities
 
@@ -218,19 +221,19 @@ class Presenter:
                 self.view.viewscreen.addstr(y+1+non_zero_cargo, x, f' {i}: {entity.cargo[i]:.0f}', description_attr)
                 non_zero_cargo += 1
 
-    def draw_entity_shape(self, entity:core.SectorEntity) -> None:
+    def draw_entity_shape(self, entity:core.AbstractSensorImage) -> None:
         #TODO: handle shapes not circles?
         #TODO: better handle drawing entity shapes: refactor into own method
 
         # clear out the interior of the entity circle
         loc_x, loc_y = entity.loc
-        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.radius, loc_y-entity.radius)
-        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.radius, loc_y+entity.radius)
+        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.target_radius, loc_y-entity.target_radius)
+        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.target_radius, loc_y+entity.target_radius)
         for s_x in range(s_x_min, s_x_max+1):
             for s_y in range(s_y_min, s_y_max+1):
                 e_x, e_y = self.perspective.screen_to_sector(s_x, s_y)
                 dist2 = (e_x - loc_x)**2.+(e_y - loc_y)**2
-                if dist2 < entity.radius**2.:
+                if dist2 < entity.target_radius**2.:
                     self.view.viewscreen.addstr(s_y, s_x, " ", 0)
 
 
@@ -239,23 +242,24 @@ class Presenter:
 
         # actually draw the circle
         screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
-        c = util.make_circle_canvas(entity.radius, *self.perspective.meters_per_char)
+        c = util.make_circle_canvas(entity.target_radius, *self.perspective.meters_per_char)
         util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
-    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
+    def draw_entity(self, y:int, x:int, entity:core.AbstractSensorImage, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """
 
-        icon = interface.Icons.sector_entity_icon(entity)
-        icon_attr |= interface.Icons.sector_entity_attr(entity)
+        icon = interface.Icons.sensor_image_icon(entity)
+        icon_attr |= interface.Icons.sensor_image_attr(entity)
 
-        description_attr = interface.Icons.sector_entity_attr(entity)
-        if entity.entity_id == self.selected_target:
+        description_attr = interface.Icons.sensor_image_attr(entity)
+        if entity.target_entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
         else:
             description_attr |= curses.A_DIM
 
         self.view.viewscreen.addstr(y, x, icon, icon_attr)
 
+        """
         # draw a "tail" from the entity's history
         i=len(entity.history)-1
         cutoff_time = self.gamestate.timestamp - 5.
@@ -278,35 +282,38 @@ class Presenter:
                 self.view.viewscreen.addstr(hist_y, hist_x, interface.Icons.sector_entity_icon(entity, angle=entry.angle), (icon_attr | curses.A_DIM) & (~curses.A_STANDOUT))
             last_x = hist_x
             last_y = hist_y
+        """
 
         if not isinstance(entity, core.Asteroid) and not isinstance(entity, core.Projectile):
-            speed = entity.speed
+            speed = util.magnitude(*entity.velocity)
             if speed > 0.:
-                name_tag = f' {entity.short_id()} {speed:.0f}'
+                name_tag = f' {entity.target_short_id()} {speed:.0f}'
             else:
-                name_tag = f' {entity.short_id()}'
+                name_tag = f' {entity.target_short_id()}'
             self.view.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
 
-        if self.debug_entity:
-            self.draw_entity_debug_info(y+2, x, entity, description_attr)
-        elif entity.entity_id == self.selected_target:
-            self.draw_entity_info(y+2, x, entity, description_attr)
+        #if self.debug_entity:
+        #    self.draw_entity_debug_info(y+2, x, entity, description_attr)
+        # it's not clear what entity info we'd draw. this is just cargo as of
+        # 2024-10-29
+        #elif entity.target_entity_id == self.selected_target:
+        #    self.draw_entity_info(y+2, x, entity, description_attr)
 
-    def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.SectorEntity]) -> None:
+    def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.AbstractSensorImage]) -> None:
 
-        icons = set(map(interface.Icons.sector_entity_icon, entities))
+        icons = set(map(interface.Icons.sensor_image_icon, entities))
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
 
-        icon_attrs = set(map(interface.Icons.sector_entity_attr, entities))
+        icon_attrs = set(map(interface.Icons.sensor_image_attr, entities))
         icon_attr = icon_attrs.pop() if len(icon_attrs) == 1 else 0
 
-        prefixes = set(map(lambda x: x.id_prefix, entities))
+        prefixes = set(map(lambda x: x.target_id_prefix, entities))
         prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
 
         self.view.viewscreen.addstr(y, x, icon, icon_attr)
         self.view.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
-    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.SectorEntity]], collision_threats:Sequence[core.SectorEntity]) -> None:
+    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.AbstractSensorImage]], collision_threats:Sequence[core.SectorEntity]) -> None:
         for loc, entities in occupied.items():
             if len(entities) > 1:
                 self.draw_multiple_entities(
@@ -325,14 +332,14 @@ class Presenter:
                 collision_threats.append(ship.collision_threat)
 
         last_loc = None
-        occupied:Dict[Tuple[int,int], List[core.SectorEntity]] = {}
+        occupied:Dict[Tuple[int,int], List[core.AbstractSensorImage]] = {}
 
         for effect in self.sector._effects:
             if util.intersects(effect.bbox(), self.perspective.bbox):
                 self.draw_effect(effect)
 
         for entity in self.visible_entities(perspective_ship):
-            screen_x, screen_y = self.perspective.sector_to_screen(entity.phys.position[0], entity.phys.position[1])
+            screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
                 if isinstance(entity, core.Projectile):
@@ -347,6 +354,7 @@ class Presenter:
 
         self.draw_cells(occupied, collision_threats)
 
+        #DEBUG: show collision avoidance sensor cone for selected target
         if self.show_sensor_cone and self.selected_target:
             selected_entity = self.sector.entities[self.selected_target]
             if isinstance(selected_entity, core.Ship):
@@ -355,14 +363,14 @@ class Presenter:
         #TODO: draw an indicator for off-screen targeted entities
 
         if self.debug_entity_vectors and self.selected_target:
-            entity = self.sector.entities[self.selected_target]
-            screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
+            underlying_entity = self.sector.entities[self.selected_target]
+            screen_x, screen_y = self.perspective.sector_to_screen(underlying_entity.loc[0], underlying_entity.loc[1])
 
-            self.draw_entity_vectors(screen_y, screen_x, entity)
+            self.draw_entity_vectors(screen_y, screen_x, underlying_entity)
 
     def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
         for entity in self.visible_entities(perspective_ship):
-            if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
+            if entity.target_radius > 0 and self.perspective.meters_per_char[0] < entity.target_radius:
                 self.draw_entity_shape(entity)
 
     def draw_sensor_cone(self, ship:core.Ship) -> None:

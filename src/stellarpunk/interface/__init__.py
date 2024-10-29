@@ -178,6 +178,14 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
+    def sensor_image_icon(image:core.AbstractSensorImage) -> str:
+        return "?"
+
+    @staticmethod
+    def sensor_image_attr(image:core.AbstractSensorImage) -> int:
+        return 0
+
+    @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
         if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)

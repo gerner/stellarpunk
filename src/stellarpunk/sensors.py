@@ -22,16 +22,21 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._detector_short_id = ship.short_id()
         self._target:Optional[core.SectorEntity] = target
         if target:
+            self._target_id_prefix = target.id_prefix
             self._target_entity_id = target.entity_id
             self._target_short_id = target.short_id()
+            self._target_radius = target.radius
             target.observe(self)
         else:
             # we should never need these. the only valid case where we don't
             # have a target is if we're copied from another SensorImage in
             # which case we should have gotten their _target_entity_id /
-            # _short_id
+            # _short_id / _target_id_prefix / other target properties
+            # see copy below for more info
+            self._target_id_prefix = "UNK"
             self._target_entity_id = uuid.uuid4()
             self._target_short_id = f'UNK-{self._target_entity_id.hex[:8]}'
+            self._target_radius = 1.0
         ship.observe(self)
         self._last_update = 0.
         self._last_profile = 0.
@@ -87,10 +92,17 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
     @property
+    def target_id_prefix(self) -> str:
+        return self._target_id_prefix
+    @property
     def target_entity_id(self) -> uuid.UUID:
         return self._target_entity_id
     def target_short_id(self) -> str:
         return self._target_short_id
+    @property
+    def target_radius(self) -> float:
+        return self._target_radius
+
     @property
     def detector_entity_id(self) -> uuid.UUID:
         return self._detector_entity_id
@@ -140,7 +152,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
 
 
-    def update(self) -> bool:
+    def update(self, notify_target:bool=True) -> bool:
         if self._target and self._ship:
             # update sensor reading if possible
             if self._sensor_manager.detected(self._target, self._ship):
@@ -163,8 +175,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
         image = SensorImage(self._target, detector, self._sensor_manager)
         if self._target is None:
+            self._target_id_prefix = self._target_id_prefix
             self._target_entity_id = self._target_entity_id
             self._target_short_id = self._target_short_id
+            self._target_radius = self._target_radius
         image._last_update = self._last_update
         image._last_profile = self._last_profile
         image._loc = self._loc
@@ -301,15 +315,15 @@ class SensorManager(core.AbstractSensorManager):
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > self.compute_effective_threshold(detector)
 
-    def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
+    def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.AbstractSensorImage]:
         for hit in self.sector.spatial_query(bbox):
             if self.detected(hit, detector):
-                yield hit
+                yield self.target(hit, detector)
 
-    def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.SectorEntity]:
+    def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.AbstractSensorImage]:
         for hit in self.sector.spatial_point(point, max_dist):
             if self.detected(hit, detector):
-                yield hit
+                yield self.target(hit, detector)
 
     def bias_pair(self, target:core.SectorEntity, detector:core.SectorEntity) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         ptr = self.compute_target_profile(target, detector) / self.compute_effective_threshold(detector)
@@ -336,11 +350,11 @@ class SensorManager(core.AbstractSensorManager):
         coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX ** -(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) +1
         return coeff * new_bias + (1. - coeff) * old_bias
 
-    def target(self, target:core.SectorEntity, detector:core.SectorEntity) -> core.AbstractSensorImage:
+    def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):
             raise ValueError(f'{detector} cannot detect {target}')
         image = SensorImage(target, detector, self)
-        image.update()
+        image.update(notify_target=notify_target)
         return image
 
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
