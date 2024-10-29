@@ -472,13 +472,13 @@ class UniverseGenerator(core.AbstractGenerator):
         self.logger.info(f'loading sprites...')
         # load character portraits
         self.portraits = core.Sprite.load_sprites(
-                importlib.resources.read_text("stellarpunk.data", "portraits.txt"),
+                importlib.resources.files("stellarpunk.data").joinpath("portraits.txt").read_text(),
                 (32//2, 32//4)
         )
 
         # load station sprites
         self.station_sprites = core.Sprite.load_sprites(
-                importlib.resources.read_text("stellarpunk.data", "stations.txt"),
+                importlib.resources.files("stellarpunk.data").joinpath("stations.txt").read_text(),
                 (96//2, 96//4)
         )
 

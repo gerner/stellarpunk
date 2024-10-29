@@ -12,7 +12,7 @@ import cymunk
 ext_modules=[
     Extension("stellarpunk.orders.collision",
         sources=["src/stellarpunk/orders/collision.pyx"],
-        libraries=[":cymunk.cpython-310-x86_64-linux-gnu.so"],
+        libraries=[":cymunk.cpython-312-x86_64-linux-gnu.so"],
         library_dirs=cymunk.get_includes(),
         runtime_library_dirs=cymunk.get_includes(),
         language="c++",
@@ -24,7 +24,7 @@ ext_modules=[
     Extension("stellarpunk.narrative.goap",
         sources=["src/stellarpunk/narrative/goap.pyx"],
         language="c++",
-        extra_compile_args=["-std=c++17 -O2"],
+        extra_compile_args=["-std=c++17", "-O2"],
     ),
     Extension("stellarpunk.task_schedule",
         sources=["src/stellarpunk/task_schedule.pyx"],

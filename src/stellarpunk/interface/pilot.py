@@ -695,13 +695,14 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             #self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(100))
             #self.ship.sensor_settings._ignore_bias=True
 
+        # for debugging: draw selected entity's notion of where their target is
         if self.selected_entity and isinstance(self.selected_entity, core.Ship):
             target_order:Optional[core.Order] = self.selected_entity.top_order()
             if isinstance(target_order, combat.HuntOrder):
                 target_order = target_order.attack_order
             if isinstance(target_order, combat.AttackOrder) or isinstance(target_order, combat.MissileOrder):
                 s_x, s_y = self.perspective.sector_to_screen(*target_order.target.loc)
-                self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(100))
+                self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.
