@@ -136,15 +136,42 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def is_active(self) -> bool:
         return self._is_active
 
-    def _update_bias(self) -> None:
-        # update bias noise
+    def initialize(self) -> None:
+        self._initialize_bias()
+
+    def _initialize_bias(self) -> None:
         assert self._target
         assert self._ship
-        loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
-        new_loc_bias = self._sensor_manager.mix_bias(loc_bias, self._loc_bias, self._last_bias_update_ts)
-        new_velocity_bias = self._sensor_manager.mix_bias(velocity_bias, self._velocity_bias, self._last_bias_update_ts)
 
-        logger.debug(f'updating bias {self._loc_bias=} -> {new_loc_bias}, {self._velocity_bias=} -> {new_velocity_bias} after {core.Gamestate.gamestate.timestamp-self._last_bias_update_ts}s')
+        loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
+        self._loc_bias = loc_bias
+        self._velocity_bias = velocity_bias
+
+    def _update_bias(self) -> None:
+        # update bias noise:
+        # 1. scale image position toward/away actual location inversely
+        #    proportional to the new fidelity (profile / threshold radio) 
+        # 2. move resulting position randomly with magnitude inversely
+        #    proportional to sensor fidelity (ptr)
+        assert self._target
+        assert self._ship
+
+        new_ptr = self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)
+        new_loc_bias, new_velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
+        updated_loc_bias = self._loc_bias / util.magnitude(*self._loc_bias) * util.magnitude(*new_loc_bias)
+        updated_velocity_bias = self._velocity_bias / util.magnitude(*self._velocity_bias) * util.magnitude(*new_velocity_bias)
+
+        loc_noise, velocity_noise = self._sensor_manager.bias_pair(self._target, self._ship)
+
+        new_loc_bias = updated_loc_bias# + loc_noise * config.Settings.sensors.COEFF_BIAS_MIX_FACTOR
+        new_velocity_bias = updated_velocity_bias# + velocity_noise * config.Settings.sensors.COEFF_BIAS_MIX_FACTOR
+
+        #loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
+        #new_loc_bias = self._sensor_manager.mix_bias(loc_bias, self._loc_bias, self._last_bias_update_ts)
+        #new_velocity_bias = self._sensor_manager.mix_bias(velocity_bias, self._velocity_bias, self._last_bias_update_ts)
+
+        if self._target_short_id != self._detector_short_id:
+            logger.debug(f'updating bias of {self._target_short_id} by {self._detector_short_id} {self._loc_bias=} -> {new_loc_bias}, {self._velocity_bias=} -> {new_velocity_bias} after {core.Gamestate.gamestate.timestamp-self._last_bias_update_ts}s ptr={self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)}')
 
         self._loc_bias = new_loc_bias
         self._velocity_bias = new_velocity_bias
@@ -164,12 +191,13 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._velocity = np.array(self._target.velocity)
 
                 # let the target know they've been targeted by us
-                if self._sensor_manager.detected(self._ship, self._target):
+                if notify_target and self._sensor_manager.detected(self._ship, self._target):
                     self._target.target(self._ship)
                 return True
             else:
                 return False
         else:
+            #TODO: shouldn't we flip _is_active at some point?
             return False
 
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
@@ -315,21 +343,21 @@ class SensorManager(core.AbstractSensorManager):
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > self.compute_effective_threshold(detector)
 
-    def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.AbstractSensorImage]:
+    def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
         for hit in self.sector.spatial_query(bbox):
             if self.detected(hit, detector):
-                yield self.target(hit, detector)
+                yield hit
 
-    def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.AbstractSensorImage]:
+    def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.SectorEntity]:
         for hit in self.sector.spatial_point(point, max_dist):
             if self.detected(hit, detector):
-                yield self.target(hit, detector)
+                yield hit
 
     def bias_pair(self, target:core.SectorEntity, detector:core.SectorEntity) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         ptr = self.compute_target_profile(target, detector) / self.compute_effective_threshold(detector)
         assert ptr >= 1.
 
-        rands:Sequence[float] = util.peaked_bounded_random(core.Gamestate.gamestate.random, 0.75, 0.1, 2) # type:ignore
+        rands:Sequence[float] = util.peaked_bounded_random(core.Gamestate.gamestate.random, 0.6, 0.15, 2) # type:ignore
         loc_mag = rands[0] / ptr * config.Settings.sensors.COEFF_BIAS_LOC
         velocity_mag = rands[1] / ptr * config.Settings.sensors.COEFF_BIAS_VELOCITY
 
@@ -354,6 +382,7 @@ class SensorManager(core.AbstractSensorManager):
         if not self.detected(target, detector):
             raise ValueError(f'{detector} cannot detect {target}')
         image = SensorImage(target, detector, self)
+        image.initialize()
         image.update(notify_target=notify_target)
         return image
 

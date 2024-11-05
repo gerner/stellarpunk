@@ -371,7 +371,11 @@
     DECAY_TRANSPONDER = 0.01
     DECAY_THRUST = 0.05
 
+    # sensor bias parameters
+    # ptr = profile to threshold ratio
+    # max uncertainty for a ptr of 1
     COEFF_BIAS_LOC = 1e5
+    COEFF_BIAS_LOC_THETA = 0.2
     COEFF_BIAS_VELOCITY = 1e3
-    #COEFF_BIAS_TIME_MIX = 5.0
-    COEFF_BIAS_TIME_MIX = 1.1
+    # how much uncertainty we add to the bias after mixing
+    COEFF_BIAS_MIX_FACTOR = 0.01

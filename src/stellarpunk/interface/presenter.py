@@ -2,14 +2,14 @@ import curses
 import uuid
 import math
 import functools
-from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable
+from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable, Set
 
 import cymunk # type: ignore
 import drawille # type: ignore
 import numpy as np
 from numba import jit # type: ignore
 
-from stellarpunk import core, interface, util, effects
+from stellarpunk import core, interface, util, effects, config
 from stellarpunk.core import combat
 from stellarpunk.orders import steering, collision
 
@@ -86,21 +86,33 @@ class Presenter:
         self.debug_entity_vectors = False
         self.show_sensor_cone = False
 
-        self.cached_entities:List[core.AbstractSensorImage] = []
-        self.cached_entities_ts = -1.
+        self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
+        self._cached_entities_ts = -1.
+        self._cached_entity_ttl = 120.
 
-    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Sequence[core.AbstractSensorImage]:
-        if self.gamestate.timestamp == self.cached_entities_ts:
-            return self.cached_entities
+    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
+        if self.gamestate.timestamp == self._cached_entities_ts:
+            return self._cached_entities.values()
         if perspective_ship:
             # viewing the sector from the perspective of a single ship
-            self.cached_entities = list(self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox))
+            # we keep track of sensor images over time and update them
+            for hit in self.sector.sensor_manager.spatial_point(perspective_ship, perspective_ship.loc):
+                if hit.entity_id in self._cached_entities:
+                    self._cached_entities[hit.entity_id].update(notify_target=False)
+                else:
+                    self._cached_entities[hit.entity_id] = self.sector.sensor_manager.target(hit, perspective_ship, notify_target=False)
+            remove_ids:Set[uuid.UUID] = set()
+            for image in self._cached_entities.values():
+                if image.age > self._cached_entity_ttl:
+                    remove_ids.add(image.target_entity_id)
+            for entity_id in remove_ids:
+                del self._cached_entities[entity_id]
         else:
             # sector wide view without any player ship at the center
             raise Exception("ohnoes")
-            #self.cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
-        self.cached_entities_ts = self.gamestate.timestamp
-        return self.cached_entities
+            #self._cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
+        self._cached_entities_ts = self.gamestate.timestamp
+        return self._cached_entities.values()
 
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching
@@ -247,6 +259,17 @@ class Presenter:
 
     def draw_entity(self, y:int, x:int, entity:core.AbstractSensorImage, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """
+
+        #DEBUG: draw a circle representing uncertainty of position
+        #if entity._target is not None:
+        #    ptr = self.sector.sensor_manager.compute_target_profile(entity._target, entity._ship) / self.sector.sensor_manager.compute_effective_threshold(entity._ship)
+        #    sensor_radius = config.Settings.sensors.COEFF_BIAS_LOC / ptr
+        #    screen_x, screen_y = self.perspective.sector_to_screen(entity._target.loc[0], entity._target.loc[1])
+        #    c = util.make_circle_canvas(sensor_radius, *self.perspective.meters_per_char)
+        #    util.draw_canvas_at(c, self.view.viewscreen.window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+
+        #    s_x, s_y = self.perspective.sector_to_screen(*entity._target.loc)
+        #   self.view.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
 
         icon = interface.Icons.sensor_image_icon(entity)
         icon_attr |= interface.Icons.sensor_image_attr(entity)

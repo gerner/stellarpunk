@@ -251,7 +251,7 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
         if not hostile:
             return
         # if first threat, pause other ship-operating activities (agenda), start fleeing
-        self.logger.debug(f'initiating defensive maneuvers against threat {threat}')
+        self.logger.debug(f'{self.craft.short_id} initiating defensive maneuvers against threat {threat}')
         #TODO: is it weird for one agendum to manipulate another?
         for a in self.character.agenda:
             if isinstance(a, EntityOperatorAgendum):
