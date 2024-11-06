@@ -269,8 +269,10 @@ class Presenter:
         #    util.draw_canvas_at(c, self.view.viewscreen.window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
         #    s_x, s_y = self.perspective.sector_to_screen(*entity._target.loc)
-        #   self.view.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
+        #    self.view.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
 
+        #TODO: icon and text info below should depend on whether we have fully
+        #resolved the sensor reading
         icon = interface.Icons.sensor_image_icon(entity)
         icon_attr |= interface.Icons.sensor_image_attr(entity)
 

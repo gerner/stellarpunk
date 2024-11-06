@@ -367,7 +367,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.ship.sensor_settings.set_sensors(1.)
 
         def toggle_transponder(args:Sequence[str]) -> None:
-            self.ship.sensor_settings.set_transponder(self.ship.sensor_settings.transponder)
+            self.ship.sensor_settings.set_transponder(not self.ship.sensor_settings.transponder)
 
         def cache_stats(args:Sequence[str]) -> None:
             self.logger.info(presenter.compute_sensor_rings_memoize.cache_info())

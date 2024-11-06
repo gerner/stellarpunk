@@ -45,6 +45,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._is_active = True
 
         # models noise in the sensors
+        self._loc_bias_direction = np.array((0.0, 0.0))
         self._loc_bias = np.array((0.0, 0.0))
         self._velocity_bias = np.array((0.0, 0.0))
         self._last_bias_update_ts = -np.inf
@@ -143,32 +144,34 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         assert self._target
         assert self._ship
 
-        loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
-        self._loc_bias = loc_bias
-        self._velocity_bias = velocity_bias
+        # choose a direction for the location bias
+        # choose an angle and radius offset relative to detector
+        distance = util.magnitude(*(self._target.loc - self._ship.loc))
+        if distance > 0.0:
+            offset_r = core.Gamestate.gamestate.random.uniform(low=-1.0, high=1.0) * config.Settings.sensors.COEFF_BIAS_OFFSET_R * distance
+            offset_theta = core.Gamestate.gamestate.random.uniform(low=-1.0, high=1.0) * config.Settings.sensors.COEFF_BIAS_OFFSET_THETA
+
+            target_r, target_theta = util.cartesian_to_polar(*(self._target.loc - self._ship.loc))
+
+            self._loc_bias_direction = np.array(util.polar_to_cartesian(target_r+offset_r, target_theta+offset_theta)) + self._ship.loc - self._target.loc
+            self._loc_bias_direction /= util.magnitude(*self._loc_bias_direction)
+        self._last_bias_update_ts = -np.inf
 
     def _update_bias(self) -> None:
-        # update bias noise:
-        # 1. scale image position toward/away actual location inversely
-        #    proportional to the new fidelity (profile / threshold radio) 
-        # 2. move resulting position randomly with magnitude inversely
-        #    proportional to sensor fidelity (ptr)
+
         assert self._target
         assert self._ship
 
-        new_ptr = self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)
-        new_loc_bias, new_velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
-        updated_loc_bias = self._loc_bias / util.magnitude(*self._loc_bias) * util.magnitude(*new_loc_bias)
-        updated_velocity_bias = self._velocity_bias / util.magnitude(*self._velocity_bias) * util.magnitude(*new_velocity_bias)
+        ptr = self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)
+        new_loc_bias = self._loc_bias_direction / ptr * config.Settings.sensors.COEFF_BIAS_LOC
 
-        loc_noise, velocity_noise = self._sensor_manager.bias_pair(self._target, self._ship)
+        #TODO: add some extra noise to new_loc_bias?
 
-        new_loc_bias = updated_loc_bias# + loc_noise * config.Settings.sensors.COEFF_BIAS_MIX_FACTOR
-        new_velocity_bias = updated_velocity_bias# + velocity_noise * config.Settings.sensors.COEFF_BIAS_MIX_FACTOR
+        time_delta = core.Gamestate.gamestate.timestamp - self._last_bias_update_ts
+        alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY * time_delta + 1)) + 1
 
-        #loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
-        #new_loc_bias = self._sensor_manager.mix_bias(loc_bias, self._loc_bias, self._last_bias_update_ts)
-        #new_velocity_bias = self._sensor_manager.mix_bias(velocity_bias, self._velocity_bias, self._last_bias_update_ts)
+        new_loc_bias = alpha * new_loc_bias + (1-alpha) * self._loc_bias
+        new_velocity_bias = np.array((0.0, 0.0))
 
         if self._target_short_id != self._detector_short_id:
             logger.debug(f'updating bias of {self._target_short_id} by {self._detector_short_id} {self._loc_bias=} -> {new_loc_bias}, {self._velocity_bias=} -> {new_velocity_bias} after {core.Gamestate.gamestate.timestamp-self._last_bias_update_ts}s ptr={self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)}')
@@ -176,8 +179,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._loc_bias = new_loc_bias
         self._velocity_bias = new_velocity_bias
         self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
-
-
 
     def update(self, notify_target:bool=True) -> bool:
         if self._target and self._ship:
@@ -366,7 +367,8 @@ class SensorManager(core.AbstractSensorManager):
         velocity_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
         velocity_bias = velocity_bias / util.magnitude(*velocity_bias) * velocity_mag
 
-        return (loc_bias, velocity_bias)
+        #return (loc_bias, velocity_bias)
+        return (loc_bias, np.array((0.0, 0.0)))
 
     def mix_bias(self, new_bias:npt.NDArray[np.float64], old_bias:npt.NDArray[np.float64], last_ts:float) -> npt.NDArray[np.float64]:
         # coeff ranges from 0 to 1, expoentially decaying to 1 with increasing

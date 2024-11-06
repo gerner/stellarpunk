@@ -1748,8 +1748,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        #self.generate_player()
-        self.generate_player_for_combat_test()
+        self.generate_player()
+        #self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()
