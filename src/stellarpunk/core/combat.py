@@ -71,11 +71,11 @@ class ThreatTracker(core.SectorEntityObserver):
         self.craft.unobserve(self)
 
     def add_threat(self, threat:core.AbstractSensorImage) -> None:
-        if threat.target_entity_id in self.threat_ids:
+        if threat.identity.entity_id in self.threat_ids:
             return
         self.logger.debug(f'adding threat {threat}')
         self.threats.add(threat)
-        self.threat_ids.add(threat.target_entity_id)
+        self.threat_ids.add(threat.identity.entity_id)
 
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
         assert craft == self.craft
@@ -108,7 +108,7 @@ class ThreatTracker(core.SectorEntityObserver):
                     closest_dist = dist
         for t in dead_threats:
             self.threats.remove(t)
-            self.threat_ids.remove(t.target_entity_id)
+            self.threat_ids.remove(t.identity.entity_id)
 
         return self.closest_threat
 
@@ -167,7 +167,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         #if self.ship.firer == target:
         #    raise Exception()
         assert missile == self.ship
-        if target.entity_id == self.target.target_entity_id:
+        if target.entity_id == self.target.identity.entity_id:
             self.logger.debug(f'missile hit desired target {target} impulse: {impulse} ke: {ke}!')
         else:
             self.logger.debug(f'missile hit collateral target {target} impulse: {impulse} ke: {ke}!')
@@ -212,11 +212,11 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.missiles_fired = 0
 
     def __str__(self) -> str:
-        return f'Attack: {self.target.target_short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
+        return f'Attack: {self.target.identity.short_id} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
 
     def _begin(self) -> None:
         super()._begin()
-        self.logger.debug(f'beginning attack on {self.target.target_short_id()}')
+        self.logger.debug(f'beginning attack on {self.target.identity.short_id}')
 
     def is_complete(self) -> bool:
         return self.completed_at > 0. or not self.target.is_active()
@@ -232,7 +232,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
-        self.logger.debug(f'giving up search for target {self.target.target_short_id()}')
+        self.logger.debug(f'giving up search for target {self.target.identity.short_id}')
         self.state = AttackOrder.State.GIVEUP
         self.cancel_order()
 
@@ -513,6 +513,15 @@ class HuntOrder(core.Order):
 
     #TODO: is_complete?
 
+    def _begin(self) -> None:
+        self.ship.sensor_settings.set_transponder(False)
+
+    def _complete(self) -> None:
+        self.ship.sensor_settings.set_transponder(True)
+
+    def _cancel(self) -> None:
+        self.ship.sensor_settings.set_transponder(True)
+
     def act(self, dt:float) -> None:
         # alternate between traveling to a search point and scanning for the
         # target
@@ -550,16 +559,19 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
     def _begin(self) -> None:
         assert self.ship.sector
         self.ship.sensor_settings.set_sensors(0.0)
+        self.ship.sensor_settings.set_transponder(False)
         self.threat_tracker.start_tracking()
         self.ship.sector.add_effect(self.point_defense)
 
     def _complete(self) -> None:
         self.point_defense.cancel_effect()
         self.ship.sensor_settings.set_sensors(1.0)
+        self.ship.sensor_settings.set_transponder(True)
         self.threat_tracker.stop_tracking()
 
     def _cancel(self) -> None:
         self.ship.sensor_settings.set_sensors(1.0)
+        self.ship.sensor_settings.set_transponder(True)
         self.threat_tracker.stop_tracking()
 
     def is_complete(self) -> bool:

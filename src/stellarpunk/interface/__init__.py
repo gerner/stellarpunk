@@ -78,6 +78,8 @@ class Icons:
     TRAVEL_GATE = "\u25CC" # "◌" \u25CC dotted circle
     PROJECTILE = "·"
 
+    UNKNOWN = "?"
+
     MULTIPLE = "*"
 
     EFFECT_MINING = "\u2726" # "✦" \u2726 black four pointed star
@@ -140,6 +142,7 @@ class Icons:
     "." arabic dot below
     """
 
+    COLOR_UNKNOWN = 227
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
     COLOR_TRAVEL_GATE = 220
     COLOR_CARGO = 243
@@ -178,11 +181,26 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
-    def sensor_image_icon(image:core.AbstractSensorImage) -> str:
-        return "?"
+    def sensor_image_icon(entity:core.SensorIdentity) -> str:
+        if entity.object_type in (core.ObjectType.SHIP, core.ObjectType.MISSILE):
+            icon = Icons.angle_to_ship(entity.angle)
+        elif entity.object_type == core.ObjectType.STATION:
+            icon = Icons.STATION
+        elif entity.object_type == core.ObjectType.PLANET:
+            icon = Icons.PLANET
+        elif entity.object_type == core.ObjectType.ASTEROID:
+            icon = Icons.ASTEROID
+        elif entity.object_type == core.ObjectType.TRAVEL_GATE:
+            icon = Icons.TRAVEL_GATE
+        elif entity.object_type == core.ObjectType.PROJECTILE:
+            icon = Icons.PROJECTILE
+        else:
+            icon = Icons.UNKNOWN
+        return icon
+
 
     @staticmethod
-    def sensor_image_attr(image:core.AbstractSensorImage) -> int:
+    def sensor_image_attr(image:core.SensorIdentity) -> int:
         return 0
 
     @staticmethod
@@ -200,7 +218,7 @@ class Icons:
         elif isinstance(entity, core.Projectile):
             icon = Icons.PROJECTILE
         else:
-            icon = "?"
+            icon = Icons.UNKNOWN
         return icon
 
     @staticmethod

@@ -1,3 +1,4 @@
+import logging
 import curses
 import uuid
 import math
@@ -75,6 +76,7 @@ class Presenter:
             sector:core.Sector,
             perspective:interface.Perspective
             ) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.view = view
         self.sector = sector
@@ -103,8 +105,8 @@ class Presenter:
                     self._cached_entities[hit.entity_id] = self.sector.sensor_manager.target(hit, perspective_ship, notify_target=False)
             remove_ids:Set[uuid.UUID] = set()
             for image in self._cached_entities.values():
-                if image.age > self._cached_entity_ttl:
-                    remove_ids.add(image.target_entity_id)
+                if not image.is_active() or image.age > self._cached_entity_ttl:
+                    remove_ids.add(image.identity.entity_id)
             for entity_id in remove_ids:
                 del self._cached_entities[entity_id]
         else:
@@ -239,13 +241,13 @@ class Presenter:
 
         # clear out the interior of the entity circle
         loc_x, loc_y = entity.loc
-        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.target_radius, loc_y-entity.target_radius)
-        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.target_radius, loc_y+entity.target_radius)
+        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.identity.radius, loc_y-entity.identity.radius)
+        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.identity.radius, loc_y+entity.identity.radius)
         for s_x in range(s_x_min, s_x_max+1):
             for s_y in range(s_y_min, s_y_max+1):
                 e_x, e_y = self.perspective.screen_to_sector(s_x, s_y)
                 dist2 = (e_x - loc_x)**2.+(e_y - loc_y)**2
-                if dist2 < entity.target_radius**2.:
+                if dist2 < entity.identity.radius**2.:
                     self.view.viewscreen.addstr(s_y, s_x, " ", 0)
 
 
@@ -254,7 +256,7 @@ class Presenter:
 
         # actually draw the circle
         screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
-        c = util.make_circle_canvas(entity.target_radius, *self.perspective.meters_per_char)
+        c = util.make_circle_canvas(entity.identity.radius, *self.perspective.meters_per_char)
         util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
     def draw_entity(self, y:int, x:int, entity:core.AbstractSensorImage, icon_attr:int=0) -> None:
@@ -273,11 +275,11 @@ class Presenter:
 
         #TODO: icon and text info below should depend on whether we have fully
         #resolved the sensor reading
-        icon = interface.Icons.sensor_image_icon(entity)
-        icon_attr |= interface.Icons.sensor_image_attr(entity)
+        icon = interface.Icons.sensor_image_icon(entity.identity) if entity.identified else interface.Icons.UNKNOWN
+        icon_attr |= interface.Icons.sensor_image_attr(entity.identity) if entity.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN)
 
-        description_attr = interface.Icons.sensor_image_attr(entity)
-        if entity.target_entity_id == self.selected_target:
+        description_attr = interface.Icons.sensor_image_attr(entity.identity) if entity.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN)
+        if entity.identity.entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
         else:
             description_attr |= curses.A_DIM
@@ -309,12 +311,12 @@ class Presenter:
             last_y = hist_y
         """
 
-        if not isinstance(entity, core.Asteroid) and not isinstance(entity, core.Projectile):
+        if entity.identified and entity.identity.object_type not in (core.ObjectType.ASTEROID, core.ObjectType.PROJECTILE):
             speed = util.magnitude(*entity.velocity)
             if speed > 0.:
-                name_tag = f' {entity.target_short_id()} {speed:.0f}'
+                name_tag = f' {entity.identity.short_id} {entity.fidelity:f} {speed:.0f}'
             else:
-                name_tag = f' {entity.target_short_id()}'
+                name_tag = f' {entity.identity.short_id} {entity.fidelity:f}'
             self.view.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
 
         #if self.debug_entity:
@@ -326,17 +328,21 @@ class Presenter:
 
     def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.AbstractSensorImage]) -> None:
 
-        icons = set(map(interface.Icons.sensor_image_icon, entities))
+        only_projectile = all(entity.identified and entity.identity.object_type == core.ObjectType.PROJECTILE for entity in entities)
+
+        icons = set(interface.Icons.sensor_image_icon(x.identity) if x.identified else interface.Icons.UNKNOWN for x in entities)
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
 
-        icon_attrs = set(map(interface.Icons.sensor_image_attr, entities))
+        icon_attrs = set(interface.Icons.sensor_image_attr(x.identity) if x.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN) for x in entities)
         icon_attr = icon_attrs.pop() if len(icon_attrs) == 1 else 0
 
-        prefixes = set(map(lambda x: x.target_id_prefix, entities))
-        prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
+        prefixes = set(x.identity.id_prefix if x.identified else "???" for x in entities)
 
         self.view.viewscreen.addstr(y, x, icon, icon_attr)
-        self.view.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
+
+        if not only_projectile:
+            prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
+            self.view.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
     def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.AbstractSensorImage]], collision_threats:Sequence[core.SectorEntity]) -> None:
         for loc, entities in occupied.items():
@@ -395,7 +401,7 @@ class Presenter:
 
     def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
         for entity in self.visible_entities(perspective_ship):
-            if entity.target_radius > 0 and self.perspective.meters_per_char[0] < entity.target_radius:
+            if entity.identity.radius > 0 and self.perspective.meters_per_char[0] < entity.identity.radius:
                 self.draw_entity_shape(entity)
 
     def draw_sensor_cone(self, ship:core.Ship) -> None:

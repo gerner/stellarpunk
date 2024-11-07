@@ -1690,7 +1690,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
-        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 
         # spawn an NPC ship/character with orders to attack the player
         threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=4e5, occupied_radius=5e2, min_dist=3e5, strict=True)
@@ -1748,8 +1748,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        self.generate_player()
-        #self.generate_player_for_combat_test()
+        #self.generate_player()
+        self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

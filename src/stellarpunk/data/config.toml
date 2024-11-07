@@ -367,6 +367,9 @@
     COEFF_THRESHOLD = 1000
     INTERCEPT_THRESHOLD = 100
 
+    # identification = fidelity * coeff > 1
+    COEFF_IDENTIFICATION_FIDELITY = 0.2
+
     DECAY_SENSORS = 0.02
     DECAY_TRANSPONDER = 0.01
     DECAY_THRUST = 0.05

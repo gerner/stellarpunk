@@ -23,6 +23,16 @@ class CollisionObserver:
     @abc.abstractmethod
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
 
+class SensorIdentity:
+    def __init__(self, entity:SectorEntity):
+        self.object_type = entity.object_type
+        self.id_prefix = entity.id_prefix
+        self.entity_id = entity.entity_id
+        self.short_id = entity.short_id()
+        self.radius = entity.radius
+        # must be updated externally
+        self.angle = 0.0
+
 class AbstractSensorImage:
     """ A sensor contact which might be old with predicted attributes
 
@@ -48,9 +58,24 @@ class AbstractSensorImage:
     @property
     @abc.abstractmethod
     def profile(self) -> float: ...
+    @property
+    @abc.abstractmethod
+    def fidelity(self) -> float: ...
+    @property
+    @abc.abstractmethod
+    def identified(self) -> bool: ...
+    @property
+    @abc.abstractmethod
+    def identity(self) -> SensorIdentity: ...
+    @property
+    @abc.abstractmethod
+    def transponder(self) -> bool: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
-        """ False iff we saw the target destroyed or leaving the sector """
+        """ False iff we detected target destroyed or leaving the sector """
+        ...
+    @abc.abstractmethod
+    def is_detector_active(self) -> bool:
         ...
     @abc.abstractmethod
     def update(self, notify_target:bool=True) -> bool:
@@ -59,17 +84,6 @@ class AbstractSensorImage:
         return true if we're able to detect the target. """
         ...
 
-    @property
-    @abc.abstractmethod
-    def target_id_prefix(self) -> str: ...
-    @abc.abstractmethod
-    def target_short_id(self) -> str: ...
-    @property
-    @abc.abstractmethod
-    def target_entity_id(self) -> uuid.UUID: ...
-    @property
-    @abc.abstractmethod
-    def target_radius(self) -> float: ...
     @abc.abstractmethod
     def detector_short_id(self) -> str: ...
     @property

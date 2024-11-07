@@ -15,28 +15,22 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
 class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
-    def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager") -> None:
+    def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager", identity:Optional[core.SensorIdentity]=None) -> None:
         self._sensor_manager = sensor_manager
         self._ship:Optional[core.SectorEntity] = ship
         self._detector_entity_id = ship.entity_id
         self._detector_short_id = ship.short_id()
         self._target:Optional[core.SectorEntity] = target
         if target:
-            self._target_id_prefix = target.id_prefix
-            self._target_entity_id = target.entity_id
-            self._target_short_id = target.short_id()
-            self._target_radius = target.radius
+            if identity is None:
+                self._identity = core.SensorIdentity(target)
+            else:
+                self._identity = identity
             target.observe(self)
         else:
-            # we should never need these. the only valid case where we don't
-            # have a target is if we're copied from another SensorImage in
-            # which case we should have gotten their _target_entity_id /
-            # _short_id / _target_id_prefix / other target properties
-            # see copy below for more info
-            self._target_id_prefix = "UNK"
-            self._target_entity_id = uuid.uuid4()
-            self._target_short_id = f'UNK-{self._target_entity_id.hex[:8]}'
-            self._target_radius = 1.0
+            if identity is None:
+                raise ValueError("must provide a sensor identity if no target is given")
+            self._identity = identity
         ship.observe(self)
         self._last_update = 0.
         self._last_profile = 0.
@@ -50,16 +44,20 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._velocity_bias = np.array((0.0, 0.0))
         self._last_bias_update_ts = -np.inf
 
+        self._identified = False
+
     def __str__(self) -> str:
-        return f'{self._target_short_id} detected by {self._detector_short_id} {self.age}s old'
+        return f'{self._identity.short_id} detected by {self._detector_short_id} {self.age}s old'
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, core.AbstractSensorImage):
             return False
-        return self._target_entity_id == other.target_entity_id and self._detector_entity_id == other.detector_entity_id
+        #TODO: I don't think this is correct, there's bias, age, whether the
+        # image has been identified to consider as well
+        return self._identity.entity_id == other.identity.entity_id and self._detector_entity_id == other.detector_entity_id
 
     def __hash__(self) -> int:
-        return hash((self._target_entity_id, self._detector_entity_id))
+        return hash((self._identity.entity_id, self._detector_entity_id))
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self._target:
@@ -93,18 +91,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
     @property
-    def target_id_prefix(self) -> str:
-        return self._target_id_prefix
-    @property
-    def target_entity_id(self) -> uuid.UUID:
-        return self._target_entity_id
-    def target_short_id(self) -> str:
-        return self._target_short_id
-    @property
-    def target_radius(self) -> float:
-        return self._target_radius
-
-    @property
     def detector_entity_id(self) -> uuid.UUID:
         return self._detector_entity_id
     def detector_short_id(self) -> str:
@@ -127,6 +113,19 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         return self._last_profile
 
     @property
+    def fidelity(self) -> float:
+        assert self._ship
+        return self.profile / self._sensor_manager.compute_effective_threshold(self._ship)
+
+    @property
+    def identified(self) -> bool:
+        return self._identified
+
+    @property
+    def identity(self) -> core.SensorIdentity:
+        return self._identity
+
+    @property
     def velocity(self) -> npt.NDArray[np.float64]:
         assert self._ship
         if self._ship.sensor_settings.ignore_bias:
@@ -134,8 +133,18 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         else:
             return self._velocity + self._velocity_bias
 
+    @property
+    def transponder(self) -> bool:
+        if self._target:
+            return self._target.sensor_settings.transponder
+        else:
+            return False
+
     def is_active(self) -> bool:
         return self._is_active
+
+    def is_detector_active(self) -> bool:
+        return self._ship is not None
 
     def initialize(self) -> None:
         self._initialize_bias()
@@ -162,8 +171,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         assert self._target
         assert self._ship
 
-        ptr = self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)
-        new_loc_bias = self._loc_bias_direction / ptr * config.Settings.sensors.COEFF_BIAS_LOC
+        if self._target.object_type == core.ObjectType.PROJECTILE:
+            self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
+            return
+
+        new_loc_bias = self._loc_bias_direction / self.fidelity * config.Settings.sensors.COEFF_BIAS_LOC
 
         #TODO: add some extra noise to new_loc_bias?
 
@@ -171,25 +183,29 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY * time_delta + 1)) + 1
 
         new_loc_bias = alpha * new_loc_bias + (1-alpha) * self._loc_bias
-        new_velocity_bias = np.array((0.0, 0.0))
-
-        if self._target_short_id != self._detector_short_id:
-            logger.debug(f'updating bias of {self._target_short_id} by {self._detector_short_id} {self._loc_bias=} -> {new_loc_bias}, {self._velocity_bias=} -> {new_velocity_bias} after {core.Gamestate.gamestate.timestamp-self._last_bias_update_ts}s ptr={self._sensor_manager.compute_target_profile(self._target, self._ship) / self._sensor_manager.compute_effective_threshold(self._ship)}')
+        #new_velocity_bias = np.array((0.0, 0.0))
 
         self._loc_bias = new_loc_bias
-        self._velocity_bias = new_velocity_bias
+        #self._velocity_bias = new_velocity_bias
         self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
 
     def update(self, notify_target:bool=True) -> bool:
         if self._target and self._ship:
             # update sensor reading if possible
             if self._sensor_manager.detected(self._target, self._ship):
+                self._identity.angle = self._target.angle
+                self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
                 self._update_bias()
 
-                self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
                 self._last_update = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
                 self._velocity = np.array(self._target.velocity)
+
+                if self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
+                    if not self._identified:
+                        logger.info(f'{self._ship.short_id()} identified {self._target.short_id()} with fidelity={self.fidelity}')
+                    # once identified, always identified
+                    self._identified = True
 
                 # let the target know they've been targeted by us
                 if notify_target and self._sensor_manager.detected(self._ship, self._target):
@@ -202,12 +218,8 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             return False
 
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
-        image = SensorImage(self._target, detector, self._sensor_manager)
-        if self._target is None:
-            self._target_id_prefix = self._target_id_prefix
-            self._target_entity_id = self._target_entity_id
-            self._target_short_id = self._target_short_id
-            self._target_radius = self._target_radius
+        identity = self._identity
+        image = SensorImage(self._target, detector, self._sensor_manager, identity=self._identity)
         image._last_update = self._last_update
         image._last_profile = self._last_profile
         image._loc = self._loc
@@ -353,32 +365,6 @@ class SensorManager(core.AbstractSensorManager):
         for hit in self.sector.spatial_point(point, max_dist):
             if self.detected(hit, detector):
                 yield hit
-
-    def bias_pair(self, target:core.SectorEntity, detector:core.SectorEntity) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        ptr = self.compute_target_profile(target, detector) / self.compute_effective_threshold(detector)
-        assert ptr >= 1.
-
-        rands:Sequence[float] = util.peaked_bounded_random(core.Gamestate.gamestate.random, 0.6, 0.15, 2) # type:ignore
-        loc_mag = rands[0] / ptr * config.Settings.sensors.COEFF_BIAS_LOC
-        velocity_mag = rands[1] / ptr * config.Settings.sensors.COEFF_BIAS_VELOCITY
-
-        loc_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
-        loc_bias = loc_bias / util.magnitude(*loc_bias) * loc_mag
-        velocity_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
-        velocity_bias = velocity_bias / util.magnitude(*velocity_bias) * velocity_mag
-
-        #return (loc_bias, velocity_bias)
-        return (loc_bias, np.array((0.0, 0.0)))
-
-    def mix_bias(self, new_bias:npt.NDArray[np.float64], old_bias:npt.NDArray[np.float64], last_ts:float) -> npt.NDArray[np.float64]:
-        # coeff ranges from 0 to 1, expoentially decaying to 1 with increasing
-        # time since the last bias update
-        # the parameter controls how slowly we hit 1, larger values use the old
-        # bias for longer
-        # coeff = -param / (x+param) + 1
-        #coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX/(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) + 1
-        coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX ** -(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) +1
-        return coeff * new_bias + (1. - coeff) * old_bias
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):
