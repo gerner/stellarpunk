@@ -394,6 +394,17 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.point_defense.cancel_effect()
                 self.point_defense = None
 
+        def max_thrust(args:Sequence[str]) -> None:
+            if len(args) > 0:
+                try:
+                    thrust_ratio = float(args[0])
+                except ValueError:
+                    raise command_input.UserError("must provide a valid ratio to set max thrust to")
+                if thrust_ratio < 0.0 or thrust_ratio > 1.0:
+                    raise command_input.UserError("must choose a ratio between 0 and 1")
+                self.ship.max_thrust = self.ship.max_base_thrust * thrust_ratio
+            self.interface.log_message(f'max thrust: {util.human_si_scale(self.ship.max_thrust, "N")}')
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
@@ -411,6 +422,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("point_defense", toggle_point_defense),
             self.bind_command("cache_stats", cache_stats),
             self.bind_command("target_image", target_image),
+            self.bind_command("max_thrust", max_thrust),
         ]
 
     def _select_target(self, entity:Optional[core.SectorEntity]) -> None:

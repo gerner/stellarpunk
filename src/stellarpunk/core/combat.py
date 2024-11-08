@@ -183,10 +183,6 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         super().act(dt)
         assert self.ship.sector
         neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, num_neighbors, any_prior_threats = self._collision_neighbor(self.ship.sector, util.magnitude(*self.ship.velocity)*dt*2)
-        if neighbor:
-            self.logger.debug(f'target={self.target} collision neighbor at {self.gamestate.ticks} with {neighbor.short_id()} {dt=}: {minimum_separation=} {approach_time=}s')
-            if minimum_separation < 70:
-                core.Gamestate.gamestate.pause()
 
 class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """

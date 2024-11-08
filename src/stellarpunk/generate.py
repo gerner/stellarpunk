@@ -603,7 +603,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.mass = ship_mass
         ship.moment = ship_body.moment
         ship.radius = ship_radius
-        ship.max_thrust = max_thrust
+        ship.max_base_thrust = ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
 
@@ -651,7 +651,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.mass = ship_mass
         ship.moment = ship_body.moment
         ship.radius = ship_radius
-        ship.max_thrust = max_thrust
+        ship.max_base_thrust = ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
 
@@ -697,7 +697,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.mass = ship_mass
         ship.moment = ship_body.moment
         ship.radius = ship_radius
-        #ship.max_thrust = max_thrust
+        #ship.max_base_thrust = ship.max_thrust = max_thrust
         #ship.max_fine_thrust = max_fine_thrust
         #ship.max_torque = max_torque
 

@@ -67,6 +67,18 @@ def peaked_bounded_random(
 
     return lb+scale*r.beta(alpha, beta, size=size)
 
+def human_si_scale(value:float, unit:str) -> str:
+    if abs(value) < 0:
+        return f'{value/1e3:.2f}k{unit}'
+    elif abs(value) < 1e3:
+        return f'{value:.0f}{unit}'
+    elif abs(value) < 1e6:
+        return f'{value/1e3:.2f}k{unit}'
+    elif abs(value) < 1e9:
+        return f'{value/1e6:.2f}M{unit}'
+    else:
+        return f'{value/1e9:.2f}G{unit}'
+
 def human_distance(distance_meters:float) -> str:
     """ Human readable approx string for distance_meters.
 
