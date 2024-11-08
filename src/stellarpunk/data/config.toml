@@ -357,7 +357,8 @@
     # conditions has a profile of just over 100 at 100km
     COEFF_MASS = 0.045
     COEFF_RADIUS = 0.335
-    COEFF_FORCE = 0.005
+    COEFF_FORCE = 2.5e-6#0.005
+    FORCE_EXPONENT = 1.7#1
     COEFF_SENSORS = 100
     COEFF_TRANSPONDER = 1e5
     COEFF_DISTANCE = 1e-10
@@ -370,6 +371,9 @@
     # identification = fidelity * coeff > 1
     COEFF_IDENTIFICATION_FIDELITY = 0.2
 
+    # max time over which we do acceleration prediction
+    ACCEL_PREDICTION_MAX_SEC = 0.5
+
     DECAY_SENSORS = 0.02
     DECAY_TRANSPONDER = 0.01
     DECAY_THRUST = 0.05
@@ -380,7 +384,8 @@
     COEFF_BIAS_LOC = 1e5
     COEFF_BIAS_OFFSET_R = 0.1
     COEFF_BIAS_OFFSET_THETA = 0.2
-    COEFF_BIAS_TIME_DECAY = 2.0
+    COEFF_BIAS_TIME_DECAY_DOWN = 3.0
+    COEFF_BIAS_TIME_DECAY_UP = 0.3
     COEFF_BIAS_VELOCITY = 1e3
     # how much uncertainty we add to the bias after mixing
     COEFF_BIAS_MIX_FACTOR = 0.01

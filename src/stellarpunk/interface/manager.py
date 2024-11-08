@@ -211,6 +211,10 @@ class InterfaceManager(core.CharacterObserver):
             new_accel_rate = interface.Settings.MIN_TIME_ACCEL
         self.gamestate.time_acceleration(new_accel_rate, False)
 
+    def tick_step(self) -> None:
+        self.gamestate.pause(False)
+        self.gamestate.one_tick = True
+
     def help(self) -> None:
         command_list = {x.command: x for x in self.command_list()}
 
@@ -284,6 +288,7 @@ class InterfaceManager(core.CharacterObserver):
             self.bind_key(ord(" "), self.gamestate.pause),
             self.bind_key(ord(">"), self.time_accel),
             self.bind_key(ord("<"), self.time_decel),
+            self.bind_key(ord("."), self.tick_step),
             self.bind_key(ord(":"), open_command_prompt),
             self.bind_key(ord("?"), self.help),
         ]
@@ -293,6 +298,7 @@ class InterfaceManager(core.CharacterObserver):
         def fps(args:Sequence[str]) -> None: self.interface.show_fps = not self.interface.show_fps
         def quit(args:Sequence[str]) -> None: self.interface.gamestate.quit()
         def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
+        def raise_breakpoint(args:Sequence[str]) -> None: self.gamestate.should_raise_breakpoint = True
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
         def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(AttrDemo(self.interface), deactivate_views=True)
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
@@ -443,6 +449,7 @@ class InterfaceManager(core.CharacterObserver):
             self.bind_command("fps", fps),
             self.bind_command("quit", quit),
             self.bind_command("raise", raise_exception),
+            self.bind_command("breakpoint", raise_breakpoint),
             self.bind_command("colordemo", colordemo),
             self.bind_command("attrdemo", attrdemo),
             self.bind_command("keydemo", keydemo),

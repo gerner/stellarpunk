@@ -40,6 +40,7 @@ class AbstractSteeringOrder(core.Order):
             **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
+        self.collision_dv = ZERO_VECTOR
 
         assert self.ship.sector is not None
         self.neighbor_analyzer = collision.Navigator(

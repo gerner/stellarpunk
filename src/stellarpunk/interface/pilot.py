@@ -526,7 +526,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             if self.ship.sector is None:
                 raise ValueError("ship must be in a sector to select a target")
 
-            hit = next(self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.perspective.meters_per_char[1]), None)
+            hit = next((x for x in self.ship.sector.spatial_point(np.array((sector_x, sector_y)), self.perspective.meters_per_char[1]) if x.object_type != core.ObjectType.PROJECTILE), None)
             if hit:
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
@@ -553,7 +553,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             raise ValueError("ship must be in a sector to select a target")
 
         potential_targets = sorted(
-            (x for x in self.ship.sector.spatial_point(self.ship.loc) if x != self.ship),
+            (x for x in self.ship.sector.spatial_point(self.ship.loc) if x != self.ship and x.object_type != core.ObjectType.PROJECTILE),
             key=lambda x: util.distance(self.ship.loc, x.loc)
         )
 
@@ -786,6 +786,14 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(status_y+7, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
         if approach_t < 60*60:
             self.viewscreen.addstr(status_y+8, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
+
+        #DEBUG:
+        label_bias_mag = "bias:"
+        label_thrust = "thrust:"
+        bias_mag = util.magnitude(*(self.presenter._cached_entities[self.selected_entity.entity_id]._loc_bias))
+        thrust = self.presenter._cached_entities[self.selected_entity.entity_id]._target.sensor_settings.effective_thrust()
+        self.viewscreen.addstr(status_y+9, status_x, f'{label_bias_mag:>12} {util.human_distance(bias_mag)}')
+        self.viewscreen.addstr(status_y+10, status_x, f'{label_thrust:>12} {thrust}')
 
         status_y += 9
 

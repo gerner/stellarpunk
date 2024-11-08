@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from stellarpunk import util, core
+from stellarpunk import util, core, config
 from stellarpunk.orders import movement, collision
 from stellarpunk.core.gamestate import Gamestate, ScheduledTask
 from .sector_entity import SectorEntity, ObjectType
@@ -94,6 +94,7 @@ class ThreatTracker(core.SectorEntityObserver):
     def update_threats(self) -> Optional[core.AbstractSensorImage]:
         # first remove eliminated/expired threats
         closest_dist = np.inf
+        last_closest_threat = self.closest_threat
         self.closest_threat = None
         dead_threats:List[core.AbstractSensorImage] = []
         for t in self.threats:
@@ -109,6 +110,9 @@ class ThreatTracker(core.SectorEntityObserver):
         for t in dead_threats:
             self.threats.remove(t)
             self.threat_ids.remove(t.identity.entity_id)
+
+        if self.closest_threat and self.closest_threat != last_closest_threat:
+            self.logger.debug(f'tracking closest threat: {self.closest_threat}')
 
         return self.closest_threat
 
@@ -174,6 +178,15 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
 
         self.complete_order()
         self.gamestate.destroy_entity(target)
+
+    def act(self, dt:float) -> None:
+        super().act(dt)
+        assert self.ship.sector
+        neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, num_neighbors, any_prior_threats = self._collision_neighbor(self.ship.sector, util.magnitude(*self.ship.velocity)*dt*2)
+        if neighbor:
+            self.logger.debug(f'target={self.target} collision neighbor at {self.gamestate.ticks} with {neighbor.short_id()} {dt=}: {minimum_separation=} {approach_time=}s')
+            if minimum_separation < 70:
+                core.Gamestate.gamestate.pause()
 
 class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
@@ -375,7 +388,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         # phalanx has rof of 4500/min = 75/sec, muzzle velocity of 1100 m/s
         self.rof:float = 100.
         self.muzzle_velocity = 3000.
-        self.projectile_ttl = 5.0
+        self.projectile_ttl = 2.0
         self.dispersion_angle = 0.0083
 
         self.state = PointDefenseEffect.State.IDLE
@@ -472,7 +485,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             next_index = None
             for i in range(num_shots):
                 angle = intercept_angle + core.Gamestate.gamestate.random.uniform(-self.dispersion_angle/2., self.dispersion_angle/2.)
-                loc, next_index = core.Gamestate.gamestate.generator.gen_projectile_location(self.craft.loc + util.polar_to_cartesian(self.craft.radius+5, angle), next_index)
+                loc, next_index = core.Gamestate.gamestate.generator.gen_projectile_location(self.craft.loc + util.polar_to_cartesian(self.craft.radius+config.Settings.generate.SectorEntities.projectile.RADIUS+1, angle), next_index)
                 v = util.polar_to_cartesian(self.muzzle_velocity, angle) + self.craft.velocity
                 new_entity = core.Gamestate.gamestate.generator.spawn_sector_entity(core.Projectile, self.sector, loc[0], loc[1], v=v, w=0.0)
                 new_entity.observe(self)

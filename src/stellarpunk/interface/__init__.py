@@ -48,7 +48,7 @@ class Settings:
     VIEWSCREEN_BUFFER_HEIGHT = 100
 
     MAX_TIME_ACCEL = 20.0
-    MIN_TIME_ACCEL = 0.25
+    MIN_TIME_ACCEL = 0.025
 
     MAX_FRAME_HISTORY_SEC = 0.5
     MIN_FPS = 2
@@ -978,7 +978,7 @@ class Interface(AbstractInterface):
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
+            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms +{(self.gamestate.desired_dt - self.gamestate.ticktime)*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
         if self.gamestate.paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")

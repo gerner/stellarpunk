@@ -511,7 +511,11 @@ def drawille_circle(radius:float, tick_spacing:float, width:float, height:float,
     # perfect arc length is minor tick spacing, but we want an arc length
     # closest to that which will divide the circle into a whole number of
     # pieces divisible by 4 (so the circle dots match the cross)
-    theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (tick_spacing / radius) / 4))
+    if np.pi / (tick_spacing / radius) < 1.:
+        # case where we are asked for fewer than 4 ticks in the whole circle
+        return canvas
+    else:
+        theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (tick_spacing / radius) / 4))
     # we'll just iterate over a single quadrant and mirror it
     thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
     for theta in thetas:

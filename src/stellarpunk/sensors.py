@@ -33,9 +33,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             self._identity = identity
         ship.observe(self)
         self._last_update = 0.
+        self._prior_fidelity = 1.0
         self._last_profile = 0.
         self._loc = ZERO_VECTOR
         self._velocity = ZERO_VECTOR
+        self._acceleration = ZERO_VECTOR
         self._is_active = True
 
         # models noise in the sensors
@@ -134,6 +136,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             return self._velocity + self._velocity_bias
 
     @property
+    def acceleration(self) -> npt.NDArray[np.float64]:
+        return self._acceleration
+
+    @property
     def transponder(self) -> bool:
         if self._target:
             return self._target.sensor_settings.transponder
@@ -180,7 +186,13 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         #TODO: add some extra noise to new_loc_bias?
 
         time_delta = core.Gamestate.gamestate.timestamp - self._last_bias_update_ts
-        alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY * time_delta + 1)) + 1
+        if self.fidelity < self._prior_fidelity:
+            alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY_DOWN * time_delta + 1)) + 1
+        else:
+            alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY_UP * time_delta + 1)) + 1
+
+        if self._target.object_type == core.ObjectType.MISSILE:
+            core.Gamestate.gamestate.breakpoint()
 
         new_loc_bias = alpha * new_loc_bias + (1-alpha) * self._loc_bias
         #new_velocity_bias = np.array((0.0, 0.0))
@@ -193,17 +205,24 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         if self._target and self._ship:
             # update sensor reading if possible
             if self._sensor_manager.detected(self._target, self._ship):
+                self._prior_fidelity = self.fidelity
                 self._identity.angle = self._target.angle
                 self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
                 self._update_bias()
+
+                since_last_update = core.Gamestate.gamestate.timestamp - self._last_update
+                if since_last_update < config.Settings.sensors.ACCEL_PREDICTION_MAX_SEC:
+                    self._acceleration = self._target.velocity - self._velocity
+                else:
+                    self._acceleration = ZERO_VECTOR
 
                 self._last_update = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
                 self._velocity = np.array(self._target.velocity)
 
                 if self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
-                    if not self._identified:
-                        logger.info(f'{self._ship.short_id()} identified {self._target.short_id()} with fidelity={self.fidelity}')
+                    #if not self._identified:
+                    #    logger.debug(f'{self._ship.short_id()} identified {self._target.short_id()} with fidelity={self.fidelity}')
                     # once identified, always identified
                     self._identified = True
 
@@ -212,6 +231,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                     self._target.target(self._ship)
                 return True
             else:
+                self._acceleration = ZERO_VECTOR
                 return False
         else:
             #TODO: shouldn't we flip _is_active at some point?
@@ -224,6 +244,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         image._last_profile = self._last_profile
         image._loc = self._loc
         image._velocity = self._velocity
+        image._acceleration = self._acceleration
         image._is_active = self._is_active
 
         image._loc_bias = self._loc_bias
@@ -337,7 +358,7 @@ class SensorManager(core.AbstractSensorManager):
         return (
             config.Settings.sensors.COEFF_MASS * ship.mass +
             config.Settings.sensors.COEFF_RADIUS * ship.radius +
-            config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust() +
+            config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
             config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
         ) * self.sector.weather_factor
@@ -378,7 +399,7 @@ class SensorManager(core.AbstractSensorManager):
         # range to detect passive targets
         passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS) * self.sector.weather_factor
         # range to detect full thrust targets
-        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST * self.sector.weather_factor
+        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST**config.Settings.sensors.FORCE_EXPONENT * self.sector.weather_factor
         # range to detect active sesnsor targets
         sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
 

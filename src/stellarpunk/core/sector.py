@@ -57,6 +57,11 @@ class AbstractSensorImage:
         ...
     @property
     @abc.abstractmethod
+    def acceleration(self) -> npt.NDArray[np.float64]:
+        """ Predicted acceleration of the image """
+        ...
+    @property
+    @abc.abstractmethod
     def profile(self) -> float: ...
     @property
     @abc.abstractmethod
