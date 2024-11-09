@@ -120,7 +120,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target:Optional[SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[SectorEntity]=None) -> core.Missile:
+    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[SectorEntity]=None) -> core.Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius, strict=True)
         v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity
@@ -128,13 +128,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         assert isinstance(new_entity, core.Missile)
         missile:core.Missile = new_entity
         missile.firer = owner
-        if target:
-            target_image = ship.sector.sensor_manager.target(target, missile)
-        elif target_image:
-            target_image = target_image.copy(missile)
-        else:
-            raise ValueError("one of target or target_image must be set")
-        missile_order = MissileOrder(missile, gamestate, target_image=target_image)
+        missile_order = MissileOrder(target_image.copy(missile), missile, gamestate)
         missile.prepend_order(missile_order)
         missile.sensor_settings.set_sensors(1.0)
 
@@ -197,11 +191,11 @@ class AttackOrder(movement.AbstractSteeringOrder):
         SEARCH = enum.auto()
         GIVEUP = enum.auto()
 
-    def __init__(self, target:core.SectorEntity, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, **kwargs:Any) -> None:
+    def __init__(self, target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         assert self.ship.sector
-        self.target = self.ship.sector.sensor_manager.target(target, self.ship)
+        self.target = target
         self.distance_min = distance_min
         self.distance_max = distance_max
         self.max_active_age = max_active_age
@@ -237,7 +231,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self._add_child(order)
 
     def _do_last_location(self) -> None:
-        self._ttl_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
+        self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
@@ -246,10 +240,10 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.cancel_order()
 
     def _do_approach(self) -> None:
-        self._ttl_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min), max_speed=self.ship.max_speed()*2.))
+        self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min), max_speed=self.ship.max_speed()*2.))
 
     def _do_withdraw(self) -> None:
-        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.target, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
+        self._ttl_order(movement.EvadeOrder(self.target, self.ship, self.gamestate, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
 
     def _do_shadow(self, dt:float) -> None:
         assert self.ship.sector
@@ -281,21 +275,21 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
     def _do_fire(self) -> None:
         rel_bearing = util.normalize_angle(util.bearing(self.ship.loc, self.target.loc) - self.ship.angle, shortest=True)
-        missile = MissileOrder.spawn_missile(self.ship, self.gamestate, target_image=self.target, owner=self.ship)
+        missile = MissileOrder.spawn_missile(self.ship, self.gamestate, self.target, owner=self.ship)
         self.logger.debug(f'firing missile {missile} at distance {util.distance(self.ship.loc, self.target.loc)}m {rel_bearing=} with ptr {self.target.profile / self.ship.sensor_settings.max_threshold}')
 
         assert util.distance(missile.loc, self.target.loc) < util.distance(self.ship.loc, self.target.loc)
         self.missiles_fired += 1
         self.last_fire_ts = self.gamestate.timestamp
 
-        # get away from the missile
-        self._ttl_order(core.Order(self.ship, self.gamestate), ttl=self.fire_backoff_time)#movement.EvadeOrder(self.ship, self.gamestate, target=missile, escape_distance=1e5), ttl=self.fire_backoff_time)
+        #TODO: after firing what should we do?
+        self._ttl_order(core.Order(self.ship, self.gamestate), ttl=self.fire_backoff_time)
 
     def _do_aim(self, dt:float) -> None:
         # get in close enough that a launched missile will be able to lock on to the target
 
         if self.target.profile / self.ship.sensor_settings.max_threshold < self.min_profile_to_threshold:
-            self._ttl_order(movement.PursueOrder(self.ship, self.gamestate, target_image=self.target, arrival_distance=1e3, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
+            self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=1e3, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
             return
 
         bearing = util.bearing(self.ship.loc, self.target.loc)
@@ -510,14 +504,14 @@ class HuntOrder(core.Order):
         TimedOrderTask.ttl_order(order, ttl)
         self._add_child(order)
 
-    def _scan_target(self) -> Optional[core.SectorEntity]:
+    def _scan_target(self) -> Optional[core.AbstractSensorImage]:
         assert self.ship.sector
         # note: the model is that this ship doesn't know if the target is in
         # sector or not. we're reaching inside sector.entities for convenience
         if self.target_id in self.ship.sector.entities:
             target = self.ship.sector.entities[self.target_id]
             if self.ship.sector.sensor_manager.detected(target, self.ship):
-                return target
+                return self.ship.sector.sensor_manager.target(target, self.ship)
         return None
 
     #TODO: is_complete?
@@ -629,4 +623,4 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         # evade closest threat
 
         self.max_thrust = self._choose_thrust()
-        self._ttl_order(movement.EvadeOrder(self.ship, self.gamestate, target_image=self.threat_tracker.closest_threat, max_thrust=self.max_thrust))
+        self._ttl_order(movement.EvadeOrder(self.threat_tracker.closest_threat, self.ship, self.gamestate, max_thrust=self.max_thrust))

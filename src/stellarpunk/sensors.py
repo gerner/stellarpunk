@@ -39,6 +39,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._velocity = ZERO_VECTOR
         self._acceleration = ZERO_VECTOR
         self._is_active = True
+        self._inactive_reason = core.SensorImageInactiveReason.OTHER
 
         # models noise in the sensors
         self._loc_bias_direction = np.array((0.0, 0.0))
@@ -66,6 +67,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             # might be risky checking if detected on logically destroyed entity
             if self._ship and self._sensor_manager.detected(entity, self._ship):
                 self._is_active = False
+                self._inactive_reason = core.SensorImageInactiveReason.DESTROYED
             self._target = None
             if self._ship:
                 self._ship.unobserve(self)
@@ -83,6 +85,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             # might be risky checking if detected on logically migrated entity
             if self._ship and self._sensor_manager.detected(entity, self._ship):
                 self._is_active = False
+                self._inactive_reason = core.SensorImageInactiveReason.MIGRATED
             self._target.unobserve(self)
             self._target = None
         elif entity == self._ship:
@@ -150,6 +153,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     def is_active(self) -> bool:
         return self._is_active
+
+    @property
+    def inactive_reason(self) -> core.SensorImageInactiveReason:
+        return self._inactive_reason
 
     def is_detector_active(self) -> bool:
         return self._ship is not None
@@ -240,6 +247,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             return False
 
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
+        """ Retargets the underlying craft with a (potentially) new detector
+
+        This does not reset state, but future updates will be with respect to
+        the new detector. """
         identity = self._identity
         image = SensorImage(self._target, detector, self._sensor_manager, identity=self._identity)
         image._last_update = self._last_update

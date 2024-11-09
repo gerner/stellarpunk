@@ -26,11 +26,11 @@ def test_missile_attack(gamestate, generator, sector, testui, simulator):
     target = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
 
 
-    missile:Optional[core.Missile] = combat.MissileOrder.spawn_missile(ship, gamestate, target=target)
+    missile:Optional[core.Missile] = combat.MissileOrder.spawn_missile(ship, gamestate, sector.sensor_manager.target(target, ship))
     assert missile
     missile_order = missile.current_order()
     assert missile_order
-    attack_order:Optional[combat.AttackOrder] = combat.AttackOrder(target, ship, gamestate)
+    attack_order:Optional[combat.AttackOrder] = combat.AttackOrder(sector.sensor_manager.target(target, ship), ship, gamestate)
     assert attack_order
     ship.prepend_order(attack_order)
 
@@ -78,9 +78,9 @@ def test_two_missiles(gamestate, generator, sector, testui, simulator):
     missile1 = generator.spawn_missile(sector, -3000, 0, v=(0,0), w=0, theta=0)
     missile2 = generator.spawn_missile(sector, 3000, 0, v=(0,0), w=0, theta=0)
 
-    missile_order1 = combat.MissileOrder(missile1, gamestate, target=missile2)
+    missile_order1 = combat.MissileOrder(sector.sensor_manager.target(missile2, missile1), missile1, gamestate)
     missile1.prepend_order(missile_order1)
-    missile_order2 = combat.MissileOrder(missile2, gamestate, target=missile1)
+    missile_order2 = combat.MissileOrder(sector.sensor_manager.target(missile1, missile2), missile2, gamestate)
     missile2.prepend_order(missile_order2)
 
     testui.orders = [missile_order1, missile_order2]
@@ -103,7 +103,7 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     defender_owner.take_ownership(defender)
     defender_owner.add_agendum(agenda.CaptainAgendum(defender, defender_owner, gamestate))
 
-    attack_order = combat.AttackOrder(defender, attacker, gamestate)
+    attack_order = combat.AttackOrder(sector.sensor_manager.target(defender, attacker), attacker, gamestate)
     attacker.prepend_order(attack_order)
 
     testui.orders = [attack_order]

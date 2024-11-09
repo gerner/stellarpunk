@@ -4,6 +4,7 @@ import logging
 import collections
 import uuid
 import abc
+import enum
 from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional, MutableMapping, Set
 
 import numpy as np
@@ -32,6 +33,11 @@ class SensorIdentity:
         self.radius = entity.radius
         # must be updated externally
         self.angle = 0.0
+
+class SensorImageInactiveReason(enum.IntEnum):
+    OTHER = enum.auto()
+    DESTROYED = enum.auto()
+    MIGRATED = enum.auto()
 
 class AbstractSensorImage:
     """ A sensor contact which might be old with predicted attributes
@@ -79,6 +85,9 @@ class AbstractSensorImage:
     def is_active(self) -> bool:
         """ False iff we detected target destroyed or leaving the sector """
         ...
+    @property
+    @abc.abstractmethod
+    def inactive_reason(self) -> SensorImageInactiveReason: ...
     @abc.abstractmethod
     def is_detector_active(self) -> bool:
         ...

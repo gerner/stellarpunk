@@ -92,9 +92,14 @@ class Presenter:
 
         self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
         self._cached_entities_ts = -1.
-        self._cached_entity_ttl = 120.
+        self.sensor_image_ttl = 120.
 
         self._sensor_loc_index = rtree.index.Index()
+
+    @property
+    def selected_target_image(self) -> core.AbstractSensorImage:
+        assert self.selected_target
+        return self._cached_entities[self.selected_target]
 
     def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
         if self.gamestate.timestamp == self._cached_entities_ts:
@@ -103,15 +108,18 @@ class Presenter:
         idx = 0
         if perspective_ship:
             # viewing the sector from the perspective of a single ship
+            found_selected_target = False
             # we keep track of sensor images over time and update them
             for hit in self.sector.sensor_manager.spatial_point(perspective_ship, perspective_ship.loc):
                 if hit.entity_id in self._cached_entities:
                     self._cached_entities[hit.entity_id].update(notify_target=False)
                 else:
                     self._cached_entities[hit.entity_id] = self.sector.sensor_manager.target(hit, perspective_ship, notify_target=False)
+                if hit.entity_id == self.selected_target:
+                    found_selected_target = True
             remove_ids:Set[uuid.UUID] = set()
             for image in self._cached_entities.values():
-                if not image.is_active() or image.age > self._cached_entity_ttl:
+                if not image.is_active() or image.age > self.sensor_image_ttl:
                     remove_ids.add(image.identity.entity_id)
                 else:
                     r = image.identity.radius
@@ -124,6 +132,11 @@ class Presenter:
                     idx+=1
             for entity_id in remove_ids:
                 del self._cached_entities[entity_id]
+                if entity_id == self.selected_target:
+                    found_selected_target = False
+
+            if not found_selected_target:
+                self.selected_target = None
         else:
             # sector wide view without any player ship at the center
             raise Exception("ohnoes")
@@ -137,6 +150,9 @@ class Presenter:
 
     def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
         return (self._cached_entities[x.object] for x in self._sensor_loc_index.nearest((point[0],point[0], point[1],point[1]), -1, True)) # type: ignore
+
+    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities[x.object] for x in self._sensor_loc_index.intersection(bbox, True)) # type: ignore
 
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching
