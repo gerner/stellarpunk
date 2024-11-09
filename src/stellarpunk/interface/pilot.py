@@ -802,8 +802,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         #DEBUG:
         label_bias_mag = "bias:"
         label_thrust = "thrust:"
-        bias_mag = util.magnitude(*(self.presenter._cached_entities[self.selected_entity.entity_id]._loc_bias))
-        thrust = self.presenter._cached_entities[self.selected_entity.entity_id]._target.sensor_settings.effective_thrust()
+        bias_mag = util.magnitude(*(self.presenter.sensor_contacts[self.selected_entity.entity_id]._loc_bias))
+        thrust = self.presenter.sensor_contacts[self.selected_entity.entity_id]._target.sensor_settings.effective_thrust()
         self.viewscreen.addstr(status_y+9, status_x, f'{label_bias_mag:>12} {util.human_distance(bias_mag)}')
         self.viewscreen.addstr(status_y+10, status_x, f'{label_thrust:>12} {thrust}')
 

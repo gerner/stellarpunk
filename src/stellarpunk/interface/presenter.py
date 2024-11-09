@@ -8,7 +8,9 @@ from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, C
 import cymunk # type: ignore
 import drawille # type: ignore
 import numpy as np
+import numpy.typing as npt
 from numba import jit # type: ignore
+import rtree.index # type: ignore
 
 from stellarpunk import core, interface, util, effects, config
 from stellarpunk.core import combat
@@ -92,9 +94,13 @@ class Presenter:
         self._cached_entities_ts = -1.
         self._cached_entity_ttl = 120.
 
+        self._sensor_loc_index = rtree.index.Index()
+
     def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
         if self.gamestate.timestamp == self._cached_entities_ts:
             return self._cached_entities.values()
+        self._sensor_loc_index = rtree.index.Index()
+        idx = 0
         if perspective_ship:
             # viewing the sector from the perspective of a single ship
             # we keep track of sensor images over time and update them
@@ -107,6 +113,15 @@ class Presenter:
             for image in self._cached_entities.values():
                 if not image.is_active() or image.age > self._cached_entity_ttl:
                     remove_ids.add(image.identity.entity_id)
+                else:
+                    r = image.identity.radius
+                    self._sensor_loc_index.insert(
+                        idx,
+                        (image.loc[0]-r, image.loc[1]-r,
+                         image.loc[0]+r, image.loc[1]+r),
+                        image.identity.entity_id
+                    )
+                    idx+=1
             for entity_id in remove_ids:
                 del self._cached_entities[entity_id]
         else:
@@ -115,6 +130,13 @@ class Presenter:
             #self._cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
         self._cached_entities_ts = self.gamestate.timestamp
         return self._cached_entities.values()
+
+    @property
+    def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
+        return self._cached_entities
+
+    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities[x.object] for x in self._sensor_loc_index.nearest((point[0],point[0], point[1],point[1]), -1, True)) # type: ignore
 
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching

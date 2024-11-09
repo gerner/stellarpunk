@@ -93,3 +93,12 @@ strictly necessary or the player's ship has fully resolved the object.
   interact with the same certainty of information as they would a friendly craft
   or station.
 
+# Player Interactions with Sensor Contacts
+
+* Target it and get info about the target (with info varying depending on
+  fidelity/identification level)
+* Go to/follow/pursue/evade the contact
+* Dock with a station
+* Jump through a gate
+* Mine an asteroid
+* Combat: launch a missile at a craft

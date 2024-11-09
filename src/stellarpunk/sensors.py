@@ -73,6 +73,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             if self._target:
                 self._target.unobserve(self)
                 self._target = None
+            self._ship.unobserve(self)
             self._ship = None
         else:
             raise ValueError(f'got entity_destroyed for unexpected entity {entity}')
@@ -89,6 +90,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._target.unobserve(self)
                 self._target = None
             self._ship.unobserve(self)
+            self._ship = None
         else:
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
@@ -426,11 +428,12 @@ class SensorManager(core.AbstractSensorManager):
         )
 
     def compute_thrust_for_profile(self, ship:core.SectorEntity, distance_sq:float, threshold:float) -> float:
-        # solve effective_profile equation for thrust
+        # solve effective_profile equation for thrust (x below)
 
         # target_profile = effective_profile / (c * dist ** 2)
-        # y = (a + b + c_1 * x + d) * w / (c_2 * dist**2)
-        # x = ((a + b + d) * w - y * (c_2 * dist**2) ) / (-c_1 * w)
+        # target_profile = y
+        # y = (a + b + c_1 * x^p + d) * w / (c_2 * dist**2)
+        # x = ((a + b + d) * w - y * (c_2 * dist**2) ) / (-c_1 * w) ** (1/e)
         profile_base = (
             config.Settings.sensors.COEFF_MASS * ship.mass +
             config.Settings.sensors.COEFF_RADIUS * ship.radius +
@@ -438,7 +441,13 @@ class SensorManager(core.AbstractSensorManager):
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
         ) * self.sector.weather_factor
 
-        return (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE * self.sector.weather_factor)
+        thrust_to_power = (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE * self.sector.weather_factor)
+
+        # TODO: this is a little janky because there might be no solution
+        if thrust_to_power < 0.0:
+            return 0.0
+        else:
+            return pow(thrust_to_power, 1.0/config.Settings.sensors.FORCE_EXPONENT)
 
     def compute_thrust_for_sensor_power(self, ship:core.SectorEntity, distance_sq:float, sensor_power:float) -> float:
         threshold = config.Settings.sensors.COEFF_THRESHOLD / (sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)

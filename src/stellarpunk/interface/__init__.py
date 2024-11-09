@@ -17,6 +17,7 @@ import collections.abc
 import abc
 import textwrap
 import uuid
+import weakref
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
@@ -304,7 +305,7 @@ class Perspective:
 
         self._cursor = (0., 0.)
 
-        self.observers:Set[PerspectiveObserver] = set()
+        self.observers:weakref.WeakSet[PerspectiveObserver] = weakref.WeakSet()
 
     def observe(self, observer:PerspectiveObserver) -> None:
         self.observers.add(observer)

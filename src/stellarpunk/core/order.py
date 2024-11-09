@@ -36,7 +36,7 @@ class Effect(abc.ABC):
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
-        self.observers:Set[EffectObserver] = set()
+        self.observers:weakref.WeakSet[EffectObserver] = weakref.WeakSet()
 
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -181,7 +181,7 @@ class Order:
         self.parent_order:Optional[Order] = None
         self.child_orders:Deque[Order] = collections.deque()
 
-        self.observers:Set[OrderObserver] = set()
+        self.observers:weakref.WeakSet[OrderObserver] = weakref.WeakSet()
         if observer is not None:
             self.observe(observer)
 
