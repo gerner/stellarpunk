@@ -445,7 +445,7 @@ class SensorManager(core.AbstractSensorManager):
 
         # TODO: this is a little janky because there might be no solution
         if thrust_to_power < 0.0:
-            return 0.0
+            return -np.inf
         else:
             return pow(thrust_to_power, 1.0/config.Settings.sensors.FORCE_EXPONENT)
 
