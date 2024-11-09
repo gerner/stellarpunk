@@ -310,7 +310,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def order_dock(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for docking")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.ASTEROID:
+            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.STATION:
                 raise command_input.UserError("target is not identified as a station")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:

@@ -305,7 +305,7 @@ class Perspective:
 
         self._cursor = (0., 0.)
 
-        self.observers:weakref.WeakSet[PerspectiveObserver] = weakref.WeakSet()
+        self.observers:Set[PerspectiveObserver] = set()
 
     def observe(self, observer:PerspectiveObserver) -> None:
         self.observers.add(observer)

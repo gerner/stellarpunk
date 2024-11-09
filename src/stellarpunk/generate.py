@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
 import cymunk # type: ignore
-from rtree import index # type: ignore
+import rtree.index # type: ignore
 import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
@@ -1485,7 +1485,7 @@ class UniverseGenerator(core.AbstractGenerator):
         sector_theta = sector_radius_std**2/sector_radius
         sector_radii = self.r.gamma(sector_k, sector_theta, num_sectors)
 
-        sector_loc_index = index.Index()
+        sector_loc_index = rtree.index.Index()
         # clean up any overlapping sectors
         for idx, (coords, radius) in enumerate(zip(sector_coords, sector_radii)):
             reject = True
@@ -1546,7 +1546,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # index of bboxes for edges
         edge_id = 0
-        edge_index = index.Index()
+        edge_index = rtree.index.Index()
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if sector_edges[i,j] == 1:
                 a = self.gamestate.sectors[source_id].loc
@@ -1748,8 +1748,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        #self.generate_player()
-        self.generate_player_for_combat_test()
+        self.generate_player()
+        #self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

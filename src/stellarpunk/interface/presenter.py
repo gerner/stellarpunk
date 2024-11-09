@@ -149,7 +149,7 @@ class Presenter:
         return self._cached_entities
 
     def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
-        return (self._cached_entities[x.object] for x in self._sensor_loc_index.nearest((point[0],point[0], point[1],point[1]), -1, True)) # type: ignore
+        return (self._cached_entities[x.object] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1, True)) # type: ignore
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
         return (self._cached_entities[x.object] for x in self._sensor_loc_index.intersection(bbox, True)) # type: ignore

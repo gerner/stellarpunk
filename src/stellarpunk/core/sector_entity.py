@@ -126,7 +126,7 @@ class SectorEntity(Entity):
         # who is responsible for this entity?
         self.captain: Optional["character.Character"] = None
 
-        self.observers:weakref.WeakSet[SectorEntityObserver] = weakref.WeakSet()
+        self.observers:Set[SectorEntityObserver] = set()
 
         self.sensor_settings=sensor_settings
 
