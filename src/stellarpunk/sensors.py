@@ -52,13 +52,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def __str__(self) -> str:
         return f'{self._identity.short_id} detected by {self._detector_short_id} {self.age}s old'
 
-    def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, core.AbstractSensorImage):
-            return False
-        #TODO: I don't think this is correct, there's bias, age, whether the
-        # image has been identified to consider as well
-        return self._identity.entity_id == other.identity.entity_id and self._detector_entity_id == other.detector_entity_id
-
     def __hash__(self) -> int:
         return hash((self._identity.entity_id, self._detector_entity_id))
 
