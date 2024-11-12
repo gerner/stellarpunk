@@ -364,7 +364,7 @@ class SensorManager(core.AbstractSensorManager):
         self.sector = sector
 
     def compute_effective_threshold(self, ship:core.SectorEntity) -> float:
-        return ship.sensor_settings.effective_threshold() * self.sector.weather_factor
+        return ship.sensor_settings.effective_threshold()
 
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
@@ -374,7 +374,7 @@ class SensorManager(core.AbstractSensorManager):
             config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
             config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
-        ) * self.sector.weather_factor
+        ) * self.sector.weather(ship.loc).sensor_factor
 
     def compute_target_profile(self, target:core.SectorEntity, detector_or_distance_sq:Union[core.SectorEntity, float]) -> float:
         """ computes detector-specific profile of target """
@@ -410,11 +410,11 @@ class SensorManager(core.AbstractSensorManager):
 
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
         # range to detect passive targets
-        passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS) * self.sector.weather_factor
+        passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS)
         # range to detect full thrust targets
-        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST**config.Settings.sensors.FORCE_EXPONENT * self.sector.weather_factor
+        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST**config.Settings.sensors.FORCE_EXPONENT
         # range to detect active sesnsor targets
-        sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
+        sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER
 
         threshold = self.compute_effective_threshold(entity)
 
@@ -450,9 +450,9 @@ class SensorManager(core.AbstractSensorManager):
             config.Settings.sensors.COEFF_RADIUS * ship.radius +
             config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
-        ) * self.sector.weather_factor
+        ) * self.sector.weather(ship.loc).sensor_factor
 
-        thrust_to_power = (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE * self.sector.weather_factor)
+        thrust_to_power = (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE)
 
         # TODO: this is a little janky because there might be no solution
         if thrust_to_power < 0.0:

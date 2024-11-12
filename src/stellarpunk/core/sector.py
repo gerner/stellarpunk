@@ -10,6 +10,7 @@ from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional, Mut
 import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
+import rtree.index # type: ignore
 
 from stellarpunk import util
 from .base import Entity
@@ -176,6 +177,29 @@ class AbstractSensorManager:
     def compute_thrust_for_sensor_power(self, ship:SectorEntity, distance_sq:float, sensor_power:float) -> float: ...
 
 
+class SectorWeatherRegion:
+    """ Models weather effects in a sector.
+
+    These are circular disk shaped regions that have various impacts.
+    Overlapping weather regions combine into an effective weather for every
+    point in the region. """
+
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, sensor_factor:float) -> None:
+        self.loc = loc
+        self.radius = radius
+
+        # other weather properties (e.g. sensor factor)
+        self.sensor_factor = sensor_factor
+
+class SectorWeather:
+    """ Represents the effective sector weather for a specific point. """
+    def __init__(self) -> None:
+        self.sensor_factor = 1.0
+
+    def add(self, region:SectorWeatherRegion) -> None:
+        self.sensor_factor *= region.sensor_factor
+
+
 class Sector(Entity):
     """ A region of space containing resources, stations, ships. """
 
@@ -209,7 +233,7 @@ class Sector(Entity):
 
         self.collision_observers: MutableMapping[uuid.UUID, Set[CollisionObserver]] = collections.defaultdict(set)
 
-        self.weather_factor = 1.
+        self._weather_index = rtree.index.Index()
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
 
@@ -226,6 +250,12 @@ class Sector(Entity):
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
+
+    def weather(self, loc:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
+        weather = SectorWeather()
+        for region in self._weather_index.intersection((loc[0], loc[1], loc[0], loc[1]), True):
+            weather.add(region.object)
+        return weather
 
     def register_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
         self.collision_observers[entity_id].add(observer)
