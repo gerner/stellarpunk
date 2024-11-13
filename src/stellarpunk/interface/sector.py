@@ -164,6 +164,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
     def draw_sector_map(self) -> None:
         """ Draws a map of a sector. """
 
+        self.presenter.draw_weather()
         self.presenter.draw_shapes()
         self.draw_grid()
         if self.selected_entity:

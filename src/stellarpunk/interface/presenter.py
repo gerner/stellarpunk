@@ -101,7 +101,7 @@ class Presenter:
         assert self.selected_target
         return self._cached_entities[self.selected_target]
 
-    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
+    def detected_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
         if self.gamestate.timestamp == self._cached_entities_ts:
             return self._cached_entities.values()
         self._sensor_loc_index = rtree.index.Index()
@@ -140,9 +140,15 @@ class Presenter:
         else:
             # sector wide view without any player ship at the center
             raise Exception("ohnoes")
-            #self._cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
+            #self._cached_entities = list(self.sector.spatial_qery(self.perspective.bbox))
         self._cached_entities_ts = self.gamestate.timestamp
         return self._cached_entities.values()
+
+    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
+        for entity in self.detected_entities(perspective_ship):
+            r = entity.identity.radius
+            if entity.loc[0] > self.perspective.bbox[0]-r and entity.loc[0] < self.perspective.bbox[2]+r and entity.loc[1] > self.perspective.bbox[1]-r and entity.loc[1] < self.perspective.bbox[3]+r:
+                yield entity
 
     @property
     def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
@@ -289,12 +295,13 @@ class Presenter:
                     self.view.viewscreen.addstr(s_y, s_x, " ", 0)
 
 
+        #TODO: should not do this
         assert isinstance(self.view.viewscreen, interface.Canvas)
         window = self.view.viewscreen.window
 
         # actually draw the circle
         screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
-        c = util.make_circle_canvas(entity.identity.radius, *self.perspective.meters_per_char)
+        c = util.make_circle_canvas(entity.identity.radius, *self.perspective.meters_per_char, bbox=util.translate_rect(self.perspective.bbox, (-loc_x, -loc_y)))
         util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
     def draw_entity(self, y:int, x:int, entity:core.AbstractSensorImage, icon_attr:int=0) -> None:
@@ -441,6 +448,16 @@ class Presenter:
         for entity in self.visible_entities(perspective_ship):
             if entity.identity.radius > 0 and self.perspective.meters_per_char[0] < entity.identity.radius:
                 self.draw_entity_shape(entity)
+
+    def draw_weather(self) -> None:
+        for weather in self.sector.region_query(self.perspective.bbox):
+            screen_x, screen_y = self.perspective.sector_to_screen(*weather.loc)
+            c = util.make_circle_canvas(weather.radius, *self.perspective.meters_per_char, bbox=util.translate_rect(self.perspective.bbox, -weather.loc))
+            #TODO: should not need to do this
+            assert isinstance(self.view.viewscreen, interface.Canvas)
+            window = self.view.viewscreen.window
+            util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+
 
     def draw_sensor_cone(self, ship:core.Ship) -> None:
         """ Visualize sensor cone used, e.g. in navigation/collision avoid """

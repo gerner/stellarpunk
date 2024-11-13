@@ -880,7 +880,8 @@ class Interface(AbstractInterface):
         #self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
     def initialize(self) -> None:
-        curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        self.enable_mouse()
+        print('\033[?1003h')
         # setting mouseinterval to 0 means no lag on mouse events, but means we
         # will not get click vs mousedown vs mouseup events handled by curses
         curses.mouseinterval(0)
@@ -891,6 +892,12 @@ class Interface(AbstractInterface):
         curses.curs_set(0)
 
         self.reinitialize_screen()
+
+    def enable_mouse(self) -> None:
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+
+    def disable_mouse(self) -> None:
+        curses.mousemask(0)
 
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:

@@ -242,6 +242,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         )
         self.perspective.observe(self)
 
+        self.m_sector_x, self.m_sector_y = (0.0, 0.0)
+
         self.direction_indicator_radius = 15
         self.heading_indicator_radius = 12
         self.target_indicator_radius = 13
@@ -409,6 +411,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.ship.max_thrust = self.ship.max_base_thrust * thrust_ratio
             self.interface.log_message(f'max thrust: {util.human_si_scale(self.ship.max_thrust, "N")}')
 
+        def mouse_pos(args:Sequence[str]) -> None:
+            self.interface.log_message(f'{self.m_sector_x},{self.m_sector_y}')
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
@@ -426,6 +431,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("point_defense", toggle_point_defense),
             self.bind_command("cache_stats", cache_stats),
             self.bind_command("max_thrust", max_thrust),
+            self.bind_command("mouse_pos", mouse_pos),
         ]
 
     def _select_target(self, target:Optional[core.AbstractSensorImage]) -> None:
@@ -512,10 +518,12 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
     def handle_mouse(self, m_id: int, m_x: int, m_y: int, m_z: int, bstate: int) -> bool:
         """ Handle mouse input according to MouseState """
+
+        self.m_sector_x, self.m_sector_y = self.perspective.screen_to_sector(m_x, m_y)
         if not bstate & (curses.BUTTON1_CLICKED | curses.BUTTON1_PRESSED):
             return False
 
-        sector_x, sector_y = self.perspective.screen_to_sector(m_x, m_y)
+        sector_x, sector_y = self.m_sector_x, self.m_sector_y
         self.logger.debug(f'clicked {(m_x,m_y)} translates to {(sector_x,sector_y)}')
 
         if self.mouse_state == MouseState.EMPTY:
@@ -948,6 +956,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.interface.log_message("target sensor image lost")
 
         self.starfield.draw_starfield(self.viewscreen)
+        self.presenter.draw_weather()
         self.presenter.draw_shapes(self.ship)
         self._draw_radar()
         self.presenter.draw_sensor_rings(self.ship)

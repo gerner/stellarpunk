@@ -794,12 +794,12 @@ class UniverseGenerator(core.AbstractGenerator):
         else:
             raise ValueError(f'do not know how to spawn {klass}')
 
-    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
+    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, radius: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
         resource : the type of resource
         total_amount : the total amount of that resource in the field
-        width : the "width" of the field (stdev of the normal distribution),
+        radius : radius over which asteriods can appear,
             default sector radius / 5
         mean_per_asteroid : mean of resources per asteroid, default 1e5
         stdev_per_asteroid : stdev of resources per asteroid, default 1e4
@@ -809,13 +809,13 @@ class UniverseGenerator(core.AbstractGenerator):
             return []
 
         field_center = np.array((x,y), dtype=np.float64)
-        if width == 0.:
-            width = sector.radius / 5
+        if radius == 0.:
+            radius = sector.radius / 5
 
         # generate asteroids until we run out of resources
         asteroids = []
         while total_amount > 0:
-            loc = self.r.normal(0, width, 2) + field_center
+            loc = self.r.normal(0, radius, 2) + field_center
             amount = self.r.normal(mean_per_asteroid, variance_per_asteroid)
             if amount > total_amount:
                 amount = total_amount
@@ -825,6 +825,12 @@ class UniverseGenerator(core.AbstractGenerator):
             asteroids.append(asteroid)
 
             total_amount -= amount
+
+        # add in some weather related to this resource field
+        region_outer = core.SectorWeatherRegion(field_center, radius*2, 0.5)
+        region_inner = core.SectorWeatherRegion(field_center, radius*2*0.8, 0.5)
+        sector.add_region(region_outer)
+        sector.add_region(region_inner)
 
         return asteroids
 

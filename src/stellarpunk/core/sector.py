@@ -185,11 +185,16 @@ class SectorWeatherRegion:
     point in the region. """
 
     def __init__(self, loc:npt.NDArray[np.float64], radius:float, sensor_factor:float) -> None:
+        self.idx = -1
         self.loc = loc
         self.radius = radius
 
         # other weather properties (e.g. sensor factor)
         self.sensor_factor = sensor_factor
+
+    @property
+    def bbox(self) -> Tuple[float, float, float, float]:
+        return (self.loc[0]-self.radius, self.loc[1]-self.radius, self.loc[0]+self.radius, self.loc[1]+self.radius)
 
 class SectorWeather:
     """ Represents the effective sector weather for a specific point. """
@@ -251,9 +256,20 @@ class Sector(Entity):
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
 
+    def region_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorWeatherRegion]:
+        for hit in self._weather_index.intersection(bbox, True):
+            assert hit.object
+            yield hit.object
+
+    def add_region(self, region:SectorWeatherRegion) -> int:
+        region.idx = len(self._weather_index)
+        self._weather_index.insert(region.idx, region.bbox, region)
+        return region.idx
+
     def weather(self, loc:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
         weather = SectorWeather()
         for region in self._weather_index.intersection((loc[0], loc[1], loc[0], loc[1]), True):
+            assert region.object
             weather.add(region.object)
         return weather
 

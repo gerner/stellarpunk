@@ -128,6 +128,55 @@ class KeyDemo(interface.View):
         return True
 
 
+class CircleDemo(interface.View):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.scale = 15.
+        self.radius = self.scale
+        self.bbox = (-1.5*self.scale, -1.5*self.scale, 1.5*self.scale, 1.5*self.scale)
+
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "CIRCLE DEMO")
+
+        # make a rectangle
+        c = util.make_rectangle_canvas(self.bbox, 1, 2)
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        # make a circle
+        c = util.make_circle_canvas(self.radius, 1, 2, bbox=self.bbox)
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        self.interface.viewscreen.addstr(int(self.scale+15), 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == curses.ascii.ESC:
+            self.interface.close_view(self)
+            return True
+        elif key == ord("+"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1]-1, self.bbox[2]+1, self.bbox[3]+1)
+        elif key == ord("-"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1]+1, self.bbox[2]-1, self.bbox[3]-1)
+        elif key == ord(">"):
+            self.radius += 1
+        elif key == ord("<"):
+            self.radius -= 1
+        elif key == ord("w"):
+            self.bbox = (self.bbox[0], self.bbox[1]-1, self.bbox[2], self.bbox[3]-1)
+        elif key == ord("a"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1], self.bbox[2]-1, self.bbox[3])
+        elif key == ord("s"):
+            self.bbox = (self.bbox[0], self.bbox[1]+1, self.bbox[2], self.bbox[3]+1)
+        elif key == ord("d"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1], self.bbox[2]+1, self.bbox[3])
+        else:
+            return False
+        return True
+
+
 class InterfaceManager(core.CharacterObserver):
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.mixer = audio.Mixer()
@@ -302,6 +351,7 @@ class InterfaceManager(core.CharacterObserver):
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
         def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(AttrDemo(self.interface), deactivate_views=True)
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
+        def circledemo(args:Sequence[str]) -> None: self.interface.open_view(CircleDemo(self.interface), deactivate_views=True)
         def profile(args:Sequence[str]) -> None:
             if self.profiler:
                 self.profiler.disable()
@@ -414,9 +464,9 @@ class InterfaceManager(core.CharacterObserver):
 
         def toggle_mouse(args:Sequence[str]) -> None:
             if self.mouse_on:
-                curses.mousemask(0)
+                self.interface.disable_mouse()
             else:
-                curses.mousemask(curses.ALL_MOUSE_EVENTS)
+                self.interface.enable_mouse()
             self.mouse_on = not self.mouse_on
 
         def debug_collision(args:Sequence[str])->None:
@@ -453,6 +503,7 @@ class InterfaceManager(core.CharacterObserver):
             self.bind_command("colordemo", colordemo),
             self.bind_command("attrdemo", attrdemo),
             self.bind_command("keydemo", keydemo),
+            self.bind_command("circledemo", circledemo),
             self.bind_command("profile", profile),
             self.bind_command("fast", fast),
             self.bind_command("decrease_fps", decrease_fps),
