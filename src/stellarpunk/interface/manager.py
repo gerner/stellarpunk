@@ -129,6 +129,10 @@ class KeyDemo(interface.View):
 
 
 class CircleDemo(interface.View):
+    """ Testing tool showing a circle drawn on the screen inside a bounding box
+
+    Useful for debugging the non-trivial logic choosing which parts of the
+    circle to draw. """
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.scale = 15.

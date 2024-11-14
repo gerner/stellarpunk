@@ -111,9 +111,6 @@ class ThreatTracker(core.SectorEntityObserver):
             self.threats.remove(t)
             self.threat_ids.remove(t.identity.entity_id)
 
-        if self.closest_threat and self.closest_threat != last_closest_threat:
-            self.logger.debug(f'tracking closest threat: {self.closest_threat}')
-
         return self.closest_threat
 
 class MissileOrder(movement.PursueOrder, core.CollisionObserver):
@@ -175,8 +172,6 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
 
     def act(self, dt:float) -> None:
         super().act(dt)
-        assert self.ship.sector
-        neighbor, approach_time, minimum_separation, threat_radius, threat_loc, threat_velocity, neighborhood_density, num_neighbors, any_prior_threats = self._collision_neighbor(self.ship.sector, util.magnitude(*self.ship.velocity)*dt*2)
 
 class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
@@ -361,6 +356,9 @@ class AttackOrder(movement.AbstractSteeringOrder):
         else:
             raise ValueError(f'unknown attack order state {self.state}')
 
+# TODO: should point defense really be creating all these sector entities?
+#   perhaps a better choice would be to create a cone shaped area to monitor
+#   inside that space we can abstractly model point defense working
 class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionObserver):
     class State(enum.Enum):
         IDLE = enum.auto()

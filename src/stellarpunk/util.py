@@ -409,11 +409,7 @@ def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, a
             screen_x = canvas_x+x
             if screen_x < bounds[0] or screen_x >= bounds[2]:
                 continue
-            #DEBUG:
-            if isinstance(v, int):
-                screen.addch(screen_y, screen_x, chr(drawille.braille_char_offset+v), attr)
-            if isinstance(v, str):
-                screen.addstr(screen_y, screen_x, v, attr)
+            screen.addch(screen_y, screen_x, chr(drawille.braille_char_offset+v), attr)
     return
 
     # find the bounds of the canvas in characters

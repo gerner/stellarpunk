@@ -881,6 +881,8 @@ class Interface(AbstractInterface):
 
     def initialize(self) -> None:
         self.enable_mouse()
+        # enable terminal reporting of mouse position
+        # as per https://stackoverflow.com/a/64809709/553580
         print('\033[?1003h')
         # setting mouseinterval to 0 means no lag on mouse events, but means we
         # will not get click vs mousedown vs mouseup events handled by curses

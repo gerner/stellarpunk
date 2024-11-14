@@ -9,6 +9,7 @@
             fps = "toggle the fps counter"
             quit = "quit the game (without saving!)"
             raise = "raise an exception and break into the debugger at the start of the next tick"
+            raise_breakpoint = "raise an exception and break into the debugger when the next Gamestate.breakpoint is hit"
             colordemo = "show the list of colors"
             profile = "start/stop profiling. at stop write profile stats to /tmp/profile.prof"
             fast = "toggle fast mode, pushing the game clock forward as fast as possible"
@@ -24,6 +25,7 @@
             " " = "toggle pause on the game clock"
             ">" = "increase the rate the game clock ticks relative to realtime"
             "<" = "decrease the rate the game clock ticks relative to realtime"
+            "." = "advance time by one tick"
             ":" = "open the command prompt (try \"help\", \"quit\" quits without saving)"
             "?" = "display help on available commands"
 
