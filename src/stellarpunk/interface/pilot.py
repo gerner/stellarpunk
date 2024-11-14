@@ -9,7 +9,7 @@ import curses
 import enum
 import collections
 import uuid
-from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping, Set
 
 import numpy as np
 import cymunk # type: ignore
@@ -35,25 +35,39 @@ class Settings:
 class LambdaOrderObserver(core.OrderObserver):
     def __init__(
         self,
+        lifetime_collection:Set,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
         cancel: Optional[Callable[[core.Order], None]] = None,
     ):
+        # we must handle at least one event
+        assert begin or complete or cancel
+
         self.begin = begin
         self.complete = complete
         self.cancel = cancel
 
+
+        # observers are held in weak references, so we need some other
+        # way to keep this observer alive. the rule is that after we handle
+        # one event, we go away
+        lifetime_collection.add(self)
+        self.lifetime_collection = lifetime_collection
+
     def order_begin(self, order: core.Order) -> None:
         if self.begin:
             self.begin(order)
+            self.lifetime_collection.remove(self)
 
     def order_complete(self, order: core.Order) -> None:
         if self.complete:
             self.complete(order)
+            self.lifetime_collection.remove(self)
 
     def order_cancel(self, order: core.Order) -> None:
         if self.cancel:
             self.cancel(order)
+            self.lifetime_collection.remove(self)
 
 class PlayerControlOrder(steering.AbstractSteeringOrder):
     """ Order indicating the player is in direct control.
@@ -272,6 +286,19 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         self.point_defense:Optional[combat.PointDefenseEffect] = None
 
+        # keeps these order observers alive while giving the illusion that
+        # there aren't any other references to them
+        self.order_observers:Set[LambdaOrderObserver] = set()
+
+    def make_order_observer(self,
+        begin: Optional[Callable[[core.Order], None]] = None,
+        complete: Optional[Callable[[core.Order], None]] = None,
+        cancel: Optional[Callable[[core.Order], None]] = None,
+    ) -> LambdaOrderObserver:
+        observer = LambdaOrderObserver(self.order_observers, begin=begin, complete=complete, cancel=cancel)
+        return observer
+
+
     def open_station_view(self, dock_station: core.Station) -> None:
         # TODO: make sure we're within docking range?
         station_view = v_station.StationView(dock_station, self.ship, self.interface)
@@ -353,7 +380,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             def complete_docking(order: core.Order) -> None:
                 self.open_station_view(dock_station)
 
-            order.observe(LambdaOrderObserver(complete=complete_docking))
+            order.observe(self.make_order_observer(complete=complete_docking))
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
@@ -518,7 +545,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             control_order = PlayerControlOrder(
                 self.ship,
                 self.gamestate,
-                observer=LambdaOrderObserver(
+                observer=self.make_order_observer(
                     complete=self._clear_control_order,
                     cancel=self._clear_control_order
                 )

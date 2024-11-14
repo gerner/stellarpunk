@@ -101,7 +101,7 @@ class Character(Entity):
         # activites this character is enaged in (how they interact)
         self.agenda:MutableSequence[Agendum] = []
 
-        self.observers:Set[CharacterObserver] = set()
+        self.observers:weakref.WeakSet[CharacterObserver] = weakref.WeakSet()
 
     def destroy(self) -> None:
         super().destroy()
