@@ -741,6 +741,7 @@ class UniverseGenerator(core.AbstractGenerator):
         x,y = util.polar_to_cartesian(r, theta)
 
         sensor_settings = sensors.SensorSettings()
+        sensor_settings.set_transponder(True)
         body = self._phys_body()
         gate = core.TravelGate(
             destination,
@@ -1069,6 +1070,27 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.add_sector(sector, sector_idx)
 
+        return sector
+
+    def spawn_uninhabited_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+        sector = core.Sector(
+            np.array([x, y]),
+            radius,
+            cymunk.Space(),
+            self.gamestate,
+            self._gen_sector_name(),
+            entity_id=entity_id
+        )
+        sector.sensor_manager = sensors.SensorManager(sector)
+
+        #TODO: put interesting stuff in the sector, e.g.
+        # lots of asteroids of one or a few different resource types
+        # a few asteroids of many resource types
+        # lots of sensor affecting  weather
+        # pirates (that ask for your cargo if you have some)
+        # other interesting encounters
+
+        self.gamestate.add_sector(sector, sector_idx)
         return sector
 
     def harvest_resources(self, sector: core.Sector, x: float, y: float, resource: int, amount: float) -> None:
@@ -1531,19 +1553,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
-            sector = core.Sector(
-                np.array([x, y]),
-                radius,
-                cymunk.Space(),
-                self.gamestate,
-                self._gen_sector_name(),
-                entity_id=entity_id
-            )
-            sector.sensor_manager = sensors.SensorManager(sector)
-
             # mypy thinks idx is an int
-            self.gamestate.add_sector(sector, idx[0]) # type: ignore
-
+            sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
             self.non_habitable_sectors.append(sector)
 
         # set up connectivity between sectors
@@ -1765,8 +1776,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        #self.generate_player()
-        self.generate_player_for_combat_test()
+        self.generate_player()
+        #self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

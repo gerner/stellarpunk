@@ -3,6 +3,7 @@
 Sits within a sector view.
 """
 
+import re
 import math
 import curses
 import enum
@@ -282,6 +283,32 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             for order in self.ship._orders:
                 self.interface.log_message(f'{order}')
 
+        def target_entity(args:Sequence[str]) -> None:
+            if len(args) == 0:
+                raise command_input.UserError("must provide an entity long or short id")
+            arg_id = args[0]
+            if re.match(r'^[A-Z]{3}-[a-z0-9]{8}', args[0]):
+                # provided a short id
+                try:
+                    image = next(x for x in self.presenter.sensor_contacts.values() if x.identified and x.identity.short_id == args[0])
+                except StopIteration:
+                    raise command_input.UserError("target not found")
+            else:
+                # try as uuid
+                try:
+                    entity_id = uuid.UUID(args[0])
+                except ValueError:
+                    raise command_input.UserError("bad entity id format")
+
+                if entity_id not in self.presenter.sensor_contacts:
+                    raise command_input.UserError("target not found")
+                image = self.presenter.sensor_contacts[entity_id]
+                if not image.identified:
+                    raise command_input.UserError("target not found")
+
+            self._select_target(image)
+            self.interface.log_message(f'{image.identity.short_id} targted')
+
         def order_jump(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for jump")
@@ -415,9 +442,12 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def mouse_pos(args:Sequence[str]) -> None:
             self.interface.log_message(f'{self.m_sector_x},{self.m_sector_y}')
 
+        detected_short_ids = (x.identity.short_id for x in self.presenter.detected_entities(self.ship) if x.identified)
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
+            self.bind_command("target", target_entity, util.tab_completer(detected_short_ids)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
             self.bind_command("dock", order_dock),
@@ -441,6 +471,17 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.presenter.selected_target = None
         else:
             self.presenter.selected_target = target.identity.entity_id
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity != self.ship:
+            raise ValueError(f'got unexpected entity in migration {entity} migrating {from_sector} to {to_sector}')
+        if from_sector != self.sector:
+            raise ValueError(f'got unexpected from sector in migration {entity} migrating {from_sector} to {to_sector}')
+
+        self.interface.swap_view(
+                PilotView(self.gamestate.player.character.location, self.interface),
+                self
+        )
 
     def entity_targeted(self, entity:core.SectorEntity, threat:core.SectorEntity) -> None:
         if entity == self.ship:
@@ -704,14 +745,14 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             #self.ship.sensor_settings._ignore_bias=True
 
         #DEBUG: draw selected entity's notion of where their target is
-        if self.presenter.selected_target and self.presenter.selected_target_image.identity.object_type == core.ObjectType.SHIP:
-            selected_entity = self.presenter.selected_target_image._target
-            target_order:Optional[core.Order] = selected_entity.top_order()
-            if isinstance(target_order, combat.HuntOrder):
-                target_order = target_order.attack_order
-            if isinstance(target_order, combat.AttackOrder) or isinstance(target_order, combat.MissileOrder):
-                s_x, s_y = self.perspective.sector_to_screen(*target_order.target.loc)
-                self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
+        #if self.presenter.selected_target and self.presenter.selected_target_image.identity.object_type == core.ObjectType.SHIP:
+        #    selected_entity = self.presenter.selected_target_image._target
+        #    target_order:Optional[core.Order] = selected_entity.top_order()
+        #    if isinstance(target_order, combat.HuntOrder):
+        #        target_order = target_order.attack_order
+        #    if isinstance(target_order, combat.AttackOrder) or isinstance(target_order, combat.MissileOrder):
+        #        s_x, s_y = self.perspective.sector_to_screen(*target_order.target.loc)
+        #        self.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
 
     def _draw_nav_indicators(self) -> None:
         """ Draws navigational indicators on the display.
@@ -797,12 +838,12 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.viewscreen.addstr(status_y+8, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
 
         #DEBUG:
-        label_bias_mag = "bias:"
-        label_thrust = "thrust:"
-        bias_mag = util.magnitude(*(self.presenter.selected_target_image._loc_bias))
-        thrust = self.presenter.selected_target_image._target.sensor_settings.effective_thrust()
-        self.viewscreen.addstr(status_y+9, status_x, f'{label_bias_mag:>12} {util.human_distance(bias_mag)}')
-        self.viewscreen.addstr(status_y+10, status_x, f'{label_thrust:>12} {thrust}')
+        #label_bias_mag = "bias:"
+        #label_thrust = "thrust:"
+        #bias_mag = util.magnitude(*(self.presenter.selected_target_image._loc_bias))
+        #thrust = self.presenter.selected_target_image._target.sensor_settings.effective_thrust()
+        #self.viewscreen.addstr(status_y+9, status_x, f'{label_bias_mag:>12} {util.human_distance(bias_mag)}')
+        #self.viewscreen.addstr(status_y+10, status_x, f'{label_thrust:>12} {thrust}')
 
         status_y += 9
 
@@ -941,6 +982,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
 
     def update_display(self) -> None:
+        assert self.sector == self.ship.sector
         if self.gamestate.timestamp > self.mouse_state_clear_time:
             self.mouse_state = MouseState.EMPTY
 
