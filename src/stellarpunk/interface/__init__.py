@@ -894,7 +894,7 @@ class Interface(AbstractInterface):
         self.reinitialize_screen()
 
     def enable_mouse(self) -> None:
-        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
+        curses.mousemask(curses.ALL_MOUSE_EVENTS)# | curses.REPORT_MOUSE_POSITION)
 
     def disable_mouse(self) -> None:
         curses.mousemask(0)

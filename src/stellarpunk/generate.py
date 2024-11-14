@@ -1709,6 +1709,17 @@ class UniverseGenerator(core.AbstractGenerator):
         threat.clear_orders(self.gamestate)
         threat.prepend_order(order)
 
+        # add in some weather near the player (so they can escape into it)
+        weather_loc = ship_loc + (ship_loc-threat_loc)
+        weather_loc_radius = 4e5
+        weather_radius = 5e4
+        weather_loc = self.gen_sector_location(sector, center=weather_loc, radius=weather_loc_radius, occupied_radius=5e2, min_dist=3e5, strict=True)
+        region_outer = core.SectorWeatherRegion(weather_loc, weather_radius*2, 0.5)
+        region_inner = core.SectorWeatherRegion(weather_loc, weather_radius*2*0.8, 0.5)
+        sector.add_region(region_outer)
+        sector.add_region(region_inner)
+
+
     def generate_starfields(self) -> None:
         self.logger.info(f'generating universe_starfield...')
         self.gamestate.starfield = generate_starfield(
@@ -1754,8 +1765,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        self.generate_player()
-        #self.generate_player_for_combat_test()
+        #self.generate_player()
+        self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

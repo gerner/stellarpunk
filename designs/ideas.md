@@ -101,6 +101,7 @@ There's probably some weirdness about the  parameter binding I'm doing above.
 # Progression
 * perk: being inside weather doesn't affect your sensors, only sensors for
   ships detecting you.
+* perk: use sensors from (certain) friendly units (e.g. missiles you launch)
 
 # Sources
 

@@ -131,6 +131,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             self.ship.apply_force(steering.ZERO_VECTOR, False)
 
         rotate_time = 1/15
+
         if self.has_torque_command:
             self.has_torque_command = False
         else:
@@ -168,7 +169,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
     def kill_velocity(self) -> None:
         self.has_thrust_command = True
-        self.has_rotate_command = True
+        self.has_torque_command = True
         if self.ship.angular_velocity == 0 and np.allclose(self.ship.velocity, steering.ZERO_VECTOR):
             return
         #TODO: handle continuous force/torque
@@ -184,7 +185,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         scale is the direction 1 is clockwise,-1 is counter clockwise
         """
 
-        self.has_rotate_command = True
+        self.has_torque_command = True
         #TODO: up to max angular acceleration?
         self.ship.apply_force(steering.ZERO_VECTOR, False)
         self.ship.apply_torque(
@@ -913,6 +914,11 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self._draw_target_info()
         self._draw_status()
         self._draw_command_state()
+
+        weather_x = 1
+        weather_y = self.interface.viewscreen.height - 4
+        sensor_factor = self.sector.weather((self.m_sector_x, self.m_sector_y)).sensor_factor
+        self.viewscreen.addstr(weather_y, weather_x, f'{(int(self.m_sector_x), int(self.m_sector_y))} sensor factor: {sensor_factor}')
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')

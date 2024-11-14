@@ -130,6 +130,8 @@ class Presenter:
                         image.identity.entity_id
                     )
                     idx+=1
+                    if image.identity.entity_id == self.selected_target:
+                        found_selected_target = True
             for entity_id in remove_ids:
                 del self._cached_entities[entity_id]
                 if entity_id == self.selected_target:
