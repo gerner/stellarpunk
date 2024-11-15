@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy.spatial import distance # type: ignore
 import cymunk # type: ignore
-from rtree import index # type: ignore
+import rtree.index # type: ignore
 import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
@@ -603,7 +603,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.mass = ship_mass
         ship.moment = ship_body.moment
         ship.radius = ship_radius
-        ship.max_thrust = max_thrust
+        ship.max_base_thrust = ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
 
@@ -651,7 +651,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.mass = ship_mass
         ship.moment = ship_body.moment
         ship.radius = ship_radius
-        ship.max_thrust = max_thrust
+        ship.max_base_thrust = ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
         ship.max_torque = max_torque
 
@@ -697,7 +697,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship.mass = ship_mass
         ship.moment = ship_body.moment
         ship.radius = ship_radius
-        #ship.max_thrust = max_thrust
+        #ship.max_base_thrust = ship.max_thrust = max_thrust
         #ship.max_fine_thrust = max_fine_thrust
         #ship.max_torque = max_torque
 
@@ -741,6 +741,7 @@ class UniverseGenerator(core.AbstractGenerator):
         x,y = util.polar_to_cartesian(r, theta)
 
         sensor_settings = sensors.SensorSettings()
+        sensor_settings.set_transponder(True)
         body = self._phys_body()
         gate = core.TravelGate(
             destination,
@@ -794,12 +795,12 @@ class UniverseGenerator(core.AbstractGenerator):
         else:
             raise ValueError(f'do not know how to spawn {klass}')
 
-    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, width: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
+    def spawn_resource_field(self, sector: core.Sector, x: float, y: float, resource: int, total_amount: float, radius: float=0., mean_per_asteroid: float=5e5, variance_per_asteroid: float=3e4) -> List[core.Asteroid]:
         """ Spawns a resource field centered on x,y.
 
         resource : the type of resource
         total_amount : the total amount of that resource in the field
-        width : the "width" of the field (stdev of the normal distribution),
+        radius : radius over which asteriods can appear,
             default sector radius / 5
         mean_per_asteroid : mean of resources per asteroid, default 1e5
         stdev_per_asteroid : stdev of resources per asteroid, default 1e4
@@ -809,13 +810,13 @@ class UniverseGenerator(core.AbstractGenerator):
             return []
 
         field_center = np.array((x,y), dtype=np.float64)
-        if width == 0.:
-            width = sector.radius / 5
+        if radius == 0.:
+            radius = sector.radius / 5
 
         # generate asteroids until we run out of resources
         asteroids = []
         while total_amount > 0:
-            loc = self.r.normal(0, width, 2) + field_center
+            loc = self.r.normal(0, radius, 2) + field_center
             amount = self.r.normal(mean_per_asteroid, variance_per_asteroid)
             if amount > total_amount:
                 amount = total_amount
@@ -825,6 +826,12 @@ class UniverseGenerator(core.AbstractGenerator):
             asteroids.append(asteroid)
 
             total_amount -= amount
+
+        # add in some weather related to this resource field
+        region_outer = core.SectorWeatherRegion(field_center, radius*2, 0.5)
+        region_inner = core.SectorWeatherRegion(field_center, radius*2*0.8, 0.5)
+        sector.add_region(region_outer)
+        sector.add_region(region_inner)
 
         return asteroids
 
@@ -1063,6 +1070,27 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.add_sector(sector, sector_idx)
 
+        return sector
+
+    def spawn_uninhabited_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+        sector = core.Sector(
+            np.array([x, y]),
+            radius,
+            cymunk.Space(),
+            self.gamestate,
+            self._gen_sector_name(),
+            entity_id=entity_id
+        )
+        sector.sensor_manager = sensors.SensorManager(sector)
+
+        #TODO: put interesting stuff in the sector, e.g.
+        # lots of asteroids of one or a few different resource types
+        # a few asteroids of many resource types
+        # lots of sensor affecting  weather
+        # pirates (that ask for your cargo if you have some)
+        # other interesting encounters
+
+        self.gamestate.add_sector(sector, sector_idx)
         return sector
 
     def harvest_resources(self, sector: core.Sector, x: float, y: float, resource: int, amount: float) -> None:
@@ -1485,7 +1513,7 @@ class UniverseGenerator(core.AbstractGenerator):
         sector_theta = sector_radius_std**2/sector_radius
         sector_radii = self.r.gamma(sector_k, sector_theta, num_sectors)
 
-        sector_loc_index = index.Index()
+        sector_loc_index = rtree.index.Index()
         # clean up any overlapping sectors
         for idx, (coords, radius) in enumerate(zip(sector_coords, sector_radii)):
             reject = True
@@ -1525,19 +1553,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # set up non-habitable sectors
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
-            sector = core.Sector(
-                np.array([x, y]),
-                radius,
-                cymunk.Space(),
-                self.gamestate,
-                self._gen_sector_name(),
-                entity_id=entity_id
-            )
-            sector.sensor_manager = sensors.SensorManager(sector)
-
             # mypy thinks idx is an int
-            self.gamestate.add_sector(sector, idx[0]) # type: ignore
-
+            sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
             self.non_habitable_sectors.append(sector)
 
         # set up connectivity between sectors
@@ -1546,7 +1563,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # index of bboxes for edges
         edge_id = 0
-        edge_index = index.Index()
+        edge_index = rtree.index.Index()
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if sector_edges[i,j] == 1:
                 a = self.gamestate.sectors[source_id].loc
@@ -1690,7 +1707,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
-        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
+        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 
         # spawn an NPC ship/character with orders to attack the player
         threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=4e5, occupied_radius=5e2, min_dist=3e5, strict=True)
@@ -1702,6 +1719,17 @@ class UniverseGenerator(core.AbstractGenerator):
         order = combat.HuntOrder(ship.entity_id, threat, self.gamestate, start_loc=ship.loc)
         threat.clear_orders(self.gamestate)
         threat.prepend_order(order)
+
+        # add in some weather near the player (so they can escape into it)
+        weather_loc = ship_loc + (ship_loc-threat_loc)
+        weather_loc_radius = 4e5
+        weather_radius = 5e4
+        weather_loc = self.gen_sector_location(sector, center=weather_loc, radius=weather_loc_radius, occupied_radius=5e2, min_dist=3e5, strict=True)
+        region_outer = core.SectorWeatherRegion(weather_loc, weather_radius*2, 0.5)
+        region_inner = core.SectorWeatherRegion(weather_loc, weather_radius*2*0.8, 0.5)
+        sector.add_region(region_outer)
+        sector.add_region(region_inner)
+
 
     def generate_starfields(self) -> None:
         self.logger.info(f'generating universe_starfield...')
@@ -1748,8 +1776,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        #self.generate_player()
-        self.generate_player_for_combat_test()
+        self.generate_player()
+        #self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

@@ -376,15 +376,10 @@ class GoToLocation(AbstractSteeringOrder):
         return
 
 class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
-    def __init__(self, *args: Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> None:
+    def __init__(self, target_image:core.AbstractSensorImage, *args: Any, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         assert self.ship.sector
-        if target_image:
-            self.target = target_image
-        elif target:
-            self.target = self.ship.sector.sensor_manager.target(target, self.ship)
-        else:
-            raise ValueError("must provide either the target entity or a sensor image for the target")
+        self.target = target_image
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -406,7 +401,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             self.max_fine_thrust = self.ship.max_fine_thrust
 
     def __str__(self) -> str:
-        return f'Evade: {self.target.target_short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
+        return f'Evade: {self.target.identity.short_id} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
 
     #def _begin(self) -> None:
     #    self.est_tv_velocity = self.target.velocity
@@ -485,16 +480,11 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
 
 class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     """ Steer toward a collision with the target """
-    def __init__(self, *args:Any, target:Optional[core.SectorEntity]=None, target_image:Optional[core.AbstractSensorImage]=None, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> None:
+    def __init__(self, target_image:core.AbstractSensorImage, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         assert self.ship.sector
 
-        if target_image:
-            self.target = target_image
-        elif target:
-            self.target = self.ship.sector.sensor_manager.target(target, self.ship)
-        else:
-            raise ValueError("must provide either the target entity or a sensor image for the target")
+        self.target = target_image
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -520,7 +510,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
             self.final_speed = self.max_thrust / self.ship.mass * 0.5
 
     def __str__(self) -> str:
-        return f'PursueOrder: {self.target.target_short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
+        return f'PursueOrder: {self.target.identity.short_id} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
 
     def estimate_eta(self) -> float:
         return self.intercept_time

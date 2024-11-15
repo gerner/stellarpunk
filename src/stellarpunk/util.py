@@ -9,12 +9,15 @@ import logging
 import pdb
 import curses
 import re
-from typing import Any, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload
+import collections
+from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque
 
 import numpy as np
 import numpy.typing as npt
 from numba import jit # type: ignore
 import drawille # type: ignore
+
+logger = logging.getLogger(__name__)
 
 def fullname(o:Any) -> str:
     # from https://stackoverflow.com/a/2020083/553580
@@ -66,6 +69,18 @@ def peaked_bounded_random(
     assert beta > 1.
 
     return lb+scale*r.beta(alpha, beta, size=size)
+
+def human_si_scale(value:float, unit:str) -> str:
+    if abs(value) < 0:
+        return f'{value/1e3:.2f}k{unit}'
+    elif abs(value) < 1e3:
+        return f'{value:.0f}{unit}'
+    elif abs(value) < 1e6:
+        return f'{value/1e3:.2f}k{unit}'
+    elif abs(value) < 1e9:
+        return f'{value/1e6:.2f}M{unit}'
+    else:
+        return f'{value/1e9:.2f}G{unit}'
 
 def human_distance(distance_meters:float) -> str:
     """ Human readable approx string for distance_meters.
@@ -216,7 +231,11 @@ def interpolate(x1:float, y1:float, x2:float, y2:float, x:float) -> float:
     b = y1 - m * x1
     return m * x + b
 
-def point_inside_rect(p:Tuple[float, float], rect:Tuple[float, float, float, float]) -> bool:
+@jit(cache=True, nopython=True, fastmath=True)
+def translate_rect(rect:Tuple[float, float, float, float], p:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Tuple[float, float, float, float]:
+    return rect[0]+p[0], rect[1]+p[1], rect[2]+p[0], rect[3]+p[1]
+
+def point_inside_rect(p:Union[Tuple[float, float], npt.NDArray[np.float64]], rect:Tuple[float, float, float, float]) -> bool:
     return rect[0] < p[0] and p[0] < rect[2] and rect[1] < p[1] and p[1] < rect[3]
 
 def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> bool:
@@ -382,6 +401,17 @@ def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, a
 
     Notice the curses based convention of y preceeding x here. """
 
+    for canvas_y,entries in canvas.chars.items():
+        screen_y = canvas_y+y
+        if screen_y < bounds[1] or screen_y >= bounds[3]:
+            continue
+        for canvas_x,v in entries.items():
+            screen_x = canvas_x+x
+            if screen_x < bounds[0] or screen_x >= bounds[2]:
+                continue
+            screen.addch(screen_y, screen_x, chr(drawille.braille_char_offset+v), attr)
+    return
+
     # find the bounds of the canvas in characters
     minrow = min(canvas.chars.keys())
     maxrow = max(canvas.chars.keys())
@@ -511,7 +541,11 @@ def drawille_circle(radius:float, tick_spacing:float, width:float, height:float,
     # perfect arc length is minor tick spacing, but we want an arc length
     # closest to that which will divide the circle into a whole number of
     # pieces divisible by 4 (so the circle dots match the cross)
-    theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (tick_spacing / radius) / 4))
+    if np.pi / (tick_spacing / radius) < 1.:
+        # case where we are asked for fewer than 4 ticks in the whole circle
+        return canvas
+    else:
+        theta_tick = 2 * math.pi / (4 * np.round(2 * math.pi / (tick_spacing / radius) / 4))
     # we'll just iterate over a single quadrant and mirror it
     thetas = np.linspace(0., np.pi/2, int((np.pi/2)/theta_tick), endpoint=False)
     for theta in thetas:
@@ -610,19 +644,88 @@ def compute_uiradar(
         lines_to_dict(text, bounds=bounds)
     )
 
-def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0.) -> drawille.Canvas:
+def make_rectangle_canvas(rect:Tuple[float, float, float, float], meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0.) -> drawille.Canvas:
+    if step is None:
+        step = 2
+
     c = drawille.Canvas()
+    # draw top and bottom
+    x = rect[0]+offset_x
+    y1 = rect[1]+offset_y
+    y2 = rect[3]+offset_y
+    while x <= rect[2]+offset_x:
+        d_x, d_y1 = sector_to_drawille(x, y1, meters_per_char_x, meters_per_char_y)
+        _, d_y2 = sector_to_drawille(x, y2, meters_per_char_x, meters_per_char_y)
+        c.set(d_x, d_y1)
+        c.set(d_x, d_y2)
+        x += step
+    # draw left and right
+    x1 = rect[0]+offset_x
+    x2 = rect[2]+offset_x
+    y = rect[1]
+    while y <= rect[3]+offset_y:
+        d_x1, d_y = sector_to_drawille(x1, y, meters_per_char_x, meters_per_char_y)
+        d_x2, _ = sector_to_drawille(x2, y, meters_per_char_x, meters_per_char_y)
+        c.set(d_x1, d_y)
+        c.set(d_x2, d_y)
+        y += step
+    return c
+
+
+def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+    c = drawille.Canvas()
+    assert r >= 0
     if isclose(r, 0.):
         c.set(0,0)
         return c
-    theta = 0.
+
+    # figure out theta bounds given bbox
+    if bbox is not None:
+        arcs:List[Tuple[float, float]] = []
+        # check if bbox outside circle's bounding box
+        if bbox[0] >= r or bbox[1] >= r or bbox[2] <= -r or bbox[3] <= -r:
+            return c
+
+        # draw 4 arcs, one for each quadrant
+        # corresponding to each corner of the box
+        # quadrant 1
+        if bbox[2] > 0. and bbox[3] > 0.:
+            s = max(np.arccos(bbox[2]/r) if bbox[2] < r else 0.,
+                    np.arcsin(bbox[1]/r) if bbox[1] > 0 else 0.)
+            t = min(np.arcsin(bbox[3]/r) if bbox[3] < r else np.pi/2,
+                    np.arccos(bbox[0]/r) if bbox[0] > 0 else np.pi/2)
+            arcs.append((s,t))
+        if bbox[3] > 0. and bbox[0] < 0.:
+            s = max(np.pi-np.arcsin(bbox[3]/r) if bbox[3] < r else np.pi/2,
+                    np.arccos(bbox[2]/r) if bbox[2] < 0 else np.pi/2)
+            t = min(np.arccos(bbox[0]/r) if bbox[0] > -r else np.pi,
+                    np.pi-np.arcsin(bbox[1]/r) if bbox[1] > 0 else np.pi)
+            arcs.append((s,t))
+        if bbox[0] < 0. and bbox[1] < 0.:
+            s = max(np.pi+np.arccos(-bbox[0]/r) if bbox[0] > -r else np.pi,
+                    np.pi+np.arcsin(-bbox[3]/r) if bbox[3] < 0 else np.pi)
+            t = min(np.pi+np.arcsin(-bbox[1]/r) if bbox[1] > -r else 1.5*np.pi,
+                    np.pi+np.arccos(-bbox[2]/r) if bbox[2] < 0 else 1.5*np.pi)
+            arcs.append((s,t))
+        if bbox[1] < 0. and bbox[2] > 0.:
+            s = max(2*np.pi+np.arcsin(bbox[1]/r) if bbox[1] > -r else 1.5*np.pi,
+                    2*np.pi-np.arccos(bbox[0]/r) if bbox[0] > 0 else 1.5*np.pi)
+            t = min(2*np.pi-np.arccos(bbox[2]/r) if bbox[2] < r else 2*np.pi,
+                    2*np.pi+np.arcsin(bbox[3]/r) if bbox[3] < 0 else 2*np.pi)
+            arcs.append((s,t))
+    else:
+        arcs = [(0.0, 2*np.pi)]
+
     if step is None:
         step = 2/r*meters_per_char_x
-    while theta < 2*math.pi:
-        c_x, c_y = polar_to_cartesian(r, theta)
-        d_x, d_y = sector_to_drawille(c_x+offset_x, c_y+offset_y, meters_per_char_x, meters_per_char_y)
-        c.set(d_x, d_y)
-        theta += step
+    for (s,t) in arcs:
+        theta = s
+        while theta < t:
+            c_x, c_y = polar_to_cartesian(r, theta)
+            d_x, d_y = sector_to_drawille(c_x+offset_x, c_y+offset_y, meters_per_char_x, meters_per_char_y)
+            c.set(d_x, d_y)
+            theta += step
+
     return c
 
 def choose_argmax(rnd: np.random.Generator, a:npt.NDArray[Any]) -> int:

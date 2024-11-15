@@ -1,9 +1,10 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
-from typing import Tuple, Iterator, Optional, Any, Union
+from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 import uuid
 import logging
 
+import rtree.index
 import numpy.typing as npt
 import numpy as np
 
@@ -15,51 +16,52 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
 class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
-    def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager") -> None:
+    def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager", identity:Optional[core.SensorIdentity]=None) -> None:
         self._sensor_manager = sensor_manager
         self._ship:Optional[core.SectorEntity] = ship
         self._detector_entity_id = ship.entity_id
         self._detector_short_id = ship.short_id()
         self._target:Optional[core.SectorEntity] = target
         if target:
-            self._target_entity_id = target.entity_id
-            self._target_short_id = target.short_id()
+            if identity is None:
+                self._identity = core.SensorIdentity(target)
+            else:
+                self._identity = identity
             target.observe(self)
         else:
-            # we should never need these. the only valid case where we don't
-            # have a target is if we're copied from another SensorImage in
-            # which case we should have gotten their _target_entity_id /
-            # _short_id
-            self._target_entity_id = uuid.uuid4()
-            self._target_short_id = f'UNK-{self._target_entity_id.hex[:8]}'
+            if identity is None:
+                raise ValueError("must provide a sensor identity if no target is given")
+            self._identity = identity
         ship.observe(self)
         self._last_update = 0.
+        self._prior_fidelity = 1.0
         self._last_profile = 0.
         self._loc = ZERO_VECTOR
         self._velocity = ZERO_VECTOR
+        self._acceleration = ZERO_VECTOR
         self._is_active = True
+        self._inactive_reason = core.SensorImageInactiveReason.OTHER
 
         # models noise in the sensors
+        self._loc_bias_direction = np.array((0.0, 0.0))
         self._loc_bias = np.array((0.0, 0.0))
         self._velocity_bias = np.array((0.0, 0.0))
         self._last_bias_update_ts = -np.inf
 
-    def __str__(self) -> str:
-        return f'{self._target_short_id} detected by {self._detector_short_id} {self.age}s old'
+        self._identified = False
 
-    def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, core.AbstractSensorImage):
-            return False
-        return self._target_entity_id == other.target_entity_id and self._detector_entity_id == other.detector_entity_id
+    def __str__(self) -> str:
+        return f'{self._identity.short_id} detected by {self._detector_short_id} {self.age}s old'
 
     def __hash__(self) -> int:
-        return hash((self._target_entity_id, self._detector_entity_id))
+        return hash((self._identity.entity_id, self._detector_entity_id))
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self._target:
             # might be risky checking if detected on logically destroyed entity
             if self._ship and self._sensor_manager.detected(entity, self._ship):
                 self._is_active = False
+                self._inactive_reason = core.SensorImageInactiveReason.DESTROYED
             self._target = None
             if self._ship:
                 self._ship.unobserve(self)
@@ -67,6 +69,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             if self._target:
                 self._target.unobserve(self)
                 self._target = None
+            self._ship.unobserve(self)
             self._ship = None
         else:
             raise ValueError(f'got entity_destroyed for unexpected entity {entity}')
@@ -76,6 +79,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             # might be risky checking if detected on logically migrated entity
             if self._ship and self._sensor_manager.detected(entity, self._ship):
                 self._is_active = False
+                self._inactive_reason = core.SensorImageInactiveReason.MIGRATED
             self._target.unobserve(self)
             self._target = None
         elif entity == self._ship:
@@ -83,14 +87,10 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._target.unobserve(self)
                 self._target = None
             self._ship.unobserve(self)
+            self._ship = None
         else:
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
-    @property
-    def target_entity_id(self) -> uuid.UUID:
-        return self._target_entity_id
-    def target_short_id(self) -> str:
-        return self._target_short_id
     @property
     def detector_entity_id(self) -> uuid.UUID:
         return self._detector_entity_id
@@ -114,6 +114,19 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         return self._last_profile
 
     @property
+    def fidelity(self) -> float:
+        assert self._ship
+        return self.profile / self._sensor_manager.compute_effective_threshold(self._ship)
+
+    @property
+    def identified(self) -> bool:
+        return self._identified
+
+    @property
+    def identity(self) -> core.SensorIdentity:
+        return self._identity
+
+    @property
     def velocity(self) -> npt.NDArray[np.float64]:
         assert self._ship
         if self._ship.sensor_settings.ignore_bias:
@@ -121,54 +134,124 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         else:
             return self._velocity + self._velocity_bias
 
+    @property
+    def acceleration(self) -> npt.NDArray[np.float64]:
+        return self._acceleration
+
+    @property
+    def transponder(self) -> bool:
+        if self._target:
+            return self._target.sensor_settings.transponder
+        else:
+            return False
+
     def is_active(self) -> bool:
         return self._is_active
 
-    def _update_bias(self) -> None:
-        # update bias noise
+    @property
+    def inactive_reason(self) -> core.SensorImageInactiveReason:
+        return self._inactive_reason
+
+    def is_detector_active(self) -> bool:
+        return self._ship is not None
+
+    def initialize(self) -> None:
+        self._initialize_bias()
+
+    def _initialize_bias(self) -> None:
         assert self._target
         assert self._ship
-        loc_bias, velocity_bias = self._sensor_manager.bias_pair(self._target, self._ship)
-        new_loc_bias = self._sensor_manager.mix_bias(loc_bias, self._loc_bias, self._last_bias_update_ts)
-        new_velocity_bias = self._sensor_manager.mix_bias(velocity_bias, self._velocity_bias, self._last_bias_update_ts)
 
-        logger.debug(f'updating bias {self._loc_bias=} -> {new_loc_bias}, {self._velocity_bias=} -> {new_velocity_bias} after {core.Gamestate.gamestate.timestamp-self._last_bias_update_ts}s')
+        # choose a direction for the location bias
+        # choose an angle and radius offset relative to detector
+        distance = util.magnitude(*(self._target.loc - self._ship.loc))
+        if distance > 0.0:
+            offset_r = core.Gamestate.gamestate.random.uniform(low=-1.0, high=1.0) * config.Settings.sensors.COEFF_BIAS_OFFSET_R * distance
+            offset_theta = core.Gamestate.gamestate.random.uniform(low=-1.0, high=1.0) * config.Settings.sensors.COEFF_BIAS_OFFSET_THETA
+
+            target_r, target_theta = util.cartesian_to_polar(*(self._target.loc - self._ship.loc))
+
+            self._loc_bias_direction = np.array(util.polar_to_cartesian(target_r+offset_r, target_theta+offset_theta)) + self._ship.loc - self._target.loc
+            self._loc_bias_direction /= util.magnitude(*self._loc_bias_direction)
+        self._last_bias_update_ts = -np.inf
+
+    def _update_bias(self) -> None:
+
+        assert self._target
+        assert self._ship
+
+        if self._target.object_type == core.ObjectType.PROJECTILE:
+            self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
+            return
+
+        new_loc_bias = self._loc_bias_direction / self.fidelity * config.Settings.sensors.COEFF_BIAS_LOC
+
+        #TODO: add some extra noise to new_loc_bias?
+
+        time_delta = core.Gamestate.gamestate.timestamp - self._last_bias_update_ts
+        if self.fidelity < self._prior_fidelity:
+            alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY_DOWN * time_delta + 1)) + 1
+        else:
+            alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY_UP * time_delta + 1)) + 1
+
+        if self._target.object_type == core.ObjectType.MISSILE:
+            core.Gamestate.gamestate.breakpoint()
+
+        new_loc_bias = alpha * new_loc_bias + (1-alpha) * self._loc_bias
+        #new_velocity_bias = np.array((0.0, 0.0))
 
         self._loc_bias = new_loc_bias
-        self._velocity_bias = new_velocity_bias
+        #self._velocity_bias = new_velocity_bias
         self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
 
-
-
-    def update(self) -> bool:
+    def update(self, notify_target:bool=True) -> bool:
         if self._target and self._ship:
             # update sensor reading if possible
             if self._sensor_manager.detected(self._target, self._ship):
+                self._prior_fidelity = self.fidelity
+                self._identity.angle = self._target.angle
+                self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
                 self._update_bias()
 
-                self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
+                since_last_update = core.Gamestate.gamestate.timestamp - self._last_update
+                if since_last_update < config.Settings.sensors.ACCEL_PREDICTION_MAX_SEC:
+                    self._acceleration = self._target.velocity - self._velocity
+                else:
+                    self._acceleration = ZERO_VECTOR
+
                 self._last_update = core.Gamestate.gamestate.timestamp
                 self._loc = self._target.loc
                 self._velocity = np.array(self._target.velocity)
 
+                if self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
+                    #if not self._identified:
+                    #    logger.debug(f'{self._ship.short_id()} identified {self._target.short_id()} with fidelity={self.fidelity}')
+                    # once identified, always identified
+                    self._identified = True
+
                 # let the target know they've been targeted by us
-                if self._sensor_manager.detected(self._ship, self._target):
+                if notify_target and self._sensor_manager.detected(self._ship, self._target):
                     self._target.target(self._ship)
                 return True
             else:
+                self._acceleration = ZERO_VECTOR
                 return False
         else:
+            #TODO: shouldn't we flip _is_active at some point?
             return False
 
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
-        image = SensorImage(self._target, detector, self._sensor_manager)
-        if self._target is None:
-            self._target_entity_id = self._target_entity_id
-            self._target_short_id = self._target_short_id
+        """ Retargets the underlying craft with a (potentially) new detector
+
+        This does not reset state, but future updates will be with respect to
+        the new detector. """
+        identity = self._identity
+        image = SensorImage(self._target, detector, self._sensor_manager, identity=self._identity)
         image._last_update = self._last_update
         image._last_profile = self._last_profile
         image._loc = self._loc
         image._velocity = self._velocity
+        image._acceleration = self._acceleration
         image._is_active = self._is_active
 
         image._loc_bias = self._loc_bias
@@ -275,17 +358,17 @@ class SensorManager(core.AbstractSensorManager):
         self.sector = sector
 
     def compute_effective_threshold(self, ship:core.SectorEntity) -> float:
-        return ship.sensor_settings.effective_threshold() * self.sector.weather_factor
+        return ship.sensor_settings.effective_threshold()
 
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
         return (
             config.Settings.sensors.COEFF_MASS * ship.mass +
             config.Settings.sensors.COEFF_RADIUS * ship.radius +
-            config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust() +
+            config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
             config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
-        ) * self.sector.weather_factor
+        ) * self.sector.weather(ship.loc).sensor_factor
 
     def compute_target_profile(self, target:core.SectorEntity, detector_or_distance_sq:Union[core.SectorEntity, float]) -> float:
         """ computes detector-specific profile of target """
@@ -311,45 +394,21 @@ class SensorManager(core.AbstractSensorManager):
             if self.detected(hit, detector):
                 yield hit
 
-    def bias_pair(self, target:core.SectorEntity, detector:core.SectorEntity) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-        ptr = self.compute_target_profile(target, detector) / self.compute_effective_threshold(detector)
-        assert ptr >= 1.
-
-        rands:Sequence[float] = util.peaked_bounded_random(core.Gamestate.gamestate.random, 0.75, 0.1, 2) # type:ignore
-        loc_mag = rands[0] / ptr * config.Settings.sensors.COEFF_BIAS_LOC
-        velocity_mag = rands[1] / ptr * config.Settings.sensors.COEFF_BIAS_VELOCITY
-
-        loc_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
-        loc_bias = loc_bias / util.magnitude(*loc_bias) * loc_mag
-        velocity_bias = core.Gamestate.gamestate.random.uniform(0,1,2)
-        velocity_bias = velocity_bias / util.magnitude(*velocity_bias) * velocity_mag
-
-        return (loc_bias, velocity_bias)
-
-    def mix_bias(self, new_bias:npt.NDArray[np.float64], old_bias:npt.NDArray[np.float64], last_ts:float) -> npt.NDArray[np.float64]:
-        # coeff ranges from 0 to 1, expoentially decaying to 1 with increasing
-        # time since the last bias update
-        # the parameter controls how slowly we hit 1, larger values use the old
-        # bias for longer
-        # coeff = -param / (x+param) + 1
-        #coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX/(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) + 1
-        coeff = -config.Settings.sensors.COEFF_BIAS_TIME_MIX ** -(core.Gamestate.gamestate.timestamp - last_ts + config.Settings.sensors.COEFF_BIAS_TIME_MIX) +1
-        return coeff * new_bias + (1. - coeff) * old_bias
-
-    def target(self, target:core.SectorEntity, detector:core.SectorEntity) -> core.AbstractSensorImage:
+    def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):
             raise ValueError(f'{detector} cannot detect {target}')
         image = SensorImage(target, detector, self)
-        image.update()
+        image.initialize()
+        image.update(notify_target=notify_target)
         return image
 
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
         # range to detect passive targets
-        passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS) * self.sector.weather_factor
+        passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS)
         # range to detect full thrust targets
-        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST * self.sector.weather_factor
+        thrust_profile = config.Settings.sensors.COEFF_FORCE * config.Settings.generate.SectorEntities.ship.MAX_THRUST**config.Settings.sensors.FORCE_EXPONENT
         # range to detect active sesnsor targets
-        sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER * self.sector.weather_factor
+        sensor_profile = config.Settings.sensors.COEFF_SENSORS * config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER
 
         threshold = self.compute_effective_threshold(entity)
 
@@ -374,20 +433,80 @@ class SensorManager(core.AbstractSensorManager):
         )
 
     def compute_thrust_for_profile(self, ship:core.SectorEntity, distance_sq:float, threshold:float) -> float:
-        # solve effective_profile equation for thrust
+        # solve effective_profile equation for thrust (x below)
 
         # target_profile = effective_profile / (c * dist ** 2)
-        # y = (a + b + c_1 * x + d) * w / (c_2 * dist**2)
-        # x = ((a + b + d) * w - y * (c_2 * dist**2) ) / (-c_1 * w)
+        # target_profile = y
+        # y = (a + b + c_1 * x^p + d) * w / (c_2 * dist**2)
+        # x = ((a + b + d) * w - y * (c_2 * dist**2) ) / (-c_1 * w) ** (1/e)
         profile_base = (
             config.Settings.sensors.COEFF_MASS * ship.mass +
             config.Settings.sensors.COEFF_RADIUS * ship.radius +
             config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
             config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
-        ) * self.sector.weather_factor
+        ) * self.sector.weather(ship.loc).sensor_factor
 
-        return (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE * self.sector.weather_factor)
+        thrust_to_power = (threshold * config.Settings.sensors.COEFF_DISTANCE * distance_sq - profile_base) / (config.Settings.sensors.COEFF_FORCE)
+
+        # TODO: this is a little janky because there might be no solution
+        if thrust_to_power < 0.0:
+            return -np.inf
+        else:
+            return pow(thrust_to_power, 1.0/config.Settings.sensors.FORCE_EXPONENT)
 
     def compute_thrust_for_sensor_power(self, ship:core.SectorEntity, distance_sq:float, sensor_power:float) -> float:
         threshold = config.Settings.sensors.COEFF_THRESHOLD / (sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
         return self.compute_thrust_for_profile(ship, distance_sq, threshold)
+
+class SensorImageManager:
+    """ Manages SensorImage instances for a particular ship. """
+    def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float):
+        self.ship = ship
+
+        self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
+        self._cached_entities_by_idx:Dict[int, core.AbstractSensorImage]
+        self._cached_entities_ts = -1.
+        self._sensor_image_ttl = sensor_image_ttl
+        self._sensor_loc_index = rtree.index.Index()
+
+    @property
+    def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
+        return self._cached_entities
+
+    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1)) # type: ignore
+
+    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
+
+    def update(self) -> None:
+        assert self.ship.sector
+
+        # first we find all the detectable entities
+        for hit in self.ship.sector.entities.values():
+            if hit.entity_id in self._cached_entities:
+                self._cached_entities[hit.entity_id].update(notify_target=False)
+            elif self.ship.sector.sensor_manager.detected(hit, self.ship):
+                self._cached_entities[hit.entity_id] = self.ship.sector.sensor_manager.target(hit, self.ship, notify_target=False)
+        remove_ids:Set[uuid.UUID] = set()
+
+        # then index all those images for retrieval later
+        idx = 0
+        self._sensor_loc_index = rtree.index.Index()
+        self._cached_entities_by_idx = {}
+        for image in self._cached_entities.values():
+            if not image.is_active() or image.age > self._sensor_image_ttl:
+                remove_ids.add(image.identity.entity_id)
+            else:
+                r = image.identity.radius
+                loc = image.loc
+                x,y= loc[0], loc[1]
+                self._sensor_loc_index.insert(
+                    idx,
+                    (x-r, y-r,
+                     x+r, y+r),
+                )
+                self._cached_entities_by_idx[idx] = image
+                idx+=1
+        for entity_id in remove_ids:
+            del self._cached_entities[entity_id]

@@ -201,12 +201,13 @@ class EntityOperatorAgendum(core.Agendum, core.SectorEntityObserver):
             self.stop()
 
 class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
-    def __init__(self, *args: Any, enable_threat_response:bool=True, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, enable_threat_response:bool=True, start_transponder:bool=False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         assert isinstance(self.craft, core.Ship)
         self.ship:core.Ship = self.craft
         self.enable_threat_response = enable_threat_response
         self.threat_response:Optional[combat.FleeOrder] = None
+        self._start_transponder = start_transponder
 
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
@@ -215,6 +216,8 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
         for a in self.character.agenda:
             if a != self and isinstance(a, CaptainAgendum):
                 raise ValueError(f'{self.character.short_id()} already had a captain agendum: {a}')
+
+        self.craft.sensor_settings.set_transponder(self._start_transponder)
 
     def _stop(self) -> None:
         super()._stop()
@@ -251,7 +254,7 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
         if not hostile:
             return
         # if first threat, pause other ship-operating activities (agenda), start fleeing
-        self.logger.debug(f'initiating defensive maneuvers against threat {threat}')
+        self.logger.debug(f'{self.craft.short_id} initiating defensive maneuvers against threat {threat}')
         #TODO: is it weird for one agendum to manipulate another?
         for a in self.character.agenda:
             if isinstance(a, EntityOperatorAgendum):
@@ -663,6 +666,10 @@ class StationManager(EntityOperatorAgendum):
         super()._start()
         self.gamestate.representing_agent(self.station.entity_id, self.agent)
         self.gamestate.schedule_agendum_immediate(self)
+
+        #TODO; should managing the transponder live here?
+        #TODO: don't always want the transponder on
+        self.craft.sensor_settings.set_transponder(True)
 
     def _stop(self) -> None:
         super()._stop()

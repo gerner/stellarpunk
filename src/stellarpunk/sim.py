@@ -40,7 +40,6 @@ class Simulator(core.AbstractGameRuntime):
         self.dt_scaleup = 1.5
         self.dt_scaledown = 0.9
         # dt is "best effort" constant but varies between desired_dt and max_dt
-        self.dt = self.desired_dt
 
         # number of ticks we're currently behind
         self.behind_ticks = 0.
@@ -288,6 +287,10 @@ class Simulator(core.AbstractGameRuntime):
         self._tick_record(dt)
         self._tick_destroy(dt)
 
+        if self.gamestate.one_tick:
+            self.gamestate.paused = True
+            self.gamestate.one_tick = False
+
     def get_time_acceleration(self) -> Tuple[float, bool]:
         return self.time_accel_rate, self.fast_mode
 
@@ -428,7 +431,8 @@ def main() -> None:
                 level=logging.INFO
         )
         logging.getLogger("numba").level = logging.INFO
-        logging.getLogger("stellarpunk").level = logging.DEBUG
+        #logging.getLogger("stellarpunk").level = logging.DEBUG
+        logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions

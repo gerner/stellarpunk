@@ -530,7 +530,7 @@ def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -1e4, 0., v=[0., 0.], w=0., theta=0.)
 
     num_blockers = 20
-    generator.spawn_resource_field(sector, 0., 0., 0, num_blockers, width=5e3, mean_per_asteroid=1, variance_per_asteroid=0)
+    generator.spawn_resource_field(sector, 0., 0., 0, num_blockers, radius=5e3, mean_per_asteroid=1, variance_per_asteroid=0)
 
     goto_order = orders.GoToLocation(np.array([0., 0.]), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)

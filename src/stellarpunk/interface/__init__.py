@@ -17,6 +17,7 @@ import collections.abc
 import abc
 import textwrap
 import uuid
+import weakref
 from typing import Deque, Any, Dict, Sequence, List, Callable, Optional, Mapping, Tuple, Union, MutableMapping, Set, Collection
 
 import numpy as np
@@ -48,7 +49,7 @@ class Settings:
     VIEWSCREEN_BUFFER_HEIGHT = 100
 
     MAX_TIME_ACCEL = 20.0
-    MIN_TIME_ACCEL = 0.25
+    MIN_TIME_ACCEL = 0.025
 
     MAX_FRAME_HISTORY_SEC = 0.5
     MIN_FPS = 2
@@ -77,6 +78,8 @@ class Icons:
     ASTEROID = "\u25C7" # "◇" \u25C7 white diamond
     TRAVEL_GATE = "\u25CC" # "◌" \u25CC dotted circle
     PROJECTILE = "·"
+
+    UNKNOWN = "?"
 
     MULTIPLE = "*"
 
@@ -140,6 +143,7 @@ class Icons:
     "." arabic dot below
     """
 
+    COLOR_UNKNOWN = 227
     RESOURCE_COLORS = [95, 6, 143, 111, 22, 169]
     COLOR_TRAVEL_GATE = 220
     COLOR_CARGO = 243
@@ -178,6 +182,29 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
+    def sensor_image_icon(entity:core.SensorIdentity) -> str:
+        if entity.object_type in (core.ObjectType.SHIP, core.ObjectType.MISSILE):
+            icon = Icons.angle_to_ship(entity.angle)
+        elif entity.object_type == core.ObjectType.STATION:
+            icon = Icons.STATION
+        elif entity.object_type == core.ObjectType.PLANET:
+            icon = Icons.PLANET
+        elif entity.object_type == core.ObjectType.ASTEROID:
+            icon = Icons.ASTEROID
+        elif entity.object_type == core.ObjectType.TRAVEL_GATE:
+            icon = Icons.TRAVEL_GATE
+        elif entity.object_type == core.ObjectType.PROJECTILE:
+            icon = Icons.PROJECTILE
+        else:
+            icon = Icons.UNKNOWN
+        return icon
+
+
+    @staticmethod
+    def sensor_image_attr(image:core.SensorIdentity) -> int:
+        return 0
+
+    @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
         if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
@@ -192,7 +219,7 @@ class Icons:
         elif isinstance(entity, core.Projectile):
             icon = Icons.PROJECTILE
         else:
-            icon = "?"
+            icon = Icons.UNKNOWN
         return icon
 
     @staticmethod
@@ -278,7 +305,7 @@ class Perspective:
 
         self._cursor = (0., 0.)
 
-        self.observers:Set[PerspectiveObserver] = set()
+        self.observers:weakref.WeakSet[PerspectiveObserver] = weakref.WeakSet()
 
     def observe(self, observer:PerspectiveObserver) -> None:
         self.observers.add(observer)
@@ -853,7 +880,10 @@ class Interface(AbstractInterface):
         #self.stdscr.addstr(self.screen_height-1, 0, " "*(self.screen_width-1))
 
     def initialize(self) -> None:
-        curses.mousemask(curses.ALL_MOUSE_EVENTS)
+        self.enable_mouse()
+        # enable terminal reporting of mouse position
+        # as per https://stackoverflow.com/a/64809709/553580
+        print('\033[?1003h')
         # setting mouseinterval to 0 means no lag on mouse events, but means we
         # will not get click vs mousedown vs mouseup events handled by curses
         curses.mouseinterval(0)
@@ -864,6 +894,12 @@ class Interface(AbstractInterface):
         curses.curs_set(0)
 
         self.reinitialize_screen()
+
+    def enable_mouse(self) -> None:
+        curses.mousemask(curses.ALL_MOUSE_EVENTS)# | curses.REPORT_MOUSE_POSITION)
+
+    def disable_mouse(self) -> None:
+        curses.mousemask(0)
 
     def get_color(self, color:Color) -> int:
         if color == Color.ERROR:
@@ -952,7 +988,7 @@ class Interface(AbstractInterface):
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
+            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms +{(self.gamestate.desired_dt - self.gamestate.ticktime)*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
         if self.gamestate.paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")

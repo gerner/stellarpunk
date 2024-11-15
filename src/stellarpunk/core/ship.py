@@ -39,7 +39,10 @@ class Ship(SectorEntity, Asset):
 
 
         # SI units (newtons and newton-meters)
+        # max_base_thrust is the underlying maximum
+        # max_thrust is the current set max thrust (which can fall below base)
         # max thrust along heading vector
+        self.max_base_thrust = 0.
         self.max_thrust = 0.
         # max thrust in any direction
         self.max_fine_thrust = 0.
@@ -71,7 +74,7 @@ class Ship(SectorEntity, Asset):
         )
 
     def max_speed(self) -> float:
-        return self.max_thrust / self.mass * 30
+        return self.max_base_thrust / self.mass * 30
 
     def max_acceleration(self) -> float:
         return self.max_thrust / self.mass

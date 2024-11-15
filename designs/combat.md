@@ -6,6 +6,8 @@ easier to detect.
 
 ## Sensors
 
+see `sensors.md` for more info.
+
 Ships have a sensor profile. This represents how easily the ship can be
 detected. This is influenced by size, mass, if the ship is thrusting, if the
 ship has active sensors, if the ship has an active transponder.

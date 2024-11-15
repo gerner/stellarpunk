@@ -4,11 +4,14 @@ import logging
 import collections
 import uuid
 import abc
+import enum
+import functools
 from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional, MutableMapping, Set
 
 import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
+import rtree.index # type: ignore
 
 from stellarpunk import util
 from .base import Entity
@@ -22,6 +25,21 @@ class CollisionObserver:
 
     @abc.abstractmethod
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
+
+class SensorIdentity:
+    def __init__(self, entity:SectorEntity):
+        self.object_type = entity.object_type
+        self.id_prefix = entity.id_prefix
+        self.entity_id = entity.entity_id
+        self.short_id = entity.short_id()
+        self.radius = entity.radius
+        # must be updated externally
+        self.angle = 0.0
+
+class SensorImageInactiveReason(enum.IntEnum):
+    OTHER = enum.auto()
+    DESTROYED = enum.auto()
+    MIGRATED = enum.auto()
 
 class AbstractSensorImage:
     """ A sensor contact which might be old with predicted attributes
@@ -47,23 +65,41 @@ class AbstractSensorImage:
         ...
     @property
     @abc.abstractmethod
+    def acceleration(self) -> npt.NDArray[np.float64]:
+        """ Predicted acceleration of the image """
+        ...
+    @property
+    @abc.abstractmethod
     def profile(self) -> float: ...
+    @property
+    @abc.abstractmethod
+    def fidelity(self) -> float: ...
+    @property
+    @abc.abstractmethod
+    def identified(self) -> bool: ...
+    @property
+    @abc.abstractmethod
+    def identity(self) -> SensorIdentity: ...
+    @property
+    @abc.abstractmethod
+    def transponder(self) -> bool: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
-        """ False iff we saw the target destroyed or leaving the sector """
+        """ False iff we detected target destroyed or leaving the sector """
+        ...
+    @property
+    @abc.abstractmethod
+    def inactive_reason(self) -> SensorImageInactiveReason: ...
+    @abc.abstractmethod
+    def is_detector_active(self) -> bool:
         ...
     @abc.abstractmethod
-    def update(self) -> bool:
+    def update(self, notify_target:bool=True) -> bool:
         """ Update the image if possible under current sensor conditions
 
         return true if we're able to detect the target. """
         ...
 
-    @abc.abstractmethod
-    def target_short_id(self) -> str: ...
-    @property
-    @abc.abstractmethod
-    def target_entity_id(self) -> uuid.UUID: ...
     @abc.abstractmethod
     def detector_short_id(self) -> str: ...
     @property
@@ -123,14 +159,14 @@ class AbstractSensorManager:
     def detected(self, target:SectorEntity, detector:SectorEntity) -> bool:
         return True
 
-    def spatial_query(self, detector:SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
-        return self.sector.spatial_query(bbox)
+    @abc.abstractmethod
+    def spatial_query(self, detector:SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
 
     @abc.abstractmethod
     def spatial_point(self, detector:SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
 
     @abc.abstractmethod
-    def target(self, target:SectorEntity, detector:SectorEntity) -> AbstractSensorImage: ...
+    def target(self, target:SectorEntity, detector:SectorEntity, notify_target:bool=True) -> AbstractSensorImage: ...
     @abc.abstractmethod
     def sensor_ranges(self, ship:SectorEntity) -> Tuple[float, float, float]: ...
     @abc.abstractmethod
@@ -140,6 +176,34 @@ class AbstractSensorManager:
     def compute_thrust_for_profile(self, ship:SectorEntity, distance_sq:float, profile:float) -> float: ...
     @abc.abstractmethod
     def compute_thrust_for_sensor_power(self, ship:SectorEntity, distance_sq:float, sensor_power:float) -> float: ...
+
+
+class SectorWeatherRegion:
+    """ Models weather effects in a sector.
+
+    These are circular disk shaped regions that have various impacts.
+    Overlapping weather regions combine into an effective weather for every
+    point in the region. """
+
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, sensor_factor:float) -> None:
+        self.idx = -1
+        self.loc = loc
+        self.radius = radius
+
+        # other weather properties (e.g. sensor factor)
+        self.sensor_factor = sensor_factor
+
+    @property
+    def bbox(self) -> Tuple[float, float, float, float]:
+        return (self.loc[0]-self.radius, self.loc[1]-self.radius, self.loc[0]+self.radius, self.loc[1]+self.radius)
+
+class SectorWeather:
+    """ Represents the effective sector weather for a specific point. """
+    def __init__(self) -> None:
+        self.sensor_factor = 1.0
+
+    def add(self, region:SectorWeatherRegion) -> None:
+        self.sensor_factor *= region.sensor_factor
 
 
 class Sector(Entity):
@@ -175,7 +239,8 @@ class Sector(Entity):
 
         self.collision_observers: MutableMapping[uuid.UUID, Set[CollisionObserver]] = collections.defaultdict(set)
 
-        self.weather_factor = 1.
+        self._weather_index = rtree.index.Index()
+        self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
 
@@ -192,6 +257,34 @@ class Sector(Entity):
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
+
+    def region_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorWeatherRegion]:
+        for hit in self._weather_index.intersection(bbox):
+            yield self._weathers[hit]
+
+    def add_region(self, region:SectorWeatherRegion) -> int:
+        region.idx = len(self._weather_index)
+        self._weathers[region.idx] = region
+        self._weather_index.insert(region.idx, region.bbox)
+        return region.idx
+
+    @functools.lru_cache(maxsize=4096)
+    def _weather_cached(self, loc:Tuple[float, float]) -> SectorWeather:
+        """ Caching computation of weather
+
+        This computation is expensive and doesn't change (assuming weather is
+        static). Depends on loc being quantized so we get some locality. """
+        weather = SectorWeather()
+        for idx in self._weather_index.intersection((loc[0], loc[1], loc[0], loc[1])):
+            region = self._weathers[idx]
+            if util.distance(np.array(loc), region.loc) < region.radius:
+                weather.add(self._weathers[idx])
+        return weather
+
+    def weather(self, loc:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
+        # quantize loc so we can cache it
+        quantized_loc = (loc[0] // 100.0 * 100.0, loc[1] // 100.0 * 100.0)
+        return self._weather_cached(quantized_loc)
 
     def register_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
         self.collision_observers[entity_id].add(observer)

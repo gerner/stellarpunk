@@ -1,15 +1,19 @@
+import logging
 import curses
 import uuid
 import math
 import functools
-from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable
+import abc
+from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable, Set
 
 import cymunk # type: ignore
 import drawille # type: ignore
 import numpy as np
+import numpy.typing as npt
 from numba import jit # type: ignore
+import rtree.index # type: ignore
 
-from stellarpunk import core, interface, util, effects
+from stellarpunk import core, interface, util, effects, config, sensors
 from stellarpunk.core import combat
 from stellarpunk.orders import steering, collision
 
@@ -75,6 +79,7 @@ class Presenter:
             sector:core.Sector,
             perspective:interface.Perspective
             ) -> None:
+        self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.view = view
         self.sector = sector
@@ -86,18 +91,17 @@ class Presenter:
         self.debug_entity_vectors = False
         self.show_sensor_cone = False
 
-        self.cached_entities:List[core.SectorEntity] = []
-        self.cached_entities_ts = -1.
+        #self.sensor_image_ttl = 120.
+        #self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
+        #self._cached_entities_ts = -1.
+        #self._sensor_loc_index = rtree.index.Index()
 
-    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Sequence[core.SectorEntity]:
-        if self.gamestate.timestamp == self.cached_entities_ts:
-            return self.cached_entities
-        if perspective_ship:
-            self.cached_entities = list(self.sector.sensor_manager.spatial_query(perspective_ship, self.perspective.bbox))
-        else:
-            self.cached_entities = list(self.sector.spatial_query(self.perspective.bbox))
-        self.cached_entities_ts = self.gamestate.timestamp
-        return self.cached_entities
+    @property
+    @abc.abstractmethod
+    def selected_target_image(self) -> core.AbstractSensorImage: ...
+
+    @abc.abstractmethod
+    def visible_entities(self) -> Iterable[core.AbstractSensorImage]: ...
 
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching
@@ -218,44 +222,59 @@ class Presenter:
                 self.view.viewscreen.addstr(y+1+non_zero_cargo, x, f' {i}: {entity.cargo[i]:.0f}', description_attr)
                 non_zero_cargo += 1
 
-    def draw_entity_shape(self, entity:core.SectorEntity) -> None:
+    def draw_entity_shape(self, entity:core.AbstractSensorImage) -> None:
         #TODO: handle shapes not circles?
         #TODO: better handle drawing entity shapes: refactor into own method
 
         # clear out the interior of the entity circle
         loc_x, loc_y = entity.loc
-        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.radius, loc_y-entity.radius)
-        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.radius, loc_y+entity.radius)
+        s_x_min, s_y_min = self.perspective.sector_to_screen(loc_x-entity.identity.radius, loc_y-entity.identity.radius)
+        s_x_max, s_y_max = self.perspective.sector_to_screen(loc_x+entity.identity.radius, loc_y+entity.identity.radius)
         for s_x in range(s_x_min, s_x_max+1):
             for s_y in range(s_y_min, s_y_max+1):
                 e_x, e_y = self.perspective.screen_to_sector(s_x, s_y)
                 dist2 = (e_x - loc_x)**2.+(e_y - loc_y)**2
-                if dist2 < entity.radius**2.:
+                if dist2 < entity.identity.radius**2.:
                     self.view.viewscreen.addstr(s_y, s_x, " ", 0)
 
 
+        #TODO: should not do this
         assert isinstance(self.view.viewscreen, interface.Canvas)
         window = self.view.viewscreen.window
 
         # actually draw the circle
         screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
-        c = util.make_circle_canvas(entity.radius, *self.perspective.meters_per_char)
+        c = util.make_circle_canvas(entity.identity.radius, *self.perspective.meters_per_char, bbox=util.translate_rect(self.perspective.bbox, (-loc_x, -loc_y)))
         util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
-    def draw_entity(self, y:int, x:int, entity:core.SectorEntity, icon_attr:int=0) -> None:
+    def draw_entity(self, y:int, x:int, entity:core.AbstractSensorImage, icon_attr:int=0) -> None:
         """ Draws a single sector entity at screen position (y,x) """
 
-        icon = interface.Icons.sector_entity_icon(entity)
-        icon_attr |= interface.Icons.sector_entity_attr(entity)
+        #DEBUG: draw a circle representing uncertainty of position
+        #if entity._target is not None:
+        #    ptr = self.sector.sensor_manager.compute_target_profile(entity._target, entity._ship) / self.sector.sensor_manager.compute_effective_threshold(entity._ship)
+        #    sensor_radius = config.Settings.sensors.COEFF_BIAS_LOC / ptr
+        #    screen_x, screen_y = self.perspective.sector_to_screen(entity._target.loc[0], entity._target.loc[1])
+        #    c = util.make_circle_canvas(sensor_radius, *self.perspective.meters_per_char)
+        #    util.draw_canvas_at(c, self.view.viewscreen.window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
 
-        description_attr = interface.Icons.sector_entity_attr(entity)
-        if entity.entity_id == self.selected_target:
+        #    s_x, s_y = self.perspective.sector_to_screen(*entity._target.loc)
+        #    self.view.viewscreen.addstr(s_y, s_x, interface.Icons.TARGET_INDICATOR, curses.color_pair(interface.Icons.COLOR_TARGET_IMAGE_INDICATOR))
+
+        #TODO: icon and text info below should depend on whether we have fully
+        #resolved the sensor reading
+        icon = interface.Icons.sensor_image_icon(entity.identity) if entity.identified else interface.Icons.UNKNOWN
+        icon_attr |= interface.Icons.sensor_image_attr(entity.identity) if entity.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN)
+
+        description_attr = interface.Icons.sensor_image_attr(entity.identity) if entity.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN)
+        if entity.identity.entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
         else:
             description_attr |= curses.A_DIM
 
         self.view.viewscreen.addstr(y, x, icon, icon_attr)
 
+        """
         # draw a "tail" from the entity's history
         i=len(entity.history)-1
         cutoff_time = self.gamestate.timestamp - 5.
@@ -278,35 +297,42 @@ class Presenter:
                 self.view.viewscreen.addstr(hist_y, hist_x, interface.Icons.sector_entity_icon(entity, angle=entry.angle), (icon_attr | curses.A_DIM) & (~curses.A_STANDOUT))
             last_x = hist_x
             last_y = hist_y
+        """
 
-        if not isinstance(entity, core.Asteroid) and not isinstance(entity, core.Projectile):
-            speed = entity.speed
+        if entity.identified and entity.identity.object_type not in (core.ObjectType.ASTEROID, core.ObjectType.PROJECTILE):
+            speed = util.magnitude(*entity.velocity)
             if speed > 0.:
-                name_tag = f' {entity.short_id()} {speed:.0f}'
+                name_tag = f' {entity.identity.short_id} {speed:.0f}'
             else:
-                name_tag = f' {entity.short_id()}'
+                name_tag = f' {entity.identity.short_id}'
             self.view.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
 
-        if self.debug_entity:
-            self.draw_entity_debug_info(y+2, x, entity, description_attr)
-        elif entity.entity_id == self.selected_target:
-            self.draw_entity_info(y+2, x, entity, description_attr)
+        #if self.debug_entity:
+        #    self.draw_entity_debug_info(y+2, x, entity, description_attr)
+        # it's not clear what entity info we'd draw. this is just cargo as of
+        # 2024-10-29
+        #elif entity.target_entity_id == self.selected_target:
+        #    self.draw_entity_info(y+2, x, entity, description_attr)
 
-    def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.SectorEntity]) -> None:
+    def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.AbstractSensorImage]) -> None:
 
-        icons = set(map(interface.Icons.sector_entity_icon, entities))
+        only_projectile = all(entity.identified and entity.identity.object_type == core.ObjectType.PROJECTILE for entity in entities)
+
+        icons = set(interface.Icons.sensor_image_icon(x.identity) if x.identified else interface.Icons.UNKNOWN for x in entities)
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
 
-        icon_attrs = set(map(interface.Icons.sector_entity_attr, entities))
+        icon_attrs = set(interface.Icons.sensor_image_attr(x.identity) if x.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN) for x in entities)
         icon_attr = icon_attrs.pop() if len(icon_attrs) == 1 else 0
 
-        prefixes = set(map(lambda x: x.id_prefix, entities))
-        prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
+        prefixes = set(x.identity.id_prefix if x.identified else "???" for x in entities)
 
         self.view.viewscreen.addstr(y, x, icon, icon_attr)
-        self.view.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
-    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.SectorEntity]], collision_threats:Sequence[core.SectorEntity]) -> None:
+        if not only_projectile:
+            prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
+            self.view.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
+
+    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.AbstractSensorImage]], collision_threats:Sequence[core.SectorEntity]) -> None:
         for loc, entities in occupied.items():
             if len(entities) > 1:
                 self.draw_multiple_entities(
@@ -318,21 +344,21 @@ class Presenter:
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
-    def draw_sector_map(self, perspective_ship:Optional[core.Ship]=None) -> None:
+    def draw_sector_map(self) -> None:
         collision_threats = []
         for ship in self.sector.ships:
             if ship.collision_threat:
                 collision_threats.append(ship.collision_threat)
 
         last_loc = None
-        occupied:Dict[Tuple[int,int], List[core.SectorEntity]] = {}
+        occupied:Dict[Tuple[int,int], List[core.AbstractSensorImage]] = {}
 
         for effect in self.sector._effects:
             if util.intersects(effect.bbox(), self.perspective.bbox):
                 self.draw_effect(effect)
 
-        for entity in self.visible_entities(perspective_ship):
-            screen_x, screen_y = self.perspective.sector_to_screen(entity.phys.position[0], entity.phys.position[1])
+        for entity in self.visible_entities():
+            screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
                 if isinstance(entity, core.Projectile):
@@ -347,6 +373,7 @@ class Presenter:
 
         self.draw_cells(occupied, collision_threats)
 
+        #DEBUG: show collision avoidance sensor cone for selected target
         if self.show_sensor_cone and self.selected_target:
             selected_entity = self.sector.entities[self.selected_target]
             if isinstance(selected_entity, core.Ship):
@@ -355,15 +382,25 @@ class Presenter:
         #TODO: draw an indicator for off-screen targeted entities
 
         if self.debug_entity_vectors and self.selected_target:
-            entity = self.sector.entities[self.selected_target]
-            screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
+            underlying_entity = self.sector.entities[self.selected_target]
+            screen_x, screen_y = self.perspective.sector_to_screen(underlying_entity.loc[0], underlying_entity.loc[1])
 
-            self.draw_entity_vectors(screen_y, screen_x, entity)
+            self.draw_entity_vectors(screen_y, screen_x, underlying_entity)
 
-    def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
-        for entity in self.visible_entities(perspective_ship):
-            if entity.radius > 0 and self.perspective.meters_per_char[0] < entity.radius:
+    def draw_shapes(self) -> None:
+        for entity in self.visible_entities():
+            if entity.identity.radius > 0 and self.perspective.meters_per_char[0] < entity.identity.radius:
                 self.draw_entity_shape(entity)
+
+    def draw_weather(self) -> None:
+        for weather in self.sector.region_query(self.perspective.bbox):
+            screen_x, screen_y = self.perspective.sector_to_screen(*weather.loc)
+            c = util.make_circle_canvas(weather.radius, *self.perspective.meters_per_char, bbox=util.translate_rect(self.perspective.bbox, -weather.loc))
+            #TODO: should not need to do this
+            assert isinstance(self.view.viewscreen, interface.Canvas)
+            window = self.view.viewscreen.window
+            util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+
 
     def draw_sensor_cone(self, ship:core.Ship) -> None:
         """ Visualize sensor cone used, e.g. in navigation/collision avoid """
@@ -429,3 +466,32 @@ class Presenter:
         s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
         self.view.viewscreen.addstr(s_y+1, s_x, "B", sensor_color)
 
+    def update(self) -> None:
+        pass
+
+class SectorPresenter(Presenter):
+    #TODO: presenter for sector wide view
+    def visible_entities(self) -> Iterable[core.AbstractSensorImage]:
+        return []
+
+    @property
+    def selected_target_image(self) -> core.AbstractSensorImage:
+        assert self.selected_target
+        raise NotImplementedError("ohnoes")
+
+class PilotPresenter(Presenter):
+    def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.sensor_image_manager = sensors.SensorImageManager(ship, 120.0)
+
+    def update(self) -> None:
+        self.sensor_image_manager.update()
+
+    def visible_entities(self) -> Iterable[core.AbstractSensorImage]:
+        for image in self.sensor_image_manager.spatial_query(self.perspective.bbox):
+            yield image
+
+    @property
+    def selected_target_image(self) -> core.AbstractSensorImage:
+        assert self.selected_target
+        return self.sensor_image_manager.sensor_contacts[self.selected_target]

@@ -1,6 +1,7 @@
-## Ideas
+Ideas
+=====
 
-### News
+# News
 
 Telephone style information where you get imperfect info that's.
 
@@ -10,7 +11,7 @@ layer?
 Heatmap of universe-wide traffic: thicker, brighter links with high traffic.
 Holes or dark areas indicate low traffic for some reason.
 
-### Comms Chatter
+# Comms Chatter
 
 Have a broadcast channel in a sector (or localized in some radius in a sector?)
 Characters can broadcast a message (hopefully contextually relevant)
@@ -30,7 +31,7 @@ here." And then someone else responds, "I heard you can find good deals in
 sector XYZ" or something. Maybe this is real info, but it doesn't have to be to
 create a sense of life.
 
-### Characters can do Quests and AI Planning
+# Characters can do Quests and AI Planning
 
 Consider the tutorial event chain:
 
@@ -91,11 +92,16 @@ to the station) and come up with the relevant plan. The tutorial (which is
 strictly structured in the above steps) is sort of spoon feeding you a coarse
 plan.
 
-#### Issues
+## Issues
 
 Things like "trade", "talk", seem like instances that might co-exist with other instances of the same type. Do we model that? how do we select one particular trade and make it clear that we are talking about that same instance when we say things like `trade.resource=$foo` and `trade.amount=$bar`? Will we ever want to have two instances at the same time? Notationally we could do something like `trade1 = select(trade)`, `trade2 = select(trade)`.
 
 There's probably some weirdness about the  parameter binding I'm doing above.
+
+# Progression
+* perk: being inside weather doesn't affect your sensors, only sensors for
+  ships detecting you.
+* perk: use sensors from (certain) friendly units (e.g. missiles you launch)
 
 # Sources
 

@@ -162,7 +162,7 @@ class Gamestate(EntityRegistry):
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
 
-        self.desired_dt = 1/30
+        self.desired_dt = 1/60
         self.dt = self.desired_dt
         self.min_tick_sleep = self.desired_dt/5
         self.ticks = 0
@@ -170,10 +170,11 @@ class Gamestate(EntityRegistry):
         self.timeout = 0.
         self.missed_ticks = 0
 
-        self.keep_running = True
+        self.one_tick = False
         self.paused = False
         self.force_pause_holder:Optional[object] = None
         self.should_raise= False
+        self.should_raise_breakpoint = False
 
         self.player:Player = None # type: ignore[assignment]
 
@@ -237,6 +238,10 @@ class Gamestate(EntityRegistry):
         else:
             self.force_pause_holder = None
             self._pause(False)
+
+    def breakpoint(self) -> None:
+        if self.should_raise_breakpoint:
+            raise Exception("debug breakpoint")
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
