@@ -51,7 +51,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
 
         self.selected_character:Optional[core.Character] = None
 
-        self.presenter = presenter.Presenter(self.gamestate, self, self.sector, self.perspective)
+        self.presenter = presenter.SectorPresenter(self.gamestate, self, self.sector, self.perspective)
 
         self._cached_grid:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
         self.debug_entity = False

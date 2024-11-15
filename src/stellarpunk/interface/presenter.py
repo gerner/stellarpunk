@@ -3,6 +3,7 @@ import curses
 import uuid
 import math
 import functools
+import abc
 from typing import Tuple, Optional, Any, Sequence, Dict, Tuple, List, Mapping, Callable, Union, Iterable, Set
 
 import cymunk # type: ignore
@@ -12,7 +13,7 @@ import numpy.typing as npt
 from numba import jit # type: ignore
 import rtree.index # type: ignore
 
-from stellarpunk import core, interface, util, effects, config
+from stellarpunk import core, interface, util, effects, config, sensors
 from stellarpunk.core import combat
 from stellarpunk.orders import steering, collision
 
@@ -90,77 +91,17 @@ class Presenter:
         self.debug_entity_vectors = False
         self.show_sensor_cone = False
 
-        self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
-        self._cached_entities_ts = -1.
-        self.sensor_image_ttl = 120.
-
-        self._sensor_loc_index = rtree.index.Index()
-
-    @property
-    def selected_target_image(self) -> core.AbstractSensorImage:
-        assert self.selected_target
-        return self._cached_entities[self.selected_target]
-
-    def detected_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
-        if self.gamestate.timestamp == self._cached_entities_ts:
-            return self._cached_entities.values()
-        self._sensor_loc_index = rtree.index.Index()
-        idx = 0
-        if perspective_ship:
-            # viewing the sector from the perspective of a single ship
-            found_selected_target = False
-            # we keep track of sensor images over time and update them
-            for hit in self.sector.sensor_manager.spatial_point(perspective_ship, perspective_ship.loc):
-                if hit.entity_id in self._cached_entities:
-                    self._cached_entities[hit.entity_id].update(notify_target=False)
-                else:
-                    self._cached_entities[hit.entity_id] = self.sector.sensor_manager.target(hit, perspective_ship, notify_target=False)
-                if hit.entity_id == self.selected_target:
-                    found_selected_target = True
-            remove_ids:Set[uuid.UUID] = set()
-            for image in self._cached_entities.values():
-                if not image.is_active() or image.age > self.sensor_image_ttl:
-                    remove_ids.add(image.identity.entity_id)
-                else:
-                    r = image.identity.radius
-                    self._sensor_loc_index.insert(
-                        idx,
-                        (image.loc[0]-r, image.loc[1]-r,
-                         image.loc[0]+r, image.loc[1]+r),
-                        image.identity.entity_id
-                    )
-                    idx+=1
-                    if image.identity.entity_id == self.selected_target:
-                        found_selected_target = True
-            for entity_id in remove_ids:
-                del self._cached_entities[entity_id]
-                if entity_id == self.selected_target:
-                    found_selected_target = False
-
-            if not found_selected_target:
-                self.selected_target = None
-        else:
-            # sector wide view without any player ship at the center
-            raise Exception("ohnoes")
-            #self._cached_entities = list(self.sector.spatial_qery(self.perspective.bbox))
-        self._cached_entities_ts = self.gamestate.timestamp
-        return self._cached_entities.values()
-
-    def visible_entities(self, perspective_ship:Optional[core.Ship]=None) -> Iterable[core.AbstractSensorImage]:
-        for entity in self.detected_entities(perspective_ship):
-            r = entity.identity.radius
-            if entity.loc[0] > self.perspective.bbox[0]-r and entity.loc[0] < self.perspective.bbox[2]+r and entity.loc[1] > self.perspective.bbox[1]-r and entity.loc[1] < self.perspective.bbox[3]+r:
-                yield entity
+        #self.sensor_image_ttl = 120.
+        #self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
+        #self._cached_entities_ts = -1.
+        #self._sensor_loc_index = rtree.index.Index()
 
     @property
-    def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
-        return self._cached_entities
+    @abc.abstractmethod
+    def selected_target_image(self) -> core.AbstractSensorImage: ...
 
-    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
-        return (self._cached_entities[x.object] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1, True)) # type: ignore
-
-    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
-        return (self._cached_entities[x.object] for x in self._sensor_loc_index.intersection(bbox, True)) # type: ignore
+    @abc.abstractmethod
+    def visible_entities(self) -> Iterable[core.AbstractSensorImage]: ...
 
     def compute_sensor_cone(self, ship:core.Ship, neighborhood_radius:float, collision_margin:float) -> Mapping[Tuple[int, int], str]:
         # quantize parameters for caching
@@ -361,7 +302,7 @@ class Presenter:
         if entity.identified and entity.identity.object_type not in (core.ObjectType.ASTEROID, core.ObjectType.PROJECTILE):
             speed = util.magnitude(*entity.velocity)
             if speed > 0.:
-                name_tag = f' {entity.identity.short_id}{speed:.0f}'
+                name_tag = f' {entity.identity.short_id} {speed:.0f}'
             else:
                 name_tag = f' {entity.identity.short_id}'
             self.view.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
@@ -403,7 +344,7 @@ class Presenter:
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
-    def draw_sector_map(self, perspective_ship:Optional[core.Ship]=None) -> None:
+    def draw_sector_map(self) -> None:
         collision_threats = []
         for ship in self.sector.ships:
             if ship.collision_threat:
@@ -416,7 +357,7 @@ class Presenter:
             if util.intersects(effect.bbox(), self.perspective.bbox):
                 self.draw_effect(effect)
 
-        for entity in self.visible_entities(perspective_ship):
+        for entity in self.visible_entities():
             screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
@@ -446,8 +387,8 @@ class Presenter:
 
             self.draw_entity_vectors(screen_y, screen_x, underlying_entity)
 
-    def draw_shapes(self, perspective_ship:Optional[core.Ship]=None) -> None:
-        for entity in self.visible_entities(perspective_ship):
+    def draw_shapes(self) -> None:
+        for entity in self.visible_entities():
             if entity.identity.radius > 0 and self.perspective.meters_per_char[0] < entity.identity.radius:
                 self.draw_entity_shape(entity)
 
@@ -525,3 +466,32 @@ class Presenter:
         s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
         self.view.viewscreen.addstr(s_y+1, s_x, "B", sensor_color)
 
+    def update(self) -> None:
+        pass
+
+class SectorPresenter(Presenter):
+    #TODO: presenter for sector wide view
+    def visible_entities(self) -> Iterable[core.AbstractSensorImage]:
+        return []
+
+    @property
+    def selected_target_image(self) -> core.AbstractSensorImage:
+        assert self.selected_target
+        raise NotImplementedError("ohnoes")
+
+class PilotPresenter(Presenter):
+    def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.sensor_image_manager = sensors.SensorImageManager(ship, 120.0)
+
+    def update(self) -> None:
+        self.sensor_image_manager.update()
+
+    def visible_entities(self) -> Iterable[core.AbstractSensorImage]:
+        for image in self.sensor_image_manager.spatial_query(self.perspective.bbox):
+            yield image
+
+    @property
+    def selected_target_image(self) -> core.AbstractSensorImage:
+        assert self.selected_target
+        return self.sensor_image_manager.sensor_contacts[self.selected_target]

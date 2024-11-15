@@ -5,6 +5,7 @@ import collections
 import uuid
 import abc
 import enum
+import functools
 from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional, MutableMapping, Set
 
 import numpy as np
@@ -239,6 +240,7 @@ class Sector(Entity):
         self.collision_observers: MutableMapping[uuid.UUID, Set[CollisionObserver]] = collections.defaultdict(set)
 
         self._weather_index = rtree.index.Index()
+        self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
 
@@ -257,21 +259,32 @@ class Sector(Entity):
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
 
     def region_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorWeatherRegion]:
-        for hit in self._weather_index.intersection(bbox, True):
-            assert hit.object
-            yield hit.object
+        for hit in self._weather_index.intersection(bbox):
+            yield self._weathers[hit]
 
     def add_region(self, region:SectorWeatherRegion) -> int:
         region.idx = len(self._weather_index)
-        self._weather_index.insert(region.idx, region.bbox, region)
+        self._weathers[region.idx] = region
+        self._weather_index.insert(region.idx, region.bbox)
         return region.idx
 
-    def weather(self, loc:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
+    @functools.lru_cache(maxsize=4096)
+    def _weather_cached(self, loc:Tuple[float, float]) -> SectorWeather:
+        """ Caching computation of weather
+
+        This computation is expensive and doesn't change (assuming weather is
+        static). Depends on loc being quantized so we get some locality. """
         weather = SectorWeather()
-        for region in self._weather_index.intersection((loc[0], loc[1], loc[0], loc[1]), True):
-            assert region.object
-            weather.add(region.object)
+        for idx in self._weather_index.intersection((loc[0], loc[1], loc[0], loc[1])):
+            region = self._weathers[idx]
+            if util.distance(np.array(loc), region.loc) < region.radius:
+                weather.add(self._weathers[idx])
         return weather
+
+    def weather(self, loc:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
+        # quantize loc so we can cache it
+        quantized_loc = (loc[0] // 100.0 * 100.0, loc[1] // 100.0 * 100.0)
+        return self._weather_cached(quantized_loc)
 
     def register_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
         self.collision_observers[entity_id].add(observer)

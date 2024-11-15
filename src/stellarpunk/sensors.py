@@ -1,9 +1,10 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
-from typing import Tuple, Iterator, Optional, Any, Union
+from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 import uuid
 import logging
 
+import rtree.index
 import numpy.typing as npt
 import numpy as np
 
@@ -456,3 +457,56 @@ class SensorManager(core.AbstractSensorManager):
     def compute_thrust_for_sensor_power(self, ship:core.SectorEntity, distance_sq:float, sensor_power:float) -> float:
         threshold = config.Settings.sensors.COEFF_THRESHOLD / (sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
         return self.compute_thrust_for_profile(ship, distance_sq, threshold)
+
+class SensorImageManager:
+    """ Manages SensorImage instances for a particular ship. """
+    def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float):
+        self.ship = ship
+
+        self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
+        self._cached_entities_by_idx:Dict[int, core.AbstractSensorImage]
+        self._cached_entities_ts = -1.
+        self._sensor_image_ttl = sensor_image_ttl
+        self._sensor_loc_index = rtree.index.Index()
+
+    @property
+    def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
+        return self._cached_entities
+
+    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1)) # type: ignore
+
+    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
+
+    def update(self) -> None:
+        assert self.ship.sector
+
+        # first we find all the detectable entities
+        for hit in self.ship.sector.entities.values():
+            if hit.entity_id in self._cached_entities:
+                self._cached_entities[hit.entity_id].update(notify_target=False)
+            elif self.ship.sector.sensor_manager.detected(hit, self.ship):
+                self._cached_entities[hit.entity_id] = self.ship.sector.sensor_manager.target(hit, self.ship, notify_target=False)
+        remove_ids:Set[uuid.UUID] = set()
+
+        # then index all those images for retrieval later
+        idx = 0
+        self._sensor_loc_index = rtree.index.Index()
+        self._cached_entities_by_idx = {}
+        for image in self._cached_entities.values():
+            if not image.is_active() or image.age > self._sensor_image_ttl:
+                remove_ids.add(image.identity.entity_id)
+            else:
+                r = image.identity.radius
+                loc = image.loc
+                x,y= loc[0], loc[1]
+                self._sensor_loc_index.insert(
+                    idx,
+                    (x-r, y-r,
+                     x+r, y+r),
+                )
+                self._cached_entities_by_idx[idx] = image
+                idx+=1
+        for entity_id in remove_ids:
+            del self._cached_entities[entity_id]

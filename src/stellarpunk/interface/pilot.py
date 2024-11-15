@@ -270,7 +270,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self._cached_radar_zoom = 0.
         self._cached_radar:Tuple[util.NiceScale, util.NiceScale, util.NiceScale, util.NiceScale, Mapping[Tuple[int, int], str]] = (util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), util.NiceScale(0,0), {})
 
-        self.presenter = presenter.Presenter(self.gamestate, self, self.sector, self.perspective)
+        self.presenter = presenter.PilotPresenter(self.ship, self.gamestate, self, self.sector, self.perspective)
 
         # indicates if the ship should follow its orders, or direct player
         # control
@@ -317,7 +317,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             if re.match(r'^[A-Z]{3}-[a-z0-9]{8}', args[0]):
                 # provided a short id
                 try:
-                    image = next(x for x in self.presenter.sensor_contacts.values() if x.identified and x.identity.short_id == args[0])
+                    image = next(x for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified and x.identity.short_id == args[0])
                 except StopIteration:
                     raise command_input.UserError("target not found")
             else:
@@ -327,9 +327,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 except ValueError:
                     raise command_input.UserError("bad entity id format")
 
-                if entity_id not in self.presenter.sensor_contacts:
+                if entity_id not in self.presenter.sensor_image_manager.sensor_contacts:
                     raise command_input.UserError("target not found")
-                image = self.presenter.sensor_contacts[entity_id]
+                image = self.presenter.sensor_image_manager.sensor_contacts[entity_id]
                 if not image.identified:
                     raise command_input.UserError("target not found")
 
@@ -469,7 +469,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def mouse_pos(args:Sequence[str]) -> None:
             self.interface.log_message(f'{self.m_sector_x},{self.m_sector_y}')
 
-        detected_short_ids = (x.identity.short_id for x in self.presenter.detected_entities(self.ship) if x.identified)
+        detected_short_ids = (x.identity.short_id for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
 
         return [
             self.bind_command("orders", show_orders),
@@ -602,7 +602,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
             r_x = self.perspective.meters_per_char[0]
             r_y = self.perspective.meters_per_char[1]
-            hit = next((x for x in self.presenter.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if x.identity.object_type != core.ObjectType.PROJECTILE), None)
+            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if x.identity.object_type != core.ObjectType.PROJECTILE), None)
             if hit:
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
@@ -629,7 +629,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             raise ValueError("ship must be in a sector to select a target")
 
         potential_targets = sorted(
-            (x for x in self.presenter.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and x.identity.object_type != core.ObjectType.PROJECTILE),
+            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and x.identity.object_type != core.ObjectType.PROJECTILE),
             key=lambda x: util.distance(self.ship.loc, x.loc)
         )
 
@@ -1027,16 +1027,17 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                     self.interface.log_message("target moved to another sector")
                 elif reason == core.SensorImageInactiveReason.OTHER:
                     self.interface.log_message("target missing")
-            elif self.presenter.selected_target_image.age > self.presenter.sensor_image_ttl:
+            elif self.presenter.selected_target_image.age > 120.0:
                 self.interface.log_message("target sensor image lost")
+        self.presenter.update()
 
         self.starfield.draw_starfield(self.viewscreen)
         self.presenter.draw_weather()
-        self.presenter.draw_shapes(self.ship)
+        self.presenter.draw_shapes()
         self._draw_radar()
         self.presenter.draw_sensor_rings(self.ship)
         self.presenter.draw_profile_rings(self.ship)
-        self.presenter.draw_sector_map(self.ship)
+        self.presenter.draw_sector_map()
 
         # draw hud overlay on top of everything else
         self._draw_hud()
