@@ -16,6 +16,25 @@ from stellarpunk.core.gamestate import Gamestate, ScheduledTask
 from .sector_entity import SectorEntity, ObjectType
 from .order import Effect
 
+logger = logging.getLogger(__name__)
+
+#TODO: can we just globally assign this? how do we keep this in sync with others?
+POINT_DEFENSE_COLLISION_TYPE = 1
+
+def initialize() -> None:
+    logger.info("initialized")
+    for sector in core.Gamestate.gamestate.sectors.values():
+        sector.space.add_collision_handler(POINT_DEFENSE_COLLISION_TYPE, core.SECTOR_ENTITY_COLLISION_TYPE, pre_solve = point_defense_collision_handler)
+
+def point_defense_collision_handler(space:cymunk.Space, arbiter:cymunk.Arbiter) -> bool:
+    # shape_a is the point defense shape, shape_b is the sector entity colliding
+    (shape_a, shape_b) = arbiter.shapes
+    point_defense_effect:PointDefenseEffect = shape_a.body.data
+    entity:core.SectorEntity = shape_b.body.data
+    point_defense_effect.add_collision(entity)
+
+    return False
+
 class TimedOrderTask(ScheduledTask, core.OrderObserver):
     @staticmethod
     def ttl_order(order:core.Order, ttl:float) -> "TimedOrderTask":
@@ -373,17 +392,30 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         else:
             self.threat_tracker = threat_tracker
             self.own_tracker = False
+        self.state = PointDefenseEffect.State.IDLE
+        self.current_target:Optional[core.AbstractSensorImage] = None
+        self.targets_destroyed = 0
+
+        # how long between checks for new target if we have none
+        self.idle_interval = 3.0
+        self.active_interval = 0.3
+
         # phalanx has rof of 4500/min = 75/sec, muzzle velocity of 1100 m/s
         self.rof:float = 100.
         self.muzzle_velocity = 3000.
         self.projectile_ttl = 2.0
         self.dispersion_angle = 0.0083
 
-        self.state = PointDefenseEffect.State.IDLE
         self.last_shot_ts = 0.
         self.projectiles:Deque[cymunk.shape] = collections.deque()
         self.projectiles_fired = 0
-        self.targets_destroyed = 0
+
+        # pd sensor region stuff
+        self._pd_shape:Optional[cymunk.Shape] = None
+        self._pd_collisions:List[core.SectorEntity] = []
+
+        # tracks if we saw an entity in our cone since the last time we acted
+        self._collided = False
 
     def _expire_projectiles(self, expiration_time:float=math.inf) -> None:
         while len(self.projectiles) > 0 and self.projectiles[0].created_at < expiration_time:
@@ -399,6 +431,8 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         self.gamestate.schedule_effect_immediate(self, jitter=0.1)
 
     def _complete(self) -> None:
+        if self.state == PointDefenseEffect.State.ACTIVE:
+            self._deactivate()
         if self.own_tracker:
             self.threat_tracker.stop_tracking()
         self._expire_projectiles()
@@ -406,6 +440,52 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
 
     def _cancel(self) -> None:
         self._complete()
+
+    def _activate(self) -> None:
+        """ IDLE -> ACTIVE transition logic """
+        self.logger.info("activate")
+        self.state = PointDefenseEffect.State.ACTIVE
+        self.last_shot_ts = core.Gamestate.gamestate.timestamp
+
+        # create a cone centered on us that moves with us, but stays pointed in
+        # a set direction. we'll aim the cone separately.
+
+        mass = 1.0
+        radius = 1.0
+        moment = cymunk.moment_for_circle(mass, 0, radius)
+        body = cymunk.Body(mass, moment)
+        offset_x = self.muzzle_velocity*self.projectile_ttl
+        offset_y = np.tan(np.pi/4/2)*offset_x#np.tan(self.dispersion_angle/2)*offset_x
+        self._pd_shape = cymunk.Poly(body, [(0.0, 0.0), (offset_x, offset_y), (offset_x, -offset_y)])
+        self._pd_shape.collision_type = POINT_DEFENSE_COLLISION_TYPE
+        self._pd_shape.group = id(self.craft.phys)
+        self._pd_shape.sensor = True
+        body.position = self.craft.phys.position
+        body.data = self
+        self.sector.space.add(self._pd_shape.body, self._pd_shape)
+        body.angle = self.craft.angle
+        self._pd_shape_constraint = cymunk.PivotJoint(self.craft.phys, self._pd_shape.body, self.craft.phys.position)
+        self.sector.space.add(self._pd_shape_constraint)
+
+    def _deactivate(self) -> None:
+        """ ACTIVE -> IDLE transition logic """
+        self.logger.info("deactivate")
+        assert self._pd_shape
+        self.state = PointDefenseEffect.State.IDLE
+
+        # remove point defense cone.
+        self.sector.space.remove(self._pd_shape_constraint)
+        self.sector.space.remove(self._pd_shape.body, self._pd_shape)
+        self._pd_shape_constraint = None
+        self._pd_shape = None
+
+    def add_collision(self, entity:core.SectorEntity) -> None:
+        assert self.state == PointDefenseEffect.State.ACTIVE
+        logger.info(f'point defense cone collision with {entity}')
+        self._pd_collisions.append(entity)
+        if not self._collided:
+            self._collided = True
+            self.gamestate.schedule_effect_immediate(self)
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if isinstance(entity, core.Projectile):
@@ -436,6 +516,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         return (0., 0., 0., 0.)
 
     def act(self, dt:float) -> None:
+        self._collided = False
         if self.is_complete():
             self.logger.debug(f'point defense is complete')
             self.cancel_effect()
@@ -445,15 +526,35 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             self.threat_tracker.update_threats()
         target = self.threat_tracker.closest_threat
         if target is None:
-            self.state = PointDefenseEffect.State.IDLE
-            self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 5., self)
+            if self.state == PointDefenseEffect.State.ACTIVE:
+                self._deactivate()
+            self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + self.idle_interval, self)
             return
         if self.state == PointDefenseEffect.State.IDLE:
-            self.state = PointDefenseEffect.State.ACTIVE
-            self.last_shot_ts = core.Gamestate.gamestate.timestamp
-            self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 1/10., self)
-            return
+            self._activate()
 
+        self._do_point_defense(target)
+
+    def _handle_collision(self, entity:core.SectorEntity) -> None:
+        if entity.entity_id not in self.threat_tracker.threat_ids:
+            # if not in threats, ignore it
+            return
+        raise Exception("ohnoes")
+
+    def _do_point_defense(self, target:core.AbstractSensorImage) -> None:
+        assert self._pd_shape
+        # handle any collisions with the cone shape
+        for entity in self._pd_collisions:
+            self._handle_collision(entity)
+        self._pd_collisions.clear()
+
+        # aim point defense cone shape toward target
+        #assert util.isclose(self.craft.phys.position[0], self._pd_shape.body.position[0]) and util.isclose(self.craft.phys.position[1], self._pd_shape.body.position[1])
+        self._pd_shape.body.angle = util.bearing(self.craft.loc, target.loc)
+        self.current_target = target
+        self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + self.active_interval, self)
+
+    def _do_point_defense_old(self, target:core.AbstractSensorImage) -> None:
         # kill old projectiles
         expiration_time = core.Gamestate.gamestate.timestamp - self.projectile_ttl
         self._expire_projectiles(expiration_time)

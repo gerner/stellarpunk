@@ -194,9 +194,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         else:
             alpha = 1/(-(1/config.Settings.sensors.COEFF_BIAS_TIME_DECAY_UP * time_delta + 1)) + 1
 
-        if self._target.object_type == core.ObjectType.MISSILE:
-            core.Gamestate.gamestate.breakpoint()
-
         new_loc_bias = alpha * new_loc_bias + (1-alpha) * self._loc_bias
         #new_velocity_bias = np.array((0.0, 0.0))
 

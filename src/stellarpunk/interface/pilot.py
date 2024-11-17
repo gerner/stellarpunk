@@ -290,6 +290,10 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         # there aren't any other references to them
         self.order_observers:Set[LambdaOrderObserver] = set()
 
+        # should only draw cymunk shapes, not the stellarpunk visualization of
+        # stuff in the sector (for debugging)
+        self.draw_cymunk_shapes = False
+
     def make_order_observer(self,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
@@ -471,6 +475,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         detected_short_ids = (x.identity.short_id for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
 
+        def only_draw_cymunk(args:Sequence[str]) -> None:
+            self.draw_cymunk_shapes = not self.draw_cymunk_shapes
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
@@ -490,6 +497,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("cache_stats", cache_stats),
             self.bind_command("max_thrust", max_thrust),
             self.bind_command("mouse_pos", mouse_pos),
+            self.bind_command("cymunk_shapes", only_draw_cymunk),
         ]
 
     def _select_target(self, target:Optional[core.AbstractSensorImage]) -> None:
@@ -1031,13 +1039,16 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.interface.log_message("target sensor image lost")
         self.presenter.update()
 
-        self.starfield.draw_starfield(self.viewscreen)
-        self.presenter.draw_weather()
-        self.presenter.draw_shapes()
-        self._draw_radar()
-        self.presenter.draw_sensor_rings(self.ship)
-        self.presenter.draw_profile_rings(self.ship)
-        self.presenter.draw_sector_map()
+        if self.draw_cymunk_shapes:
+            self.presenter.draw_cymunk_shapes()
+        else:
+            self.starfield.draw_starfield(self.viewscreen)
+            self.presenter.draw_weather()
+            self.presenter.draw_shapes()
+            self._draw_radar()
+            self.presenter.draw_sensor_rings(self.ship)
+            self.presenter.draw_profile_rings(self.ship)
+            self.presenter.draw_sector_map()
 
         # draw hud overlay on top of everything else
         self._draw_hud()

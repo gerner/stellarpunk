@@ -164,14 +164,27 @@ class Presenter:
                         self.view.viewscreen.addstr(y, x, icon, icon_attr)
             elif isinstance(effect, effects.WarpOutEffect):
                 # circle grows outward
+                s_x, s_y = self.perspective.sector_to_screen(
+                        effect.loc[0], effect.loc[1],
+                )
                 r = util.interpolate(effect.started_at, effect.radius, effect.expiration_time, 0., self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
-                util.draw_canvas_at(c, window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+                util.draw_canvas_at(c, window, s_y, s_x, bounds=self.view.viewscreen_bounds)
             elif isinstance(effect, effects.WarpInEffect):
                 #circle shrinks inward
+                s_x, s_y = self.perspective.sector_to_screen(
+                        effect.loc[0], effect.loc[1],
+                )
                 r = util.interpolate(effect.started_at, 0., effect.expiration_time, effect.radius, self.gamestate.timestamp)
                 c = util.make_circle_canvas(r, *self.perspective.meters_per_char)
-                util.draw_canvas_at(c, window, effect.loc[1], effect.loc[0], bounds=self.view.viewscreen_bounds)
+                util.draw_canvas_at(c, window, s_y, s_x, bounds=self.view.viewscreen_bounds)
+            elif isinstance(effect, combat.PointDefenseEffect):
+                if effect.state == combat.PointDefenseEffect.State.ACTIVE:
+                    assert effect._pd_shape
+                    loc_x, loc_y = effect._pd_shape.body.position[0], effect._pd_shape.body.position[1]
+                    s_x, s_y = self.perspective.sector_to_screen(loc_x, loc_y)
+                    c = util.make_polygon_canvas(effect._pd_shape.get_vertices(), *self.perspective.meters_per_char, offset_x=-loc_x, offset_y=-loc_y)
+                    util.draw_canvas_at(c, window, s_y, s_x, bounds=self.view.viewscreen_bounds)
             else:
                 e_bbox = effect.bbox()
                 loc = ((e_bbox[2] - e_bbox[0])/2, (e_bbox[3] - e_bbox[1])/2)
@@ -465,6 +478,23 @@ class Presenter:
         self.view.viewscreen.addstr(s_y+1, s_x, "A", sensor_color)
         s_x, s_y = self.perspective.sector_to_screen(ship.loc[0]+radii[1], ship.loc[1])
         self.view.viewscreen.addstr(s_y+1, s_x, "B", sensor_color)
+
+    def draw_cymunk_shapes(self) -> None:
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        window = self.view.viewscreen.window
+        for shape in self.sector.space.bb_query(cymunk.BB(*self.view.viewscreen_bounds)):
+            if isinstance(shape, cymunk.Circle):
+                loc_x, loc_y = shape.body.position[0], shape.body.position[1]
+                screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
+                c = util.make_circle_canvas(shape.radius, *self.perspective.meters_per_char)
+                util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+            elif isinstance(shape, cymunk.Poly):
+                loc_x, loc_y = shape.body.position[0], shape.body.position[1]
+                screen_x, screen_y = self.perspective.sector_to_screen(loc_x, loc_y)
+                c = util.make_polygon_canvas(shape.get_vertices(), *self.perspective.meters_per_char, offset_x=-loc_x, offset_y=-loc_y)
+                util.draw_canvas_at(c, window, screen_y, screen_x, bounds=self.view.viewscreen_bounds)
+            else:
+                raise ValueError(f'do not know how to draw {type(shape)}')
 
     def update(self) -> None:
         pass

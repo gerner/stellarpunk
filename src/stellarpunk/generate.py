@@ -461,7 +461,8 @@ class UniverseGenerator(core.AbstractGenerator):
     def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
-        shape.collision_type = entity.object_type
+        shape.collision_type = core.SECTOR_ENTITY_COLLISION_TYPE
+        shape.group = id(body)
         body.position = (entity.loc[0], entity.loc[1])
         body.data = entity
         entity.radius = radius
@@ -1710,7 +1711,9 @@ class UniverseGenerator(core.AbstractGenerator):
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 
         # spawn an NPC ship/character with orders to attack the player
-        threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=4e5, occupied_radius=5e2, min_dist=3e5, strict=True)
+        min_dist = 1e5
+        max_dist = 1.5e5
+        threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=max_dist, occupied_radius=5e2, min_dist=min_dist, strict=True)
         threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
         character = self.spawn_character(threat)
         character.take_ownership(threat)
@@ -1776,8 +1779,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        self.generate_player()
-        #self.generate_player_for_combat_test()
+        #self.generate_player()
+        self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

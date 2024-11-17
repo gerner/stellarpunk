@@ -14,6 +14,7 @@ import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
+from stellarpunk.core import combat
 from stellarpunk.interface import manager as interface_manager
 import stellarpunk.events.events
 
@@ -462,6 +463,8 @@ def main() -> None:
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
         sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
         sim.initialize()
+        combat.initialize()
+        #TODO: intialize other modules dynamically added
         ui.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick

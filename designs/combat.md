@@ -155,6 +155,15 @@ muzzle velocities, so they can fire more projectiles quickly to account for
 threat course changes. Still, it's possible, inevitable that a threat will get
 through eventually.
 
+As described above, one could actually physcally model projectiles.
+Alternatively we could simulate this and instead just consider objects in a
+firing cone and decide if they should be "hit". Things that might affect a hit:
+
+* Fidelity of our sensor reading on the target
+* How long the target has been in the cone (perhaps just reconsidering the
+  target every tick it's in the cone is enough?)
+* Distance to target
+
 ### Decoys
 
 POTENTIALLY
