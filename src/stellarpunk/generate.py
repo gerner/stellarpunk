@@ -529,7 +529,6 @@ class UniverseGenerator(core.AbstractGenerator):
         station_radius = config.Settings.generate.SectorEntities.station.RADIUS
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.station.SENSOR_INTERCEPT)
-        #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
         station = core.Station(
@@ -559,7 +558,6 @@ class UniverseGenerator(core.AbstractGenerator):
         planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.planet.SENSOR_INTERCEPT)
-        #TODO: stations are static?
         planet_body = self._phys_body()
         planet = core.Planet(
             np.array((x, y), dtype=np.float64),
@@ -1779,8 +1777,8 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate the player
-        #self.generate_player()
-        self.generate_player_for_combat_test()
+        self.generate_player()
+        #self.generate_player_for_combat_test()
 
         # generate pretty starfields for the background
         self.generate_starfields()

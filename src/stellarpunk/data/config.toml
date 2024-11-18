@@ -391,3 +391,9 @@
     COEFF_BIAS_VELOCITY = 1e3
     # how much uncertainty we add to the bias after mixing
     COEFF_BIAS_MIX_FACTOR = 0.01
+
+[combat]
+    [combat.point_defense]
+        ROLL_INTERVAL = 0.5
+        THREAT_HIT_PROBABILITY = 0.25
+        COLLATERAL_HIT_PROBABILITY = 0.05

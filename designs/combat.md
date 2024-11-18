@@ -164,6 +164,8 @@ firing cone and decide if they should be "hit". Things that might affect a hit:
   target every tick it's in the cone is enough?)
 * Distance to target
 
+Periodically, while a target is in the pd cone,  we'll roll for a pd hit.
+
 ### Decoys
 
 POTENTIALLY

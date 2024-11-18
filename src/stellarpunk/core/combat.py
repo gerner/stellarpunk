@@ -2,7 +2,7 @@
 
 import logging
 import enum
-from typing import Optional, Tuple, Any, Set, List, Deque, Iterator
+from typing import Optional, Tuple, Any, Set, List, Deque, Iterator, MutableMapping
 import collections
 import math
 import uuid
@@ -35,6 +35,25 @@ def point_defense_collision_handler(space:cymunk.Space, arbiter:cymunk.Arbiter) 
 
     return False
 
+def is_hostile(craft:core.SectorEntity, threat:core.SectorEntity) -> bool:
+    #TODO: improve this logic
+    hostile = False
+    # is it a weapon (e.g. missile)
+    if isinstance(threat, core.Missile):
+        hostile = True
+    # is it known to be hostile?
+    # is it running with its transponder off?
+    if not threat.sensor_settings.transponder:
+        hostile = True
+    # is it otherwise operating in a hostile manner (e.g. firing weapons)
+    return hostile
+
+def damage(craft:core.SectorEntity) -> bool:
+    """ damages craft, returning true iff craft is destroyed. """
+    # for now we just destroy the entity
+    core.Gamestate.gamestate.destroy_entity(craft)
+    return True
+
 class TimedOrderTask(ScheduledTask, core.OrderObserver):
     @staticmethod
     def ttl_order(order:core.Order, ttl:float) -> "TimedOrderTask":
@@ -50,19 +69,6 @@ class TimedOrderTask(ScheduledTask, core.OrderObserver):
         Gamestate.gamestate.unschedule_task(self)
     def act(self) -> None:
         self.order.cancel_order()
-
-def is_hostile(craft:core.SectorEntity, threat:core.SectorEntity) -> bool:
-    #TODO: improve this logic
-    hostile = False
-    # is it a weapon (e.g. missile)
-    if isinstance(threat, core.Missile):
-        hostile = True
-    # is it known to be hostile?
-    # is it running with its transponder off?
-    if not threat.sensor_settings.transponder:
-        hostile = True
-    # is it otherwise operating in a hostile manner (e.g. firing weapons)
-    return hostile
 
 class ThreatTracker(core.SectorEntityObserver):
     def __init__(self, craft:core.SectorEntity, threat_ttl:float=120.) -> None:
@@ -163,12 +169,14 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self.ship.sector.register_collision_observer(self.ship.entity_id, self)
 
     def _complete(self) -> None:
-        self.logger.debug(f'completing missile after {self.gamestate.timestamp - self.started_at}s at distance {util.distance(self.ship.loc, self.target.loc)}m age {self.target.age}s')
         super()._complete()
         # ship might already have been removed from the sector
         # assume if that happens it got unregistered
         if self.ship.sector:
+            self.logger.debug(f'completing missile after {self.gamestate.timestamp - self.started_at}s at distance {util.distance(self.ship.loc, self.target.loc)}m age {self.target.age}s')
             self.ship.sector.unregister_collision_observer(self.ship.entity_id, self)
+        else:
+            self.logger.debug(f'completing missile after {self.gamestate.timestamp - self.started_at}s age {self.target.age}s')
         self.gamestate.destroy_entity(self.ship)
 
     def _cancel(self) -> None:
@@ -178,8 +186,6 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time or not self.target.is_active()
 
     def collision(self, missile:SectorEntity, target:SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
-        #if self.ship.firer == target:
-        #    raise Exception()
         assert missile == self.ship
         if target.entity_id == self.target.identity.entity_id:
             self.logger.debug(f'missile hit desired target {target} impulse: {impulse} ke: {ke}!')
@@ -187,7 +193,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
             self.logger.debug(f'missile hit collateral target {target} impulse: {impulse} ke: {ke}!')
 
         self.complete_order()
-        self.gamestate.destroy_entity(target)
+        damage(target)
 
     def act(self, dt:float) -> None:
         super().act(dt)
@@ -351,8 +357,6 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         assert self.ship.sector
         self.target.update()
-        if util.magnitude(*self.target.velocity) > 15500:
-            raise Exception()
 
         self._set_sensors()
 
@@ -375,10 +379,33 @@ class AttackOrder(movement.AbstractSteeringOrder):
         else:
             raise ValueError(f'unknown attack order state {self.state}')
 
+class PDTarget:
+    """ Tracks objects in point defense firing cone. """
+    def __init__(self, entity:SectorEntity):
+        self.entity = entity
+        self.birth_ts = core.Gamestate.gamestate.timestamp
+        self.last_seen = self.birth_ts
+        self.last_roll = -np.inf
+
+    def __str__(self) -> str:
+        return f'PDTarget {self.entity.short_id()} {self.age:0.2f}s old sls:{self.since_last_seen:0.2f} slr:{self.since_last_roll:0.2f}'
+
+    @property
+    def age(self) -> float:
+        return core.Gamestate.gamestate.timestamp - self.birth_ts
+
+    @property
+    def since_last_seen(self) -> float:
+        return core.Gamestate.gamestate.timestamp - self.last_seen
+
+    @property
+    def since_last_roll(self) -> float:
+        return core.Gamestate.gamestate.timestamp - self.last_roll
+
 # TODO: should point defense really be creating all these sector entities?
 #   perhaps a better choice would be to create a cone shaped area to monitor
 #   inside that space we can abstractly model point defense working
-class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionObserver):
+class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
     class State(enum.Enum):
         IDLE = enum.auto()
         ACTIVE = enum.auto()
@@ -399,29 +426,22 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         # how long between checks for new target if we have none
         self.idle_interval = 3.0
         self.active_interval = 0.3
+        self.pdtarget_expiration = 0.5
 
         # phalanx has rof of 4500/min = 75/sec, muzzle velocity of 1100 m/s
-        self.rof:float = 100.
         self.muzzle_velocity = 3000.
-        self.projectile_ttl = 2.0
-        self.dispersion_angle = 0.0083
+        self.projectile_ttl = 4.0
+        self.cone_half_angle = np.pi/4./2.
 
-        self.last_shot_ts = 0.
-        self.projectiles:Deque[cymunk.shape] = collections.deque()
-        self.projectiles_fired = 0
-
-        # pd sensor region stuff
+        # pd sensor cone
         self._pd_shape:Optional[cymunk.Shape] = None
-        self._pd_collisions:List[core.SectorEntity] = []
+        # constraint that translates the sensor cone with the craft
+        self._pd_shape_constraint:Optional[cymunk.Constraint] = None
+        # track objects in our firing cone and when they enter the cone
+        self._pd_collisions:MutableMapping[uuid.UUID, PDTarget] = {}
 
         # tracks if we saw an entity in our cone since the last time we acted
         self._collided = False
-
-    def _expire_projectiles(self, expiration_time:float=math.inf) -> None:
-        while len(self.projectiles) > 0 and self.projectiles[0].created_at < expiration_time:
-            p = self.projectiles.popleft()
-            p.unobserve(self)
-            core.Gamestate.gamestate.destroy_entity(p)
 
     def _begin(self) -> None:
         if self.own_tracker:
@@ -435,7 +455,6 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
             self._deactivate()
         if self.own_tracker:
             self.threat_tracker.stop_tracking()
-        self._expire_projectiles()
         self.craft.unobserve(self)
 
     def _cancel(self) -> None:
@@ -445,17 +464,24 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         """ IDLE -> ACTIVE transition logic """
         self.logger.info("activate")
         self.state = PointDefenseEffect.State.ACTIVE
-        self.last_shot_ts = core.Gamestate.gamestate.timestamp
 
         # create a cone centered on us that moves with us, but stays pointed in
         # a set direction. we'll aim the cone separately.
 
-        mass = 1.0
-        radius = 1.0
+        # the body we're using to model point defense needs to be non-static
+        # so it must have non-zero mass/moment. we make it small to minimize
+        # impact on the ship, although technically the ship will perform
+        # slightly worse while point defense is on since it's dragging around
+        # this small body.
+        # an alternative would be to add the pd sensor cone to the ship's body
+        # but then we need to destroy it and recreate it to aim it and it would
+        # rotate as the ship rotates instead of staying fixed on a heading
+        mass = 0.1
+        radius = 0.1
         moment = cymunk.moment_for_circle(mass, 0, radius)
         body = cymunk.Body(mass, moment)
         offset_x = self.muzzle_velocity*self.projectile_ttl
-        offset_y = np.tan(np.pi/4/2)*offset_x#np.tan(self.dispersion_angle/2)*offset_x
+        offset_y = np.tan(self.cone_half_angle)*offset_x#np.tan(self.dispersion_angle/2)*offset_x
         self._pd_shape = cymunk.Poly(body, [(0.0, 0.0), (offset_x, offset_y), (offset_x, -offset_y)])
         self._pd_shape.collision_type = POINT_DEFENSE_COLLISION_TYPE
         self._pd_shape.group = id(self.craft.phys)
@@ -474,43 +500,31 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
         self.state = PointDefenseEffect.State.IDLE
 
         # remove point defense cone.
-        self.sector.space.remove(self._pd_shape_constraint)
-        self.sector.space.remove(self._pd_shape.body, self._pd_shape)
+        self.sector.space.remove(self._pd_shape_constraint, self._pd_shape.body, self._pd_shape)
         self._pd_shape_constraint = None
         self._pd_shape = None
+        self._pd_collisions.clear()
 
     def add_collision(self, entity:core.SectorEntity) -> None:
         assert self.state == PointDefenseEffect.State.ACTIVE
         logger.info(f'point defense cone collision with {entity}')
-        self._pd_collisions.append(entity)
-        if not self._collided:
-            self._collided = True
-            self.gamestate.schedule_effect_immediate(self)
+        if entity.entity_id not in self._pd_collisions:
+            self._pd_collisions[entity.entity_id] = PDTarget(entity)
+        else:
+            self._pd_collisions[entity.entity_id].last_seen = core.Gamestate.gamestate.timestamp
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if isinstance(entity, core.Projectile):
-            self.projectiles.remove(entity)
-        elif self.craft == entity:
+        if self.craft == entity:
             self.cancel_effect()
         else:
             raise ValueError(f'got unexpected entity {entity}')
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        if isinstance(entity, core.Projectile):
-            entity.unobserve(self)
-            self.projectiles.remove(entity)
-        elif self.craft == entity:
+        if self.craft == entity:
             self.craft.unobserve(self)
             self.cancel_effect()
         else:
             raise ValueError(f'got unexpected entity {entity}')
-
-    def collision(self, projectile:core.SectorEntity, target:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
-        self.logger.debug(f'point defense from {self.craft} hit {target} with {projectile} at distance {util.distance(self.craft.loc, target.loc)}m age {self.gamestate.timestamp - projectile.created_at}s')
-
-        self.gamestate.destroy_entity(target)
-        self.gamestate.destroy_entity(projectile)
-        self.targets_destroyed += 1
 
     def bbox(self) -> Tuple[float, float, float, float]:
         return (0., 0., 0., 0.)
@@ -535,55 +549,44 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver, core.CollisionO
 
         self._do_point_defense(target)
 
-    def _handle_collision(self, entity:core.SectorEntity) -> None:
-        if entity.entity_id not in self.threat_tracker.threat_ids:
-            # if not in threats, ignore it
-            return
-        raise Exception("ohnoes")
+    def _handle_collision(self, target:PDTarget) -> bool:
+        if target.since_last_roll < config.Settings.combat.point_defense.ROLL_INTERVAL:
+            return False
+        if target.entity.entity_id not in self.threat_tracker.threat_ids:
+            p = config.Settings.combat.point_defense.COLLATERAL_HIT_PROBABILITY
+        else:
+            p = config.Settings.combat.point_defense.THREAT_HIT_PROBABILITY
+        roll = self.gamestate.random.uniform()
+        if roll < p:
+            self.logger.info(f'pd hit {target.entity.entity_id} {roll} < {p}')
+            if damage(target.entity):
+                self.targets_destroyed += 1
+                return True
+        else:
+            self.logger.info(f'pd miss {target.entity.entity_id} {roll} > {p}')
+        target.last_roll = core.Gamestate.gamestate.timestamp
+        return False
 
     def _do_point_defense(self, target:core.AbstractSensorImage) -> None:
+        self.logger.info(f'pd {target}')
         assert self._pd_shape
         # handle any collisions with the cone shape
-        for entity in self._pd_collisions:
-            self._handle_collision(entity)
-        self._pd_collisions.clear()
+        remove_ids:List[uuid.UUID] = []
+        for entity_id, pdtarget in self._pd_collisions.items():
+            self.logger.info(f'pdtarget {pdtarget}')
+            if pdtarget.since_last_seen > self.pdtarget_expiration:
+                remove_ids.append(entity_id)
+            elif util.isclose(pdtarget.since_last_seen, 0.0):
+                if self._handle_collision(pdtarget):
+                    remove_ids.append(entity_id)
+        for entity_id in remove_ids:
+            del self._pd_collisions[entity_id]
 
         # aim point defense cone shape toward target
-        #assert util.isclose(self.craft.phys.position[0], self._pd_shape.body.position[0]) and util.isclose(self.craft.phys.position[1], self._pd_shape.body.position[1])
         self._pd_shape.body.angle = util.bearing(self.craft.loc, target.loc)
         self.current_target = target
         self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + self.active_interval, self)
 
-    def _do_point_defense_old(self, target:core.AbstractSensorImage) -> None:
-        # kill old projectiles
-        expiration_time = core.Gamestate.gamestate.timestamp - self.projectile_ttl
-        self._expire_projectiles(expiration_time)
-
-        # aim point defense
-        #TODO: what if there's another target that is likely to be hit by PD?
-        # (e.g. station between us and a missile
-        intercept_time, intercept_loc, intercept_angle = collision.find_intercept_heading(cymunk.Vec2d(self.craft.loc), cymunk.Vec2d(self.craft.velocity), cymunk.Vec2d(target.loc), cymunk.Vec2d(target.velocity), self.muzzle_velocity)
-
-        if intercept_time > 0 and intercept_time < self.projectile_ttl:
-            # add some projectiles at rof
-            # projectiles have trajectory for intercept given current information
-            # projectiles should be physically simulated
-            # projectiles should last for some fixed lifetime and then be removed
-            num_shots = int((core.Gamestate.gamestate.timestamp - self.last_shot_ts) * self.rof)
-
-            next_index = None
-            for i in range(num_shots):
-                angle = intercept_angle + core.Gamestate.gamestate.random.uniform(-self.dispersion_angle/2., self.dispersion_angle/2.)
-                loc, next_index = core.Gamestate.gamestate.generator.gen_projectile_location(self.craft.loc + util.polar_to_cartesian(self.craft.radius+config.Settings.generate.SectorEntities.projectile.RADIUS+1, angle), next_index)
-                v = util.polar_to_cartesian(self.muzzle_velocity, angle) + self.craft.velocity
-                new_entity = core.Gamestate.gamestate.generator.spawn_sector_entity(core.Projectile, self.sector, loc[0], loc[1], v=v, w=0.0)
-                new_entity.observe(self)
-                self.sector.register_collision_observer(new_entity.entity_id, self)
-
-                self.projectiles.append(new_entity)
-                self.projectiles_fired += 1
-        self.last_shot_ts = core.Gamestate.gamestate.timestamp
-        self.gamestate.schedule_effect(core.Gamestate.gamestate.timestamp + 1/10., self)
 
 class HuntOrder(core.Order):
     def __init__(self, target_id:uuid.UUID, *args:Any, start_loc:Optional[npt.NDArray[np.float64]], **kwargs:Any) -> None:

@@ -918,9 +918,11 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         label_top_order = "top order:"
         label_order = "order:"
         label_eta = "eta:"
+        label_pd = "pd:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
         course = self.ship.phys.velocity.get_angle() + np.pi/2
+        pd_status = "off" if self.point_defense is None else "on"
 
         self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship)}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_threshold:>12} {self.sector.sensor_manager.compute_sensor_threshold(self.ship)}')
@@ -929,7 +931,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
         self.viewscreen.addstr(status_y+7, status_x, f'{label_fuel:>12} {self.ship.sensor_settings.thrust_seconds / 4435.:.0f}')
-        status_y += 8
+        self.viewscreen.addstr(status_y+8, status_x, f'{label_pd:>12} {pd_status}')
+        status_y += 9
 
         if current_order is not None:
             ancestor_order = current_order
