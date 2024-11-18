@@ -461,7 +461,8 @@ class UniverseGenerator(core.AbstractGenerator):
     def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
-        shape.collision_type = entity.object_type
+        shape.collision_type = core.SECTOR_ENTITY_COLLISION_TYPE
+        shape.group = id(body)
         body.position = (entity.loc[0], entity.loc[1])
         body.data = entity
         entity.radius = radius
@@ -528,7 +529,6 @@ class UniverseGenerator(core.AbstractGenerator):
         station_radius = config.Settings.generate.SectorEntities.station.RADIUS
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.station.SENSOR_INTERCEPT)
-        #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
         station_body = self._phys_body()
         station = core.Station(
@@ -558,7 +558,6 @@ class UniverseGenerator(core.AbstractGenerator):
         planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.planet.SENSOR_INTERCEPT)
-        #TODO: stations are static?
         planet_body = self._phys_body()
         planet = core.Planet(
             np.array((x, y), dtype=np.float64),
@@ -1710,7 +1709,9 @@ class UniverseGenerator(core.AbstractGenerator):
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 
         # spawn an NPC ship/character with orders to attack the player
-        threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=4e5, occupied_radius=5e2, min_dist=3e5, strict=True)
+        min_dist = 1e5
+        max_dist = 1.5e5
+        threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=max_dist, occupied_radius=5e2, min_dist=min_dist, strict=True)
         threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
         character = self.spawn_character(threat)
         character.take_ownership(threat)

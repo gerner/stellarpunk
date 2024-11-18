@@ -15,7 +15,7 @@ import rtree.index # type: ignore
 
 from stellarpunk import util
 from .base import Entity
-from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate
+from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate, SECTOR_ENTITY_COLLISION_TYPE
 from .ship import Ship
 from .order import Effect
 
@@ -246,6 +246,8 @@ class Sector(Entity):
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
+            if hit.collision_type != SECTOR_ENTITY_COLLISION_TYPE:
+                continue
             yield hit.body.data
 
     def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
@@ -253,6 +255,8 @@ class Sector(Entity):
         if not max_dist:
             max_dist = np.inf
         for hit in self.space.nearest_point_query(cymunk.vec2d.Vec2d(point[0], point[1]), max_dist):
+            if hit.collision_type != SECTOR_ENTITY_COLLISION_TYPE:
+                continue
             yield hit.body.data
 
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:

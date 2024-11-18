@@ -18,6 +18,8 @@ from .base import Entity, Sprite, Asset
 if TYPE_CHECKING:
     from . import sector, character
 
+SECTOR_ENTITY_COLLISION_TYPE = 0
+
 class ObjectType(enum.IntEnum):
     OTHER = enum.auto()
     SHIP = enum.auto()

@@ -17,7 +17,7 @@ cimport cymunk.cymunk as ccymunk
 cimport libc.math as math
 
 DEF LOGGING_ENABLED=1
-
+cdef int SECTOR_ENTITY_COLLISION_TYPE=0
 # some utils
 
 cdef bool isclose(double a, double b, double rtol=1e-05, double atol=1e-08):
@@ -288,6 +288,10 @@ cdef void _sensor_shape_callback(ccymunk.cpShape *shape, ccymunk.cpContactPointS
 
 cdef void _analyze_neighbor_callback(ccymunk.cpShape *shape, void *data):
     cdef NeighborAnalysis *analysis = <NeighborAnalysis *>data
+
+    # we only care about colliding with SECTOR_ENTITY_COLLISION_TYPE
+    if shape.collision_type != SECTOR_ENTITY_COLLISION_TYPE:
+        return
 
     # ignore projectile group
     #if shape.group == 1:

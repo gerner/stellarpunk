@@ -290,6 +290,10 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         # there aren't any other references to them
         self.order_observers:Set[LambdaOrderObserver] = set()
 
+        # should only draw cymunk shapes, not the stellarpunk visualization of
+        # stuff in the sector (for debugging)
+        self.draw_cymunk_shapes = False
+
     def make_order_observer(self,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
@@ -471,6 +475,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         detected_short_ids = (x.identity.short_id for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
 
+        def only_draw_cymunk(args:Sequence[str]) -> None:
+            self.draw_cymunk_shapes = not self.draw_cymunk_shapes
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
@@ -490,6 +497,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.bind_command("cache_stats", cache_stats),
             self.bind_command("max_thrust", max_thrust),
             self.bind_command("mouse_pos", mouse_pos),
+            self.bind_command("cymunk_shapes", only_draw_cymunk),
         ]
 
     def _select_target(self, target:Optional[core.AbstractSensorImage]) -> None:
@@ -910,9 +918,11 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         label_top_order = "top order:"
         label_order = "order:"
         label_eta = "eta:"
+        label_pd = "pd:"
         # convert heading so 0, North is negative y, instead of positive x
         heading = self.ship.angle + np.pi/2
         course = self.ship.phys.velocity.get_angle() + np.pi/2
+        pd_status = "off" if self.point_defense is None else "on"
 
         self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship)}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_threshold:>12} {self.sector.sensor_manager.compute_sensor_threshold(self.ship)}')
@@ -921,7 +931,8 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
         self.viewscreen.addstr(status_y+7, status_x, f'{label_fuel:>12} {self.ship.sensor_settings.thrust_seconds / 4435.:.0f}')
-        status_y += 8
+        self.viewscreen.addstr(status_y+8, status_x, f'{label_pd:>12} {pd_status}')
+        status_y += 9
 
         if current_order is not None:
             ancestor_order = current_order
@@ -1031,13 +1042,16 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
                 self.interface.log_message("target sensor image lost")
         self.presenter.update()
 
-        self.starfield.draw_starfield(self.viewscreen)
-        self.presenter.draw_weather()
-        self.presenter.draw_shapes()
-        self._draw_radar()
-        self.presenter.draw_sensor_rings(self.ship)
-        self.presenter.draw_profile_rings(self.ship)
-        self.presenter.draw_sector_map()
+        if self.draw_cymunk_shapes:
+            self.presenter.draw_cymunk_shapes()
+        else:
+            self.starfield.draw_starfield(self.viewscreen)
+            self.presenter.draw_weather()
+            self.presenter.draw_shapes()
+            self._draw_radar()
+            self.presenter.draw_sensor_rings(self.ship)
+            self.presenter.draw_profile_rings(self.ship)
+            self.presenter.draw_sector_map()
 
         # draw hud overlay on top of everything else
         self._draw_hud()

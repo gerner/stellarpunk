@@ -10,7 +10,7 @@ import pdb
 import curses
 import re
 import collections
-from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque
+from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection
 
 import numpy as np
 import numpy.typing as npt
@@ -409,7 +409,11 @@ def draw_canvas_at(canvas:drawille.Canvas, screen:curses.window, y:int, x:int, a
             screen_x = canvas_x+x
             if screen_x < bounds[0] or screen_x >= bounds[2]:
                 continue
-            screen.addch(screen_y, screen_x, chr(drawille.braille_char_offset+v), attr)
+            # TODO: is this too expensive just to support some debug use cases?
+            if isinstance(v, int):
+                screen.addch(screen_y, screen_x, chr(drawille.braille_char_offset+v), attr)
+            else:
+                screen.addch(screen_y, screen_x, v, attr)
     return
 
     # find the bounds of the canvas in characters
@@ -669,6 +673,35 @@ def make_rectangle_canvas(rect:Tuple[float, float, float, float], meters_per_cha
         c.set(d_x1, d_y)
         c.set(d_x2, d_y)
         y += step
+    return c
+
+def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[np.float64]|Sequence[float]]], meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+    if step is None:
+        step = 2
+
+    c = drawille.Canvas()
+
+    if len(vertices) == 0:
+        return c
+
+    last_point = np.array(vertices[-1])
+    for i, next_point in enumerate(vertices):
+        point = np.array(next_point)
+        d = 0.0
+        direction = point - last_point
+        distance = magnitude(*direction)
+        if distance == 0.0:
+            continue
+        direction = direction/distance
+        while d < distance:
+            target_point = last_point + direction * d
+            d_x, d_y = sector_to_drawille(target_point[0]+offset_x, target_point[1]+offset_y, meters_per_char_x, meters_per_char_y)
+            c.set(d_x, d_y)
+            #TODO: should be calculated w.r.t. direction and some trig so we
+            # get the desired spacing between dots on the screen
+            d += step*meters_per_char_x
+        last_point = point
+
     return c
 
 
