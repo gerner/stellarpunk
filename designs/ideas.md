@@ -3,7 +3,7 @@ Ideas
 
 # News
 
-Telephone style information where you get imperfect info that's.
+BBS style information where you get imperfect info.
 
 Player wants deltas as events unfold. How to visualize this in a strategic
 layer?
@@ -94,14 +94,20 @@ plan.
 
 ## Issues
 
-Things like "trade", "talk", seem like instances that might co-exist with other instances of the same type. Do we model that? how do we select one particular trade and make it clear that we are talking about that same instance when we say things like `trade.resource=$foo` and `trade.amount=$bar`? Will we ever want to have two instances at the same time? Notationally we could do something like `trade1 = select(trade)`, `trade2 = select(trade)`.
+Things like "trade", "talk", seem like instances that might co-exist with other
+instances of the same type. Do we model that? how do we select one particular
+trade and make it clear that we are talking about that same instance when we
+say things like `trade.resource=$foo` and `trade.amount=$bar`? Will we ever
+want to have two instances at the same time? Notationally we could do something
+like `trade1 = select(trade)`, `trade2 = select(trade)`.
 
 There's probably some weirdness about the  parameter binding I'm doing above.
 
-# Progression
-* perk: being inside weather doesn't affect your sensors, only sensors for
-  ships detecting you.
-* perk: use sensors from (certain) friendly units (e.g. missiles you launch)
+# Visual Effects/UI
+
+* show crafts travel lanes in universe view, perhaps also implies that we model
+  travel from one sector to another.
+*
 
 # Sources
 

@@ -10,7 +10,7 @@ AKA achievements? This is sort of like major decisions in CKIII.
 * fulfilled by other conditions (e.g. make a certain number of trades, etc.)
 * achieving a questlet gives you rewards like new agenda slot (capped or
   unlocking a specific slot so there's not unlimited options for this), bonuses
-to activities, etc.
+  to activities, etc.
 * take an agenda item to pursue it or to improve pursuing it. The longer the
   agenda item is equipped it the better the rewards.
 * makes certain play styles more concrete (e.g. piracy, political domination,

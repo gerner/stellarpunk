@@ -896,7 +896,7 @@ class Interface(AbstractInterface):
         self.reinitialize_screen()
 
     def enable_mouse(self) -> None:
-        curses.mousemask(curses.ALL_MOUSE_EVENTS)# | curses.REPORT_MOUSE_POSITION)
+        curses.mousemask(curses.ALL_MOUSE_EVENTS | curses.REPORT_MOUSE_POSITION)
 
     def disable_mouse(self) -> None:
         curses.mousemask(0)
@@ -1078,16 +1078,14 @@ class Interface(AbstractInterface):
         #self.stdscr.timeout(int(timeout*100))
 
         key = self.stdscr.getch()
-        # clear out any buffered keys
-        #while self.stdscr.getch() != -1:
-        #    pass
+        while key != -1:
+            if key < 0:
+                return
+            elif key == curses.KEY_RESIZE:
+                for view in self.views:
+                    view.initialize()
+                return
 
-        if key < 0:
-            return
-        elif key == curses.KEY_RESIZE:
-            for view in self.views:
-                view.initialize()
-            return
-
-        #self.logger.debug(f'keypress {key}')
-        self.handle_input(key, dt)
+            #self.logger.debug(f'keypress {key}')
+            self.handle_input(key, dt)
+            key = self.stdscr.getch()

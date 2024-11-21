@@ -176,7 +176,6 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         force = self._clip_force_to_max_speed(force, self.ship.max_thrust)
 
-        self.ship.apply_torque(0., False)
         if not np.allclose(force, steering.ZERO_VECTOR):
             self.ship.apply_force(force, False)
         else:
@@ -202,7 +201,6 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_torque_command = True
         #TODO: up to max angular acceleration?
-        self.ship.apply_force(steering.ZERO_VECTOR, False)
         self.ship.apply_torque(
             self._clip_torque_to_max_angular_velocity(
                 self.ship.max_torque * scale,
