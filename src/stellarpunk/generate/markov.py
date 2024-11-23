@@ -1,6 +1,7 @@
 import io
 import collections
 from collections.abc import MutableMapping, Sequence, Iterator
+from typing import Optional
 
 import numpy.typing as npt
 import numpy as np
@@ -69,10 +70,22 @@ class MarkovModel:
         for c in example:
             yield c
 
-    def train(self, training_stream:io.TextIOBase) -> None:
+    def preprocess(self, example:str) -> str:
+        return example.strip().lower()
+
+    def postprocess(self, example:str) -> str:
+        parts = example.title().split()
+        if parts[-1].lower() in ("i", "ii", "iii", "iv", "v", "vi" ,"vii", "viii", "ix", "x", "xi", "xii", "xiii", "xiv", "xv", "xvi", "xvii", "xviii", "xix", "xx"):
+            parts[-1] = parts[-1].upper()
+        return " ".join(parts)
+
+    def train(self, training_stream:io.TextIOBase, n:Optional[int]=None) -> None:
         """ trains this markov model
 
         assume one example per line. """
+
+        if n is not None:
+            self.n = n
 
         self.clear()
 
@@ -82,7 +95,7 @@ class MarkovModel:
         self._tokens.append("")
 
         for example in training_stream:
-            self._process_example(example.strip())
+            self._process_example(self.preprocess(example))
 
     def generate(self, r:np.random.Generator) -> str:
         """ generates one example """
@@ -102,4 +115,4 @@ class MarkovModel:
             probabilities = self._build_probabilities(ngram)
             token_id = r.choice(len(probabilities), p=probabilities)
 
-        return "".join(self._tokens[x] for x in result)
+        return self.postprocess("".join(self._tokens[x] for x in result))
