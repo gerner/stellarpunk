@@ -17,22 +17,16 @@ class MarkovModel:
         self._tokens:list[str] = []
         self._token_ids:MutableMapping[str, int] = {}
 
-        self._ngram_counts:MutableMapping[Sequence[int], MutableMapping[int, int]] = collections.defaultdict(lambda: collections.defaultdict(int))
-        # counts used in denominator, so n-1 gram counts
-        self._base_counts:MutableMapping[Sequence[int], int] = collections.defaultdict(int)
-
-        self._probabilities:npt.NDArray[np.float64] = np.ndarray(0)
+        self._probabilities:MutableMapping[Sequence[int], npt.NDArray[np.float64]] = collections.defaultdict(lambda: np.zeros(len(self._tokens)))
 
     def clear(self) -> None:
         # mapping from token id (index in list) to token
         self._tokens = []
         self._token_ids = {}
 
-        self._ngram_counts = collections.defaultdict(lambda: collections.defaultdict(int))
-        # counts used in denominator, so n-1 gram counts
-        self._base_counts = collections.defaultdict(int)
+        self._probabilities = collections.defaultdict(lambda: np.zeros(len(self._tokens)))
 
-    def _process_example(self, example:str) -> None:
+    def _process_example(self, example:str, ngram_counts:MutableMapping[Sequence[int], MutableMapping[int, int]]) -> None:
 
         # prepare the ngram with the start token
         ngram:collections.deque[int] = collections.deque()
@@ -46,22 +40,30 @@ class MarkovModel:
                 self._tokens.append(token)
                 self._token_ids[token] = token_id
 
-            self._base_counts[tuple(ngram)] += 1
-            self._ngram_counts[tuple(ngram)][token_id] += 1
+            ngram_counts[tuple(ngram)][token_id] += 1
             ngram.popleft()
             ngram.append(token_id)
 
         # add a count for the end token
-        self._base_counts[tuple(ngram)] += 1
-        self._ngram_counts[tuple(ngram)][TOKEN_END] += 1
+        ngram_counts[tuple(ngram)][TOKEN_END] += 1
         ngram.popleft()
 
-    def _build_probabilities(self, ngram:collections.deque) -> npt.NDArray[np.float64]:
+    def _build_probabilities(self, counts:MutableMapping[int, int]) -> npt.NDArray[np.float64]:
         probabilities = np.zeros(len(self._tokens))
-        for token_id, count in self._ngram_counts[tuple(ngram)].items():
+        for token_id, count in counts.items():
             probabilities[token_id] = count
         return probabilities / probabilities.sum()
 
+    def save(self, output_stream:io.BufferedWriter) -> None:
+        """ saves this markov model to given stream"""
+
+        # save n
+        # save token mappings
+        # for each n-1 gram, save each next token probabilities
+        pass
+
+    def load(self, input_stream:io.BufferedReader) -> None:
+        pass
 
     def tokenize(self, example:str) -> Iterator[str]:
         """ tokenizes the example.
@@ -87,7 +89,7 @@ class MarkovModel:
         if n is not None:
             self.n = n
 
-        self.clear()
+        ngram_counts:MutableMapping[Sequence[int], MutableMapping[int, int]] = collections.defaultdict(lambda: collections.defaultdict(int))
 
         # token 0 is start
         self._tokens.append("")
@@ -95,7 +97,12 @@ class MarkovModel:
         self._tokens.append("")
 
         for example in training_stream:
-            self._process_example(self.preprocess(example))
+            self._process_example(self.preprocess(example), ngram_counts)
+
+        for ngram, counts in ngram_counts.items():
+            probabilities = self._build_probabilities(counts)
+            self._probabilities[ngram] = probabilities
+
 
     def generate(self, r:np.random.Generator) -> str:
         """ generates one example """
@@ -105,14 +112,14 @@ class MarkovModel:
         for _ in range(self.n-1):
             ngram.append(TOKEN_START)
 
-        probabilities = self._build_probabilities(ngram)
+        probabilities = self._probabilities[tuple(ngram)]
         token_id = r.choice(len(probabilities), p=probabilities)
         result:collections.deque[int] = collections.deque()
         while token_id != TOKEN_END:
             result.append(token_id)
             ngram.popleft()
             ngram.append(token_id)
-            probabilities = self._build_probabilities(ngram)
+            probabilities = self._probabilities[tuple(ngram)]
             token_id = r.choice(len(probabilities), p=probabilities)
 
         return self.postprocess("".join(self._tokens[x] for x in result))
