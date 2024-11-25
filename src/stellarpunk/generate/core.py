@@ -2,13 +2,15 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
+from typing import Optional, List, Dict, MutableMapping, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
 import importlib.resources
 import itertools
 import enum
 import collections
 import heapq
 import time
+import gzip
+import os
 
 import numpy as np
 import numpy.typing as npt
@@ -19,6 +21,7 @@ import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
 from stellarpunk.core import combat
+from . import markov
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
@@ -205,6 +208,12 @@ class UniverseGenerator(core.AbstractGenerator):
         self.habitable_sectors:List[core.Sector] = []
         self.non_habitable_sectors:List[core.Sector] = []
 
+        self._sector_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._station_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._first_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._last_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._ship_name_model:markov.MarkovModel = markov.MarkovModel()
+
     def _random_bipartite_graph(
             self,
             n:int, m:int, k:int,
@@ -323,25 +332,41 @@ class UniverseGenerator(core.AbstractGenerator):
             index = self.r.integers(self.num_projectile_spawn_locs-1)
         return self.projectile_spawn_pattern[index%self.num_projectile_spawn_locs] + center, (index+1) % self.num_projectile_spawn_locs
 
-    def _gen_sector_name(self) -> str:
-        return "Some Sector"
+    def _gen_sector_culture(self, x:float, y:float) -> str:
+        coords = np.array((x,y))
+        # look for a nearby sector and adopt their culture
+        nearest_sector_id:Optional[uuid.UUID] = next((x.object for x in self.gamestate.sector_spatial.nearest((coords[0], coords[1], coords[0], coords[1]), 1, True)), None)
+        nearest_sector:Optional[core.Sector] = None
+        if nearest_sector_id is not None:
+            nearest_sector = self.gamestate.sectors[nearest_sector_id]
+        if nearest_sector and util.distance(coords, nearest_sector.loc) < config.Settings.generate.Universe.SHARED_CULTURE_RADIUS:
+            return nearest_sector.culture
+        else:
+            #TODO: should we (try to) pick a culture not yet chosen?
+            return self.r.choice(config.Settings.generate.Universe.CULTURES)
 
-    def _gen_planet_name(self) -> str:
-        return "Magusan"
+    def _gen_sector_name(self, culture:str) -> str:
+        return self._sector_name_models[culture].generate(self.r)
 
-    def _gen_station_name(self) -> str:
-        return "Some Station"
+    def _gen_planet_name(self, culture:str) -> str:
+        return self._station_name_models[culture].generate(self.r)
 
-    def _gen_ship_name(self) -> str:
-        return "Some Ship"
+    def _gen_station_name(self, culture:str) -> str:
+        return self._station_name_models[culture].generate(self.r)
 
-    def _gen_character_name(self) -> str:
-        return "Bob Dole"
+    def _gen_ship_name(self, culture:str) -> str:
+        return self._ship_name_model.generate(self.r)
 
-    def _gen_asteroid_name(self) -> str:
-        return "Asteroid X"
+    def _gen_character_name(self, culture:str) -> str:
+        first = self._first_name_models[culture].generate(self.r)
+        last = self._last_name_models[culture].generate(self.r)
+        return f'{first} {last}'
 
-    def _gen_gate_name(self, destination:core.Sector) -> str:
+    def _gen_asteroid_name(self, culture:str) -> str:
+        #TODO: sector name?
+        return self._sector_name_models[culture].generate(self.r)
+
+    def _gen_gate_name(self, destination:core.Sector, culture:str) -> str:
         return f"Gate to {destination.short_id()}"
 
     def _assign_names(self, adj_matrix:npt.NDArray[np.float64], allowed_options:List[List[int]]) -> List[int]:
@@ -515,10 +540,39 @@ class UniverseGenerator(core.AbstractGenerator):
                 loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
             self.projectile_spawn_pattern.append(loc)
 
-    def initialize(self, starfield_composite:bool=True) -> None:
+    def _load_name_models(self) -> None:
+        self.logger.info(f'loading name model for ships')
+        with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"), "rt") as f:
+            self._ship_name_model.load(f)
+
+        for culture in config.Settings.generate.Universe.CULTURES:
+            self.logger.info(f'loading name models for culture {culture}')
+            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'), "rt") as f:
+                self._sector_name_models[culture] = markov.MarkovModel().load(f)
+            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'), "rt") as f:
+                self._station_name_models[culture] = markov.MarkovModel().load(f)
+            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'), "rt") as f:
+                self._first_name_models[culture] = markov.MarkovModel().load(f)
+            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'), "rt") as f:
+                self._last_name_models[culture] = markov.MarkovModel().load(f)
+
+    def _load_empty_name_models(self, culture:str) -> None:
+        self._ship_name_model = markov.MarkovModel(romanize=False)
+        self._sector_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._station_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._first_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._last_name_models[culture] = markov.MarkovModel(romanize=False)
+
+
+    def initialize(self, starfield_composite:bool=True, empty_name_model_culture:Optional[str]=None) -> None:
         self.gamestate.generator = self
         self._prepare_sprites(starfield_composite=starfield_composite)
         self._prepare_projectile_spawn_pattern()
+
+        if empty_name_model_culture:
+            self._load_empty_name_models(empty_name_model_culture)
+        else:
+            self._load_name_models()
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
@@ -538,7 +592,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_station_name(),
+            self._gen_station_name(sector.culture),
             entity_id=entity_id,
             description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
         )
@@ -565,7 +619,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_planet_name(),
+            self._gen_planet_name(sector.culture),
             entity_id=entity_id
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
@@ -593,7 +647,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(),
+            self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -641,7 +695,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(),
+            self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -686,7 +740,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(),
+            self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -750,7 +804,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_gate_name(destination),
+            self._gen_gate_name(destination, sector.culture),
             entity_id=entity_id
         )
 
@@ -775,7 +829,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_asteroid_name(),
+            self._gen_asteroid_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -835,11 +889,13 @@ class UniverseGenerator(core.AbstractGenerator):
         return asteroids
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
+        assert location.sector
         character = core.Character(
             self._choose_portrait(),
             location,
             self.gamestate,
-            name=self._gen_character_name()
+            name=self._gen_character_name(location.sector.culture),
+            home_sector_id=location.sector.entity_id,
         )
         character.balance = balance
         self.gamestate.add_character(character)
@@ -903,6 +959,9 @@ class UniverseGenerator(core.AbstractGenerator):
             raise ValueError(f'got an asset of unknown type {asset}')
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+
+        culture = self._gen_sector_culture(x, y)
+
         pchain = self.gamestate.production_chain
 
         # compute how many raw resources are needed, transitively via
@@ -917,8 +976,9 @@ class UniverseGenerator(core.AbstractGenerator):
             radius,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(),
-            entity_id=entity_id
+            self._gen_sector_name(culture),
+            entity_id=entity_id,
+            culture=culture,
         )
         sector.sensor_manager = sensors.SensorManager(sector)
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
@@ -1072,13 +1132,16 @@ class UniverseGenerator(core.AbstractGenerator):
         return sector
 
     def spawn_uninhabited_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+
+        culture = self._gen_sector_culture(x, y)
         sector = core.Sector(
             np.array([x, y]),
             radius,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(),
-            entity_id=entity_id
+            self._gen_sector_name(culture),
+            entity_id=entity_id,
+            culture=culture
         )
         sector.sensor_manager = sensors.SensorManager(sector)
 
@@ -1526,6 +1589,7 @@ class UniverseGenerator(core.AbstractGenerator):
                 if reject:
                     coords = self.r.uniform(-universe_radius, universe_radius, 2)
                     radius = self.r.gamma(sector_k, sector_theta)
+
             sector_coords[idx] = coords
             sector_radii[idx] = radius
             sector_loc_index.insert(

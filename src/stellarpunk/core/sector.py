@@ -211,7 +211,7 @@ class Sector(Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, culture:str, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
 
         self.logger = logging.getLogger(util.fullname(self))
@@ -243,6 +243,9 @@ class Sector(Entity):
         self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
+
+        # a "culture" for the sector which helps with consistent naming
+        self.culture = culture
 
     def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):

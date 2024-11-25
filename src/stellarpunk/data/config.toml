@@ -108,6 +108,7 @@
         animation_speed = 120.0
 
 [generate]
+    NAME_MODEL_LOCATION = "/tmp/stellarpunk_models"
     [generate.Universe]
         # radius of the universe in meters
         # Earth's moon equatorial radius is 1.7e6
@@ -129,6 +130,28 @@
         MEAN_HABITABLE_RESOURCES = 1e9
         # how many resources available in uninhabited sectors
         MEAN_UNINHABITABLE_RESOURCES = 1e7
+
+        SHARED_CULTURE_RADIUS = 6e7
+        CULTURES = [
+            "balkan",
+            "caribbean",
+            "eastafrica",
+            "eastasia",
+            "hispania",
+            "mideast",
+            "northafrica",
+            "northamerica",
+            "oceana",
+            "scandinavia",
+            "slavic",
+            "southafrica",
+            "southamerica",
+            "southasia",
+            "southeastasia",
+            "westafrica",
+            "westeurope",
+        ]
+
 
 
     [generate.ProductionChain]

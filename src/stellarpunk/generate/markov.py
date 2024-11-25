@@ -2,7 +2,7 @@ import io
 import collections
 import json
 from collections.abc import MutableMapping, Sequence, Iterator
-from typing import Optional
+from typing import Optional, TextIO
 
 import numpy.typing as npt
 import numpy as np
@@ -14,7 +14,7 @@ TOKEN_END = 1
 
 
 class MarkovModel:
-    romanizer=uroman.Uroman()
+    romanizer:Optional[uroman.Uroman] = None
     def __init__(self, n:int=3, romanize:bool=True, titleize:bool=True, roman_numerals:bool=False):
         self.n = n
 
@@ -96,7 +96,7 @@ class MarkovModel:
             io.TextIOWrapper(output_stream)
         )
 
-    def load(self, input_stream:io.BufferedReader) -> None:
+    def load(self, input_stream:TextIO) -> "MarkovModel":
         self.clear()
         obj = json.load(input_stream)
         for nmo_gram, (token_ids, probs) in zip(obj["n_minus_one_grams"], obj["probs"]):
@@ -106,6 +106,11 @@ class MarkovModel:
         self.romanize = obj["romanize"]
         self.titleize = obj["titleize"]
         self.roman_numerals = obj["roman_numerals"]
+
+        if self.romanize and MarkovModel.romanizer is None:
+            MarkovModel.romanizer = uroman.Uroman()
+
+        return self
 
     def tokenize(self, example:str) -> Iterator[str]:
         """ tokenizes the example.
@@ -119,6 +124,7 @@ class MarkovModel:
 
     def postprocess(self, example:str) -> str:
         if self.romanize:
+            assert MarkovModel.romanizer
             example = MarkovModel.romanizer.romanize_string(example)
         if self.titleize:
             example = example.title()
@@ -149,9 +155,14 @@ class MarkovModel:
             probabilities = self._build_probabilities(counts)
             self._probabilities[ngram] = probabilities
 
+        if self.romanize and MarkovModel.romanizer is None:
+            MarkovModel.romanizer = uroman.Uroman()
 
     def generate(self, r:np.random.Generator) -> str:
         """ generates one example """
+
+        if not self._tokens:
+            return ""
 
         # prepare the ngram with the start token
         ngram:collections.deque[int] = collections.deque()

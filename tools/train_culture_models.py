@@ -19,14 +19,14 @@ from stellarpunk.generate import markov
 logger = logging.getLogger(__name__)
 
 CULTURES = [
-    #"balkan",
-    #"caribbean",
-    #"eastafrica",
-    #"eastasia",
-    #"hispania",
-    #"mideast",
-    #"northafrica",
-    #"northamerica",
+    "balkan",
+    "caribbean",
+    "eastafrica",
+    "eastasia",
+    "hispania",
+    "mideast",
+    "northafrica",
+    "northamerica",
     "oceana",
     "scandinavia",
     "slavic",
@@ -42,6 +42,8 @@ SHIP_NAME_FILE = "/tmp/shipnames.txt"
 PEOPLE_NAME_DIR = "/tmp/peoplenames"
 PLACE_NAME_DIR = "/tmp/geonames"
 MODELS_DIR = "/tmp/stellarpunk_models"
+
+NGRAM=5
 
 def train_save_model(m:markov.MarkovModel, input_filename, output_filename) -> None:
     if input_filename.endswith(".gz"):
@@ -69,7 +71,7 @@ def main() -> None:
     logger.info("training ship name model")
 
     # model for ship names
-    m = markov.MarkovModel(n=6, romanize=True, titleize=True, roman_numerals=True)
+    m = markov.MarkovModel(n=NGRAM, romanize=True, titleize=True, roman_numerals=True)
     train_save_model(m, SHIP_NAME_FILE, os.path.join(MODELS_DIR, "shipnames.mmodel.gz"))
     logger.info(f'sample ship: "{m.generate(r)}"')
 
@@ -82,7 +84,7 @@ def main() -> None:
         # models: first name, last name, sector name, station name
 
         # first and last names
-        m = markov.MarkovModel(n=6, romanize=True, titleize=True, roman_numerals=False)
+        m = markov.MarkovModel(n=NGRAM, romanize=True, titleize=True, roman_numerals=False)
         logger.info(f'first names')
         train_save_model(m, os.path.join(PEOPLE_NAME_DIR, f'firstnames.{culture}.gz'), os.path.join(MODELS_DIR, f'firstnames.{culture}.mmodel.gz'))
         sample_first = m.generate(r)
@@ -92,13 +94,13 @@ def main() -> None:
         logger.info(f'sample name: "{sample_first} {sample_last}"')
 
         # sector names
-        m = markov.MarkovModel(n=6, romanize=True, titleize=True, roman_numerals=False)
+        m = markov.MarkovModel(n=NGRAM, romanize=True, titleize=True, roman_numerals=False)
         logger.info('sector names')
         train_save_model(m, os.path.join(PLACE_NAME_DIR, f'features.{culture}.gz'), os.path.join(MODELS_DIR, f'sectors.{culture}.mmodel.gz'))
         logger.info(f'sample sector: "{m.generate(r)}"')
 
         # station names
-        m = markov.MarkovModel(n=6, romanize=True, titleize=True, roman_numerals=False)
+        m = markov.MarkovModel(n=NGRAM, romanize=True, titleize=True, roman_numerals=False)
         logger.info('station names')
         train_save_model(m, os.path.join(PLACE_NAME_DIR, f'adminareas.{culture}.gz'), os.path.join(MODELS_DIR, f'stations.{culture}.mmodel.gz'))
         logger.info(f'sample station: "{m.generate(r)}"')
