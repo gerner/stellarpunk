@@ -14,6 +14,7 @@ pysdl2
 pysdl2-dll
 cython
 cymunk @ git+https://github.com/gerner/cymunk@a43d9aa
+uroman
 
 # dev dependencies
 mypy

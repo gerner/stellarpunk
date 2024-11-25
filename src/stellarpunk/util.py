@@ -119,6 +119,18 @@ def human_speed(speed_mps:float) -> str:
     else:
         return f'{speed_mps:.e}m/s'
 
+def human_timespan(timespan_sec:float) -> str:
+    if timespan_sec > 3600:
+        return f'{timespan_sec/3600:0.2f}hrs'
+    elif timespan_sec > 60:
+        return f'{timespan_sec/60:0.2f}min'
+    elif timespan_sec > 1:
+        return f'{timespan_sec:0.2f}sec'
+    elif timespan_sec > 0.001:
+        return f'{timespan_sec*1000:0.2f}ms'
+    else:
+        return f'{timespan_sec*1000*1000:0.2}us'
+
 def sector_to_drawille(
         sector_loc_x:float, sector_loc_y:float,
         meters_per_char_x:float, meters_per_char_y:float) -> Tuple[int, int]:

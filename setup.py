@@ -78,6 +78,7 @@ setuptools.setup(
         "pysdl2-dll",
         "pysdl2",
         "dtmf",
+        "uroman",
     ],
     python_requires='>=3.8',
     entry_points={
