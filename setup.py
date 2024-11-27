@@ -1,3 +1,4 @@
+import os
 import os.path
 import setuptools # type: ignore
 
@@ -7,6 +8,9 @@ from setuptools import Extension
 
 with open(os.path.join(os.path.dirname(__file__), "README.md"), "r") as fh:
     long_description = fh.read()
+
+os.environ['CXX'] = 'clang++'
+os.environ['LDSHARED'] = 'clang -shared'
 
 import cymunk
 ext_modules=[
@@ -29,7 +33,14 @@ ext_modules=[
     Extension("stellarpunk.task_schedule",
         sources=["src/stellarpunk/task_schedule.pyx"],
         language="c++",
-    )
+    ),
+    Extension("stellarpunk.generate.markov",
+        sources=["src/stellarpunk/generate/markov.pyx"],
+        libraries=["boost_iostreams"],
+        language="c++",
+        extra_compile_args=["-std=c++17", "-O0"],
+        #undef_macros = [ "NDEBUG" ],
+    ),
 ]
 
 extensions = cythonize(
