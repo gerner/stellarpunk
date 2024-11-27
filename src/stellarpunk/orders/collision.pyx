@@ -17,7 +17,7 @@ cimport cymunk.cymunk as ccymunk
 cimport libc.math as math
 
 DEF LOGGING_ENABLED=1
-cdef int SECTOR_ENTITY_COLLISION_TYPE=0
+cdef long unsigned int SECTOR_ENTITY_COLLISION_TYPE=0
 # some utils
 
 cdef bool isclose(double a, double b, double rtol=1e-05, double atol=1e-08):

@@ -15,7 +15,7 @@ struct cEvent {
     std::unordered_map<std::uint64_t, cEventContext>* entity_context;
     void* data;
 
-    cEvent() {
+    cEvent() : event_type(0) {
     }
 
     cEvent(std::uint64_t et, cEventContext ec, std::unordered_map<std::uint64_t, cEventContext>* ent_c, void* d) {
