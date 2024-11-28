@@ -108,7 +108,11 @@
         animation_speed = 120.0
 
 [generate]
-    NAME_MODEL_LOCATION = "/tmp/stellarpunk_models"
+    [generate.names]
+        NAME_MODEL_LOCATION = "/tmp/stellarpunk_models"
+        MAX_SECTOR_NAME_WORDS = 5
+        MAX_STATION_NAME_WORDS = 5
+        MAX_SHIP_NAME_WORDS = 5
     [generate.Universe]
         # radius of the universe in meters
         # Earth's moon equatorial radius is 1.7e6

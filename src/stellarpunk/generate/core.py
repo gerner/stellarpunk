@@ -361,16 +361,44 @@ class UniverseGenerator(core.AbstractGenerator):
             return culture
 
     def _gen_sector_name(self, culture:str) -> str:
-        return self._sector_name_models[culture].generate(self.r)
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_SECTOR_NAME_WORDS) and tries < max_tries:
+            name = self._sector_name_models[culture].generate(self.r)
+            assert(name != "")
+            tries+=1
+        return name
 
     def _gen_planet_name(self, culture:str) -> str:
-        return self._station_name_models[culture].generate(self.r)
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
+            name = self._station_name_models[culture].generate(self.r)
+            assert(name != "")
+            tries+=1
+        return name
 
     def _gen_station_name(self, culture:str) -> str:
-        return self._station_name_models[culture].generate(self.r)
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
+            name = self._station_name_models[culture].generate(self.r)
+            assert(name != "")
+            tries+=1
+        return name
 
     def _gen_ship_name(self, culture:str) -> str:
-        return self._ship_name_model.generate(self.r)
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_SHIP_NAME_WORDS) and tries < max_tries:
+            name = self._ship_name_model.generate(self.r)
+            assert(name != "")
+            tries+=1
+        return name
 
     def _gen_character_name(self, culture:str) -> str:
         first = self._first_name_models[culture].generate(self.r)
@@ -557,16 +585,16 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def _load_name_models(self, culture_filter:Optional[List[str]]=None) -> None:
         self.logger.info(f'loading name model for ships')
-        self._ship_name_model.load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"))
+        self._ship_name_model.load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"))
 
         self.logger.info(f'loading name models')
 
         for culture in culture_filter if culture_filter is not None else config.Settings.generate.Universe.CULTURES:
             self.logger.info(f'loading name models for culture {culture}')
-            self._sector_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
-            self._station_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
-            self._first_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
-            self._last_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
+            self._sector_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
+            self._station_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
+            self._first_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
+            self._last_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
 
     def _load_empty_name_models(self, culture:str) -> None:
         self._ship_name_model = markov.MarkovModel(romanize=False)
@@ -1779,7 +1807,7 @@ class UniverseGenerator(core.AbstractGenerator):
             sector_coords,
             sector_edges,
             edge_distances,
-            self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True),
+            self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True), # type: ignore
         )
 
         self._load_name_models(culture_filter=list(set(self._culture_map.values())))

@@ -38,7 +38,7 @@ CULTURES = [
     "westeurope",
 ]
 
-SHIP_NAME_FILE = "/tmp/shipnames.txt"
+SHIP_NAME_FILE = "/tmp/shipnames.txt.gz"
 PEOPLE_NAME_DIR = "/tmp/peoplenames"
 PLACE_NAME_DIR = "/tmp/geonames"
 MODELS_DIR = "/tmp/stellarpunk_models"
@@ -75,6 +75,7 @@ def main() -> None:
     # model for ship names
     m = markov.MarkovModel()#n=NGRAM, romanize=True, titleize=True, roman_numerals=True)
     train_save_model(m, SHIP_NAME_FILE, os.path.join(MODELS_DIR, "shipnames.mmodel.gz"))
+    return
     logger.info(f'sample ship: "{m.generate(r)}"')
 
     culture_start_time = time.time()
