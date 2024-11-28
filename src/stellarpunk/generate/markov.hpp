@@ -10,6 +10,7 @@
 #include <sstream>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 #include<boost/tokenizer.hpp>
 #include <boost/iostreams/filtering_streambuf.hpp>
@@ -136,11 +137,11 @@ public:
         // maybe a template parameter?
         int offsets[1] = {1};
         boost::offset_separator f(offsets, offsets+1);
-        size_t examples_so_far = 0;
+        //size_t examples_so_far = 0;
         for (std::string line; std::getline(in, line);) {
-            if(examples_so_far++ % 100000 == 0) {
-                std::cerr << ".";
-            }
+            //if(examples_so_far++ % 100000 == 0) {
+            //    std::cerr << ".";
+            //}
             // prep an ngram prefix with TOKEN_START
             std::deque<TOKEN_ID_T> ngram_prefix;
             for(size_t i=0; i<N-1; i++){
@@ -170,7 +171,7 @@ public:
             // add a count for the end token
             add_count(ngram_counts, k<N-1>(ngram_prefix), TOKEN_END);
         }
-        std::cerr << "done with examples." << std::endl;
+        //std::cerr << "done with examples." << std::endl;
 
         // compute probabilities
         // for each ngram prefix
@@ -184,7 +185,7 @@ public:
             token_counts_[itr.first] = std::make_pair(std::vector<TOKEN_ID_T>(token_options), std::vector<size_t>(counts));
         }
 
-        std::cerr << "done prepping counts." << std::endl;
+        //std::cerr << "done prepping counts." << std::endl;
     }
 
     std::string generate(uint32_t seed) {
@@ -234,7 +235,6 @@ public:
 
     void save_to_file(std::string filename) {
         std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
-        //train(file);
         boost::iostreams::filtering_streambuf<boost::iostreams::output> out;
         out.push(boost::iostreams::gzip_compressor());
         out.push(file);
@@ -344,6 +344,28 @@ public:
     }
 };
 
+typedef MarkovModel<1> MarkovModel1;
+typedef MarkovModel<2> MarkovModel2;
+typedef MarkovModel<3> MarkovModel3;
+typedef MarkovModel<4> MarkovModel4;
 typedef MarkovModel<5> MarkovModel5;
+typedef MarkovModel<6> MarkovModel6;
+typedef MarkovModel<7> MarkovModel7;
+
+void train_from_file(MarkovModel5* model, std::string filename) {
+    model->train_from_file(filename);
+}
+
+void load_many_models(std::vector<MarkovModel5*> models, std::vector<std::string> filenames) {
+    assert(models.size() == filenames.size());
+    //std::vector<std::thread> threads;
+    for(size_t i=0; i<models.size(); i++) {
+        //threads.push_back(std::thread(train_from_file, models[i], filenames[i]));
+        train_from_file(models[i], filenames[i]);
+    }
+    //for(size_t i=0; i<threads.size(); i++) {
+    //    threads[i].join();
+    //}
+}
 
 #endif

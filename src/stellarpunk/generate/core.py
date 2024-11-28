@@ -214,6 +214,8 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models:MutableMapping[str, markov.MarkovModel] = {}
         self._ship_name_model:markov.MarkovModel = markov.MarkovModel()
 
+        self._cultures = config.Settings.generate.Universe.CULTURES
+
     def _random_bipartite_graph(
             self,
             n:int, m:int, k:int,
@@ -342,8 +344,12 @@ class UniverseGenerator(core.AbstractGenerator):
         if nearest_sector and util.distance(coords, nearest_sector.loc) < config.Settings.generate.Universe.SHARED_CULTURE_RADIUS:
             return nearest_sector.culture
         else:
-            #TODO: should we (try to) pick a culture not yet chosen?
-            return self.r.choice(config.Settings.generate.Universe.CULTURES)
+            # try to choose a new culture if any left
+            if len(self._cultures) == 0:
+                self._cultures = config.Settings.generate.Universe.CULTURES
+            culture = self.r.choice(self._cultures)
+            self._cultures.remove(culture)
+            return culture
 
     def _gen_sector_name(self, culture:str) -> str:
         return self._sector_name_models[culture].generate(self.r)
@@ -542,19 +548,16 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def _load_name_models(self) -> None:
         self.logger.info(f'loading name model for ships')
-        with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"), "rt") as f:
-            self._ship_name_model.load(f)
+        self._ship_name_model.load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"))
+
+        self.logger.info(f'loading name models')
 
         for culture in config.Settings.generate.Universe.CULTURES:
             self.logger.info(f'loading name models for culture {culture}')
-            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'), "rt") as f:
-                self._sector_name_models[culture] = markov.MarkovModel().load(f)
-            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'), "rt") as f:
-                self._station_name_models[culture] = markov.MarkovModel().load(f)
-            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'), "rt") as f:
-                self._first_name_models[culture] = markov.MarkovModel().load(f)
-            with gzip.open(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'), "rt") as f:
-                self._last_name_models[culture] = markov.MarkovModel().load(f)
+            self._sector_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
+            self._station_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
+            self._first_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
+            self._last_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
 
     def _load_empty_name_models(self, culture:str) -> None:
         self._ship_name_model = markov.MarkovModel(romanize=False)
@@ -1549,33 +1552,23 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return chain
 
-    def generate_sectors(self,
+    def generate_sector_topology(self,
             universe_radius:float,
             num_sectors:int,
             sector_radius:float,
             sector_radius_std:float,
+            sector_ids:npt.NDArray,
             max_sector_edge_length:float,
-            n_habitable_sectors:int,
-            mean_habitable_resources:float,
-            mean_uninhabitable_resources:float) -> None:
-        # set up pre-expansion sectors, resources
-
-        # compute the raw resource needs for each product sink
-        pchain = self.gamestate.production_chain
-        slices = [np.s_[pchain.ranks[0:i].sum():pchain.ranks[0:i+1].sum()] for i in range(len(pchain.ranks))]
-        raw_needs = pchain.adj_matrix[slices[0], slices[0+1]]
-        for i in range(1, len(slices)-1):
-            raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
-
-        self.logger.info(f'raw needs {raw_needs}')
-
+    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         # generate locations for all sectors
         sector_coords = self.r.uniform(-universe_radius, universe_radius, (num_sectors, 2))
+        sector_coords_by_id = dict(zip(sector_ids, sector_coords))
         sector_k = sector_radius**2/sector_radius_std**2
         sector_theta = sector_radius_std**2/sector_radius
         sector_radii = self.r.gamma(sector_k, sector_theta, num_sectors)
 
         sector_loc_index = rtree.index.Index()
+
         # clean up any overlapping sectors
         for idx, (coords, radius) in enumerate(zip(sector_coords, sector_radii)):
             reject = True
@@ -1601,25 +1594,6 @@ class UniverseGenerator(core.AbstractGenerator):
                     (coords, radius)
             )
 
-        sector_ids = np.array([uuid.uuid4() for _ in range(len(sector_coords))])
-        habitable_mask = np.zeros(len(sector_coords), bool)
-        habitable_mask[self.r.choice(len(sector_coords), n_habitable_sectors, replace=False)] = 1
-
-        # choose habitable sectors
-        # each of these will have more resources
-        # implies a more robust and complete production chain
-        # implies a bigger population
-        for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
-            # mypy thinks idx is an int
-            sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
-            self.habitable_sectors.append(sector)
-
-        # set up non-habitable sectors
-        for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
-            # mypy thinks idx is an int
-            sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
-            self.non_habitable_sectors.append(sector)
-
         # set up connectivity between sectors
         distances = distance.squareform(distance.pdist(sector_coords))
         sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
@@ -1629,8 +1603,8 @@ class UniverseGenerator(core.AbstractGenerator):
         edge_index = rtree.index.Index()
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if sector_edges[i,j] == 1:
-                a = self.gamestate.sectors[source_id].loc
-                b = self.gamestate.sectors[dest_id].loc
+                a = sector_coords[i]#self.gamestate.sectors[source_id].loc
+                b = sector_coords[j]#self.gamestate.sectors[dest_id].loc
                 bbox = (
                     min(a[0],b[0]), min(a[1],b[1]),
                     max(a[0],b[0]), max(a[1],b[1]),
@@ -1649,13 +1623,13 @@ class UniverseGenerator(core.AbstractGenerator):
             if sector_edges[i,j] == 1:
                 continue
 
-            dist = util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc)
+            dist = util.distance(sector_coords_by_id[source_id], sector_coords_by_id[dest_id])
             if dist > max_sector_edge_length:
                 continue
 
             # do not add crossing edges
-            a = self.gamestate.sectors[source_id].loc
-            b = self.gamestate.sectors[dest_id].loc
+            a = sector_coords_by_id[source_id]
+            b = sector_coords_by_id[dest_id]
             bbox = (
                 min(a[0],b[0]), min(a[1],b[1]),
                 max(a[0],b[0]), max(a[1],b[1]),
@@ -1688,7 +1662,58 @@ class UniverseGenerator(core.AbstractGenerator):
             edge_index.insert(edge_id, bbox, ((*a, *b), (source_id, dest_id)))
             edge_id += 1
 
-        self.gamestate.update_edges(sector_edges, sector_ids)
+        self.gamestate.update_edges(sector_edges, sector_ids, sector_coords)
+
+        return sector_coords, sector_edges, sector_radii
+
+    def generate_sectors(self,
+            universe_radius:float,
+            num_sectors:int,
+            sector_radius:float,
+            sector_radius_std:float,
+            max_sector_edge_length:float,
+            n_habitable_sectors:int,
+            mean_habitable_resources:float,
+            mean_uninhabitable_resources:float) -> None:
+        # set up pre-expansion sectors, resources
+
+        # compute the raw resource needs for each product sink
+        pchain = self.gamestate.production_chain
+        slices = [np.s_[pchain.ranks[0:i].sum():pchain.ranks[0:i+1].sum()] for i in range(len(pchain.ranks))]
+        raw_needs = pchain.adj_matrix[slices[0], slices[0+1]]
+        for i in range(1, len(slices)-1):
+            raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
+
+        self.logger.info(f'raw needs {raw_needs}')
+
+        # generate sector ids and choose which are inhabited
+        sector_ids = np.array([uuid.uuid4() for _ in range(num_sectors)])
+        habitable_mask = np.zeros(num_sectors, bool)
+        habitable_mask[self.r.choice(num_sectors, n_habitable_sectors, replace=False)] = 1
+
+        sector_coords, sector_edges, sector_radii = self.generate_sector_topology(
+            universe_radius,
+            num_sectors,
+            sector_radius,
+            sector_radius_std,
+            sector_ids,
+            max_sector_edge_length,
+        )
+
+        # choose habitable sectors
+        # each of these will have more resources
+        # implies a more robust and complete production chain
+        # implies a bigger population
+        for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
+            # mypy thinks idx is an int
+            sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            self.habitable_sectors.append(sector)
+
+        # set up non-habitable sectors
+        for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
+            # mypy thinks idx is an int
+            sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            self.non_habitable_sectors.append(sector)
 
         # add gates for the travel lanes
         #TODO: there's probably a clever way to get these indicies

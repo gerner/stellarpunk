@@ -38,7 +38,7 @@ ext_modules=[
         sources=["src/stellarpunk/generate/markov.pyx"],
         libraries=["boost_iostreams"],
         language="c++",
-        extra_compile_args=["-std=c++17", "-O0"],
+        extra_compile_args=["-std=c++17", "-O2"],
         #undef_macros = [ "NDEBUG" ],
     ),
 ]

@@ -1,17 +1,35 @@
 from libc.stdint cimport uint32_t
 from libcpp cimport bool
 from libcpp.string cimport string
+from libcpp.vector cimport vector
+from cython import parallel
 
 import uroman
 
 cdef extern from "markov.hpp":
-    cdef cppclass MarkovModel5:
+    cdef cppclass MarkovModel5 nogil:
         void train_from_file(string filename)
         string generate(uint32_t seed)
         void save_to_file(string filename)
         void load_from_file(string filename)
 
+    cdef void load_many_models(vector[MarkovModel5*] models, vector[string] filenames)
+
 romanizer=None
+
+def load_models(filenames):
+    models = []
+    cdef vector[MarkovModel5*] cmodels;
+    cdef vector[string] cfilenames;
+    for filename in filenames:
+        m = MarkovModel()
+        models.append(m)
+        cmodels.push_back(&(m._model))
+        cfilenames.push_back(filename.encode("utf-8"))
+
+    load_many_models(cmodels, cfilenames);
+
+    return models
 
 cdef class MarkovModel:
     cdef MarkovModel5 _model
@@ -46,13 +64,16 @@ cdef class MarkovModel:
                 romanizer = uroman.Uroman()
 
         self._model.train_from_file(filename.encode("utf-8"));
+        return self
 
     def generate(self, random):
         return self.postprocess(self._model.generate(random.integers(2**32)).decode('utf-8'))
 
     def save(self, filename):
         self._model.save_to_file(filename.encode("utf-8"))
+        return self
 
     def load(self, filename):
         self._model.load_from_file(filename.encode("utf-8"))
+        return self
 

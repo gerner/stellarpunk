@@ -7,7 +7,8 @@
 ###############################################################################
 
 set -eu -o pipefail
-set -x
+
+LINE_COUNT=4000000
 
 cultures="$(cat countriescultures.tsv | tr -d '\r' | tail -n+2 | cut -f 4 | sort -u)"
 
@@ -31,9 +32,9 @@ for culture in $cultures; do
     if [ -n "${country_files}" ]; then
         echo ${country_files}
         unzip -qc name_dataset.zip ${country_files} | tr ',' '\t' | cut -f 1 \
-            | gzip -c > firstnames.${culture}.gz
+            | shuf -n $LINE_COUNT | gzip -c > firstnames.${culture}.gz
         unzip -qc name_dataset.zip ${country_files} | tr ',' '\t' | cut -f 2 \
-            | gzip -c > lastnames.${culture}.gz
+            | shuf -n $LINE_COUNT | gzip -c > lastnames.${culture}.gz
     else
         echo "no matching files"
     fi
@@ -60,9 +61,9 @@ european_count=$(echo "${nearby_count} * 0.7" | bc -l | ag -o "^[0-9]*")
 echo "${nearby_count} + ${european_count} = $((${nearby_count} + ${european_count})) target names"
 
 echo "first names"
-zcat firstnames.westeurope.gz | shuf -n $european_count | cat - <(zcat firstnames.southeastasia.gz firstnames.oceana.gz) | gzip -c > augmented_firstnames.oceana.gz
+zcat firstnames.westeurope.gz | shuf -n $european_count | cat - <(zcat firstnames.southeastasia.gz firstnames.oceana.gz) | shuf -n $LINE_COUNT | gzip -c > augmented_firstnames.oceana.gz
 echo "last names"
-zcat lastnames.westeurope.gz | shuf -n $european_count | cat - <(zcat lastnames.southeastasia.gz lasttnames.oceana.gz) | gzip -c > augmented_lastnames.oceana.gz
+zcat lastnames.westeurope.gz | shuf -n $european_count | cat - <(zcat lastnames.southeastasia.gz lastnames.oceana.gz) | shuf -n $LINE_COUNT | gzip -c > augmented_lastnames.oceana.gz
 
 mv firstnames.oceana.gz original_firstnames.oceana.gz
 mv lastnames.oceana.gz original_lastnames.oceana.gz

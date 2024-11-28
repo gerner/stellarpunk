@@ -427,12 +427,12 @@ class Gamestate(EntityRegistry):
         self.sectors[sector.entity_id] = sector
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
 
-    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray) -> None:
+    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:
         self.sector_edges = sector_edges
         self.sector_ids = sector_ids
         self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
         self.max_edge_length = max(
-            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
+            util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
         )
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:

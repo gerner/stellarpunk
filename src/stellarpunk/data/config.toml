@@ -131,7 +131,7 @@
         # how many resources available in uninhabited sectors
         MEAN_UNINHABITABLE_RESOURCES = 1e7
 
-        SHARED_CULTURE_RADIUS = 6e7
+        SHARED_CULTURE_RADIUS = 1e8
         CULTURES = [
             "balkan",
             "caribbean",
