@@ -28,6 +28,13 @@ RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
 
 def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
+    """ given adjacency weight matrix, start index, end index, compute
+    distances from start to every node up to end.
+
+    returns tuple:
+        path encoded as node -> parent node mapping
+        distances node -> shortest distance to start
+    """
     # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
     d = {start: 0}
     parent = {start: start}
@@ -215,6 +222,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self._ship_name_model:markov.MarkovModel = markov.MarkovModel()
 
         self._cultures = config.Settings.generate.Universe.CULTURES
+        self._culture_map:Mapping[uuid.UUID, str]
 
     def _random_bipartite_graph(
             self,
@@ -334,7 +342,8 @@ class UniverseGenerator(core.AbstractGenerator):
             index = self.r.integers(self.num_projectile_spawn_locs-1)
         return self.projectile_spawn_pattern[index%self.num_projectile_spawn_locs] + center, (index+1) % self.num_projectile_spawn_locs
 
-    def _gen_sector_culture(self, x:float, y:float) -> str:
+    def _gen_sector_culture(self, x:float, y:float, sector_id:uuid.UUID) -> str:
+        return self._culture_map[sector_id]
         coords = np.array((x,y))
         # look for a nearby sector and adopt their culture
         nearest_sector_id:Optional[uuid.UUID] = next((x.object for x in self.gamestate.sector_spatial.nearest((coords[0], coords[1], coords[0], coords[1]), 1, True)), None)
@@ -546,13 +555,13 @@ class UniverseGenerator(core.AbstractGenerator):
                 loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
             self.projectile_spawn_pattern.append(loc)
 
-    def _load_name_models(self) -> None:
+    def _load_name_models(self, culture_filter:Optional[List[str]]=None) -> None:
         self.logger.info(f'loading name model for ships')
         self._ship_name_model.load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"))
 
         self.logger.info(f'loading name models')
 
-        for culture in config.Settings.generate.Universe.CULTURES:
+        for culture in culture_filter if culture_filter is not None else config.Settings.generate.Universe.CULTURES:
             self.logger.info(f'loading name models for culture {culture}')
             self._sector_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
             self._station_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
@@ -572,10 +581,10 @@ class UniverseGenerator(core.AbstractGenerator):
         self._prepare_sprites(starfield_composite=starfield_composite)
         self._prepare_projectile_spawn_pattern()
 
-        if empty_name_model_culture:
-            self._load_empty_name_models(empty_name_model_culture)
-        else:
-            self._load_name_models()
+        #if empty_name_model_culture:
+        #    self._load_empty_name_models(empty_name_model_culture)
+        #else:
+        #    self._load_name_models()
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
@@ -963,7 +972,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
 
-        culture = self._gen_sector_culture(x, y)
+        culture = self._gen_sector_culture(x, y, entity_id)
 
         pchain = self.gamestate.production_chain
 
@@ -1136,7 +1145,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def spawn_uninhabited_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
 
-        culture = self._gen_sector_culture(x, y)
+        culture = self._gen_sector_culture(x, y, entity_id)
         sector = core.Sector(
             np.array([x, y]),
             radius,
@@ -1552,6 +1561,71 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return chain
 
+    def generate_sector_cultures(self,
+            sector_ids:npt.NDArray,
+            sector_coords:npt.NDArray[np.float64],
+            sector_edges:npt.NDArray[np.float64],
+            edge_distances:npt.NDArray[np.float64],
+            num_cultures:int,
+    ) -> Mapping[uuid.UUID, str]:
+        # choose some seed sectors
+
+        cultures = list(self._cultures)
+        culture_map:MutableMapping[int, str] = {}
+        # distances from seed
+        distances:MutableMapping[int, Mapping[int, float]] = {}
+        mean_distances = np.zeros(len(sector_ids))
+        for i in range(len(sector_ids)):
+            _, d = dijkstra(edge_distances, i, -1)
+            for dist in d.values():
+                mean_distances[i] += dist
+        mean_distances /= len(sector_ids)
+        # first sector is randomly chosen
+        #TODO: perhaps we should choose the most remote culture in some sense?
+        #i = self.r.integers(len(sector_coords))
+        i = int(mean_distances.argmax())
+        min_dists = np.ones(len(sector_coords))*np.inf
+        for _ in range(num_cultures):
+            #TODO: what if we run out of cultures?
+            assert(len(cultures) > 0)
+            # assign a culture to next choice
+            culture = self.r.choice(cultures)
+            culture_map[i] = culture
+            cultures.remove(culture)
+            _, d = dijkstra(edge_distances, i, -1)
+            distances[i] = d
+            # we assume the graph is fully connected, so every entry will be
+            # overwritten with a non-inf value
+            for k, dist in d.items():
+                if min_dists[k] > dist:
+                    min_dists[k] = dist
+            # choose most remote sector from any current seed sector
+            i = int(min_dists.argmax())
+            # seed sectors should appear with dist 0
+            assert(i not in culture_map)
+
+        uncultured_sectors = set(i for i in range(len(sector_coords)) if i not in culture_map)
+
+        # "grow" culture from the seed sectors along edges
+        # always choose the next closest uncultured sector via total distance
+        # to seed sector
+        while len(uncultured_sectors) > 0:
+            min_dist = np.inf
+            min_dist_seed = -1
+            min_dist_sector = -1
+            for s in uncultured_sectors:
+                for i,d in distances.items():
+                    if d[s] < min_dist:
+                        min_dist = d[s]
+                        min_dist_seed = i
+                        min_dist_sector = s
+            assert(min_dist_seed >= 0)
+            assert(min_dist_sector >= 0)
+            culture_map[min_dist_sector] = culture_map[min_dist_seed]
+            uncultured_sectors.remove(min_dist_sector)
+
+        return dict(((sector_ids[k], v) for k,v in culture_map.items()))
+
     def generate_sector_topology(self,
             universe_radius:float,
             num_sectors:int,
@@ -1559,7 +1633,7 @@ class UniverseGenerator(core.AbstractGenerator):
             sector_radius_std:float,
             sector_ids:npt.NDArray,
             max_sector_edge_length:float,
-    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         # generate locations for all sectors
         sector_coords = self.r.uniform(-universe_radius, universe_radius, (num_sectors, 2))
         sector_coords_by_id = dict(zip(sector_ids, sector_coords))
@@ -1664,7 +1738,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.update_edges(sector_edges, sector_ids, sector_coords)
 
-        return sector_coords, sector_edges, sector_radii
+        return sector_coords, sector_edges, sector_radii, edge_distances
 
     def generate_sectors(self,
             universe_radius:float,
@@ -1691,7 +1765,7 @@ class UniverseGenerator(core.AbstractGenerator):
         habitable_mask = np.zeros(num_sectors, bool)
         habitable_mask[self.r.choice(num_sectors, n_habitable_sectors, replace=False)] = 1
 
-        sector_coords, sector_edges, sector_radii = self.generate_sector_topology(
+        sector_coords, sector_edges, sector_radii, edge_distances = self.generate_sector_topology(
             universe_radius,
             num_sectors,
             sector_radius,
@@ -1699,6 +1773,16 @@ class UniverseGenerator(core.AbstractGenerator):
             sector_ids,
             max_sector_edge_length,
         )
+
+        self._culture_map = self.generate_sector_cultures(
+            sector_ids,
+            sector_coords,
+            sector_edges,
+            edge_distances,
+            self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True),
+        )
+
+        self._load_name_models(culture_filter=list(set(self._culture_map.values())))
 
         # choose habitable sectors
         # each of these will have more resources

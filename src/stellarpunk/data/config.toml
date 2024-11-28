@@ -131,6 +131,11 @@
         # how many resources available in uninhabited sectors
         MEAN_UNINHABITABLE_RESOURCES = 1e7
 
+        # how many distinct cultures should be represented in the universe?
+        # maybe on order of sqrt(NUM_SECTORS)?
+        # specified as min, max, inclusive
+        NUM_CULTURES=[5,7]
+
         SHARED_CULTURE_RADIUS = 1e8
         CULTURES = [
             "balkan",

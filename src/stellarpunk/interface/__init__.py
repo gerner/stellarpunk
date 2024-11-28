@@ -161,6 +161,8 @@ class Icons:
     COLOR_STAR_SMALL = 203#245
     COLOR_STAR_LARGE = 249
 
+    COLOR_CULTURES = [94, 102, 110, 118, 126, 134, 142, 150, 158, 166, 174, 182, 190, 198, 206, 214, 222]
+
     @staticmethod
     def angle_to_ship(angle:float) -> str:
         """ Returns ship icon pointing in angle (radians) direction. """
@@ -230,6 +232,10 @@ class Icons:
             return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
         else:
             return 0
+
+    @staticmethod
+    def culture_attr(culture:str) -> int:
+        return curses.color_pair(Icons.COLOR_CULTURES[config.Settings.generate.Universe.CULTURES.index(culture) % len(Icons.COLOR_CULTURES)])
 
 class BasicCanvas:
     def __init__(self, height:int, width:int, y:int, x:int, aspect_ratio:float) -> None:
