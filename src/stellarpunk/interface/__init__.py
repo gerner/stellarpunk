@@ -752,9 +752,6 @@ class Interface(AbstractInterface):
             curses.endwin()
             self.logger.info("done")
 
-    def notification_received(self, player:core.Player, notification:str) -> None:
-        self.log_message(notification)
-
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
 
@@ -1059,7 +1056,8 @@ class Interface(AbstractInterface):
                 if view.active:
                     view.update_display()
             self.show_date()
-            self.show_cash()
+            if self.player:
+                self.show_cash()
             self.show_diagnostics()
             self.stdscr.noutrefresh()
 

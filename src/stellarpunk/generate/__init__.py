@@ -1,1 +1,1 @@
-from .core import UniverseGenerator
+from .core import UniverseGenerator, UniverseGeneratorObserver

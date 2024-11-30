@@ -11,7 +11,7 @@ from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, L
 import numpy as np
 
 from stellarpunk import core, interface, generate, util, config, events, narrative
-from stellarpunk.interface import audio, universe, sector, pilot, command_input, character, comms, station, ui_events
+from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events
 
 
 KEY_DISPLAY = {
@@ -245,7 +245,7 @@ class PolygonDemo(interface.View):
         return True
 
 
-class InterfaceManager(core.CharacterObserver):
+class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(gamestate, generator, self.mixer)
@@ -267,12 +267,21 @@ class InterfaceManager(core.CharacterObserver):
         self.interface.__exit__(*args)
         self.mixer.__exit__(*args)
 
+    def player_spawned(self, player:core.Player) -> None:
+        #TODO: should probably check some state to avoid errors here
+        # e.g. player already exists and didn't die
+        player.character.observe(self)
+
     def initialize(self) -> None:
         self.interface.initialize()
-        self.gamestate.player.character.observe(self)
+        if self.gamestate.player is not None:
+            self.gamestate.player.character.observe(self)
+        self.generator.observe(self)
         assert isinstance(self.gamestate.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
         self.interface.open_view(pilot_view)
+        #startup_view = startup.StartupView(self.interface)
+        #self.interface.open_view(startup_view)
 
     def register_events(self) -> None:
         events.register_action(ui_events.DialogAction(self.interface, self.event_manager))

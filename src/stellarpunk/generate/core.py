@@ -11,6 +11,8 @@ import heapq
 import time
 import gzip
 import os
+import weakref
+import abc
 
 import numpy as np
 import numpy.typing as npt
@@ -181,6 +183,10 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
+class UniverseGeneratorObserver(abc.ABC):
+    def player_spawned(self, player:core.Player) -> None:
+        pass
+
 class UniverseGenerator(core.AbstractGenerator):
     @staticmethod
     def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
@@ -223,6 +229,17 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self._cultures = config.Settings.generate.Universe.CULTURES
         self._culture_map:Mapping[uuid.UUID, str]
+
+        self._observers:weakref.WeakSet[UniverseGeneratorObserver] = weakref.WeakSet()
+
+    def observe(self, observer:UniverseGeneratorObserver) -> None:
+        self._observers.add(observer)
+
+    def unobserve(self, observer:UniverseGeneratorObserver) -> None:
+        try:
+            self._observers.remove(observer)
+        except KeyError:
+            pass
 
     def _random_bipartite_graph(
             self,
@@ -947,6 +964,9 @@ class UniverseGenerator(core.AbstractGenerator):
         player = core.Player(self.gamestate)
         player.character = player_character
         player.agent = econ.PlayerAgent(player, self.gamestate)
+
+        for observer in self._observers:
+            observer.player_spawned(player)
 
         return player
 
