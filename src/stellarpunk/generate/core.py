@@ -225,7 +225,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self._station_name_models:MutableMapping[str, markov.MarkovModel] = {}
         self._first_name_models:MutableMapping[str, markov.MarkovModel] = {}
         self._last_name_models:MutableMapping[str, markov.MarkovModel] = {}
-        self._ship_name_model:markov.MarkovModel = markov.MarkovModel()
+        self._ship_name_model:markov.MarkovModel = markov.MarkovModel(roman_numerals=True)
 
         self._cultures = config.Settings.generate.Universe.CULTURES
         self._culture_map:Mapping[uuid.UUID, str]
@@ -608,10 +608,10 @@ class UniverseGenerator(core.AbstractGenerator):
 
         for culture in culture_filter if culture_filter is not None else config.Settings.generate.Universe.CULTURES:
             self.logger.info(f'loading name models for culture {culture}')
-            self._sector_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
-            self._station_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
-            self._first_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
-            self._last_name_models[culture] = markov.MarkovModel().load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
+            self._sector_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
+            self._station_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
+            self._first_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
+            self._last_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
 
     def _load_empty_name_models(self, culture:str) -> None:
         self._ship_name_model = markov.MarkovModel(romanize=False)

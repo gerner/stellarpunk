@@ -81,7 +81,7 @@ class DialAnimation(AnimationSequence):
         self.mixer.halt_channel(self.channel)
 
 class RingingAnimation(AnimationSequence):
-    def __init__(self, mixer:interface.AbstractMixer, canvas:interface.Canvas, *args:Any, end_str="\n\n", **kwargs:Any):
+    def __init__(self, mixer:interface.AbstractMixer, canvas:interface.Canvas, *args:Any, end_str:str="\n\n", **kwargs:Any):
         super().__init__(*args, **kwargs)
         self.mixer = mixer
         self.canvas = canvas

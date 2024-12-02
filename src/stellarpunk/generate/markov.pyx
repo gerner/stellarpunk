@@ -75,5 +75,10 @@ cdef class MarkovModel:
 
     def load(self, filename):
         self._model.load_from_file(filename.encode("utf-8"))
+        if self._romanize:
+            global romanizer
+            if romanizer is None:
+                romanizer = uroman.Uroman()
+
         return self
 
