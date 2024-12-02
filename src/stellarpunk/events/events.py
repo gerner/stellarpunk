@@ -221,10 +221,10 @@ class MessageAction(ecore.Action):
 def register_events() -> None:
     ecore.register_events(Events)
     ecore.register_context_keys(ContextKeys)
-    ecore.register_action(IncAction())
-    ecore.register_action(DecAction())
-    ecore.register_action(BroadcastAction())
-    ecore.register_action(MessageAction())
+    ecore.register_action(IncAction(), "inc")
+    ecore.register_action(DecAction(), "dec")
+    ecore.register_action(BroadcastAction(), "broadcast")
+    ecore.register_action(MessageAction(), "message")
 
 # TODO: should we not eagerly do this?
 register_events()

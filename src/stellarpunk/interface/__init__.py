@@ -509,10 +509,13 @@ class AbstractMixer:
     def sample_rate(self) -> int:
         return 44100
 
-    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None) -> None:
+    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None, loops:int=0) -> int:
         """ Plays an audio sample encoded in an np array of floats from -1 to 1
 
         We assume the sample is at our sampel rate. """
+        return -1
+
+    def halt_channel(self, channel:int) -> None:
         pass
 
 class AbstractInterface(abc.ABC):

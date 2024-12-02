@@ -284,10 +284,10 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         #self.interface.open_view(startup_view)
 
     def register_events(self) -> None:
-        events.register_action(ui_events.DialogAction(self.interface, self.event_manager))
-        events.register_action(ui_events.PlayerNotification(self.interface))
-        events.register_action(ui_events.PlayerReceiveBroadcast(self.interface))
-        events.register_action(ui_events.PlayerReceiveMessage(self.interface))
+        events.register_action(ui_events.DialogAction(self.interface, self.event_manager), "dialog")
+        events.register_action(ui_events.PlayerNotification(self.interface), "player_notification")
+        events.register_action(ui_events.PlayerReceiveBroadcast(self.interface), "player_receive_broadcast")
+        events.register_action(ui_events.PlayerReceiveMessage(self.interface), "player_receive_message")
 
     def focused_view(self) -> Optional[interface.View]:
         """ Get the topmost view that's not the topmost CommandInput """

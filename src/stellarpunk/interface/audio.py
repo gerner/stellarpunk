@@ -72,7 +72,7 @@ class Mixer(interface.AbstractMixer):
         if sample.callback:
             sample.callback()
 
-    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None) -> None:
+    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None, loops:int=0) -> int:
         arr = (np.clip(sample, -1, 1) * self.max_int).astype(self.dtype)
 
         # Cast the array into ctypes format for use with mixer
@@ -87,7 +87,12 @@ class Mixer(interface.AbstractMixer):
 
         channel = mixer.Mix_GroupAvailable(-1)
         self.channel_samples[channel].append(Sample(c_buf, sample_chunk, callback))
-        ret = mixer.Mix_PlayChannel(channel, sample_chunk, 0)
+        ret = mixer.Mix_PlayChannel(channel, sample_chunk, loops)
         if ret < 0:
             err = mixer.Mix_GetError().decode("utf8")
             raise RuntimeError("Error playing sample: {0}".format(err))
+
+        return channel
+
+    def halt_channel(self, channel:int) -> None:
+        mixer.Mix_HaltChannel(channel)

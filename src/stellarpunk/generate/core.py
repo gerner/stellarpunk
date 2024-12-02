@@ -383,7 +383,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > config.Settings.generate.names.MAX_SECTOR_NAME_WORDS) and tries < max_tries:
             name = self._sector_name_models[culture].generate(self.r)
-            assert(name != "")
+            assert(culture == "test" or name != "")
             tries+=1
         return name
 
@@ -393,7 +393,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
             name = self._station_name_models[culture].generate(self.r)
-            assert(name != "")
+            assert(culture == "test" or name != "")
             tries+=1
         return name
 
@@ -403,7 +403,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
             name = self._station_name_models[culture].generate(self.r)
-            assert(name != "")
+            assert(culture == "test" or name != "")
             tries+=1
         return name
 
@@ -413,7 +413,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > config.Settings.generate.names.MAX_SHIP_NAME_WORDS) and tries < max_tries:
             name = self._ship_name_model.generate(self.r)
-            assert(name != "")
+            assert(culture == "test" or name != "")
             tries+=1
         return name
 
@@ -626,8 +626,9 @@ class UniverseGenerator(core.AbstractGenerator):
         self._prepare_sprites(starfield_composite=starfield_composite)
         self._prepare_projectile_spawn_pattern()
 
-        #if empty_name_model_culture:
-        #    self._load_empty_name_models(empty_name_model_culture)
+        if empty_name_model_culture:
+            self._load_empty_name_models(empty_name_model_culture)
+            self._cultures = {}
         #else:
         #    self._load_name_models()
 

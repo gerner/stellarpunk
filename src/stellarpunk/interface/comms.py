@@ -1,23 +1,119 @@
 """ Comms view between a character and the player """
 
 import abc
-from typing import Any, Optional, Sequence, Collection, Deque
+from typing import Any, Optional, Sequence, Collection, Deque, Callable
 import curses
 import textwrap
 import collections
+import enum
+import time
+
+import numpy as np
+import dtmf # type: ignore
 
 from stellarpunk import core, interface, config, dialog, events
+from stellarpunk.interface import ui_util
 
 class AnimationSequence:
-    @abc.abstractmethod
-    def animate(self, now:float) -> bool: ...
+    def __init__(self, callback:Optional[Callable[[], None]]=None):
+        self.callback = callback
+        self.start_time = -1.0
 
-    def flush(self) -> None:
+    def _initialize(self, now:float) -> None:
         pass
 
+    @abc.abstractmethod
+    def _animate(self, now:float) -> bool: ...
+
+    def _finish(self) -> None:
+        pass
+
+    def _flush(self) -> None:
+        pass
+
+    def animate(self, now:float) -> bool:
+        if self.start_time < 0:
+            self.start_time = now
+            self._initialize(now)
+
+        if self._animate(now):
+            self._finish()
+            if self.callback is not None:
+                self.callback()
+            return True
+        return False
+
+    def flush(self) -> None:
+        self._flush()
+        self._finish()
+        if self.callback is not None:
+            self.callback()
+
+class DialAnimation(AnimationSequence):
+    def __init__(self, number_str:str, mixer:interface.AbstractMixer, canvas:interface.Canvas, *args:Any, end_str:str="\n\n", **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.mixer = mixer
+        self.canvas = canvas
+        self.number_str = number_str
+        self.duration = 0.0
+        self.end_str = end_str
+        self.channel = -2
+
+    def _initialize(self, now:float) -> None:
+        self.channel = self.mixer.play_sample(
+            np.hstack((
+                ui_util.dtmf_sample(dtmf.model.String([dtmf.model.Tone("dial"), dtmf.model.Pause()]), self.mixer.sample_rate, mark_duration=0.6, space_duration=0.1, pause_duration=0.05),
+                ui_util.dtmf_sample(self.number_str, self.mixer.sample_rate),
+            )),
+        )
+        self.duration = 0.75 + 0.06*len(self.number_str)
+        self.canvas.window.addstr(f'Dialing {self.number_str}...')
+        self.canvas.noutrefresh(0, 0)
+
+    def _animate(self, now:float) -> bool:
+        return now > self.start_time + self.duration
+
+    def _finish(self) -> None:
+        if self.end_str:
+            self.canvas.window.addstr(self.end_str)
+
+    def _flush(self) -> None:
+        self.mixer.halt_channel(self.channel)
+
+class RingingAnimation(AnimationSequence):
+    def __init__(self, mixer:interface.AbstractMixer, canvas:interface.Canvas, *args:Any, end_str="\n\n", **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.mixer = mixer
+        self.canvas = canvas
+        self.end_str = end_str
+        self.channel = -2
+        self.last_dot = 0.0
+        self.dot_interval = 1.5
+
+    def _initialize(self, now:float) -> None:
+        self.channel = self.mixer.play_sample(
+            ui_util.dtmf_sample(dtmf.model.String([dtmf.model.Tone("ringing"), dtmf.model.Tone("ringing")]), self.mixer.sample_rate, mark_duration=0.75, space_duration=0.75, pause_duration=0.1),
+            loops=-1
+        )
+
+    def _animate(self, now:float) -> bool:
+        if now-self.last_dot > self.dot_interval:
+            self.canvas.window.addstr(f'.')
+            self.last_dot = now
+            self.canvas.noutrefresh(0, 0)
+        return False
+
+    def _finish(self) -> None:
+        if self.end_str:
+            self.canvas.window.addstr(self.end_str)
+            self.canvas.noutrefresh(0, 0)
+
+    def _flush(self) -> None:
+        self.mixer.halt_channel(self.channel)
+
 class DialogKeyFrame(AnimationSequence):
-    def __init__(self, canvas:interface.Canvas, l_padding:str, text:str, chars_per_sec:float) -> None:
-        self.start_time:float = -1
+    def __init__(self, canvas:interface.Canvas, l_padding:str, text:str, chars_per_sec:float, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.l_padding = l_padding
         self.text = text
         self.canvas:interface.Canvas = canvas
@@ -30,7 +126,11 @@ class DialogKeyFrame(AnimationSequence):
         self.canvas.window.addstr(self.text[self.position:])
         self.canvas.noutrefresh(0, 0)
 
-    def animate(self, now:float) -> bool:
+    def _initialize(self, now:float) -> None:
+        if self.chars_per_sec > 0:
+            self.canvas.window.addstr(self.l_padding)
+
+    def _animate(self, now:float) -> bool:
         # we know what we're animating (dialog or response)
         # we know how far we are through animating it
         # we know when it started and when now currently is
@@ -39,10 +139,6 @@ class DialogKeyFrame(AnimationSequence):
             self.canvas.window.addstr(self.l_padding+self.text)
             self.canvas.noutrefresh(0, 0)
             return True
-
-        if self.start_time < 0:
-            self.start_time = now
-            self.canvas.window.addstr(self.l_padding)
 
         secs = now - self.start_time
         end_position = int(secs * self.chars_per_sec)
@@ -54,15 +150,56 @@ class DialogKeyFrame(AnimationSequence):
         return self.position >= len(self.text)
 
 class DialogPause(AnimationSequence):
-    def __init__(self, pause_length:float) -> None:
-        self.end_time:float = -1
+    def __init__(self, pause_length:float, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.pause_length = pause_length
 
-    def animate(self, now:float) -> bool:
-        if self.end_time < 0:
-            self.end_time = now + self.pause_length
+    def _animate(self, now:float) -> bool:
+        return now-self.start_time >= self.pause_length
 
-        return now >= self.end_time
+class NoResponseView(interface.View):
+    def __init__(self, character:core.Character, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.character = character
+        self.dialog_pad:interface.Canvas = None # type: ignore[assignment]
+        self.animation_queue:Deque[AnimationSequence] = collections.deque()
+
+        self.channel:Optional[int] = None
+
+        self.padding = 5
+
+    def _flush_animation_queue(self) -> None:
+        while len(self.animation_queue) > 0:
+            self.animation_queue.popleft().flush()
+
+    def initialize(self) -> None:
+        self.interface.reinitialize_screen(name="Comms")
+
+        dph = self.interface.viewscreen.height-self.padding*2
+        dpw = self.interface.viewscreen.width-self.padding*2
+        self.dialog_pad = interface.Canvas(
+            curses.newpad(dph, dpw),
+            dph,
+            dpw,
+            self.interface.viewscreen.y+self.padding,
+            self.interface.viewscreen.x+self.padding,
+            self.interface.aspect_ratio,
+        )
+        self.dialog_pad.window.scrollok(True)
+
+        number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in self.character.entity_id.bytes[0:4]))
+        self.animation_queue.append(DialAnimation(number_str, self.interface.mixer, self.dialog_pad, end_str=""))
+        self.animation_queue.append(RingingAnimation(self.interface.mixer, self.dialog_pad, end_str="\nNo Answer.\n\n"))
+
+    def key_list(self) -> Collection[interface.KeyBinding]:
+        if len(self.animation_queue) > 0:
+            return [self.bind_key(ord("\r"), self._flush_animation_queue)]
+        else:
+            return [self.bind_key(ord("\r"), lambda: self.interface.close_view(self))]
+    def update_display(self) -> None:
+        # handle "animation"
+        while len(self.animation_queue) > 0 and self.animation_queue[0].animate(time.time()):
+            self.animation_queue.popleft()
 
 class CommsView(interface.View):
     def __init__(self, dialog_manager:events.DialogManager, speaker:core.Character, *args:Any, **kwargs:Any) -> None:
@@ -127,7 +264,10 @@ class CommsView(interface.View):
 
         self.interface.log_message(f'connection established with {self.speaker.short_id()}')
 
-        self.handle_dialog_node(self.dialog_manager.node)
+        number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in self.speaker.entity_id.bytes[0:4]))
+        self.animation_queue.append(DialAnimation(number_str, self.interface.mixer, self.dialog_pad,
+            lambda: self.handle_dialog_node(self.dialog_manager.node)
+        ))
 
     def terminate(self) -> None:
         self.interface.log_message("connection closed.")
@@ -161,7 +301,7 @@ class CommsView(interface.View):
                 ) for i, response in enumerate(responses, start=1)
             ]
 
-            self._addstr(left_padding, 'Respond:\n', -1)
+            self._addstr(left_padding, f'Respond:\n', -1)
             for response in response_lines:
                 for line in response:
                     self._addstr(left_padding, f'{line}\n', -1)
@@ -245,6 +385,6 @@ class CommsView(interface.View):
     def update_display(self) -> None:
 
         # handle "animation" of the dialog
-        while len(self.animation_queue) > 0 and self.animation_queue[0].animate(self.gamestate.timestamp):
+        while len(self.animation_queue) > 0 and self.animation_queue[0].animate(time.time()):
             self.animation_queue.popleft()
 

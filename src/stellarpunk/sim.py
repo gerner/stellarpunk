@@ -15,7 +15,7 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
 from stellarpunk.core import combat
-from stellarpunk.interface import manager as interface_manager
+from stellarpunk.interface import ui_util, manager as interface_manager
 import stellarpunk.events.events
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -457,6 +457,10 @@ def main() -> None:
         # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
         event_manager.initialize(gamestate, config.Events)
 
+        ui_util.initialize()
+        #ui.initialize()
+        #ui.interface.tick(np.inf, gamestate.dt)
+
         generator.generate_universe()
         gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
 
@@ -465,6 +469,7 @@ def main() -> None:
         sim.initialize()
         combat.initialize()
         #TODO: intialize other modules dynamically added
+
         ui.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick

@@ -353,6 +353,10 @@ class cRule {
             //printf("passed all criteria\n");
             return true;
         }
+
+        std::uint64_t get_priority() {
+            return priority;
+        }
 };
 
 class cDirector {

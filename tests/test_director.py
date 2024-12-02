@@ -83,7 +83,20 @@ def test_parse_criteria():
     assert builder.last_high.value == rule_parser.POS_INF
 
 def test_parse_eval():
+    # notice that prority order (small comes first) is inverted w.r.t. the
+    # order the rules are defined. this helps to test that "high" (i.e. small)
+    # priority rules will win over "low" (i.e. large) priority rules, even if
+    # defined out of order
     test_config = """
+        [other_rule]
+        type = "start_game"
+        priority = 1
+        criteria = [ "5 <= stuff <= 10", "4 <= $foo.bar <= 15", "21 <= $bar.baz <= 21"]
+        [[other_rule.actions]]
+        _action = "message"
+        message = "what up fool?"
+        id_for_testing = 3
+
         [start_game_help]
         type = "start_game"
         priority = 0
@@ -92,19 +105,13 @@ def test_parse_eval():
         _action = "broadcast"
         message = "what up gang?"
         delay = 500
+        id_for_testing = 0
         [[start_game_help.actions]]
         _action = "message"
         message = "{recipient} how ya doin?"
         recipient = "PLAYER"
         sender = "CHARACTER"
-
-        [other_rule]
-        type = "start_game"
-        priority = 1
-        criteria = [ "0 <= is_player <= 0", "5 <= stuff <= 10", "4 <= $foo.bar <= 15", "21 <= $bar.baz <= 21"]
-        [[other_rule.actions]]
-        _action = "message"
-        message = "what up fool?"
+        id_for_testing = 1
     """
 
     d = rule_parser.loads(test_config, {x.name: x.value for x in ET}, {x.name: x.value for x in CK}, {x.name: x.value for x in A})
@@ -126,6 +133,7 @@ def test_parse_eval():
 
     char_a = entity_store.register_entity(300)
     char_a.set_flag(CK.is_player, 1)
+    char_a.set_flag(CK.stuff, 7)
     char_b = entity_store.register_entity(400)
     char_c = entity_store.register_entity(500)
     char_c.set_flag(CK.stuff, 3)
@@ -145,10 +153,17 @@ def test_parse_eval():
         ]
     )
 
+    # alice should get both actions for the first rule,
+    # alice should get none for the second, even though they match the rule
+    # doug should get the action for the second, only matching, rule
+    # other folk should not show up
     assert len(actions) == 3
     assert actions[0].action_id == A.broadcast
     assert actions[0].character_candidate.data == "alice"
+    assert actions[0].args["id_for_testing"] == 0
     assert actions[1].action_id == A.message
     assert actions[1].character_candidate.data == "alice"
+    assert actions[1].args["id_for_testing"] == 1
     assert actions[2].action_id == A.message
     assert actions[2].character_candidate.data == "doug"
+    assert actions[2].args["id_for_testing"] == 3
