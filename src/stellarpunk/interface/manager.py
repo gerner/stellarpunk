@@ -277,11 +277,12 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         if self.gamestate.player is not None:
             self.gamestate.player.character.observe(self)
         self.generator.observe(self)
-        assert isinstance(self.gamestate.player.character.location, core.Ship)
-        pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
-        self.interface.open_view(pilot_view)
-        #startup_view = startup.StartupView(self.interface)
-        #self.interface.open_view(startup_view)
+
+        #assert isinstance(self.gamestate.player.character.location, core.Ship)
+        #pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
+        #self.interface.open_view(pilot_view)
+        startup_view = startup.StartupView(self.generator, self.interface)
+        self.interface.open_view(startup_view)
 
     def register_events(self) -> None:
         events.register_action(ui_events.DialogAction(self.interface, self.event_manager), "dialog")
@@ -568,12 +569,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             )
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
-        in_location = self.gamestate.player.character.location is not None and self.gamestate.player.character.location.sector is not None
 
-        return [
+        command_list = [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
-            self.bind_command("t_accel", lambda x: self.time_accel()),
-            self.bind_command("t_decel", lambda x: self.time_decel()),
             self.bind_command("fps", fps),
             self.bind_command("quit", quit),
             self.bind_command("raise", raise_exception),
@@ -584,18 +582,27 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("circledemo", circledemo),
             self.bind_command("polygondemo", polygondemo),
             self.bind_command("profile", profile),
-            self.bind_command("fast", fast),
             self.bind_command("decrease_fps", decrease_fps),
             self.bind_command("increase_fps", increase_fps),
             self.bind_command("help", lambda x: self.help()),
             self.bind_command("keys", lambda x: self.keys()),
-            self.bind_command("pilot", open_pilot),
-            self.bind_command("sector", open_sector),
-            self.bind_command("universe", open_universe),
-            self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
-            self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
-            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations) if in_location else None),
-            self.bind_command("toggle_mouse", toggle_mouse),
-            self.bind_command("debug_collision", debug_collision),
         ]
+
+        if self.gamestate.keep_running:
+            # additional commands always available while the game is running
+            in_location = self.gamestate.player.character.location is not None and self.gamestate.player.character.location.sector is not None
+            command_list.extend([
+                self.bind_command("t_accel", lambda x: self.time_accel()),
+                self.bind_command("t_decel", lambda x: self.time_decel()),
+                self.bind_command("fast", fast),
+                self.bind_command("pilot", open_pilot),
+                self.bind_command("sector", open_sector),
+                self.bind_command("universe", open_universe),
+                self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
+                self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
+                self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations) if in_location else None),
+                self.bind_command("toggle_mouse", toggle_mouse),
+                self.bind_command("debug_collision", debug_collision),
+            ])
+        return command_list
 

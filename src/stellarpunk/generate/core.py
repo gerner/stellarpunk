@@ -187,6 +187,9 @@ class UniverseGeneratorObserver(abc.ABC):
     def player_spawned(self, player:core.Player) -> None:
         pass
 
+    def universe_generation_complete(self) -> None:
+        pass
+
 class UniverseGenerator(core.AbstractGenerator):
     @staticmethod
     def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
@@ -2015,6 +2018,16 @@ class UniverseGenerator(core.AbstractGenerator):
 
         generation_stop = time.perf_counter()
         logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
+
+        for observer in self._observers:
+            observer.universe_generation_complete()
+
+        # trigger the start of game event
+        self.gamestate.trigger_event(
+            self.gamestate.characters.values(),
+            events.e(events.Events.START_GAME),
+            {},
+        )
 
         return self.gamestate
 

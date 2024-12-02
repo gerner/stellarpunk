@@ -157,7 +157,8 @@ class Gamestate(EntityRegistry):
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
-        self.keep_running = True
+        self.startup_running = True
+        self.keep_running = False
 
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
@@ -446,6 +447,12 @@ class Gamestate(EntityRegistry):
         # we want missed ticks to slow time, but if we skip time will we
         # increment the ticks even though we don't process them?
         return self.timestamp_to_datetime(self.timestamp)
+
+    def exit_startup(self) -> None:
+        self.startup_running = False
+
+    def start_game(self) -> None:
+        self.keep_running = True
 
     def quit(self) -> None:
         self.keep_running = False

@@ -379,18 +379,24 @@ class Simulator(core.AbstractGameRuntime):
                 self.behind_ticks = 0
                 self.behind_length = 0
 
+    def run_startup(self) -> None:
+        next_tick = time.perf_counter()+self.gamestate.dt
+        while self.gamestate.startup_running:
+            if self.gamestate.should_raise:
+                raise Exception()
+            now = time.perf_counter()
+            self._handle_synchronization(now, next_tick)
+            starttime = time.perf_counter()
+            next_tick = next_tick + self.gamestate.dt
+            timeout = next_tick - now
+            self.ui.tick(timeout, self.gamestate.dt)
+
     def run(self) -> None:
 
         self.reference_realtime = time.perf_counter()
         self.reference_gametime = self.gamestate.timestamp
 
         next_tick = time.perf_counter()+self.gamestate.dt
-
-        self.gamestate.trigger_event(
-            self.gamestate.characters.values(),
-            events.e(events.Events.START_GAME),
-            {},
-        )
 
         while self.gamestate.keep_running:
             if self.gamestate.should_raise:
@@ -458,19 +464,22 @@ def main() -> None:
         event_manager.initialize(gamestate, config.Events)
 
         ui_util.initialize()
-        #ui.initialize()
-        #ui.interface.tick(np.inf, gamestate.dt)
+        ui.initialize()
 
-        generator.generate_universe()
-        gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
+        # note: universe generator is handled by the ui if the player chooses
+        # a new game or to load the game
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
         sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
+
+        sim.run_startup()
+
+        # can only happen after the universe is initialized
         sim.initialize()
         combat.initialize()
         #TODO: intialize other modules dynamically added
 
-        ui.initialize()
+        #ui.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
         # this helps a lot because there's lots of short lived objects during a
