@@ -64,5 +64,6 @@ def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
     #testui.min_ui_timeout = -np.inf
 
     simulation.initialize()
+    gamestate.start_game()
 
     return simulation
