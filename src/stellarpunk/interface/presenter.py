@@ -221,8 +221,6 @@ class Presenter:
             self.view.viewscreen.addstr(y+1, x+1, f' v: {entity.velocity[0]:.0f},{entity.velocity[1]:.0f}', description_attr)
             self.view.viewscreen.addstr(y+2, x+1, f' 𝜔: {entity.angular_velocity:.2f}', description_attr)
             self.view.viewscreen.addstr(y+3, x+1, f' 𝜃: {entity.angle:.2f}', description_attr)
-            if isinstance(entity, core.Ship) and entity.collision_threat:
-                self.view.viewscreen.addstr(y+4, x+1, f' c: {entity.collision_threat.short_id()}', description_attr)
         else:
             self.view.viewscreen.addstr(y, x+1, f' s: {entity.loc[0]:.0f},{entity.loc[1]:.0f}', description_attr)
 
@@ -344,24 +342,17 @@ class Presenter:
             prefix = prefixes.pop() if len(prefixes) == 1 else "entities"
             self.view.viewscreen.addstr(y, x+1, f' {len(entities)} {prefix}', icon_attr | curses.A_DIM)
 
-    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.AbstractSensorImage]], collision_threats:Sequence[core.SectorEntity]) -> None:
+    def draw_cells(self, occupied:Mapping[Tuple[int,int], Sequence[core.AbstractSensorImage]]) -> None:
         for loc, entities in occupied.items():
             if len(entities) > 1:
                 self.draw_multiple_entities(
                         loc[1], loc[0], entities)
             else:
                 icon_attr = 0
-                if entities[0] in collision_threats:
-                    icon_attr = curses.color_pair(1)
 
                 self.draw_entity(loc[1], loc[0], entities[0], icon_attr=icon_attr)
 
     def draw_sector_map(self) -> None:
-        collision_threats = []
-        for ship in self.sector.ships:
-            if ship.collision_threat:
-                collision_threats.append(ship.collision_threat)
-
         last_loc = None
         occupied:Dict[Tuple[int,int], List[core.AbstractSensorImage]] = {}
 
@@ -383,7 +374,7 @@ class Presenter:
             else:
                 occupied[last_loc] = [entity]
 
-        self.draw_cells(occupied, collision_threats)
+        self.draw_cells(occupied)
 
         #DEBUG: show collision avoidance sensor cone for selected target
         if self.show_sensor_cone and self.selected_target:
@@ -479,6 +470,7 @@ class Presenter:
         self.view.viewscreen.addstr(s_y+1, s_x, "B", sensor_color)
 
     def draw_cymunk_shapes(self) -> None:
+        """ Debug visualization of cymunk shapes. """
         assert isinstance(self.view.viewscreen, interface.Canvas)
         window = self.view.viewscreen.window
         for shape in self.sector.space.bb_query(cymunk.BB(*self.view.viewscreen_bounds)):
