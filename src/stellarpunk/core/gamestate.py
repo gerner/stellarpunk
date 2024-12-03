@@ -455,6 +455,7 @@ class Gamestate(EntityRegistry):
         self.keep_running = True
 
     def quit(self) -> None:
+        self.startup_running = False
         self.keep_running = False
 
     def send_message(self, recipient: Character, message: Message) -> None:

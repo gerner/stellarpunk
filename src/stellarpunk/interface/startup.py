@@ -34,6 +34,20 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self._target_startup_time = 5.0
         self._universe_loaded = False
         self._mode = Mode.NONE
+        self._current_generation_step = generate.GenerationStep.NONE
+        self._estimated_generation_ticks = 0
+        self._generation_ticks = 0
+
+    def estimated_generation_ticks(self, ticks:int) -> None:
+        self._estimated_generation_ticks = ticks
+
+    def generation_step(self, step:generate.GenerationStep) -> None:
+        self.logger.debug(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+        self._current_generation_step = step
+
+    def generation_tick(self) -> None:
+        self._generation_ticks += 1
+        self.logger.debug(f'tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
 
     def universe_generation_complete(self) -> None:
         self._universe_loaded = True
@@ -60,12 +74,12 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         )
 
     def _enter_new_game(self) -> None:
-        self.viewscreen.erase()
-        self.viewscreen.addstr(15, 15, f'generating a universe...')
         self._generator.observe(self)
         self._generate_universe()
 
     def _exit_new_game(self) -> None:
+        assert(self._universe_loaded)
+        self._generator.unobserve(self)
         #TODO: should we have a timeout here?
         assert(self._generator_thread is not None)
         self._generator_thread.join()
@@ -124,9 +138,16 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self._main_menu.draw(self.viewscreen, y, x)
 
     def _draw_new_game(self) -> None:
+        self.viewscreen.erase()
+        self.viewscreen.addstr(15, 15, f'generating a universe...')
+        self.viewscreen.addstr(16, 15, f'{self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+        #TODO: janky hack to draw a progress bar
+        m = ui_util.MeterMenu("foo", [])
+        m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=self._estimated_generation_ticks), 17, 15)
+        #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
         if self._universe_loaded:
-            self.viewscreen.addstr(16, 15, f'universe generated.')
-            self.viewscreen.addstr(17, 15, f'<press esc or return to start>')
+            self.viewscreen.addstr(18, 15, f'universe generated.')
+            self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
 
     def _draw_load_game(self) -> None:
         self.viewscreen.addstr(15, 15, f'cannot load a game yet.')
