@@ -16,30 +16,6 @@ from typing import Iterable, Any, Sequence, Mapping, MutableMapping, Dict, Tuple
 
 from stellarpunk import core, util, dialog, narrative, task_schedule
 
-
-class AbstractEventManager:
-    def trigger_event(
-        self,
-        characters: Iterable[core.Character],
-        event_type: int,
-        context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
-    ) -> None:
-        pass
-
-    def trigger_event_immediate(
-        self,
-        characters: Iterable[core.Character],
-        event_type: int,
-        context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
-    ) -> None:
-        pass
-
-    def tick(self) -> None:
-        pass
-
-
 class Action:
     def __init__(self) -> None:
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
@@ -135,7 +111,7 @@ events.register_action(A()) for A in [Action1, Action2, Action3]
 trigger_event([dude], events.e(MyEvents.coolio), narrative.context({events.ck(MyContextKeys.foo): 27}), bob, billy, stuff="yes", other_stuff=42)
 """
 
-class EventManager(AbstractEventManager):
+class EventManager(core.AbstractEventManager):
     def __init__(
         self,
     ) -> None:
@@ -152,6 +128,7 @@ class EventManager(AbstractEventManager):
 
     def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
         self.gamestate = gamestate
+        self.gamestate.event_manager = self
 
         # assign integer ids for events, contexts, actions
         action_validators: Dict[int, Callable[[Mapping], bool]] = {}

@@ -1,5 +1,7 @@
 # Dialog graphs
 
+# TODO: does this demo work at all anymore? it looks like it's part of the old
+# style events, prior to narrative.director
 [dialog_demo]
 root_id = "START"
 

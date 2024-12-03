@@ -20,7 +20,7 @@ from .production_chain import ProductionChain
 from .sector import Sector
 from .sector_entity import SectorEntity
 from .order import Order, Effect
-from .character import Character, Player, Agendum, Message
+from .character import Character, Player, Agendum, Message, AbstractEventManager
 
 
 class Counters(enum.IntEnum):
@@ -71,31 +71,6 @@ class AbstractGameRuntime:
         """ Request time acceleration. """
         pass
 
-    def send_message(
-        self,
-        recipient: Character,
-        message: Message,
-    ) -> None:
-        pass
-
-    def trigger_event(
-        self,
-        characters: Iterable[Character],
-        event_type: int,
-        context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
-    ) -> None:
-        pass
-
-    def trigger_event_immediate(
-        self,
-        characters: Iterable[Character],
-        event_type: int,
-        context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
-    ) -> None:
-        pass
-
 class AbstractGenerator:
     @abc.abstractmethod
     def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False)->npt.NDArray[np.float64]: ...
@@ -115,6 +90,7 @@ class Gamestate(EntityRegistry):
         self.logger = logging.getLogger(util.fullname(self))
         self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
+        self.event_manager = AbstractEventManager()
 
         self.random = np.random.default_rng()
 
@@ -458,10 +434,6 @@ class Gamestate(EntityRegistry):
         self.startup_running = False
         self.keep_running = False
 
-    def send_message(self, recipient: Character, message: Message) -> None:
-        recipient.send_message(message)
-        self.game_runtime.send_message(recipient, message)
-
     def trigger_event(
         self,
         characters: Iterable[Character],
@@ -469,7 +441,7 @@ class Gamestate(EntityRegistry):
         context: Mapping[int, int],
         event_args: MutableMapping[str, Any] = {},
     ) -> None:
-        self.game_runtime.trigger_event(characters, event_type, context, event_args)
+        self.event_manager.trigger_event(characters, event_type, context, event_args)
 
     def trigger_event_immediate(
         self,
@@ -478,4 +450,4 @@ class Gamestate(EntityRegistry):
         context: Mapping[int, int],
         event_args: MutableMapping[str, Any] = {},
     ) -> None:
-        self.game_runtime.trigger_event_immediate(characters, event_type, context, event_args)
+        self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)

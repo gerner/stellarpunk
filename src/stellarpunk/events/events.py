@@ -47,6 +47,17 @@ class ContextKeys(enum.IntEnum):
     TUTORIAL_DELIVERED = enum.auto()
     TUTORIAL_ASTEROID = enum.auto()
 
+def send_message(gamestate:core.Gamestate, recipient:core.Character, message:core.Message) -> None:
+        gamestate.trigger_event(
+            [recipient],
+            ecore.e(Events.MESSAGE),
+            {
+                ecore.ck(ContextKeys.MESSAGE_SENDER): message.reply_to.short_id_int(),
+                ecore.ck(ContextKeys.MESSAGE_ID): message.message_id,
+                ecore.ck(ContextKeys.MESSAGE): message.short_id_int(),
+            },
+        )
+
 
 class IncAction(ecore.Action):
     def _validate(self, action_args: Mapping[str, Any]) -> bool:
@@ -215,7 +226,7 @@ class MessageAction(ecore.Action):
 
         message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender, self.gamestate, reply_dialog=reply_dialog)
 
-        self.gamestate.send_message(recipient, message)
+        send_message(self.gamestate, recipient, message)
 
 
 def register_events() -> None:

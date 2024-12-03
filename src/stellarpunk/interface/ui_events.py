@@ -117,6 +117,7 @@ class PlayerReceiveMessage(events.Action):
         assert isinstance(sender, core.Character)
         assert isinstance(message, core.Message)
 
-        self.interface.log_message(f'Message from {sender.address_str()}:\n{message.subject}')
+        self.interface.player.messages[message.entity_id] = message
+        self.interface.log_message(f'Message {message.short_id()} from {sender.address_str()}:\n{message.subject}')
 
 

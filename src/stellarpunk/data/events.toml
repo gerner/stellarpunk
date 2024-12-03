@@ -97,6 +97,7 @@ flag = "_ref:tutorial_amount_to_trade"
 
 # Player event handlers
 
+# player is in a sector during someone else's broadcast
 [player_receive_broadcast]
 type = "broadcast"
 priority = 0
@@ -104,6 +105,7 @@ criteria = ["is_player"]
 [[player_receive_broadcast.actions]]
 _action = "player_receive_broadcast"
 
+# someone sends the player a message
 [player_receive_message]
 type = "message"
 priority = 0
@@ -111,13 +113,13 @@ criteria = ["is_player"]
 [[player_receive_message.actions]]
 _action = "player_receive_message"
 
+# player contacts an NPC that has no other dialog, should trigger no-dialog UX
 [player_contact]
 type = "contact"
 priority = 2
 criteria = ["$contacter.is_player"]
 [[player_contact.actions]]
 _action = "dialog"
-# should trigger no-dialog UX
 
 #[player_open_dialog]
 #type = "dialog"

@@ -4,7 +4,8 @@ import abc
 import logging
 import uuid
 import weakref
-from typing import Optional, Any, MutableSequence, Set, List, Dict, TYPE_CHECKING
+from typing import Optional, Any, TYPE_CHECKING
+from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
 from .base import Entity, Sprite, EconAgent, Asset
@@ -23,9 +24,6 @@ class AgendumLoggerAdapter(logging.LoggerAdapter):
         return f'{self.character.address_str()} {msg}', kwargs
 
 class CharacterObserver(abc.ABC):
-    def message_received(self, character: "Character", message: "Message") -> None:
-        pass
-
     def character_destroyed(self, character: "Character") -> None:
         pass
 
@@ -138,9 +136,30 @@ class Character(Entity):
         if start:
             agendum.start()
 
-    def send_message(self, message: "Message") -> None:
-        for observer in self.observers:
-            observer.message_received(self, message)
+class AbstractEventManager:
+    def trigger_event(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: Mapping[int,int],
+        event_args: MutableMapping[str, Any],
+    ) -> None:
+        pass
+        #raise NotImplementedError()
+
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: Mapping[int,int],
+        event_args: MutableMapping[str, Any],
+    ) -> None:
+        pass
+        #raise NotImplementedError()
+
+    def tick(self) -> None:
+        pass
+        #raise NotImplementedError()
 
 
 class Message(Entity):
@@ -169,7 +188,7 @@ class Player(Entity, CharacterObserver):
         self._character:Character = None # type: ignore[assignment]
         self.agent:EconAgent = None # type: ignore[assignment]
 
-        self.messages:Dict[uuid.UUID, Message] = {}
+        self.messages:dict[uuid.UUID, Message] = {}
 
     def get_character(self) -> Character:
         return self._character
@@ -182,6 +201,3 @@ class Player(Entity, CharacterObserver):
         self._character.observe(self)
 
     character = property(get_character, set_character, doc="which character this player plays as")
-
-    def message_received(self, character:Character, message:Message) -> None:
-        self.messages[message.entity_id] = message

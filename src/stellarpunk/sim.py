@@ -16,18 +16,17 @@ import cymunk # type: ignore
 from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
 from stellarpunk.core import combat
 from stellarpunk.interface import ui_util, manager as interface_manager
-import stellarpunk.events.events
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator(core.AbstractGameRuntime):
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[events.AbstractEventManager]=None) -> None:
+    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[core.AbstractEventManager]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate = gamestate
         self.ui = ui
-        self.event_manager = event_manager or events.AbstractEventManager()
+        self.event_manager = event_manager or core.AbstractEventManager()
 
         self.pause_on_collision = False
         self.notify_on_collision = False
@@ -302,39 +301,6 @@ class Simulator(core.AbstractGameRuntime):
         self.reference_gametime = self.gamestate.timestamp
         self.time_accel_rate = accel_rate
         self.fast_mode = fast_mode
-
-    def send_message(
-        self,
-        recipient: core.Character,
-        message: core.Message,
-    ) -> None:
-        self.gamestate.trigger_event(
-            [recipient],
-            events.e(events.Events.MESSAGE),
-            {
-                events.ck(events.ContextKeys.MESSAGE_SENDER): message.reply_to.short_id_int(),
-                events.ck(events.ContextKeys.MESSAGE_ID): message.message_id,
-                events.ck(events.ContextKeys.MESSAGE): message.short_id_int(),
-            },
-        )
-
-    def trigger_event(
-        self,
-        characters: Iterable[core.Character],
-        event_type: int,
-        context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
-    ) -> None:
-        self.event_manager.trigger_event(characters, event_type, context, event_args)
-
-    def trigger_event_immediate(
-        self,
-        characters: Iterable[core.Character],
-        event_type: int,
-        context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
-    ) -> None:
-        self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)
 
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()
