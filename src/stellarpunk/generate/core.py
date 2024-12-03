@@ -257,6 +257,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self._culture_map:Mapping[uuid.UUID, str]
 
         self._observers:weakref.WeakSet[UniverseGeneratorObserver] = weakref.WeakSet()
+        self._production_chain_ticks:set[int] = set()
 
     def observe(self, observer:UniverseGeneratorObserver) -> None:
         self._observers.add(observer)
