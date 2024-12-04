@@ -162,11 +162,11 @@ class PlayerAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.player.character],
-            events.Events.BOUGHT,
+            events.e(events.Events.BOUGHT),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                events.e(events.ContextKeys.RESOURCE): resource,
+                events.e(events.ContextKeys.AMOUNT): int(amount),
+                events.e(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -180,11 +180,11 @@ class PlayerAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.player.character],
-            events.Events.SOLD,
+            events.e(events.Events.SOLD),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                events.ck(events.ContextKeys.RESOURCE): resource,
+                events.ck(events.ContextKeys.AMOUNT): int(amount),
+                events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -324,11 +324,11 @@ class StationAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.BOUGHT,
+            events.e(events.Events.BOUGHT),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                events.ck(events.ContextKeys.RESOURCE): resource,
+                events.ck(events.ContextKeys.AMOUNT): int(amount),
+                events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -343,11 +343,11 @@ class StationAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.SOLD,
+            events.e(events.Events.SOLD),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                events.ck(events.ContextKeys.RESOURCE): resource,
+                events.ck(events.ContextKeys.AMOUNT): int(amount),
+                events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -417,11 +417,11 @@ class ShipTraderAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.BOUGHT,
+            events.e(events.Events.BOUGHT),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                events.ck(events.ContextKeys.RESOURCE): resource,
+                events.ck(events.ContextKeys.AMOUNT): int(amount),
+                events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -436,10 +436,10 @@ class ShipTraderAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.SOLD,
+            events.e(events.Events.SOLD),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                events.ck(events.ContextKeys.RESOURCE): resource,
+                events.ck(events.ContextKeys.AMOUNT): int(amount),
+                events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )

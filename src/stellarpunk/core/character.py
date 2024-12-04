@@ -137,6 +137,8 @@ class Character(Entity):
             agendum.start()
 
 class AbstractEventManager:
+    def transfer_events(self, other:"AbstractEventManager") -> None:
+        raise NotImplementedError()
     def trigger_event(
         self,
         characters: Iterable[Character],

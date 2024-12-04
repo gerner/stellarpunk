@@ -21,6 +21,7 @@ _delay = 0.5
 message_id = 0
 subject = "Let's get to work"
 message = "is this thing on?"
+dialog = "tutorial_first_contact"
 recipient = "_ref:tutorial_target_player"
 
 # talking to tutorial guy for the first time

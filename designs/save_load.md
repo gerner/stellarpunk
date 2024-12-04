@@ -2,10 +2,15 @@ Saving and Loading Games
 ========================
 
 # Stuff To Load and Save
-* gamestate:
+* Simulator:
+    * simple fields
+    * gamestate (see elsewhere for details)
+    * last colliders
+* Gamestate:
     * simple fields/references
     * event manager (see elsewhere for details)
     * random state
+    * generator (see elsewhere for details)
     * all entities (each entity needs logic to save it)
     * entity contexts
     * production chain
@@ -20,14 +25,12 @@ Saving and Loading Games
     * task schedule (and all tasks)
     * starfields
     * entity destroy list
-* event manager:
+* UniverseGenerator:
+    
+* EventManager:
     * simple fields/references
     * action schedule
     * do we want to reload events?
-* sim:
-    * 
-    * gamestate (see elsewhere for details)
-    * last colliders
 * Sector (an entity)
     * simple fields/references
     * entities (at least which are in this sector as actual entities are owned

@@ -173,6 +173,8 @@ class NoResponseView(interface.View):
             self.animation_queue.popleft().flush()
 
     def initialize(self) -> None:
+        # we want this to look like CommsView, so we force pause here
+        self.gamestate.force_pause(self)
         self.interface.reinitialize_screen(name="Comms")
 
         dph = self.interface.viewscreen.height-self.padding*2
@@ -190,6 +192,9 @@ class NoResponseView(interface.View):
         number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in self.character.entity_id.bytes[0:4]))
         self.animation_queue.append(DialAnimation(number_str, self.interface.mixer, self.dialog_pad, end_str=""))
         self.animation_queue.append(RingingAnimation(self.interface.mixer, self.dialog_pad, end_str="\nNo Answer.\n\n"))
+
+    def termiante(self) -> None:
+        self.gamestate.force_unpause(self)
 
     def key_list(self) -> Collection[interface.KeyBinding]:
         if len(self.animation_queue) > 0:
@@ -243,6 +248,9 @@ class CommsView(interface.View):
             self.animation_queue.popleft().flush()
 
     def initialize(self) -> None:
+        # we don't want the dialog to have race conditions with rest of game
+        # so we force pause while this view is up
+        self.gamestate.force_pause(self)
         self.interface.reinitialize_screen(name="Comms")
 
         dph = self.interface.viewscreen.height-self.padding*2
@@ -271,6 +279,7 @@ class CommsView(interface.View):
 
     def terminate(self) -> None:
         self.interface.log_message("connection closed.")
+        self.gamestate.force_unpause(self)
 
     def handle_dialog_node(self, node:dialog.DialogNode) -> None:
         self.dialog_manager.do_node()

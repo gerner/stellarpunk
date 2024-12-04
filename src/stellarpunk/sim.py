@@ -107,6 +107,8 @@ class Simulator(core.AbstractGameRuntime):
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
         self.gamestate.game_runtime = self
+        # transfer deferred events during (e.g.) universe generation into the
+        # actual event_manager
         for sector in self.gamestate.sectors.values():
             sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected, post_solve = self._ship_collision_handler)
 
@@ -405,7 +407,9 @@ def main() -> None:
         )
         logging.getLogger("numba").level = logging.INFO
         #logging.getLogger("stellarpunk").level = logging.DEBUG
-        logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
+        #logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
+        logging.getLogger("stellarpunk.core.gamestate.DeferredEventManager").level = logging.DEBUG
+        logging.getLogger("stellarpunk.events").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions
@@ -424,10 +428,9 @@ def main() -> None:
         generator = generate.UniverseGenerator(gamestate)
         event_manager = events.EventManager()
         ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator, event_manager))
-        generator.initialize()
 
-        # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
-        event_manager.initialize(gamestate, config.Events)
+        #TODO: we should
+        generator.initialize()
 
         ui_util.initialize()
         ui.initialize()
@@ -441,11 +444,14 @@ def main() -> None:
         sim.run_startup()
 
         # can only happen after the universe is initialized
-        sim.initialize()
         combat.initialize()
         #TODO: intialize other modules dynamically added
 
-        #ui.initialize()
+        # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
+        event_manager.initialize(gamestate, config.Events)
+
+        # last initialization
+        sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
         # this helps a lot because there's lots of short lived objects during a

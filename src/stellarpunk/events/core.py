@@ -12,7 +12,8 @@ import enum
 import logging
 import collections
 import numbers
-from typing import Iterable, Any, Sequence, Mapping, MutableMapping, Dict, Tuple, Optional, Union, Deque, Callable
+from typing import Any, Optional, Union, Callable
+from collections.abc import Iterable, Sequence, Mapping, MutableMapping
 
 from stellarpunk import core, util, dialog, narrative, task_schedule
 
@@ -20,12 +21,12 @@ class Action:
     def __init__(self) -> None:
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
 
-    def _required_keys(self, key_types: Sequence[Tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
+    def _required_keys(self, key_types: Sequence[tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
         return all(
             k in action_args and isinstance(action_args[k], t) for k,t in key_types
         )
 
-    def _optional_keys(self, key_types: Sequence[Tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
+    def _optional_keys(self, key_types: Sequence[tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
         return all(
             k not in action_args or isinstance(action_args[k], t) for k,t in key_types
         )
@@ -59,9 +60,11 @@ class Action:
         pass
 
 
-RegisteredEventSpaces: Dict[enum.EnumMeta, int] = {}
-RegisteredContextSpaces: Dict[enum.EnumMeta, int] = {}
-RegisteredActions: Dict[Action, str] = {}
+_event_offset = 0
+RegisteredEventSpaces:dict[enum.EnumMeta, int] = {}
+_context_key_offset = 0
+RegisteredContextSpaces:dict[enum.EnumMeta, int] = {}
+RegisteredActions:dict[Action, str] = {}
 
 
 def e(event_id: enum.IntEnum) -> int:
@@ -80,7 +83,9 @@ def register_events(events: enum.EnumMeta) -> None:
             raise ValueError("events must start at 0 or 1")
         if max(events) > len(events):
             raise ValueError("events must be continuous")
-    RegisteredEventSpaces[events] = -1
+    global _event_offset
+    RegisteredEventSpaces[events] = _event_offset
+    _event_offset += max(events)+1
 
 
 def register_context_keys(context_keys: enum.EnumMeta) -> None:
@@ -91,7 +96,9 @@ def register_context_keys(context_keys: enum.EnumMeta) -> None:
             raise ValueError("context keys must start at 0 or 1")
         if max(context_keys) > len(context_keys):
             raise ValueError("context keys must be continuous")
-    RegisteredContextSpaces[context_keys] = -1
+    global _context_key_offset
+    RegisteredContextSpaces[context_keys] = _context_key_offset
+    _context_key_offset += max(context_keys)+1
 
 
 def register_action(action: Action, name:str) -> None:
@@ -116,36 +123,34 @@ class EventManager(core.AbstractEventManager):
         self,
     ) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.gamestate: core.Gamestate = None # type: ignore[assignment]
-        self.director: narrative.Director = None # type: ignore[assignment]
-        self.event_queue: Deque[Tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
-        self.actions: Dict[int, Action] = {}
-        self.event_types: Dict[str, int] = {}
-        self.context_keys: Dict[str, int] = {}
-        self.action_ids: Dict[str, int] = {}
+        self.gamestate:core.Gamestate = None # type: ignore[assignment]
+        self.director:narrative.Director = None # type: ignore[assignment]
+        self.event_queue:collections.deque[tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
+        self.actions:dict[int, Action] = {}
+        self.event_types:dict[str, int] = {}
+        self.event_type_lookup:dict[int, str] = {}
+        self.context_keys:dict[str, int] = {}
+        self.context_key_lookup:dict[int, str] = {}
+        self.action_ids:dict[str, int] = {}
+        self.action_id_lookup:dict[int, str] = {}
 
-        self.action_schedule: task_schedule.TaskSchedule[Tuple[narrative.Event, narrative.Action]] = task_schedule.TaskSchedule()
+        self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, narrative.Action]] = task_schedule.TaskSchedule()
 
     def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
         self.gamestate = gamestate
+        old_event_manager = self.gamestate.event_manager
         self.gamestate.event_manager = self
 
         # assign integer ids for events, contexts, actions
-        action_validators: Dict[int, Callable[[Mapping], bool]] = {}
+        action_validators:dict[int, Callable[[Mapping], bool]] = {}
 
-        event_offset = 0
         for event_enum in RegisteredEventSpaces:
-            RegisteredEventSpaces[event_enum] = event_offset
             for event_key in event_enum: # type: ignore[var-annotated]
-                self.event_types[util.camel_to_snake(event_key.name)] = event_key + event_offset
-            event_offset += max(event_enum)+1
+                self.event_types[util.camel_to_snake(event_key.name)] = event_key + RegisteredEventSpaces[event_enum]
 
-        context_key_offset = 0
         for context_enum in RegisteredContextSpaces:
-            RegisteredContextSpaces[context_enum] = context_key_offset
             for context_key in context_enum: # type: ignore[var-annotated]
-                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + context_key_offset
-            context_key_offset += max(context_enum)+1
+                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + RegisteredContextSpaces[context_enum]
 
         action_count = 0
         for action, action_name in RegisteredActions.items():
@@ -155,10 +160,19 @@ class EventManager(core.AbstractEventManager):
             action_validators[action_count] = action.validate
             action_count += 1
 
+        self.event_type_lookup = dict((v,k) for k,v in self.event_types.items())
+        self.context_key_lookup = dict((v,k) for k,v in self.context_keys.items())
+        self.action_id_lookup = dict((v,k) for k,v in self.action_ids.items())
+
         self.logger.info(f'known events {self.event_types.keys()}')
         self.logger.info(f'known context keys {self.context_keys.keys()}')
         self.logger.info(f'known actions {self.action_ids.keys()}')
         self.director = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
+
+        self.logger.info(f'transferring events from {old_event_manager} to {self}')
+        old_event_manager.transfer_events(self)
+
+        self.logger.info(f'event manager initialized')
 
     def trigger_event(
         self,
@@ -167,9 +181,10 @@ class EventManager(core.AbstractEventManager):
         context: Mapping[int, int],
         event_args: MutableMapping[str, Any],
     ) -> None:
+        self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
         self.event_queue.append((
             narrative.Event(
-                int(event_type),
+                event_type,
                 context,
                 self.gamestate.entity_context_store,
                 event_args,
@@ -214,14 +229,14 @@ class EventManager(core.AbstractEventManager):
 
     def _do_event(self, event: narrative.Event, candidates:Iterable[narrative.CharacterCandidate]) -> int:
         actions_processed = 0
-        self.logger.debug(f'evaluating event {event.event_type} for {list(x.data.short_id() for x in candidates)}')
+        self.logger.debug(f'evaluating event {self.event_type_lookup[event.event_type]} ({event.event_type}) for {list(x.data.short_id() for x in candidates)}')
         actions = self.director.evaluate(event, candidates)
         for action in actions:
-            self.logger.debug(f'triggered action {action.action_id} for {action.character_candidate.data.short_id()}')
+            self.logger.debug(f'triggered action {self.action_id_lookup[action.action_id]} ({action.action_id}) for {action.character_candidate.data.short_id()}')
 
             if "_delay" in action.args:
                 delay = action.args["_delay"]
-                self.logger.debug(f'delaying action {action.action_id} by {delay}')
+                self.logger.debug(f'delaying action {self.action_id_lookup[action.action_id]} {action.action_id} by {delay}')
                 self.action_schedule.push_task(
                     self.gamestate.timestamp+delay,
                     (event, action)

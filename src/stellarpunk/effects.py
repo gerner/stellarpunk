@@ -172,12 +172,12 @@ class MiningEffect(TransferCargoEffect):
         if self.destination.captain is not None:
             self.gamestate.trigger_event(
                 [self.destination.captain],
-                events.Events.MINED,
+                events.e(events.Events.MINED),
                 {
-                    events.ContextKeys.TARGET: self.source.short_id_int(),
-                    events.ContextKeys.RESOURCE: self.resource,
-                    events.ContextKeys.AMOUNT: int(amount),
-                    events.ContextKeys.AMOUNT_ON_HAND: int(self.destination.cargo[self.resource]),
+                    events.ck(events.ContextKeys.TARGET): self.source.short_id_int(),
+                    events.ck(events.ContextKeys.RESOURCE): self.resource,
+                    events.ck(events.ContextKeys.AMOUNT): int(amount),
+                    events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.destination.cargo[self.resource]),
                 },
             )
 

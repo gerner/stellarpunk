@@ -658,6 +658,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def initialize(self, starfield_composite:bool=True, empty_name_model_culture:Optional[str]=None) -> None:
         self.gamestate.generator = self
+        self.gamestate.random = self.r
         self._prepare_sprites(starfield_composite=starfield_composite)
         self._prepare_projectile_spawn_pattern()
 
@@ -2048,7 +2049,6 @@ class UniverseGenerator(core.AbstractGenerator):
     def generate_universe(self) -> core.Gamestate:
         self.logger.info(f'generating a universe...')
         generation_start = time.perf_counter()
-        self.gamestate.random = self.r
         num_cultures = int(self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True)) # type: ignore
 
         #TODO: janky!
