@@ -275,7 +275,13 @@ class Gamestate(EntityRegistry):
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
 
-    def handle_destroy(self, entity:Entity) -> None:
+    def handle_destroy_entities(self) -> None:
+        for entity in self.gamestate.entity_destroy_list:
+            self._handle_destroy(entity)
+        self.entity_destroy_list.clear()
+        self.entity_destroy_set.clear()
+
+    def _handle_destroy(self, entity:Entity) -> None:
         self.logger.debug(f'destroying {entity}')
         if isinstance(entity, SectorEntity):
             for character in self.characters_by_location[entity.entity_id]:
@@ -285,6 +291,9 @@ class Gamestate(EntityRegistry):
             entity.destroy()
         else:
             entity.destroy()
+
+        if entity.entity_id in self.econ_agents:
+            raise ValueError(f'{entity} still represented by econ agent {self.econ_agents[entity.entity_id]} after entity destroyed!')
 
     def destroy_entity(self, entity:Entity) -> None:
         if entity not in self.entity_destroy_set:

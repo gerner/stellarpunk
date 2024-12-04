@@ -9,28 +9,35 @@ Saving and Loading Games
 * Gamestate:
     * simple fields/references
     * event manager (see elsewhere for details)
-    * random state
     * generator (see elsewhere for details)
     * all entities (each entity needs logic to save it)
     * entity contexts
     * production chain
     * sectors
     * sector edges
-    * sector entities (these are entities)
-    * ships including orders (these are entities)
-    * econ agents (these are entities)
+    * sector entities (ref, these are entities)
+    * ships including orders (ref, these are entities)
+    * econ agents (ref, these are entities)
     * effect schedule (effects owned by sector)
     * order schedule (orders owned by sector entities)
     * agenda schedule (agenda owned by characters)
     * task schedule (and all tasks)
     * starfields
     * entity destroy list
+* Entity
+    * simple fields and refs
+    * event context
+    * lots of subclasses
 * UniverseGenerator:
-    
+    * random state (UG owns it, gamestate has a reference)
+    * portraits (should we just reload from config?)
+    * station sprites (should we just reload from config?)
+    * sector name models (should we just reload from config? will need to know which cultures are active)
+    * observers (references)
 * EventManager:
     * simple fields/references
     * action schedule
-    * do we want to reload events?
+    * do we want to reload events or just get from config?
 * Sector (an entity)
     * simple fields/references
     * entities (at least which are in this sector as actual entities are owned
@@ -47,7 +54,7 @@ Saving and Loading Games
     * captain (a reference, captain is a Character)
     * observer references
     * sensor settings
-    * other specifics from subclasses
+    * lots of subclasses
 * Ship (a sector entity)
     * simple fields
     * orders (see elsewhere for details)
@@ -56,11 +63,29 @@ Saving and Loading Games
     * simple fields/references
     * observers
     * other specifics from subclasses
+    * lots of subclasses
 * Order
     * simple fields/references
     * parent/child order references
     * observers
     * other specifics from subclasses
+    * lots of subclasses
+* Character (an entity)
+    * simple fields/references
+    * portrait (a reference? portrait sprites should live elsewhere?)
+    * agenda (see elsewhere for details)
+    * observers (references)
+* Player (an entity)
+    * player econ agent (should this actually live on gamestate like any other?)
+    * messages (see elsewhere for details)
+* EconAgent (an entity)
+    * simple fields
+    * lots of subclasses
+* Message (an entity)
+    * simple fields and references
+* Agenda
+    * simple fields and references
+    * lots of subclasses
 * Physics Space
     * all the bodies and shapes (maybe should by owned by SectorEntity/others)
     * collision handler (there's more than one!)
@@ -72,8 +97,23 @@ Saving and Loading Games
   already parsed configs? (settings, dialogs)
 * TBD ui stuff? (do we back out of all UI to save? what about stuff like being
   part way through a dialog?)
+    * InterfaceManager: nothing really...
+    * Interface: nothing really...
 
 # Issues
+
+## Configuration
+Lots of state is loaded from config. Should we save that and load what we saved
+or should we reload the config when you load the game? These could go out of
+sync if the game configs are updated after game start (e.g. development, game
+patches).
+
+Configuration Items:
+* name models
+* events
+* dialogs
+* character portraits and other sprites
+* other config settings in config.toml
 
 ## Initialization Methods
 These exist all over and might assume we're starting fresh. Should we still

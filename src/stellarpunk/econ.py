@@ -164,9 +164,9 @@ class PlayerAgent(core.EconAgent):
             [self.player.character],
             events.e(events.Events.BOUGHT),
             {
-                events.e(events.ContextKeys.RESOURCE): resource,
-                events.e(events.ContextKeys.AMOUNT): int(amount),
-                events.e(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
+                events.ck(events.ContextKeys.RESOURCE): resource,
+                events.ck(events.ContextKeys.AMOUNT): int(amount),
+                events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 

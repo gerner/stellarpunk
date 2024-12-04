@@ -34,7 +34,7 @@ class DialogAction(events.Action):
         assert isinstance(contacter, core.Character)
         #TODO: handle other characters contacting the player and not just
         # player initiating the contact
-        assert contacter == self.gamestate.player.character
+        assert contacter == self.interface.player.character
 
         if "dialog_id" not in action_args:
             logger.info(f'{core.Gamestate.gamestate.timestamp} no dialog: {character} {action_args}')

@@ -167,7 +167,7 @@ class AbstractEventManager:
 class Message(Entity):
     id_prefix = "MSG"
 
-    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:"Character", *args:Any, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
+    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:"Character", *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.message_id = message_id
@@ -176,7 +176,6 @@ class Message(Entity):
         self.timestamp = timestamp
 
         self.reply_to = reply_to
-        self.reply_dialog = reply_dialog
         self.replied_at:Optional[float] = None
 
 

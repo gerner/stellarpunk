@@ -244,9 +244,6 @@ class UniverseGenerator(core.AbstractGenerator):
         self.num_projectile_spawn_locs = 100
         self.projectile_spawn_pattern:List[npt.NDArray[np.float64]] = []
 
-        self.habitable_sectors:List[core.Sector] = []
-        self.non_habitable_sectors:List[core.Sector] = []
-
         self._sector_name_models:MutableMapping[str, markov.MarkovModel] = {}
         self._station_name_models:MutableMapping[str, markov.MarkovModel] = {}
         self._first_name_models:MutableMapping[str, markov.MarkovModel] = {}
@@ -388,21 +385,6 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def _gen_sector_culture(self, x:float, y:float, sector_id:uuid.UUID) -> str:
         return self._culture_map[sector_id]
-        coords = np.array((x,y))
-        # look for a nearby sector and adopt their culture
-        nearest_sector_id:Optional[uuid.UUID] = next((x.object for x in self.gamestate.sector_spatial.nearest((coords[0], coords[1], coords[0], coords[1]), 1, True)), None)
-        nearest_sector:Optional[core.Sector] = None
-        if nearest_sector_id is not None:
-            nearest_sector = self.gamestate.sectors[nearest_sector_id]
-        if nearest_sector and util.distance(coords, nearest_sector.loc) < config.Settings.generate.Universe.SHARED_CULTURE_RADIUS:
-            return nearest_sector.culture
-        else:
-            # try to choose a new culture if any left
-            if len(self._cultures) == 0:
-                self._cultures = config.Settings.generate.Universe.CULTURES
-            culture = self.r.choice(self._cultures)
-            self._cultures.remove(culture)
-            return culture
 
     def _gen_sector_name(self, culture:str) -> str:
         name = ""
@@ -1893,7 +1875,6 @@ class UniverseGenerator(core.AbstractGenerator):
         for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
             # mypy thinks idx is an int
             sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
-            self.habitable_sectors.append(sector)
             for observer in self._observers:
                 observer.generation_tick()
 
@@ -1903,7 +1884,6 @@ class UniverseGenerator(core.AbstractGenerator):
         for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
             # mypy thinks idx is an int
             sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
-            self.non_habitable_sectors.append(sector)
             for observer in self._observers:
                 observer.generation_tick()
 

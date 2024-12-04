@@ -90,8 +90,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self.gamestate.exit_startup()
         self.gamestate.start_game()
 
-        assert isinstance(self.gamestate.player.character.location, core.Ship)
-        pilot_view = pilot.PilotView(core.Gamestate.gamestate.player.character.location, self.interface)
+        assert isinstance(self.interface.player.character.location, core.Ship)
+        pilot_view = pilot.PilotView(self.interface.player.character.location, self.interface)
         self.interface.swap_view(pilot_view, self)
 
     def _enter_load_game(self) -> None:

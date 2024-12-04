@@ -215,16 +215,11 @@ class MessageAction(ecore.Action):
         subject_str = action_args["subject"].format(**format_args)
         message_str = action_args["message"].format(**format_args)
 
-        if "dialog" in action_args:
-            reply_dialog = dialog.load_dialog(action_args["dialog"])
-        else:
-            reply_dialog = None
-
         recipient_id = event_context[action_args["recipient"]] if action_args["recipient"] in event_context else sender.context.get_flag(action_args["recipient"])
         recipient = self.gamestate.entities_short[recipient_id]
         assert isinstance(recipient, core.Character)
 
-        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender, self.gamestate, reply_dialog=reply_dialog)
+        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender, self.gamestate)
 
         send_message(self.gamestate, recipient, message)
 
