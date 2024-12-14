@@ -12,7 +12,7 @@ Saving and Loading Games
     * event manager (see elsewhere for details)
     * generator (see elsewhere for details)
     * all entities (each entity needs logic to save it)
-    * entity contexts
+    * entity contexts (will be saved by entities themselves)
     * production chain
     * sectors
     * sector edges
@@ -60,6 +60,8 @@ Saving and Loading Games
     * simple fields
     * orders (see elsewhere for details)
     * default order callable
+* Asset: Planet, Station, Ship
+    * owner (ref to a character)
 * Effect
     * simple fields/references
     * observers

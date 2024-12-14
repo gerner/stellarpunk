@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
+from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config
 from stellarpunk.core import combat
 from stellarpunk.interface import ui_util, manager as interface_manager
 from stellarpunk.serialization import save_game
@@ -396,6 +396,21 @@ def initialize_save_game() -> save_game.SaveGame:
     sg = save_game.SaveGame()
     sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
     sg.register_saver(core.Entity, save_game.EntitySaver(sg))
+    sg.register_saver(core.Sector, save_game.SectorSaver(sg))
+    sg.register_saver(core.SectorWeatherRegion, save_game.SectorWeatherRegionSaver(sg))
+    sg.ignore_saver(core.Asteroid)
+    sg.ignore_saver(core.Planet)
+    sg.ignore_saver(core.Station)
+    sg.ignore_saver(core.Ship)
+    sg.ignore_saver(core.Missile)
+    sg.ignore_saver(core.TravelGate)
+    sg.ignore_saver(core.Character)
+    sg.ignore_saver(core.Player)
+    sg.ignore_saver(econ.StationAgent)
+    sg.ignore_saver(econ.ShipTraderAgent)
+    sg.ignore_saver(econ.PlayerAgent)
+    sg.ignore_saver(core.Message)
+
     #TODO: other savers
 
     return sg

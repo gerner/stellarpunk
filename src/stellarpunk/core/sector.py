@@ -145,9 +145,6 @@ class AbstractSensorSettings:
     def ignore_bias(self) -> bool: ...
 
 class AbstractSensorManager:
-    def __init__(self, sector:"Sector"):
-        self.sector = sector
-
     def compute_effective_profile(self, ship:SectorEntity) -> float:
         return 100.
 
@@ -223,6 +220,9 @@ class Sector(Entity):
         # one standard deviation
         self.radius = radius
 
+        # a "culture" for the sector which helps with consistent naming
+        self.culture = culture
+
         self.planets:list[Planet] = []
         self.stations:list[Station] = []
         self.ships:list[Ship] = []
@@ -244,9 +244,6 @@ class Sector(Entity):
         self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
-
-        # a "culture" for the sector which helps with consistent naming
-        self.culture = culture
 
     def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):

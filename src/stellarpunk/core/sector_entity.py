@@ -110,23 +110,22 @@ class SectorEntity(Entity):
         # some physical properties (in SI units)
         self.mass = 0.
         self.moment = 0.
-
-        phys.position = (loc[0], loc[1])
-
-        self.cargo_capacity = 5e2
-
-        # physics simulation entity (we don't manage this, just have a pointer to it)
-        self.phys = phys
-        self.phys_shape:Any = None
         #TODO: are all entities just circles?
         self.radius = 0.
-
-        self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
+        self.cargo_capacity = 5e2
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
 
         # who is responsible for this entity?
         self.captain: Optional["character.Character"] = None
+
+        phys.position = (loc[0], loc[1])
+
+        # physics simulation entity (we don't manage this, just have a pointer to it)
+        self.phys = phys
+        self.phys_shape:Any = None
+
+        self.history: Deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         self.observers:weakref.WeakSet[SectorEntityObserver] = weakref.WeakSet()
 
