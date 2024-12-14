@@ -12,6 +12,7 @@ import numpy as np
 
 from stellarpunk import core, interface, generate, util, config, events, narrative
 from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events
+from stellarpunk.serialization import save_game
 
 
 KEY_DISPLAY = {
@@ -246,12 +247,13 @@ class PolygonDemo(interface.View):
 
 
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
+    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager, sg:save_game.SaveGame) -> None:
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(gamestate, generator, self.mixer)
         self.gamestate = gamestate
         self.generator = generator
         self.event_manager = event_manager
+        self.save_game = sg
 
         self.profiler:Optional[cProfile.Profile] = None
         self.mouse_on = True
@@ -567,6 +569,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             )
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
+        def save_gamestate(args:Sequence[str]) -> None:
+            self.save_game.save(self.gamestate)
 
         command_list = [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
@@ -586,21 +590,23 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("keys", lambda x: self.keys()),
         ]
 
-        if self.gamestate.keep_running:
-            # additional commands always available while the game is running
-            in_location = self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None
-            command_list.extend([
-                self.bind_command("t_accel", lambda x: self.time_accel()),
-                self.bind_command("t_decel", lambda x: self.time_decel()),
-                self.bind_command("fast", fast),
-                self.bind_command("pilot", open_pilot),
-                self.bind_command("sector", open_sector),
-                self.bind_command("universe", open_universe),
-                self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
-                self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.player.messages.keys()))),
-                self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.stations) if in_location else None),
-                self.bind_command("toggle_mouse", toggle_mouse),
-                self.bind_command("debug_collision", debug_collision),
-            ])
+        if not self.gamestate.keep_running:
+            return command_list
+        # additional commands always available while the game is running
+        in_location = self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None
+        command_list.extend([
+            self.bind_command("t_accel", lambda x: self.time_accel()),
+            self.bind_command("t_decel", lambda x: self.time_decel()),
+            self.bind_command("fast", fast),
+            self.bind_command("pilot", open_pilot),
+            self.bind_command("sector", open_sector),
+            self.bind_command("universe", open_universe),
+            self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
+            self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.player.messages.keys()))),
+            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.stations) if in_location else None),
+            self.bind_command("toggle_mouse", toggle_mouse),
+            self.bind_command("debug_collision", debug_collision),
+            self.bind_command("save", save_gamestate),
+        ])
         return command_list
 

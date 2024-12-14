@@ -2,6 +2,7 @@ Saving and Loading Games
 ========================
 
 # Stuff To Load and Save
+
 * Simulator:
     * simple fields
     * gamestate (see elsewhere for details)
@@ -100,7 +101,47 @@ Saving and Loading Games
     * InterfaceManager: nothing really...
     * Interface: nothing really...
 
+# Serialization Architecture
+
+Could have every object responsible for serializing itself. e.g.
+`Gamestate.save()` calls `Entity.save()` for each entity, each is subclassed
+with some `_save()` method. Those call out to save whatever internal objects
+they've got. This has a benefit that we get some static type checking to make
+sure we implement `_save()` on subclasses. But this spreads serialization logic
+all over the place (e.g. if we want to change data formats we gotta touch
+everything.)
+
+Could have a whole serialization system that parallels the objects. So there's
+special code for `Gamestate` and each kind of `Entity` and so on. These would
+need intimate knowledge of each class they're serializing (or get support from
+the objects to get the necessary internal data out).
+
+## Serialization System
+
+`SaveGame` class handles saving the game. It holds any relevant state (e.g.
+where saves should go). Have some kind of plugins or modules that are
+responsible for saving different kinds of things. Each piece of save logic
+knows how to save its own object, but when it wants to save an internal complex
+object, it'll call out to some other piece of independent save logic to save
+that object. For example, ship saving logic knows how to save a ship, and knows
+it needs to save the ship's orders, but it defers to order saving logic to save
+each order.
+
+This creates a tree of saving logic that progressively, recursively saves
+each field, dispatching to appropriate class specific logic to save each
+object when we run into a field that represents strong ownership of the
+associated object.
+
 # Issues
+
+## Dynamic vs Static State
+
+Some stuff, like production chain, or sector layout in the universe, doesn't
+change after initial generation. Other things might only change rarely. Should
+these get saved over and over again? We could save these once and just
+reference that on every subsequent save. Could that be generalized into a delta
+save format where everything (at some granularity) can reference another save
+instead of being serialized again?
 
 ## Configuration
 Lots of state is loaded from config. Should we save that and load what we saved
@@ -118,7 +159,7 @@ Configuration Items:
 ## Initialization Methods
 These exist all over and might assume we're starting fresh. Should we still
 run these when loading? before or after loading? Some are called before the
-universe is generated, some after so that might be tricky.
+universe is generated, some after. So that might be tricky.
 
 Maybe loading is an alternative to universe generation so we should do all the
 loading instead of universe generation?
@@ -141,5 +182,5 @@ in the middle of the dialog.
 
 Perhaps we should refactor things so that any flags get set at the end of the
 dialog, so the dialog itself does not modify state during the dialog. Then we
-can make flag setting atomic.
+can make flag setting atomic with respect to the dialog.
 

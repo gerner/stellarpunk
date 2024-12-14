@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 import math
 import bisect
@@ -28,11 +29,16 @@ def fullname(o:Any) -> str:
     # Alas, the module name is explicitly excluded from __qualname__
     # in Python 3.
 
-    module = o.__class__.__module__
-    if module is None or module == str.__class__.__module__:
-        return o.__class__.__qualname__  # Avoid reporting __builtin__
+    if isinstance(o, type):
+        klass = o
     else:
-        return module + '.' + o.__class__.__qualname__
+        klass = o.__class__
+
+    module = klass.__module__
+    if module is None or module == str.__class__.__module__:
+        return klass.__qualname__  # Avoid reporting __builtin__
+    else:
+        return module + '.' + klass.__qualname__
 
 def throttled_log(timestamp:float, throttle:float, logger:logging.Logger, level:int, message:str, limit:float) -> float:
     if timestamp > throttle:

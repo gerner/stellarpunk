@@ -137,7 +137,7 @@ class Gamestate(EntityRegistry):
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:Dict[uuid.UUID, Sector] = {}
         self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
-        self.sector_idx:Mapping[uuid.UUID, int] = {} #inverse of sector_ids
+        self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
         self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
 
         # a spatial index of sectors in the universe
@@ -198,6 +198,8 @@ class Gamestate(EntityRegistry):
         # set for destroying exactly once
         self.entity_destroy_list:List[Entity] = []
         self.entity_destroy_set:Set[Entity] = set()
+
+        self.last_colliders:set[str] = set()
 
     def register_entity(self, entity: Entity) -> narrative.EventContext:
         self.logger.debug(f'registering {entity}')
@@ -444,6 +446,7 @@ class Gamestate(EntityRegistry):
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
+        self.sector_idx[sector.entity_id] = idx
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
 
     def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:

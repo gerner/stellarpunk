@@ -3,6 +3,7 @@
 No dependencies on other parts of the datamodel
 """
 
+import io
 import enum
 import abc
 import uuid

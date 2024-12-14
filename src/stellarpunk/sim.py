@@ -16,6 +16,7 @@ import cymunk # type: ignore
 from stellarpunk import util, core, interface, generate, orders, econ_sim, agenda, events, narrative, config
 from stellarpunk.core import combat
 from stellarpunk.interface import ui_util, manager as interface_manager
+from stellarpunk.serialization import save_game
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
@@ -69,7 +70,6 @@ class Simulator(core.AbstractGameRuntime):
         # this is not for external consumption
         self._collisions:List[Tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
         self._colliders:Set[str] = set()
-        self._last_colliders:Set[str] = set()
 
         # some settings related to time acceleration
         # how many seconds of simulation (as in dt) should elapse per second
@@ -89,7 +89,7 @@ class Simulator(core.AbstractGameRuntime):
         # later, but still process them for physics purposes
         colliders = "".join(sorted(map(str, [shape_a.body.data.entity_id, shape_b.body.data.entity_id])))
         self._colliders.add(colliders)
-        if colliders in self._last_colliders:
+        if colliders in self.gamestate.last_colliders:
             return
 
         sector = shape_a.body.data.sector
@@ -121,7 +121,7 @@ class Simulator(core.AbstractGameRuntime):
     def _tick_collisions(self, dt:float) -> None:
         # keep track of this tick collisions (if any) so we can ignore
         # collisions that last over several consecutive ticks
-        self._last_colliders = self._colliders
+        self.gamestate.last_colliders = self._colliders
         self._colliders = set()
 
         if self._collisions:
@@ -392,6 +392,14 @@ class Simulator(core.AbstractGameRuntime):
             ticktime = now - starttime
             self.gamestate.ticktime = util.update_ema(self.gamestate.ticktime, self.ticktime_alpha, ticktime)
 
+def initialize_save_game() -> save_game.SaveGame:
+    sg = save_game.SaveGame()
+    sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
+    sg.register_saver(core.Entity, save_game.EntitySaver(sg))
+    #TODO: other savers
+
+    return sg
+
 def main() -> None:
     with contextlib.ExitStack() as context_stack:
         # for reference, config to stderr:
@@ -424,9 +432,9 @@ def main() -> None:
 
         generator = generate.UniverseGenerator(gamestate)
         event_manager = events.EventManager()
-        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator, event_manager))
+        sg = initialize_save_game()
+        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator, event_manager, sg))
 
-        #TODO: we should
         generator.initialize()
 
         ui_util.initialize()
