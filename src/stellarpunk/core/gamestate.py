@@ -139,6 +139,7 @@ class Gamestate(EntityRegistry):
         self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
         self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
         self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
+        self.max_edge_length:float = 0.0
 
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
@@ -453,9 +454,10 @@ class Gamestate(EntityRegistry):
         self.sector_edges = sector_edges
         self.sector_ids = sector_ids
         self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
-        self.max_edge_length = max(
-            util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
-        )
+        if len(sector_ids) >= 2:
+            self.max_edge_length = max(
+                util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
+            )
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")

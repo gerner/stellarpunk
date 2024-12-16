@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from stellarpunk import core, interface, generate
 from stellarpunk.interface import pilot, ui_util
+from stellarpunk.serialization import save_game
 
 class Mode(enum.Enum):
     """ Startup Menu Modes """
@@ -24,11 +25,13 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
     TODO: also startup menu? """
 
-    def __init__(self, generator:generate.UniverseGenerator, *args:Any, **kwargs:Any):
+    def __init__(self, generator:generate.UniverseGenerator, game_saver:save_game.GameSaver, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
 
         self._generator = generator
         self._generator_thread:Optional[threading.Thread] = None
+
+        self._game_saver = game_saver
 
         self._start_time = time.time()
         self._target_startup_time = 5.0
@@ -97,6 +100,35 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
     def _enter_load_game(self) -> None:
         self.viewscreen.erase()
 
+        def load_game(filename:str) -> None:
+            self._game_saver.load(filename)
+            self._universe_loaded = True
+            #TODO: should we let the user press a key first?
+            self._enter_mode(Mode.EXIT)
+
+        # get savegame options
+        load_options = []
+        for save_game in self._game_saver.list_save_games():
+            load_options.append(ui_util.TextMenuItem(
+                save_game.filename,
+                lambda: load_game(save_game.filename)
+            ))
+
+        self._load_menu = ui_util.Menu(
+            "Load Game",
+            ui_util.number_text_menu_items(load_options)
+        )
+
+    def _exit_load_game(self) -> None:
+        assert(self._universe_loaded)
+
+        self.gamestate.exit_startup()
+        self.gamestate.start_game()
+
+        assert isinstance(self.interface.player.character.location, core.Ship)
+        pilot_view = pilot.PilotView(self.interface.player.character.location, self.interface)
+        self.interface.swap_view(pilot_view, self)
+
     def _enter_exit_game(self) -> None:
         self.gamestate.quit()
         self.gamestate.exit_startup()
@@ -109,6 +141,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         # leave the old mode
         if self._mode == Mode.NEW_GAME:
             self._exit_new_game()
+        elif self._mode == Mode.LOAD_GAME:
+            self._exit_load_game()
 
         # enter the new mode
         self._mode = mode
@@ -150,8 +184,11 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
             self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
 
     def _draw_load_game(self) -> None:
-        self.viewscreen.addstr(15, 15, f'cannot load a game yet.')
-        self.viewscreen.addstr(16, 15, f'<press esc or return to return to main menu>')
+        # menu to choose which save game to load
+        # selecting one loads that game and then transitions 
+        y = 15
+        x = 15
+        self._load_menu.draw(self.viewscreen, y, x)
 
     def update_display(self) -> None:
         # TODO: have some clever graphic for the main menu
@@ -184,9 +221,10 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         def cancel() -> None:
             self._enter_mode(Mode.MAIN_MENU)
 
-        key_list = self.bind_aliases(
-            [curses.ascii.ESC, curses.ascii.CR], cancel, help_key="startup_load_cancel"
-        )
+        key_list = list(self._load_menu.key_list())
+        key_list.extend(self.bind_aliases(
+            [curses.ascii.ESC], cancel, help_key="startup_load_cancel"
+        ))
         return key_list
 
     def key_list(self) -> Collection[interface.KeyBinding]:

@@ -1,6 +1,6 @@
 """ Stellarpunk production chain """
 
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Any
 
 import graphviz # type: ignore
 
@@ -34,6 +34,30 @@ class ProductionChain:
         self.batch_sizes = np.zeros((self.num_products,))
 
         self.product_names:Sequence[str] = []
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, ProductionChain):
+            return False
+
+        if self.num_products != other.num_products:
+            return False
+        if not np.array_equal(self.ranks, other.ranks):
+            return False
+        if not np.array_equal(self.adj_matrix, other.adj_matrix):
+            return False
+        if not np.array_equal(self.markup, other.markup):
+            return False
+        if not np.array_equal(self.prices, other.prices):
+            return False
+        if not np.array_equal(self.production_times, other.production_times):
+            return False
+        if not np.array_equal(self.production_coolingoff_time, other.production_coolingoff_time):
+            return False
+        if not np.array_equal(self.batch_sizes, other.batch_sizes):
+            return False
+        if self.product_names != other.product_names:
+            return False
+        return True
 
     @property
     def shape(self) -> Tuple[int, ...]:

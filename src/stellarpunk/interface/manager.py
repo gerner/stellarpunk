@@ -247,13 +247,13 @@ class PolygonDemo(interface.View):
 
 
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager, sg:save_game.SaveGame) -> None:
+    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager, sg:save_game.GameSaver) -> None:
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(gamestate, generator, self.mixer)
         self.gamestate = gamestate
         self.generator = generator
         self.event_manager = event_manager
-        self.save_game = sg
+        self.game_saver = sg
 
         self.profiler:Optional[cProfile.Profile] = None
         self.mouse_on = True
@@ -280,7 +280,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.interface.player.character.observe(self)
         self.generator.observe(self)
 
-        startup_view = startup.StartupView(self.generator, self.interface)
+        startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
         self.interface.open_view(startup_view)
 
     def register_events(self) -> None:
@@ -570,7 +570,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
         def save_gamestate(args:Sequence[str]) -> None:
-            self.save_game.save(self.gamestate)
+            self.game_saver.save(self.gamestate)
 
         command_list = [
             self.bind_command("pause", lambda x: self.gamestate.pause()),

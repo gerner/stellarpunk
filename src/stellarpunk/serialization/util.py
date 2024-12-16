@@ -25,12 +25,11 @@ def float_to_f(value:float, f:io.IOBase) -> int:
 def float_from_f(f:io.IOBase) -> float:
     return struct.unpack(">f", f.read(4))[0]
 
-def int_to_f(x:int, f:io.IOBase) -> int:
-    return f.write(x.to_bytes(4, byteorder="big", signed=False))
+def int_to_f(x:int, f:io.IOBase, blen:int=4) -> int:
+    return f.write(x.to_bytes(blen, byteorder="big", signed=False))
 
-def int_from_f(f:io.IOBase) -> int:
-    return int.from_bytes(f.read(4))
-
+def int_from_f(f:io.IOBase, blen:int=4) -> int:
+    return int.from_bytes(f.read(blen), byteorder="big", signed=False)
 
 def to_len_pre_f(s:str, f:io.IOBase, blen:int=2) -> int:
     b = s.encode("utf8")
@@ -72,4 +71,4 @@ def matrix_to_f(matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]], f:
 def matrix_from_f(f:io.IOBase) -> npt.NDArray:
     count = size_from_f(f)
     matrix_bytes = f.read(count)
-    return msgpack.unpackb(object_hook=serialize_econ_sim.decode_matrix)
+    return msgpack.unpackb(matrix_bytes, object_hook=serialize_econ_sim.decode_matrix)
