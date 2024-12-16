@@ -88,7 +88,7 @@ def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
         assert neighbor_dist >= goto_order.collision_margin
 
         if goto_order.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_order.cannot_stop
         assert gamestate.timestamp - starttime < eta
 
@@ -115,7 +115,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
         assert neighbor_dist >= goto_order.collision_margin
 
         if goto_order.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_order.cannot_stop
         assert not goto_order.cannot_avoid_collision
         assert gamestate.timestamp - starttime < eta
@@ -142,7 +142,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
         assert neighbor_dist >= goto_order.collision_margin
 
         if goto_order.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_order.cannot_stop
         assert gamestate.timestamp - starttime < eta
 
@@ -171,7 +171,7 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
         assert neighbor_dist >= goto_order.collision_margin
 
         if goto_order.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_order.cannot_stop
         assert gamestate.timestamp - starttime < eta
 

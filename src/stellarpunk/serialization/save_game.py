@@ -13,7 +13,7 @@ from typing import Any, Optional, TypeVar
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, sim, core, narrative
+from stellarpunk import util, sim, core, narrative, generate
 from stellarpunk.serialization import serialize_econ_sim, util as s_util
 
 class LoadContext:
@@ -50,15 +50,17 @@ class NoneSaver(Saver[None]):
         return None
 
 class SaveGame:
-    def __init__(self, filename:str):
+    def __init__(self, debug_flag:bool, save_date:datetime.datetime, filename:str=""):
         self.filename = filename
+        self.debug_flag = debug_flag
+        self.save_date = save_date
 
 class GameSaver:
     """ Central point for saving a game.
 
     Organizes configuration and dispatches to various sorts of save logic. """
 
-    def __init__(self) -> None:
+    def __init__(self, generator:generate.UniverseGenerator) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
         self.debug = True
@@ -68,11 +70,15 @@ class GameSaver:
         self._class_key_lookup:dict[type, int] = {}
         self._key_class_lookup:dict[int, type] = {}
 
+        self._generator = generator
+
     def _gen_save_filename(self) -> str:
         return f'save_{time.time()}.stpnk'
 
     def _save_registry(self, f:io.IOBase) -> int:
-        bytes_written = s_util.size_to_f(len(self._class_key_lookup), f)
+        bytes_written = 0
+        bytes_written += s_util.debug_string_w("class registry", f)
+        bytes_written += s_util.size_to_f(len(self._class_key_lookup), f)
         for klass, key in self._class_key_lookup.items():
             bytes_written += s_util.to_len_pre_f(util.fullname(klass), f)
             bytes_written += s_util.int_to_f(key, f)
@@ -84,6 +90,7 @@ class GameSaver:
         # we want to verify that we have all the right savers registered and
         # that they have the same id keys
         # note that in general it's ok for us to have some extra savers
+        s_util.debug_string_r("class registry", f)
         count = s_util.size_from_f(f)
         for _ in range(count):
             fullname = s_util.from_len_pre_f(f)
@@ -100,6 +107,24 @@ class GameSaver:
         # new versions of the code, but that doesn't necessarily invalidate
         # prior savegames that didn't know about these new types
         assert(count == len(self._class_key_lookup))
+
+    def _save_metadata(self, gamestate:core.Gamestate, save_file:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.debug_string_w("metadata", save_file)
+        if self.debug:
+            bytes_written += save_file.write(b'1')
+        else:
+            bytes_written += save_file.write(b'0')
+
+        bytes_written += s_util.to_len_pre_f(datetime.datetime.now().isoformat(), save_file)
+        return bytes_written
+
+    def _load_metadata(self, save_file:io.IOBase) -> SaveGame:
+        s_util.debug_string_r("metadata", save_file)
+        debug_flag = save_file.read(1)
+        save_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(save_file))
+
+        return SaveGame(debug_flag, save_date)
 
     def key_from_class(self, klass:type) -> int:
         return self._class_key_lookup[klass]
@@ -153,15 +178,13 @@ class GameSaver:
             if save_file is None:
                 save_file = context_stack.enter_context(open(save_filename, "wb"))
             #TODO: put metadata about the save game at the top for quick retrieval
-            if self.debug:
-                save_file.write(b'1')
-            else:
-                save_file.write(b'0')
+            bytes_written += self._save_metadata(gamestate, save_file)
 
             # save class -> key registration
-            self._save_registry(save_file)
+            bytes_written += self._save_registry(save_file)
 
             # save the simulator which will recursively save everything
+            bytes_written += s_util.debug_string_w("gamestate", save_file)
             bytes_written += self.save_object(gamestate, save_file)
 
         self.logger.info(f'saved {bytes_written}bytes in {time.perf_counter()-start_time}s')
@@ -169,7 +192,13 @@ class GameSaver:
         return save_filename
 
     def list_save_games(self) -> list[SaveGame]:
-        save_games = [SaveGame(x) for x in glob.glob(os.path.join(self._save_path, self._save_file_glob))]
+        save_games = []
+        for x in glob.glob(os.path.join(self._save_path, self._save_file_glob)):
+            with open(x, "rb") as f:
+                save_game = self._load_metadata(f)
+                save_game.filename = x
+                save_games.append(save_game)
+        save_games.sort(key=lambda x: x.save_date, reverse=True)
         return save_games
 
     def load(self, save_filename:str, save_file:Optional[io.IOBase]=None) -> core.Gamestate:
@@ -177,15 +206,18 @@ class GameSaver:
         with contextlib.ExitStack() as context_stack:
             if save_file is None:
                 save_file = context_stack.enter_context(open(save_filename, "rb"))
-            #TODO: read metadata
-            load_context.debug = save_file.read(1) == b'1'
+            save_game = self._load_metadata(save_file)
+            load_context.debug = save_game.debug_flag
 
             # load the class -> key registration
             self._load_registry(save_file)
 
+            s_util.debug_string_r("gamestate", save_file)
             gamestate = self.load_object(core.Gamestate, save_file, load_context)
 
             #TODO: do we need to do any final setup?
+
+            self._generator.load_universe(gamestate)
 
             return gamestate
 
@@ -194,27 +226,27 @@ class GamestateSaver(Saver[core.Gamestate]):
         bytes_written = 0
 
         # simple fields
-        bytes_written += s_util.to_len_pre_f("simple fields", f)
+        bytes_written += s_util.debug_string_w("simple fields", f)
         bytes_written += s_util.random_state_to_f(gamestate.random, f)
         bytes_written += s_util.to_len_pre_f(gamestate.base_date.isoformat(), f)
         bytes_written += s_util.float_to_f(gamestate.timestamp, f)
-        bytes_written += s_util.float_to_f(gamestate.desired_dt, f)
+        #bytes_written += s_util.float_to_f(gamestate.desired_dt, f)
         # no need to save dt, we should reload with desired dt
         #bytes_written += s_util.float_to_f(gamestate.dt, f)
-        bytes_written += s_util.float_to_f(gamestate.min_tick_sleep, f)
+        #bytes_written += s_util.float_to_f(gamestate.min_tick_sleep, f)
         bytes_written += s_util.int_to_f(gamestate.ticks, f)
         assert(gamestate.force_pause_holder is None) # can't save while force paused
         bytes_written += s_util.uuid_to_f(gamestate.player.entity_id, f)
         #TODO: should we save counters?
 
         # production chain
-        bytes_written += s_util.to_len_pre_f("production chain", f)
+        bytes_written += s_util.debug_string_w("production chain", f)
         pchain_bytes = serialize_econ_sim.save_production_chain(gamestate.production_chain)
         bytes_written += s_util.size_to_f(len(pchain_bytes), f)
         bytes_written += f.write(pchain_bytes)
 
         # entities
-        bytes_written += s_util.to_len_pre_f("entities", f)
+        bytes_written += s_util.debug_string_w("entities", f)
         bytes_written += s_util.size_to_f(len(gamestate.entities), f)
         for entity in gamestate.entities.values():
             # we save as a generic entity which will handle its own dispatch
@@ -224,14 +256,14 @@ class GamestateSaver(Saver[core.Gamestate]):
         # save the sector ids in the right order
         # this gives us enough info to reconstruct sectors dict, sector_idx,
         # sector_spatial by pulling desired entity from the entity store
-        bytes_written += s_util.to_len_pre_f("sector ids", f)
+        bytes_written += s_util.debug_string_w("sector ids", f)
         bytes_written += s_util.size_to_f(len(gamestate.sector_ids), f)
         for sector_id in gamestate.sector_ids:
             s_util.uuid_to_f(sector_id, f)
         bytes_written += s_util.matrix_to_f(gamestate.sector_edges, f)
 
         # econ agents
-        bytes_written += s_util.to_len_pre_f("econ agents", f)
+        bytes_written += s_util.debug_string_w("econ agents", f)
         bytes_written += s_util.size_to_f(len(gamestate.econ_agents), f)
         for entity_id, agent in gamestate.econ_agents.items():
             bytes_written += s_util.uuid_to_f(entity_id, f)
@@ -241,17 +273,17 @@ class GamestateSaver(Saver[core.Gamestate]):
         #TODO: starfields
 
         # entity destroy list
-        bytes_written += s_util.to_len_pre_f("entity destroy list", f)
+        bytes_written += s_util.debug_string_w("entity destroy list", f)
         bytes_written += s_util.size_to_f(len(gamestate.entity_destroy_list), f)
         for entity in gamestate.entity_destroy_list:
             bytes_written += s_util.uuid_to_f(entity.entity_id, f)
 
-        bytes_written += s_util.to_len_pre_f("last colliders", f)
+        bytes_written += s_util.debug_string_w("last colliders", f)
         bytes_written += s_util.size_to_f(len(gamestate.last_colliders), f)
         for colliders in gamestate.last_colliders:
             bytes_written += s_util.to_len_pre_f(colliders, f)
 
-        bytes_written += s_util.to_len_pre_f("gamestate done", f)
+        bytes_written += s_util.debug_string_w("gamestate done", f)
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:LoadContext) -> core.Gamestate:
@@ -259,26 +291,23 @@ class GamestateSaver(Saver[core.Gamestate]):
         gamestate = core.Gamestate()
 
         # simple fields
-        debug_string = s_util.from_len_pre_f(f)
-        assert(debug_string == "simple fields")
+        s_util.debug_string_r("simple fields", f)
         gamestate.random = s_util.random_state_from_f(f)
         gamestate.base_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(f))
         gamestate.timestamp = s_util.float_from_f(f)
-        gamestate.desired_dt = s_util.float_from_f(f)
-        gamestate.dt = gamestate.desired_dt
-        gamestate.min_tick_sleep = s_util.float_from_f(f)
+        #gamestate.desired_dt = s_util.float_from_f(f)
+        #gamestate.dt = gamestate.desired_dt
+        #gamestate.min_tick_sleep = s_util.float_from_f(f)
         gamestate.ticks = s_util.int_from_f(f)
         player_id = s_util.uuid_from_f(f)
 
-        debug_string = s_util.from_len_pre_f(f)
-        assert(debug_string == "production chain")
+        s_util.debug_string_r("production chain", f)
         pchain_bytes_count = s_util.size_from_f(f)
         pchain_bytes = f.read(pchain_bytes_count)
         gamestate.production_chain = serialize_econ_sim.load_production_chain(pchain_bytes)
 
         # load entities
-        debug_string = s_util.from_len_pre_f(f)
-        assert(debug_string == "entities")
+        s_util.debug_string_r("entities", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             entity = self.save_game.load_object(core.Entity, f, load_context)
@@ -293,7 +322,7 @@ class GamestateSaver(Saver[core.Gamestate]):
 
         # sectors
         # load sector ids and sector edges from file
-        debug_string = s_util.from_len_pre_f(f)
+        s_util.debug_string_r("sector ids", f)
         sector_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for i in range(count):
@@ -311,7 +340,7 @@ class GamestateSaver(Saver[core.Gamestate]):
         gamestate.update_edges(sector_edges, np.array(sector_ids), sector_coords)
 
         # econ agents
-        debug_string = s_util.from_len_pre_f(f)
+        s_util.debug_string_r("econ agents", f)
         count = s_util.size_from_f(f)
         for _ in range(count):
             entity_id = s_util.uuid_from_f(f)
@@ -325,19 +354,22 @@ class GamestateSaver(Saver[core.Gamestate]):
         #TODO: starfields
 
         # entity destroy list
-        debug_string = s_util.from_len_pre_f(f)
+        s_util.debug_string_r("entity destroy list", f)
         count = s_util.size_from_f(f)
         for _ in range(count):
             entity_id = s_util.uuid_from_f(f)
             gamestate.destroy_entity(gamestate.entities[entity_id])
 
         # last colliders
-        debug_string = s_util.from_len_pre_f(f)
+        s_util.debug_string_r("last colliders", f)
         count = s_util.size_from_f(f)
         last_colliders = set()
         for _ in range(count):
             last_colliders.add(s_util.from_len_pre_f(f))
         gamestate.last_colliders = last_colliders
+
+
+        s_util.debug_string_r("gamestate done", f)
 
         return gamestate
 
@@ -382,15 +414,19 @@ class EntitySaver[EntityType: core.Entity](Saver[EntityType], abc.ABC):
         i = 0
 
         # common fields we need for entity creation
+        s_util.debug_string_w("entity id", f)
         i += s_util.uuid_to_f(entity.entity_id, f)
 
+        s_util.debug_string_w("dispatch", f)
         i += self._save_entity(entity, f)
 
         # save some common fields
+        s_util.debug_string_w("common fields", f)
         i += s_util.to_len_pre_f(entity.name, f, 2)
         i += s_util.to_len_pre_f(entity.description, f, 2)
         i += s_util.float_to_f(entity.created_at, f)
 
+        s_util.debug_string_w("context", f)
         context_dict = entity.context.to_dict()
         i += s_util.size_to_f(len(context_dict), f)
         for k,v in context_dict.items():
@@ -401,25 +437,29 @@ class EntitySaver[EntityType: core.Entity](Saver[EntityType], abc.ABC):
 
     def load(self, f:io.IOBase, load_context:LoadContext) -> EntityType:
         # fields we need for entity creation
+        s_util.debug_string_r("entity id", f)
         entity_id = s_util.uuid_from_f(f)
 
         # type specific loading logic
+        s_util.debug_string_r("dispatch", f)
         entity = self._load_entity(f, load_context, entity_id)
 
         #TODO: is this how we want to get the generic fields into the entity?
         # alternatively we could read these and make them available to the
         # class specific loader somehow
         # read common fields
+        s_util.debug_string_r("common fields", f)
         entity.name = s_util.from_len_pre_f(f)
         entity.description = s_util.from_len_pre_f(f)
         entity.created_at = s_util.float_from_f(f)
 
         # creating the entity made an empty event context, we just have to
         # populate it
+        s_util.debug_string_r("context", f)
         count = s_util.size_from_f(f)
         for _ in range(count):
-            k = s_util.int_from_f(f)
-            v = s_util.int_from_f(f)
+            k = s_util.int_from_f(f, 8)
+            v = s_util.int_from_f(f, 8)
             entity.context.set_flag(k, v)
 
         return entity

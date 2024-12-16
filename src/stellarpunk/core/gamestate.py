@@ -22,6 +22,7 @@ from .sector_entity import SectorEntity
 from .order import Order, Effect
 from .character import Character, Player, Agendum, Message, AbstractEventManager
 
+DT_EPSILON = 1.0/120.0
 
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
@@ -63,6 +64,12 @@ class Counters(enum.IntEnum):
 class AbstractGameRuntime:
     """ The game runtime that actually runs the simulation. """
 
+    def get_missed_ticks(self) -> int:
+        return 0
+
+    def get_ticktime(self) -> float:
+        return 0.
+
     def get_time_acceleration(self) -> Tuple[float, bool]:
         """ Get time acceleration parameters. """
         return (1.0, False)
@@ -70,6 +77,33 @@ class AbstractGameRuntime:
     def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
         """ Request time acceleration. """
         pass
+
+    def exit_startup(self) -> None:
+        pass
+
+    def start_game(self) -> None:
+        pass
+
+    def game_running(self) -> bool:
+        return False
+
+    def quit(self) -> None:
+        pass
+
+    def get_desired_dt(self) -> float:
+        return 0.0
+
+    def get_dt(self) -> float:
+        return 0.0
+
+    def raise_exception(self) -> None:
+        pass
+
+    def raise_breakpoint(self) -> None:
+        pass
+
+    def should_breakpoint(self) -> bool:
+        return False
 
 class AbstractGenerator:
     @abc.abstractmethod
@@ -116,8 +150,13 @@ class ScheduledTask:
     def act(self) -> None: ...
 
 class Gamestate(EntityRegistry):
+    bt = None
     gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
+        #if Gamestate.gamestate is not None:
+        #    raise ValueError()
+        #import traceback
+        #Gamestate.bt = traceback.format_stack()
         Gamestate.gamestate = self
         self.logger = logging.getLogger(util.fullname(self))
         self.generator:AbstractGenerator = None #type: ignore
@@ -167,25 +206,14 @@ class Gamestate(EntityRegistry):
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
-        self.startup_running = True
-        self.keep_running = False
-
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
 
-        self.desired_dt = 1/60
-        self.dt = self.desired_dt
-        self.min_tick_sleep = self.desired_dt/5
         self.ticks = 0
-        self.ticktime = 0.
-        self.timeout = 0.
-        self.missed_ticks = 0
 
         self.one_tick = False
         self.paused = False
         self.force_pause_holder:Optional[object] = None
-        self.should_raise= False
-        self.should_raise_breakpoint = False
 
         self.player:Player = None # type: ignore[assignment]
 
@@ -220,14 +248,8 @@ class Gamestate(EntityRegistry):
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
 
-    def get_time_acceleration(self) -> Tuple[float, bool]:
-        return self.game_runtime.get_time_acceleration()
-
-    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
-        self.game_runtime.time_acceleration(accel_rate, fast_mode)
-
     def _pause(self, paused:Optional[bool]=None) -> None:
-        self.time_acceleration(1.0, False)
+        self.game_runtime.time_acceleration(1.0, False)
         if paused is None:
             self.paused = not self.paused
         else:
@@ -253,8 +275,8 @@ class Gamestate(EntityRegistry):
             self._pause(False)
 
     def breakpoint(self) -> None:
-        if self.should_raise_breakpoint:
-            raise Exception("debug breakpoint")
+        if self.game_runtime.should_breakpoint():
+            raise Exception("debug breakpoint immediate")
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
@@ -303,22 +325,12 @@ class Gamestate(EntityRegistry):
             self.entity_destroy_list.append(entity)
             self.entity_destroy_set.add(entity)
 
-    #def destroy_character(self, character:Character) -> None:
-    #    character.destroy()
-
-    #def destroy_sector_entity(self, entity:SectorEntity) -> None:
-    #    for character in self.characters_by_location[entity.entity_id]:
-    #        self.destroy_character(character)
-    #    if entity.sector is not None:
-    #        entity.sector.remove_entity(entity)
-    #    entity.destroy()
-
     def is_order_scheduled(self, order:Order) -> bool:
         return self._order_schedule.is_task_scheduled(order)
 
     def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
         self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
-        self.schedule_order(self.timestamp + self.desired_dt, order, jitter)
+        self.schedule_order(self.timestamp + DT_EPSILON, order, jitter)
 
     def schedule_order(self, timestamp:float, order:Order, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
@@ -337,7 +349,7 @@ class Gamestate(EntityRegistry):
         return self._order_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_effect_immediate(self, effect:Effect, jitter:float=0.) -> None:
-        self.schedule_effect(self.timestamp + self.desired_dt, effect, jitter)
+        self.schedule_effect(self.timestamp + DT_EPSILON, effect, jitter)
 
     def schedule_effect(self, timestamp: float, effect:Effect, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
@@ -355,7 +367,7 @@ class Gamestate(EntityRegistry):
         return self._effect_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
-        self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)
+        self.schedule_agendum(self.timestamp + DT_EPSILON, agendum, jitter)
 
     def schedule_agendum(self, timestamp:float, agendum:Agendum, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
@@ -373,7 +385,7 @@ class Gamestate(EntityRegistry):
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:
-        self.schedule_task(self.timestamp + self.desired_dt, task, jitter)
+        self.schedule_task(self.timestamp + DT_EPSILON, task, jitter)
 
     def schedule_task(self, timestamp:float, task:ScheduledTask, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
@@ -471,15 +483,15 @@ class Gamestate(EntityRegistry):
         # increment the ticks even though we don't process them?
         return self.timestamp_to_datetime(self.timestamp)
 
-    def exit_startup(self) -> None:
-        self.startup_running = False
+    #def exit_startup(self) -> None:
+    #    self.startup_running = False
 
-    def start_game(self) -> None:
-        self.keep_running = True
+    #def start_game(self) -> None:
+    #    self.keep_running = True
 
-    def quit(self) -> None:
-        self.startup_running = False
-        self.keep_running = False
+    #def quit(self) -> None:
+    #    self.startup_running = False
+    #    self.keep_running = False
 
     def trigger_event(
         self,

@@ -7,7 +7,7 @@ from stellarpunk.interface import station as v_station
 
 def test_force_pause(gamestate, generator, testui, sector, resource_station, resource_station_agendum):
     ship = generator.spawn_ship(sector, 0, 2400, v=(0,0), w=0, theta=0)
-    station_view = v_station.StationView(resource_station, ship, testui)
+    station_view = v_station.StationView(resource_station, ship, gamestate, testui)
 
     testui.open_view(station_view, deactivate_views=True)
 
@@ -42,7 +42,7 @@ def test_trade_menu_validator(gamestate, generator, testui, econ_logger, sector,
     player = generator.spawn_player(ship, balance=2.5e3)
     gamestate.player = player
 
-    station_view = v_station.StationView(resource_station, ship, testui)
+    station_view = v_station.StationView(resource_station, ship, gamestate, testui)
 
     testui.open_view(station_view, deactivate_views=True)
 

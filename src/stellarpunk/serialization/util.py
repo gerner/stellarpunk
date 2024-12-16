@@ -44,6 +44,23 @@ def from_len_pre_f(f:io.IOBase, blen:int=2) -> str:
     b = f.read(l)
     return b.decode("utf8")
 
+def debug_string_w(s:str, f:io.IOBase) -> int:
+    #TODO: flag to turn this off
+    i = to_len_pre_f(s, f)
+    return i
+
+def debug_string_r(s:str, f:io.IOBase) -> str:
+    #TODO: flag to turn this off
+    f_pos_start = f.tell()
+    prefix = f.read(2)
+    l = int.from_bytes(prefix)
+    b = f.read(l)
+    s_actual = b.decode("utf8")
+    if s != s_actual:
+        f_pos = f.tell()
+        assert s == s_actual
+    return s_actual
+
 def random_state_to_f(r:np.random.Generator, f:io.IOBase) -> int:
     # we assume this is a PCG64
     state = r.bit_generator.state

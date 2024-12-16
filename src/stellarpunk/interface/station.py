@@ -55,7 +55,7 @@ class Mode(enum.Enum):
     EXIT = enum.auto()
 
 
-class StationView(interface.View):
+class StationView(interface.GameView):
     """ UI experience while docked at a station. """
     def __init__(
             self, station: core.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:

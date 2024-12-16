@@ -52,7 +52,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self._generation_ticks += 1
         self.logger.debug(f'tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
 
-    def universe_generation_complete(self) -> None:
+    def universe_generated(self, gamestate:core.Gamestate) -> None:
         self._universe_loaded = True
 
     def _generate_universe(self) -> None:
@@ -86,15 +86,17 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         #TODO: should we have a timeout here?
         assert(self._generator_thread is not None)
         self._generator_thread.join()
-        self.gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
+        assert(self._generator.gamestate)
+        self._generator.gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
+        assert(self.interface.gamestate)
 
         # finish the startup sequence which will trigger starting the full
         # game loop
-        self.gamestate.exit_startup()
-        self.gamestate.start_game()
+        self.interface.runtime.exit_startup()
+        self.interface.runtime.start_game()
 
         assert isinstance(self.interface.player.character.location, core.Ship)
-        pilot_view = pilot.PilotView(self.interface.player.character.location, self.interface)
+        pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
         self.interface.swap_view(pilot_view, self)
 
     def _enter_load_game(self) -> None:
@@ -122,16 +124,16 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
     def _exit_load_game(self) -> None:
         assert(self._universe_loaded)
 
-        self.gamestate.exit_startup()
-        self.gamestate.start_game()
+        self.interface.runtime.exit_startup()
+        self.interface.runtime.start_game()
 
         assert isinstance(self.interface.player.character.location, core.Ship)
-        pilot_view = pilot.PilotView(self.interface.player.character.location, self.interface)
+        pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
         self.interface.swap_view(pilot_view, self)
 
     def _enter_exit_game(self) -> None:
-        self.gamestate.quit()
-        self.gamestate.exit_startup()
+        self.interface.runtime.exit_startup()
+        self.interface.runtime.quit()
         self.interface.close_view(self)
 
     def _enter_mode(self, mode:Mode) -> None:

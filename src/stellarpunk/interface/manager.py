@@ -247,10 +247,10 @@ class PolygonDemo(interface.View):
 
 
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager, sg:save_game.GameSaver) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, sg:save_game.GameSaver) -> None:
         self.mixer = audio.Mixer()
-        self.interface = interface.Interface(gamestate, generator, self.mixer)
-        self.gamestate = gamestate
+        self.interface = interface.Interface(generator, self.mixer)
+        self.gamestate:core.Gamestate = None # type: ignore
         self.generator = generator
         self.event_manager = event_manager
         self.game_saver = sg
@@ -269,15 +269,32 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.interface.__exit__(*args)
         self.mixer.__exit__(*args)
 
+    # generate.UniverseGeneratorObserver
+    def universe_generated(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
+        self.interface.gamestate = gamestate
+
     def player_spawned(self, player:core.Player) -> None:
         #TODO: should probably check some state to avoid errors here
         # e.g. player already exists and didn't die
         player.character.observe(self)
 
+    def universe_loaded(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
+        self.interface.gamestate = gamestate
+        assert(self.gamestate.player)
+        self.gamestate.player.character.observe(self)
+
+    # core.CharacterObserver
+    def character_destroyed(self, character:core.Character) -> None:
+        if character == self.interface.player.character:
+            self.gamestate.force_pause(self)
+            self.interface.log_message("you've been killed")
+            # TODO: what should we do when the player's character dies?
+            self.open_universe()
+
     def initialize(self) -> None:
         self.interface.initialize()
-        if self.interface.player is not None:
-            self.interface.player.character.observe(self)
         self.generator.observe(self)
 
         startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
@@ -312,30 +329,23 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 focus=True
             )
 
-    def character_destroyed(self, character:core.Character) -> None:
-        if character == self.interface.player.character:
-            self.gamestate.force_pause(self)
-            self.interface.log_message("you've been killed")
-            # TODO: what should we do when the player's character dies?
-            self.open_universe()
-
     def time_accel(self) -> None:
-        old_accel_rate, _ = self.gamestate.get_time_acceleration()
+        old_accel_rate, _ = self.interface.runtime.get_time_acceleration()
         new_accel_rate = old_accel_rate * 1.25
         if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
             new_accel_rate = 1.0
         if new_accel_rate >= interface.Settings.MAX_TIME_ACCEL:
             new_accel_rate = interface.Settings.MAX_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate, False)
+        self.interface.runtime.time_acceleration(new_accel_rate, False)
 
     def time_decel(self) -> None:
-        old_accel_rate, _ = self.gamestate.get_time_acceleration()
+        old_accel_rate, _ = self.interface.runtime.get_time_acceleration()
         new_accel_rate = old_accel_rate / 1.25
         if util.isclose_flex(new_accel_rate, 1.0, atol=0.1):
             new_accel_rate = 1.0
         if new_accel_rate <= interface.Settings.MIN_TIME_ACCEL:
             new_accel_rate = interface.Settings.MIN_TIME_ACCEL
-        self.gamestate.time_acceleration(new_accel_rate, False)
+        self.interface.runtime.time_acceleration(new_accel_rate, False)
 
     def tick_step(self) -> None:
         self.gamestate.pause(False)
@@ -410,21 +420,26 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 command_list.update({x.command: x for x in v.command_list()})
             self.interface.open_view(command_input.CommandInput(self.interface, commands=command_list))
 
-        return [
-            self.bind_key(ord(" "), self.gamestate.pause),
+        if self.interface.runtime.game_running():
+            keys = [self.bind_key(ord(" "), self.gamestate.pause)]
+        else:
+            keys = []
+
+        keys.extend([
             self.bind_key(ord(">"), self.time_accel),
             self.bind_key(ord("<"), self.time_decel),
             self.bind_key(ord("."), self.tick_step),
             self.bind_key(ord(":"), open_command_prompt),
             self.bind_key(ord("?"), self.help),
-        ]
+        ])
+        return keys
 
     def command_list(self) -> Collection[interface.CommandBinding]:
         """ Global commands that should be valid in any context. """
         def fps(args:Sequence[str]) -> None: self.interface.show_fps = not self.interface.show_fps
-        def quit(args:Sequence[str]) -> None: self.interface.gamestate.quit()
-        def raise_exception(args:Sequence[str]) -> None: self.gamestate.should_raise = True
-        def raise_breakpoint(args:Sequence[str]) -> None: self.gamestate.should_raise_breakpoint = True
+        def quit(args:Sequence[str]) -> None: self.interface.runtime.quit()
+        def raise_exception(args:Sequence[str]) -> None: self.interface.runtime.raise_exception()
+        def raise_breakpoint(args:Sequence[str]) -> None: self.interface.runtime.raise_breakpoint()
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
         def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(AttrDemo(self.interface), deactivate_views=True)
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
@@ -439,8 +454,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 self.profiler.enable()
 
         def fast(args:Sequence[str]) -> None:
-            _, fast_mode = self.gamestate.get_time_acceleration()
-            self.gamestate.time_acceleration(1.0, fast_mode=not fast_mode)
+            _, fast_mode = self.interface.runtime.get_time_acceleration()
+            self.interface.runtime.time_acceleration(1.0, fast_mode=not fast_mode)
 
         def decrease_fps(args:Sequence[str]) -> None:
             if self.interface.max_fps == self.interface.desired_fps:
@@ -460,7 +475,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 #TODO: what if the character is just a passenger? surely they cannot just take the helm
                 raise command_input.UserError(f'player is not in a ship to pilot')
             self.interface.swap_view(
-                pilot.PilotView(self.interface.player.character.location, self.interface),
+                pilot.PilotView(self.interface.player.character.location, self.gamestate, self.interface),
                 self.focused_view()
             )
 
@@ -468,7 +483,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             """ Opens a sector view on the sector the player is in """
             if self.interface.player.character.location is None or self.interface.player.character.location.sector is None:
                 raise command_input.UserError("player character not in a sector")
-            sector_view = sector.SectorView(self.interface.player.character.location.sector, self.interface)
+            sector_view = sector.SectorView(self.interface.player.character.location.sector, self.gamestate, self.interface)
             self.interface.swap_view(
                 sector_view,
                 self.focused_view()
@@ -511,7 +526,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 raise command_input.UserError(f'{args[0]} not a recognized station id')
 
             ship = self.interface.player.character.location if isinstance(self.interface.player.character.location, core.Ship) else next(x for x in self.interface.player.character.assets if isinstance(x, core.Ship))
-            station_view = station.StationView(target_station, ship, self.interface)
+            station_view = station.StationView(target_station, ship, self.gamestate, self.interface)
             self.interface.open_view(station_view, deactivate_views=True)
 
         def open_comms(args:Sequence[str]) -> None:
@@ -529,7 +544,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             if message.replied_at is not None:
                 raise command_input.UserError(f'already replied to {message.short_id()}')
             speaker = message.reply_to
-            message.replied_at = self.interface.gamestate.timestamp
+            message.replied_at = self.gamestate.timestamp
 
             event_args: Dict[str, Any] = {}
             self.gamestate.trigger_event(
@@ -562,7 +577,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
             assert ship.sector
 
-            sector_view = sector.SectorView(ship.sector, self.interface)
+            sector_view = sector.SectorView(ship.sector, self.gamestate, self.interface)
             self.interface.swap_view(
                 sector_view,
                 self.focused_view()
@@ -573,11 +588,10 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.game_saver.save(self.gamestate)
 
         command_list = [
-            self.bind_command("pause", lambda x: self.gamestate.pause()),
-            self.bind_command("fps", fps),
-            self.bind_command("quit", quit),
             self.bind_command("raise", raise_exception),
             self.bind_command("breakpoint", raise_breakpoint),
+            self.bind_command("fps", fps),
+            self.bind_command("quit", quit),
             self.bind_command("colordemo", colordemo),
             self.bind_command("attrdemo", attrdemo),
             self.bind_command("keydemo", keydemo),
@@ -590,11 +604,12 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("keys", lambda x: self.keys()),
         ]
 
-        if not self.gamestate.keep_running:
+        if not self.interface.runtime.game_running():
             return command_list
         # additional commands always available while the game is running
         in_location = self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None
         command_list.extend([
+            self.bind_command("pause", lambda x: self.gamestate.pause()),
             self.bind_command("t_accel", lambda x: self.time_accel()),
             self.bind_command("t_decel", lambda x: self.time_decel()),
             self.bind_command("fast", fast),

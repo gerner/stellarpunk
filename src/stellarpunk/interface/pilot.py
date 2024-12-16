@@ -76,9 +76,9 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
     the player at any time relinquishes control.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, dt:float, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-
+        self.dt = dt
         self.has_thrust_command = False
         self.has_torque_command = False
 
@@ -89,7 +89,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         # 
         r_v, theta_v = util.cartesian_to_polar(*(self.ship.velocity))
         r_h, theta_h = util.cartesian_to_polar(force[0], force[1])
-        r_h = r_h / self.ship.mass * self.gamestate.dt
+        r_h = r_h / self.ship.mass * self.dt
         expected_speed = np.sqrt(r_v**2 + r_h**2 + 2 * r_v * r_h * np.cos(theta_h - theta_v))
 
         if expected_speed > self.ship.max_speed():
@@ -120,7 +120,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             if r_desired <= 0.:
                 return (0., 0.)
 
-            r_desired = np.clip(r_desired * self.ship.mass / self.gamestate.dt, 0., max_thrust)
+            r_desired = np.clip(r_desired * self.ship.mass / self.dt, 0., max_thrust)
             return util.polar_to_cartesian(r_desired, theta_h)
         else:
             return force
@@ -130,15 +130,16 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         # max_angular_velocity
         # w = w_0 + torque * dt
 
-        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * self.gamestate.dt
+        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * self.dt
         if abs(expected_w) > max_angular_velocity:
             if expected_w < 0:
-                return (-max_angular_velocity - self.ship.phys.angular_velocity)/self.gamestate.dt*self.ship.moment
+                return (-max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment
             else:
-                return (max_angular_velocity - self.ship.phys.angular_velocity)/self.gamestate.dt*self.ship.moment
+                return (max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment
         return torque
 
     def act(self, dt:float) -> None:
+        self.dt = dt
         # if the player is controlling, do nothing and wait until next tick
         if self.has_thrust_command:
             self.has_thrust_command = False
@@ -188,7 +189,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             return
         #TODO: handle continuous force/torque
         period = collision.accelerate_to(
-                self.ship.phys, cymunk.Vec2d(0,0), self.gamestate.dt,
+                self.ship.phys, cymunk.Vec2d(0,0), self.dt,
                 self.ship.max_speed(), self.ship.max_torque,
                 self.ship.max_thrust, self.ship.max_fine_thrust,
                 self.ship.sensor_settings)
@@ -235,7 +236,7 @@ class MouseState(enum.Enum):
     EMPTY = enum.auto()
     GOTO = enum.auto()
 
-class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
+class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEntityObserver):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
@@ -303,7 +304,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
     def open_station_view(self, dock_station: core.Station) -> None:
         # TODO: make sure we're within docking range?
-        station_view = v_station.StationView(dock_station, self.ship, self.interface)
+        station_view = v_station.StationView(dock_station, self.ship, self.gamestate, self.interface)
         self.interface.open_view(station_view, deactivate_views=True)
 
     def command_list(self) -> Collection[interface.CommandBinding]:
@@ -512,7 +513,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             raise ValueError(f'got unexpected from sector in migration {entity} migrating {from_sector} to {to_sector}')
 
         self.interface.swap_view(
-                PilotView(self.interface.player.character.location, self.interface),
+                PilotView(self.interface.player.character.location, self.gamestate, self.interface),
                 self
         )
 
@@ -549,6 +550,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             self.ship.clear_orders(self.gamestate)
 
             control_order = PlayerControlOrder(
+                self.interface.runtime.get_dt(),
                 self.ship,
                 self.gamestate,
                 observer=self.make_order_observer(

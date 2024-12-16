@@ -132,7 +132,7 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
         nonlocal attacker, state_ticks, a_zero_forces, a_non_zero_forces, d_zero_forces, d_non_zero_forces, age_sum, attack_ticks
         nonlocal defender, ticks_fleeing, distinct_flee_orders, ticks_evading, evade_max_thrust_sum, dist_sum, max_thrust_sum
         nonlocal last_loc, last_force, last_velocity
-        if util.distance(last_loc, defender.loc) > max(np.linalg.norm(defender.velocity)*attack_order.gamestate.dt*3.0, 1.):
+        if util.distance(last_loc, defender.loc) > max(np.linalg.norm(defender.velocity)*simulator.dt*3.0, 1.):
             raise Exception()
         if util.magnitude(*defender.velocity) > 15000*1.5:
             raise Exception()

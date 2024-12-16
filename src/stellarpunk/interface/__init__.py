@@ -439,7 +439,6 @@ class View(abc.ABC):
         self.active = True
         self.fast_render = False
         self.interface = interface
-        self.gamestate = interface.gamestate
 
     @property
     def viewscreen(self) -> BasicCanvas:
@@ -504,6 +503,11 @@ class View(abc.ABC):
     def key_list(self) -> Collection[KeyBinding]:
         return []
 
+class GameView(View):
+    def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.gamestate = gamestate
+
 class AbstractMixer:
     @property
     def sample_rate(self) -> int:
@@ -519,9 +523,10 @@ class AbstractMixer:
         pass
 
 class AbstractInterface(abc.ABC):
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, mixer: AbstractMixer) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, mixer: AbstractMixer) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.gamestate = gamestate
+        self.runtime = core.AbstractGameRuntime()
+        self.gamestate:core.Gamestate = None # type: ignore
         self.generator = generator
         self.mixer = mixer
         self.views:List[View] = []
@@ -982,7 +987,7 @@ class Interface(AbstractInterface):
             self.stdscr.addstr(self.screen_height-1, len(message), " ", curses.A_REVERSE)
 
         if message:
-            self.status_message_clear_time = self.gamestate.timestamp + self.status_message_lifetime
+            self.status_message_clear_time = time.time() + self.status_message_lifetime
         else:
             self.status_message_clear_time = np.inf
 
@@ -991,11 +996,20 @@ class Interface(AbstractInterface):
         self.stdscr.addstr(self.screen_height-1, self.screen_width-len(message)-1, message, attr)
 
     def show_diagnostics(self) -> None:
+        if self.runtime.game_running():
+            ticks = self.gamestate.ticks
+            timestamp = self.gamestate.timestamp
+            paused = self.gamestate.paused
+        else:
+            ticks = 0
+            timestamp = 0
+            paused = False
+
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms +{(self.gamestate.desired_dt - self.gamestate.ticktime)*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
-        if self.gamestate.paused:
+            diagnostics.append(f'{ticks} ({self.runtime.get_missed_ticks()}) {timestamp:.2f} ({self.runtime.get_ticktime()*1000:>5.2f}ms +{(self.runtime.get_desired_dt() - self.runtime.get_ticktime())*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
+        if paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")
 
@@ -1004,7 +1018,7 @@ class Interface(AbstractInterface):
     def show_date(self) -> None:
         date_string = ' '
         date_string += self.gamestate.current_time().strftime("%c")
-        time_accel_rate, fast_mode = self.gamestate.get_time_acceleration()
+        time_accel_rate, fast_mode = self.runtime.get_time_acceleration()
         if not util.isclose(time_accel_rate, 1.0) or fast_mode:
             if fast_mode:
                 date_string += f' ( fast)'
@@ -1052,14 +1066,14 @@ class Interface(AbstractInterface):
                 self.gamestate.paused = True
                 self.one_time_step = False
 
-            if self.gamestate.timestamp > self.status_message_clear_time:
+            if time.time() > self.status_message_clear_time:
                 self.status_message()
 
             for view in self.views:
                 if view.active:
                     view.update_display()
-            self.show_date()
-            if self.player:
+            if self.runtime.game_running():
+                self.show_date()
                 self.show_cash()
             self.show_diagnostics()
             self.stdscr.noutrefresh()

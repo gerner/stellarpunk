@@ -167,7 +167,7 @@ class UniverseView(interface.View, interface.PerspectiveObserver):
         return util.lines_to_dict(text_sectors, bounds=self.viewscreen_bounds), util.lines_to_dict(text_edges, bounds=self.viewscreen_bounds)
 
     def open_sector_view(self, sector:core.Sector) -> sector_interface.SectorView:
-        sector_view = sector_interface.SectorView(self.selected_sector, self.interface)
+        sector_view = sector_interface.SectorView(self.selected_sector, self.gamestate, self.interface)
         self.interface.swap_view(sector_view, self)
         return sector_view
 

@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from stellarpunk import core, sim, orders, interface, util
+from stellarpunk import core, sim, orders, interface, util, generate
 from stellarpunk.orders import steering
 
 def write_history(func):
@@ -263,19 +263,21 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
                 self.done = True
 
         if self.done:
-            self.gamestate.quit()
+            self.runtime.quit()
 
         if self.gamestate.timestamp > self.max_timestamp:
-            self.gamestate.quit()
+            self.runtime.quit()
 
         if self.tick_callback:
             self.tick_callback()
 
 class MonitoringSimulator(sim.Simulator):
-    def __init__(self, gamestate:core.Gamestate, testui:MonitoringUI) -> None:
-        super().__init__(gamestate, testui, ticks_per_hist_sample=1)
+    def __init__(self, generator:generate.UniverseGenerator, testui:MonitoringUI) -> None:
+        super().__init__(generator, testui, ticks_per_hist_sample=1)
         self.testui = testui
 
     def run(self) -> None:
+        assert self.gamestate == self.generator.gamestate
+        assert self.gamestate == self.testui.gamestate
         self.testui.first_tick()
         super().run()

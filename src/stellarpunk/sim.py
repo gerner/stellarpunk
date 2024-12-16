@@ -22,10 +22,13 @@ TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
-class Simulator(core.AbstractGameRuntime):
-    def __init__(self, gamestate:core.Gamestate, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[core.AbstractEventManager]=None) -> None:
+class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
+    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[core.AbstractEventManager]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.gamestate = gamestate
+        self.generator = generator
+        # we create a dummy gamestate immediately, but we get the real one by
+        # watching for UniverseGenerator events
+        self.gamestate:core.Gamestate = None #type: ignore
         self.ui = ui
         self.event_manager = event_manager or core.AbstractEventManager()
 
@@ -33,8 +36,15 @@ class Simulator(core.AbstractGameRuntime):
         self.notify_on_collision = False
         self.enable_collisions = True
 
+        self.startup_running = True
+        self.keep_running = False
+        self.should_raise= False
+        self.should_raise_breakpoint = False
+
         # time between ticks, this is the framerate
-        self.desired_dt = gamestate.desired_dt
+        self.desired_dt = 1/60
+        self.dt = self.desired_dt
+        self.min_tick_sleep = self.desired_dt/5
         if not max_dt:
             max_dt = self.desired_dt
         self.max_dt = max_dt
@@ -53,7 +63,10 @@ class Simulator(core.AbstractGameRuntime):
         # a throttle for warning logging when we get behind
         self.behind_message_throttle = 0.
 
+        self.ticktime = 0.
         self.ticktime_alpha = 0.1
+        self.timeout = 0.
+        self.missed_ticks = 0
 
         self.sleep_count = 0
 
@@ -103,6 +116,65 @@ class Simulator(core.AbstractGameRuntime):
             arbiter.total_impulse,
             arbiter.total_ke,
         ))
+
+    # core.AbstractGameRuntime
+    def get_missed_ticks(self) -> int:
+        return self.missed_ticks
+
+    def get_ticktime(self) -> float:
+        return self.ticktime
+
+    def get_time_acceleration(self) -> Tuple[float, bool]:
+        return self.time_accel_rate, self.fast_mode
+
+    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
+        real_span, game_span, rel_drift, expected_rel_drift = self.compute_timedrift()
+        self.logger.debug(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
+        self.reference_realtime = time.perf_counter()
+        self.reference_gametime = self.gamestate.timestamp
+        self.time_accel_rate = accel_rate
+        self.fast_mode = fast_mode
+
+    def exit_startup(self) -> None:
+        self.startup_running = False
+
+    def start_game(self) -> None:
+        assert(self.ui.gamestate)
+        self.keep_running = True
+
+    def game_running(self) -> bool:
+        return self.keep_running
+
+    def quit(self) -> None:
+        self.startup_running = False
+        self.keep_running = False
+
+    def get_desired_dt(self) -> float:
+        return self.desired_dt
+
+    def get_dt(self) -> float:
+        return self.dt
+
+    def raise_exception(self) -> None:
+        self.should_raise = True
+
+    def raise_breakpoint(self) -> None:
+        self.should_raise_breakpoint = True
+
+    def should_breakpoint(self) -> bool:
+        return self.should_raise_breakpoint
+
+
+    # generate.UniverseGeneratorObserver
+    def universe_generated(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
+
+    def universe_loaded(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
+
+
+    def pre_initialize(self) -> None:
+        self.generator.observe(self)
 
     def initialize(self) -> None:
         """ One-time initialize of the simulation. """
@@ -290,17 +362,6 @@ class Simulator(core.AbstractGameRuntime):
             self.gamestate.paused = True
             self.gamestate.one_tick = False
 
-    def get_time_acceleration(self) -> Tuple[float, bool]:
-        return self.time_accel_rate, self.fast_mode
-
-    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
-        real_span, game_span, rel_drift, expected_rel_drift = self.compute_timedrift()
-        self.logger.debug(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
-        self.reference_realtime = time.perf_counter()
-        self.reference_gametime = self.gamestate.timestamp
-        self.time_accel_rate = accel_rate
-        self.fast_mode = fast_mode
-
     def compute_timedrift(self) -> Tuple[float, float, float, float]:
         now = time.perf_counter()
         real_span = now - self.reference_realtime
@@ -314,10 +375,10 @@ class Simulator(core.AbstractGameRuntime):
 
 
     def _handle_synchronization(self, now:float, next_tick:float) -> None:
-        if next_tick - now > self.gamestate.min_tick_sleep:
-            if self.gamestate.dt > self.desired_dt:
-                self.gamestate.dt = max(self.desired_dt, self.gamestate.dt * self.dt_scaledown)
-                self.logger.debug(f'dt: {self.gamestate.dt}')
+        if next_tick - now > self.min_tick_sleep:
+            if self.dt > self.desired_dt:
+                self.dt = max(self.desired_dt, self.dt * self.dt_scaledown)
+                self.logger.debug(f'dt: {self.dt}')
             time.sleep(next_tick - now)
             self.sleep_count += 1
         else:
@@ -325,54 +386,54 @@ class Simulator(core.AbstractGameRuntime):
             # seems like we should run a tick with a longer dt to make up for
             # it, and stop rendering until we catch up
             # but why would we miss ticks?
-            if now - next_tick > self.gamestate.dt:
-                self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
+            if now - next_tick > self.dt:
+                if self.gamestate is not None:
+                    self.gamestate.counters[core.Counters.BEHIND_TICKS] += 1
                 #self.logger.debug(f'ticks: {self.gamestate.ticks} sleep_count: {self.sleep_count} gc stats: {gc.get_stats()}')
-                self.gamestate.missed_ticks += 1
-                behind = (now - next_tick)/self.gamestate.dt
+                self.missed_ticks += 1
+                behind = (now - next_tick)/self.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
                     if not self.ui.decrease_fps():
-                        self.gamestate.dt = min(self.max_dt, self.gamestate.dt * self.dt_scaleup)
+                        self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
                 self.behind_ticks = behind
                 self.behind_length += 1
-                self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.gamestate.dt:.4f} for {self.behind_length} ticks', 3.)
+                if self.gamestate is not None:
+                    self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
                 if self.behind_length > self.behind_dt_scale_thresthold:
                     self.ui.increase_fps()
-                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.gamestate.dt:.4f} for {self.behind_length} ticks')
+                    self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
 
                 self.behind_ticks = 0
                 self.behind_length = 0
 
     def run_startup(self) -> None:
-        next_tick = time.perf_counter()+self.gamestate.dt
-        while self.gamestate.startup_running:
-            if self.gamestate.should_raise:
-                raise Exception()
+        next_tick = time.perf_counter()+self.dt
+        while self.startup_running:
             now = time.perf_counter()
             self._handle_synchronization(now, next_tick)
             starttime = time.perf_counter()
-            next_tick = next_tick + self.gamestate.dt
+            next_tick = next_tick + self.dt
             timeout = next_tick - now
-            self.ui.tick(timeout, self.gamestate.dt)
+            self.ui.tick(timeout, self.dt)
 
     def run(self) -> None:
 
         self.reference_realtime = time.perf_counter()
         self.reference_gametime = self.gamestate.timestamp
 
-        next_tick = time.perf_counter()+self.gamestate.dt
+        next_tick = time.perf_counter()+self.dt
 
-        while self.gamestate.keep_running:
-            if self.gamestate.should_raise:
-                raise Exception()
+        while self.keep_running:
+            if self.should_raise:
+                raise Exception("debug breakpoint in Simulator at start of tick")
             now = time.perf_counter()
 
             self._handle_synchronization(now, next_tick)
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
-                self.tick(self.gamestate.dt)
+                self.tick(self.dt)
 
             now = time.perf_counter()
 
@@ -380,20 +441,20 @@ class Simulator(core.AbstractGameRuntime):
             if self.fast_mode:
                 next_tick = now
             else:
-                next_tick = next_tick + self.gamestate.dt / self.time_accel_rate
+                next_tick = next_tick + self.dt / self.time_accel_rate
 
             timeout = next_tick - now
             if not self.gamestate.paused:
-                self.gamestate.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.gamestate.timeout
+                self.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.timeout
 
-            self.ui.tick(timeout, self.gamestate.dt)
+            self.ui.tick(timeout, self.dt)
 
             now = time.perf_counter()
             ticktime = now - starttime
-            self.gamestate.ticktime = util.update_ema(self.gamestate.ticktime, self.ticktime_alpha, ticktime)
+            self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
-def initialize_save_game() -> save_game.GameSaver:
-    sg = save_game.GameSaver()
+def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.GameSaver:
+    sg = save_game.GameSaver(generator)
     sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
     sg.register_saver(core.Entity, save_game.EntityDispatchSaver(sg))
     sg.register_saver(core.Sector, save_game.SectorSaver(sg))
@@ -443,15 +504,11 @@ def main() -> None:
         # interleaving construction and initialization
 
         mgr = context_stack.enter_context(util.PDBManager())
-        gamestate = core.Gamestate()
 
-        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=gamestate))
-        gamestate.econ_logger = data_logger
-
-        generator = generate.UniverseGenerator(gamestate)
+        generator = generate.UniverseGenerator()
         event_manager = events.EventManager()
-        sg = initialize_save_game()
-        ui = context_stack.enter_context(interface_manager.InterfaceManager(gamestate, generator, event_manager, sg))
+        sg = initialize_save_game(generator)
+        ui = context_stack.enter_context(interface_manager.InterfaceManager(generator, event_manager, sg))
 
         generator.initialize()
 
@@ -462,16 +519,23 @@ def main() -> None:
         # a new game or to load the game
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
-        sim = Simulator(gamestate, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
+        sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
+        sim.pre_initialize()
+
+        ui.interface.runtime = sim
 
         sim.run_startup()
+
+        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=generator.gamestate))
+        generator.gamestate.econ_logger = data_logger
+
 
         # can only happen after the universe is initialized
         combat.initialize()
         #TODO: intialize other modules dynamically added
 
         # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
-        event_manager.initialize(gamestate, config.Events)
+        event_manager.initialize(generator.gamestate, config.Events)
 
         # last initialization
         sim.initialize()
@@ -484,13 +548,13 @@ def main() -> None:
         data_logger.begin_simulation()
         sim.run()
 
-        counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), gamestate.counters)))
+        counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), sim.gamestate.counters)))
         logging.info(f'counters:\n{counter_str}')
 
-        assert all(x == y for x,y in zip(gamestate.entities.values(), gamestate.entities_short.values()))
-        logging.info(f'entities:\t{len(gamestate.entities)}')
-        logging.info(f'ticks:\t{gamestate.ticks}')
-        logging.info(f'timestamp:\t{gamestate.timestamp}')
+        assert all(x == y for x,y in zip(sim.gamestate.entities.values(), sim.gamestate.entities_short.values()))
+        logging.info(f'entities:\t{len(sim.gamestate.entities)}')
+        logging.info(f'ticks:\t{sim.gamestate.ticks}')
+        logging.info(f'timestamp:\t{sim.gamestate.timestamp}')
         real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()
         logging.info(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
 

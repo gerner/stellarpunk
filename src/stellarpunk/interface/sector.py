@@ -17,7 +17,7 @@ import numpy as np
 from stellarpunk import util, core, interface, orders, effects, config
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
-class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
+class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorEntityObserver):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -228,7 +228,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
         self._draw_character_info()
 
     def open_pilot_view(self, ship:core.Ship) -> pilot_interface.PilotView:
-        self.pilot_view = pilot_interface.PilotView(ship, self.interface)
+        self.pilot_view = pilot_interface.PilotView(ship, self.gamestate, self.interface)
         self.interface.close_view(self)
         self.interface.open_view(self.pilot_view)
         return self.pilot_view

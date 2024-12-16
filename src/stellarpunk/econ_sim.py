@@ -375,7 +375,8 @@ class EconomySimulation:
             self.gamestate = gamestate
 
         if production_chain is None:
-            generator = generate.UniverseGenerator(self.gamestate)
+            generator = generate.UniverseGenerator()
+            generator.gamestate = self.gamestate
             self.gamestate.production_chain = generator.generate_chain(
                 #n_ranks=1,
                 #min_per_rank=(2,),

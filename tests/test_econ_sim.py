@@ -13,7 +13,8 @@ from stellarpunk.serialization import serialize_econ_sim
 def sim() -> econ_sim.EconomySimulation:
     s = econ_sim.EconomySimulation(econ_sim.EconomyDataLogger(enabled=False))
     gamestate = core.Gamestate()
-    generator = generate.UniverseGenerator(gamestate)
+    generator = generate.UniverseGenerator()
+    generator.gamestate = gamestate
     gamestate.production_chain = generator.generate_chain(
             n_ranks=1,
             min_per_rank=(2,),

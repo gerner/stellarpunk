@@ -15,8 +15,9 @@ def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
 
 @pytest.fixture
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
-    ug = generate.UniverseGenerator(gamestate, seed=0)
-    ug.initialize(starfield_composite=False, empty_name_model_culture="test")
+    ug = generate.UniverseGenerator(seed=0)
+    ug.gamestate = gamestate
+    ug.initialize(empty_name_model_culture="test")
     gamestate.random = ug.r
     gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
@@ -51,19 +52,24 @@ def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, shi
 
 @pytest.fixture
 def testui(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(sector, gamestate, generator, interface.AbstractMixer())
+    testui = MonitoringUI(sector, generator, interface.AbstractMixer())
+    testui.gamestate = gamestate
+    return testui
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:
     return MonitoringEconDataLogger()
 
 @pytest.fixture
-def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
-    simulation = MonitoringSimulator(gamestate, testui)
-    gamestate.min_tick_sleep = np.inf
+def simulator(gamestate:core.Gamestate, generator:generate.UniverseGenerator, testui:MonitoringUI) -> sim.Simulator:
+    simulation = MonitoringSimulator(generator, testui)
+    simulation.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
+    testui.runtime = simulation
 
+    simulation.pre_initialize()
+    simulation.gamestate = gamestate
     simulation.initialize()
-    gamestate.start_game()
+    simulation.start_game()
 
     return simulation

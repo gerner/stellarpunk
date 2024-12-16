@@ -212,7 +212,7 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
         assert neighbor_dist >= goto_a.collision_margin
 
         if goto_a.is_complete() and goto_b.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_a.cannot_stop
         #assert not goto_a.cannot_avoid_collision
         assert not goto_b.cannot_stop
@@ -262,7 +262,7 @@ def test_ships_intersecting_collision(gamestate, generator, sector, testui, simu
         assert neighbor_dist >= goto_a.collision_margin
 
         if goto_a.is_complete() and goto_b.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_a.cannot_stop
         assert not goto_a.cannot_avoid_collision
         assert not goto_b.cannot_stop
@@ -296,7 +296,7 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
         neighbor, neighbor_dist = nearest_neighbor(sector, ship_driver)
         assert neighbor_dist >= goto_order.collision_margin
         if goto_order.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_order.cannot_stop
         assert not goto_order.cannot_avoid_collision
         assert gamestate.timestamp < eta
@@ -329,7 +329,7 @@ def test_collision_flapping(gamestate, generator, sector, testui, simulator):
         assert neighbor_dist >= goto_order.collision_margin
 
         if goto_order.is_complete():
-            gamestate.quit()
+            simulator.quit()
         assert not goto_order.cannot_stop
         assert not goto_order.cannot_avoid_collision
         assert gamestate.timestamp - starttime < eta*1.1

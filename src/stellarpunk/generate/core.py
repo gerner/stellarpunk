@@ -208,7 +208,10 @@ class UniverseGeneratorObserver(abc.ABC):
     def player_spawned(self, player:core.Player) -> None:
         pass
 
-    def universe_generation_complete(self) -> None:
+    def universe_generated(self, gamestate:core.Gamestate) -> None:
+        pass
+
+    def universe_loaded(self, gamestate:core.Gamestate) -> None:
         pass
 
 class UniverseGenerator(core.AbstractGenerator):
@@ -226,11 +229,13 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return g
 
-    def __init__(self, gamestate:core.Gamestate, seed:Optional[int]=None) -> None:
+    def __init__(self, seed:Optional[int]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.gamestate = gamestate
+        self.gamestate:Optional[core.Gamestate] = None
 
+        #TODO: should we just use the one on gamestate? They should always be
+        # the same thing anyway
         # random generator
         self.r = np.random.default_rng(seed)
 
@@ -563,7 +568,7 @@ class UniverseGenerator(core.AbstractGenerator):
         entity.phys_shape = shape
         return shape
 
-    def _prepare_sprites(self, starfield_composite:bool) -> None:
+    def _prepare_sprites(self) -> None:
         self.logger.info(f'loading sprites...')
         # load character portraits
         self.portraits = core.Sprite.load_sprites(
@@ -576,30 +581,6 @@ class UniverseGenerator(core.AbstractGenerator):
                 importlib.resources.files("stellarpunk.data").joinpath("stations.txt").read_text(),
                 (96//2, 96//4)
         )
-
-        if starfield_composite:
-            self.logger.info(f'generating sprite starfield...')
-            min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.
-            max_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.*0.25
-            sprite_starfields = generate_starfield(
-                self.r,
-                radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
-                desired_stars_per_char=(4/80.)**2*3.,
-                min_zoom=min_zoom,
-                max_zoom=max_zoom,
-                layer_zoom_step=0.25,
-                mu=0.6, sigma=0.15,
-            )
-            self.gamestate.portrait_starfield = sprite_starfields
-            #p = interface.Perspective(
-            #    interface.BasicCanvas(24*2, 48*2, 0, 0, 2.0),
-            #    min_zoom, min_zoom, max_zoom,
-            #)
-            #sf = starfield.Starfield(sprite_starfields, p, zoom_step=1.0)
-            #p.update_bbox()
-            #starfield_sprite = sf.draw_starfield_to_sprite(self.station_sprites[0].width, self.station_sprites[0].height)
-            #for i in range(len(self.station_sprites)):
-            #    self.station_sprites[i] = core.Sprite.composite_sprites([starfield_sprite, self.station_sprites[i]])
 
     def _prepare_projectile_spawn_pattern(self) -> None:
         radius = 5
@@ -638,10 +619,8 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models[culture] = markov.MarkovModel(romanize=False)
 
 
-    def initialize(self, starfield_composite:bool=True, empty_name_model_culture:Optional[str]=None) -> None:
-        self.gamestate.generator = self
-        self.gamestate.random = self.r
-        self._prepare_sprites(starfield_composite=starfield_composite)
+    def initialize(self, empty_name_model_culture:Optional[str]=None) -> None:
+        self._prepare_sprites()
         self._prepare_projectile_spawn_pattern()
 
         if empty_name_model_culture:
@@ -651,6 +630,8 @@ class UniverseGenerator(core.AbstractGenerator):
         #    self._load_name_models()
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
+        assert(self.gamestate)
+
         if resource is None:
             resource = self.r.integers(0, len(self.gamestate.production_chain.prices)-self.gamestate.production_chain.ranks[-1])
 
@@ -685,6 +666,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return station
 
     def spawn_planet(self, sector:core.Sector, x:float, y:float, entity_id:Optional[uuid.UUID]=None) -> core.Planet:
+        assert(self.gamestate)
+
         planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.planet.SENSOR_INTERCEPT)
@@ -708,6 +691,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return planet
 
     def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
+        assert(self.gamestate)
+
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.ship.MASS
@@ -757,6 +742,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return ship
 
     def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Missile:
+        assert(self.gamestate)
+
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
         ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
@@ -802,6 +789,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return ship
 
     def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:core.Ship.DefaultOrderSig=order_fn_null, entity_id:Optional[uuid.UUID]=None) -> core.Projectile:
+        assert(self.gamestate)
+
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
         ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
@@ -848,6 +837,7 @@ class UniverseGenerator(core.AbstractGenerator):
         return ship
 
     def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None) -> core.TravelGate:
+        assert(self.gamestate)
 
         gate_radius = 50
 
@@ -891,6 +881,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return gate
 
     def spawn_asteroid(self, sector: core.Sector, x:float, y:float, resource:int, amount:float, entity_id:Optional[uuid.UUID]=None) -> core.Asteroid:
+        assert(self.gamestate)
+
         asteroid_radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT)
 
@@ -965,6 +957,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return asteroids
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
+        assert(self.gamestate)
+
         assert location.sector
         character = core.Character(
             self._choose_portrait(),
@@ -978,6 +972,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return character
 
     def spawn_player(self, location:core.SectorEntity, balance:float) -> core.Player:
+        assert(self.gamestate)
+
         player_character = self.spawn_character(location, balance=balance)
         player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
         player = core.Player(self.gamestate)
@@ -990,6 +986,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return player
 
     def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
+        assert(self.gamestate)
+
         if isinstance(asset, core.Ship):
             if asset in mining_ships:
                 character.add_agendum(agenda.CaptainAgendum(
@@ -1038,6 +1036,7 @@ class UniverseGenerator(core.AbstractGenerator):
             raise ValueError(f'got an asset of unknown type {asset}')
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+        assert(self.gamestate)
 
         culture = self._gen_sector_culture(x, y, entity_id)
 
@@ -1211,6 +1210,7 @@ class UniverseGenerator(core.AbstractGenerator):
         return sector
 
     def spawn_uninhabited_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+        assert(self.gamestate)
 
         culture = self._gen_sector_culture(x, y, entity_id)
         sector = core.Sector(
@@ -1632,7 +1632,6 @@ class UniverseGenerator(core.AbstractGenerator):
 
         chain.initialize()
 
-
         for i, (price, name) in enumerate(zip(prices[s_final_products], product_names[-ranks[-1]:]), len(prices)-len(min_final_prices)):
             self.logger.info(f'price {name}:\t${price}')
         self.logger.info(f'total price:\t${prices[s_final_products].sum()}')
@@ -1712,6 +1711,8 @@ class UniverseGenerator(core.AbstractGenerator):
             sector_ids:npt.NDArray,
             max_sector_edge_length:float,
     ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+        assert(self.gamestate)
+
         # generate locations for all sectors
         sector_coords = self.r.uniform(-universe_radius, universe_radius, (num_sectors, 2))
         sector_coords_by_id = dict(zip(sector_ids, sector_coords))
@@ -1829,6 +1830,7 @@ class UniverseGenerator(core.AbstractGenerator):
             mean_uninhabitable_resources:float,
             num_cultures:int,
     ) -> None:
+        assert(self.gamestate)
         # set up pre-expansion sectors, resources
 
         # compute the raw resource needs for each product sink
@@ -1903,6 +1905,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # establish current-era characters and distribute roles
 
     def generate_player(self) -> None:
+        assert(self.gamestate)
+
         # mining start: working for someone else, doing mining for a refinery
         # player starts in a ship near a refinery, ship owned by refinery owner
         refinery:Optional[core.Station] = None
@@ -1955,6 +1959,8 @@ class UniverseGenerator(core.AbstractGenerator):
         self.logger.info(f'asteroid is {asteroid.address_str()} {asteroid.name}')
 
     def generate_player_for_combat_test(self) -> None:
+        assert(self.gamestate)
+
         # choose an uninhabited sector
         sector = self.r.choice(self.non_habitable_sectors, 1)[0] # type: ignore
 
@@ -1994,6 +2000,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
 
     def generate_starfields(self) -> None:
+        assert(self.gamestate)
+
         self.logger.info(f'generating universe_starfield...')
         self.gamestate.starfield = generate_starfield(
             self.r,
@@ -2028,7 +2036,26 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def generate_universe(self) -> core.Gamestate:
         self.logger.info(f'generating a universe...')
+        self.gamestate = core.Gamestate()
+        self.gamestate.generator = self
+        self.gamestate.random = self.r
         generation_start = time.perf_counter()
+
+        #TODO: should have a generation tick for this
+        self.logger.info(f'generating sprite starfield...')
+        min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.
+        max_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.*0.25
+        sprite_starfields = generate_starfield(
+            self.r,
+            radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
+            desired_stars_per_char=(4/80.)**2*3.,
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            layer_zoom_step=0.25,
+            mu=0.6, sigma=0.15,
+        )
+        self.gamestate.portrait_starfield = sprite_starfields
+
         num_cultures = int(self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True)) # type: ignore
 
         #TODO: janky!
@@ -2079,7 +2106,7 @@ class UniverseGenerator(core.AbstractGenerator):
         logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
 
         for observer in self._observers:
-            observer.universe_generation_complete()
+            observer.universe_generated(self.gamestate)
 
         # trigger the start of game event
         self.gamestate.trigger_event(
@@ -2089,6 +2116,19 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         return self.gamestate
+
+    def load_universe(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
+        self.gamestate.generator = self
+        # we take random generator from the gamestate which should be
+        # authoritative at this point
+        self.r = self.gamestate.random
+
+        self._culture_map = dict((sector_id, sector.culture) for sector_id, sector in gamestate.sectors.items())
+        self._load_name_models(culture_filter=list(set(self._culture_map.values())))
+
+        for observer in self._observers:
+            observer.universe_loaded(self.gamestate)
 
 def main() -> None:
 

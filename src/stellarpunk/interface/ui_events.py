@@ -38,7 +38,7 @@ class DialogAction(events.Action):
 
         if "dialog_id" not in action_args:
             logger.info(f'{core.Gamestate.gamestate.timestamp} no dialog: {character} {action_args}')
-            no_response_view = comms.NoResponseView(character, self.interface)
+            no_response_view = comms.NoResponseView(character, self.gamestate, self.interface)
             self.interface.open_view(no_response_view, deactivate_views=True)
         else:
             dialog_id = action_args["dialog_id"]
@@ -46,6 +46,7 @@ class DialogAction(events.Action):
             comms_view = comms.CommsView(
                 events.DialogManager(dialog.load_dialog(dialog_id), self.gamestate, self.event_manager, contacter, character),
                 character,
+                self.gamestate,
                 self.interface,
             )
             self.interface.open_view(comms_view, deactivate_views=True)

@@ -157,7 +157,7 @@ class DialogPause(AnimationSequence):
     def _animate(self, now:float) -> bool:
         return now-self.start_time >= self.pause_length
 
-class NoResponseView(interface.View):
+class NoResponseView(interface.GameView):
     def __init__(self, character:core.Character, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
         self.character = character
@@ -206,7 +206,7 @@ class NoResponseView(interface.View):
         while len(self.animation_queue) > 0 and self.animation_queue[0].animate(time.time()):
             self.animation_queue.popleft()
 
-class CommsView(interface.View):
+class CommsView(interface.GameView):
     def __init__(self, dialog_manager:events.DialogManager, speaker:core.Character, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
