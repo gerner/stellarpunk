@@ -95,7 +95,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self.interface.runtime.exit_startup()
         self.interface.runtime.start_game()
 
-        assert isinstance(self.interface.player.character.location, core.Ship)
+        assert self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
         self.interface.swap_view(pilot_view, self)
 
@@ -127,7 +127,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self.interface.runtime.exit_startup()
         self.interface.runtime.start_game()
 
-        assert isinstance(self.interface.player.character.location, core.Ship)
+        assert self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
         self.interface.swap_view(pilot_view, self)
 

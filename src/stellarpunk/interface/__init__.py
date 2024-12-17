@@ -1037,6 +1037,8 @@ class Interface(AbstractInterface):
         )
 
     def show_cash(self) -> None:
+        #TODO: what if the player is currently unattached to a character?
+        assert(self.player.character)
         balance_string = f' ${self.player.character.balance:.2f} '
         self.stdscr.addstr(
             self.viewscreen.y+self.viewscreen.height,

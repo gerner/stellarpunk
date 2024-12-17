@@ -38,7 +38,7 @@ class Entity(abc.ABC):
 
     def __init__(self, entity_registry: EntityRegistry, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
-        self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:8], byteorder='big')
+        self._entity_id_short_int = util.uuid_to_u64(self.entity_id)
 
         if name is None:
             name = f'{self.__class__} {str(self.entity_id)}'

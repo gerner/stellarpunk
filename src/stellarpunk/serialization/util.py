@@ -60,6 +60,21 @@ def ints_from_f(f:io.IOBase, blen:int=4) -> Collection[int]:
         seq.append(x)
     return seq
 
+def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
+    bytes_written = 0
+    bytes_written += size_to_f(len(uuids), f)
+    for u in uuids:
+        bytes_written += uuid_to_f(u, f)
+    return bytes_written
+
+def uuids_from_f(f:io.IOBase) -> Collection[uuid.UUID]:
+    count = size_from_f(f)
+    seq = []
+    for i in range(count):
+        x = uuid_from_f(f)
+        seq.append(x)
+    return seq
+
 def debug_string_w(s:str, f:io.IOBase) -> int:
     #TODO: flag to turn this off
     i = to_len_pre_f(s, f)

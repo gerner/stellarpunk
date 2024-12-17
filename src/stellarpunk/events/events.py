@@ -5,7 +5,7 @@ import numbers
 from typing import TYPE_CHECKING, Mapping, Any, Tuple
 
 from . import core as ecore
-from stellarpunk import narrative, core, dialog
+from stellarpunk import narrative, core, dialog, util
 
 
 POS_INF = (1<<64)-1
@@ -52,7 +52,7 @@ def send_message(gamestate:core.Gamestate, recipient:core.Character, message:cor
             [recipient],
             ecore.e(Events.MESSAGE),
             {
-                ecore.ck(ContextKeys.MESSAGE_SENDER): message.reply_to.short_id_int(),
+                ecore.ck(ContextKeys.MESSAGE_SENDER): util.uuid_to_u64(message.reply_to),
                 ecore.ck(ContextKeys.MESSAGE_ID): message.message_id,
                 ecore.ck(ContextKeys.MESSAGE): message.short_id_int(),
             },
@@ -219,7 +219,7 @@ class MessageAction(ecore.Action):
         recipient = self.gamestate.entities_short[recipient_id]
         assert isinstance(recipient, core.Character)
 
-        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender, self.gamestate)
+        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender.entity_id, self.gamestate)
 
         send_message(self.gamestate, recipient, message)
 

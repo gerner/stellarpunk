@@ -22,6 +22,7 @@ class LoadContext:
     def __init__(self, sg:"GameSaver") -> None:
         self.save_game = sg
         self.debug = False
+        self.generator:generate.UniverseGenerator = sg.generator
         self.gamestate:core.Gamestate = None # type: ignore
         self._post_loads:list[tuple[Any, Any]] = []
 
@@ -71,7 +72,7 @@ class GameSaver:
         self._class_key_lookup:dict[type, int] = {}
         self._key_class_lookup:dict[int, type] = {}
 
-        self._generator = generator
+        self.generator = generator
 
     def _gen_save_filename(self) -> str:
         return f'save_{time.time()}.stpnk'
@@ -113,19 +114,19 @@ class GameSaver:
         bytes_written = 0
         bytes_written += s_util.debug_string_w("metadata", save_file)
         if self.debug:
-            bytes_written += save_file.write(b'1')
+            bytes_written += s_util.int_to_f(1, save_file, blen=1)
         else:
-            bytes_written += save_file.write(b'0')
+            bytes_written += s_util.int_to_f(0, save_file, blen=1)
 
         bytes_written += s_util.to_len_pre_f(datetime.datetime.now().isoformat(), save_file)
         return bytes_written
 
     def _load_metadata(self, save_file:io.IOBase) -> SaveGame:
         s_util.debug_string_r("metadata", save_file)
-        debug_flag = save_file.read(1)
+        debug_flag = s_util.int_from_f(save_file, blen=1)
         save_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(save_file))
 
-        return SaveGame(debug_flag, save_date)
+        return SaveGame(debug_flag==1, save_date)
 
     def key_from_class(self, klass:type) -> int:
         return self._class_key_lookup[klass]
@@ -218,7 +219,7 @@ class GameSaver:
 
             #TODO: do we need to do any final setup?
 
-            self._generator.load_universe(gamestate)
+            self.generator.load_universe(gamestate)
 
             return gamestate
 
@@ -354,7 +355,6 @@ class GamestateSaver(Saver[core.Gamestate]):
             gamestate.representing_agent(entity_id, agent)
 
         #TODO: task lists
-
         #TODO: starfields
 
         # entity destroy list
@@ -475,26 +475,36 @@ class NoneEntitySaver(EntitySaver[core.Entity]):
         return core.Entity(load_context.gamestate, entity_id=entity_id)
 
 class PlayerSaver(EntitySaver[core.Player]):
-    def _save_entity(self, entity:core.Player, f:io.IOBase) -> int:
-        #TODO: which character are we
-        #TODO: which econ agent
-        #TODO: messages
-        return 0
+    def _save_entity(self, player:core.Player, f:io.IOBase) -> int:
+        bytes_written = 0
+        if player.character:
+            bytes_written += s_util.int_to_f(1, f, blen=1)
+            bytes_written += s_util.uuid_to_f(player.character.entity_id, f)
+        else:
+            bytes_written += s_util.int_to_f(0, f, blen=1)
+        bytes_written += s_util.uuid_to_f(player.agent.entity_id, f)
+        bytes_written += s_util.uuids_to_f(player.messages.keys(), f)
+        return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> core.Player:
-        #TODO: which character are we
-        #TODO: which econ agent
-        #TODO: messages
-        #TODO: register for post_load
-        return core.Player(load_context.gamestate, entity_id=entity_id)
+        has_character = s_util.int_from_f(f, blen=1)
+        character_id:Optional[uuid.UUID] = None
+        if has_character:
+            character_id = s_util.uuid_from_f(f)
+        agent_id = s_util.uuid_from_f(f)
+        message_ids = s_util.uuids_from_f(f)
+        player = core.Player(load_context.gamestate, entity_id=entity_id)
+        load_context.register_post_load(player, (character_id, agent_id, message_ids))
+        return player
 
     def post_load(self, player:core.Player, load_context:LoadContext, context:Any) -> None:
-        context_tuple:tuple[uuid.UUID, uuid.UUID, list[uuid.UUID]] = context
+        context_tuple:tuple[Optional[uuid.UUID], uuid.UUID, list[uuid.UUID]] = context
         character_id, agent_id, messages = context_tuple
         #pull out fully loaded character
-        character = load_context.gamestate.entities[character_id]
-        assert(isinstance(character, core.Character))
-        player.character = character
+        if character_id:
+            character = load_context.gamestate.entities[character_id]
+            assert(isinstance(character, core.Character))
+            player.character = character
 
         #pull out fully loaded econ agent
         agent = load_context.gamestate.entities[agent_id]
@@ -517,9 +527,7 @@ class SectorSaver(EntitySaver[core.Sector]):
         bytes_written += s_util.to_len_pre_f(sector.culture, f)
 
         # entities. we'll reconstruct planets, etc. from entities
-        bytes_written += s_util.size_to_f(len(sector.entities), f)
-        for entity_id in sector.entities.keys():
-            bytes_written += s_util.uuid_to_f(entity_id, f)
+        bytes_written += s_util.uuids_to_f(sector.entities.keys(), f)
 
         # effects
         bytes_written += s_util.size_to_f(len(sector._effects), f)
@@ -545,13 +553,14 @@ class SectorSaver(EntitySaver[core.Sector]):
         radius = s_util.float_from_f(f)
         culture = s_util.from_len_pre_f(f)
 
+        # we can create a blank space here and let it be populated by
+        # SectorEntity objects in post_load.
+        # SectorEntity is responsible for saving/loading its own physics body
+        # and shape
         sector = core.Sector(loc, radius, cymunk.Space(), load_context.gamestate, entity_id=entity_id, culture=culture)
 
         # entities. we'll reconstruct these in post load
-        entities:list[uuid.UUID] = []
-        count = s_util.size_from_f(f)
-        for _ in range(count):
-            entities.append(s_util.uuid_from_f(f))
+        entities:list[uuid.UUID] = list(s_util.uuids_from_f(f))
 
         # effects
         count = s_util.size_from_f(f)
@@ -697,7 +706,6 @@ class ShipTraderAgentSaver(EconAgentSaver[econ.ShipTraderAgent]):
         ship_id = s_util.uuid_from_f(f)
         character_id = s_util.uuid_from_f(f)
         load_context.register_post_load(agent, (ship_id, character_id))
-
         return agent
 
     def post_load(self, agent:econ.ShipTraderAgent, load_context:LoadContext, context:Any) -> None:
@@ -713,16 +721,77 @@ class ShipTraderAgentSaver(EconAgentSaver[econ.ShipTraderAgent]):
 class CharacterSaver(EntitySaver[core.Character]):
     def _save_entity(self, character:core.Character, f:io.IOBase) -> int:
         bytes_written = 0
+        if character.location is not None:
+            bytes_written += s_util.int_to_f(1, f, blen=1)
+            bytes_written += s_util.uuid_to_f(character.location.entity_id, f)
+        else:
+            bytes_written += s_util.int_to_f(0, f, blen=1)
+        bytes_written += s_util.to_len_pre_f(character.portrait.sprite_id, f)
+        bytes_written += s_util.float_to_f(character.balance, f)
+        bytes_written += s_util.uuids_to_f(list(x.entity_id for x in character.assets), f)
+        bytes_written += s_util.uuid_to_f(character.home_sector_id, f)
+
+        bytes_written += s_util.size_to_f(len(character.agenda), f)
+        for agendum in character.agenda:
+            bytes_written += self.save_game.save_object(agendum, f)
+
+        #TODO: observers
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> core.Character:
-        return core.Character(entity_id=entity_id)
+        has_location = s_util.int_from_f(f, blen=1)
+        if has_location:
+            location_id = s_util.uuid_from_f(f)
+        sprite_id = s_util.from_len_pre_f(f)
+        balance = s_util.float_from_f(f)
+        asset_ids = s_util.uuids_from_f(f)
+        home_sector_id = s_util.uuid_from_f(f)
+
+        agenda = []
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            agenda.append(self.save_game.load_object(core.Agendum, f, load_context))
+
+        character = core.Character(
+            load_context.generator.sprite_store[sprite_id],
+            load_context.gamestate,
+            entity_id=entity_id,
+            home_sector_id=home_sector_id
+        )
+        character.balance = balance
+        if has_location:
+            load_context.register_post_load(character, location_id)
+        return character
+
+    def post_load(self, character:core.Character, load_context:LoadContext, context:Any) -> None:
+        location_id:uuid.UUID = context
+        character.location
 
 class MessageSaver(EntitySaver[core.Message]):
-    def _save_entity(self, messsage:core.Message, f:io.IOBase) -> int:
+    def _save_entity(self, message:core.Message, f:io.IOBase) -> int:
         bytes_written = 0
+        bytes_written += s_util.int_to_f(message.message_id, f)
+        bytes_written += s_util.to_len_pre_f(message.subject, f)
+        bytes_written += s_util.to_len_pre_f(message.message, f)
+        bytes_written += s_util.float_to_f(message.timestamp, f)
+        bytes_written += s_util.uuid_to_f(message.reply_to, f)
+        if message.replied_at is not None:
+            bytes_written += s_util.int_to_f(1, f, blen=1)
+            bytes_written += s_util.float_to_f(message.replied_at, f)
+        else:
+            bytes_written += s_util.int_to_f(0, f, blen=1)
+
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> core.Message:
-        return core.Message(entity_id=entity_id)
+        message_id = s_util.int_from_f(f)
+        subject = s_util.from_len_pre_f(f)
+        message_body = s_util.from_len_pre_f(f)
+        timestamp = s_util.float_from_f(f)
+        reply_to = s_util.uuid_from_f(f)
+        message = core.Message(message_id, subject, message_body, timestamp, reply_to, entity_id=entity_id)
+        has_replied_at = s_util.int_from_f(f, blen=1) == 1
+        if has_replied_at:
+            message.replied_at = s_util.float_from_f(f)
 
+        return message

@@ -243,6 +243,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.parallel_max_edges_tries = 10000
 
+        # keep track of all sprites by global id (except ephemeral ones)
+        self.sprite_store:dict[str, core.Sprite] = {}
         self.portraits:List[core.Sprite] = []
         self.station_sprites:List[core.Sprite] = []
 
@@ -576,6 +578,8 @@ class UniverseGenerator(core.AbstractGenerator):
                 (32//2, 32//4),
                 "portrait",
         )
+        for sprite in self.portraits:
+            self.sprite_store[sprite.sprite_id] = sprite
 
         # load station sprites
         self.station_sprites = core.Sprite.load_sprites(
@@ -583,6 +587,8 @@ class UniverseGenerator(core.AbstractGenerator):
                 (96//2, 96//4),
                 "station",
         )
+        for sprite in self.station_sprites:
+            self.sprite_store[sprite.sprite_id] = sprite
 
     def _prepare_projectile_spawn_pattern(self) -> None:
         radius = 5
@@ -964,11 +970,11 @@ class UniverseGenerator(core.AbstractGenerator):
         assert location.sector
         character = core.Character(
             self._choose_portrait(),
-            location,
             self.gamestate,
             name=self._gen_character_name(location.sector.culture),
             home_sector_id=location.sector.entity_id,
         )
+        character.location = location
         character.balance = balance
         self.gamestate.add_character(character)
         return character
@@ -1937,6 +1943,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
+        assert(self.gamestate.player.character)
         player_character = self.gamestate.player.character
 
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
@@ -1971,6 +1978,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
+        assert(player_character)
 
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 
@@ -2122,6 +2130,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # we take random generator from the gamestate which should be
         # authoritative at this point
         self.r = self.gamestate.random
+
+        #TODO: starfields
 
         self._culture_map = dict((sector_id, sector.culture) for sector_id, sector in gamestate.sectors.items())
         self._load_name_models(culture_filter=list(set(self._culture_map.values())))

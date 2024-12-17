@@ -10,7 +10,6 @@ from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
-    gamestate.player = core.Player(gamestate)
     return gamestate
 
 @pytest.fixture

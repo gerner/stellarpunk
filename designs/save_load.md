@@ -25,15 +25,20 @@ Saving and Loading Games
     * task schedule (and all tasks)
     * starfields
     * entity destroy list
+* ScheduledTask
+    * only subclass is TimedOrderTask at the moment
+    * `Gamestate._task_schedule` is the only place references are held (unlike
+      other task schedules)
 * Entity
     * simple fields and refs
     * event context
     * lots of subclasses
-* UniverseGenerator:
+* UniverseGenerator: (we will not actually save this)
     * random state (UG owns it, gamestate has a reference)
     * portraits (should we just reload from config?)
     * station sprites (should we just reload from config?)
-    * sector name models (should we just reload from config? will need to know which cultures are active)
+    * sector name models (should we just reload from config? will need to know
+      which cultures are active)
     * observers (references)
 * EventManager:
     * simple fields/references
@@ -79,7 +84,8 @@ Saving and Loading Games
     * agenda (see elsewhere for details)
     * observers (references)
 * Player (an entity)
-    * player econ agent (should this actually live on gamestate like any other?)
+    * player econ agent (should this actually live on gamestate like any
+      other?)
     * messages (see elsewhere for details)
 * EconAgent (an entity)
     * simple fields
@@ -188,6 +194,7 @@ Observables:
   * `entity_destroyed`
   * `entity_targeted`
 * Character
+* Sector Collisions
 
 Irrelevant Observers:
 * Simulator: UniverseGenerator universe generated or loaded (not neither saved)
@@ -196,20 +203,9 @@ Irrelevant Observers:
 * UniverseView: Perspective. irrelevant
 * StartupView: UniverseGenerator. irrelevant
 
-Observers:
-* TransferCargoEffect: SectorEntity source/target of transfer in case destroyed
-* TransferCargo (Order):
-  * TransferCargoEffect: schedule self when effect changes state
-  * DockingOrder: schedule self when order changes state
-* EntityOrderWatch: Order, SectorEntity. cancels an order when entity
-  migrates/destroyed. Used by lots of orders that "target" some SectorEntity in
-  case that target becomes invalid (migrates or is destroyed)
-* TimedOrderTask: Order. cancels task if watched order changes state
-* ThreatTracker: SectorEntity. watches if ship is targeted to add targeter as a
-  threat
-* PointDefenseEffect: SectorEntity. watches if source ship destroyed/migrates
-  and cancels effect
-* PilotView:
+UI that observe:
+* PilotView: tricky because we set up a lot of state for the player's ship that
+  exists whie the view is open.
   * Perspective: irrelevant
   * SectorEnttiy: player ship in case ship migrates so we can restart view
   * PlayerControlOrder: watch if it completes/cancels so we can clear state
@@ -218,20 +214,55 @@ Observers:
   * UniverseGenerator: irrelevant
   * Character: watches Player Character in case they are destroyed to handle
     player died UX
-* SensorImage: SectorEntity. source ship in case destroyed/migrated to clear
-  sensor image (unobserve target). target to know if we need to keep track of
-  target any more.
-* EntityOperatorAgendum: SectorEntity. operated craft so we stop agenda when
-  craft destroyed
-* CaptainAgendum: Order. formulates a threat response when at risk and pauses
-  agenda. unpauses when threat response completes/cancels
-* MiningAgendum: Order. watches mining/trading order to decide what to do next
-* TradingAgendum: Order. watches buy/sell to decide what to do next
+
+ScheduledTasks that observe:
+* TimedOrderTask: Order. cancels task if watched order changes state
+
+Agenda that observe:
+* EntityOperatorAgendum (aka EOA): SectorEntity. operated craft so we stop
+  agenda when craft destroyed
+* CaptainAgendum (EOA):
+  * Order: formulates a threat response when at risk and pauses agenda.
+    unpauses when threat response completes/cancels
+  * SectorEntity: if targeted, starts or updated threat response
+* MiningAgendum (EOA): Order. watches mining/trading orders to decide next
+* TradingAgendum (EOA): Order. watches buy/sell to decide what to do next
+
+Orders that observe:
 * MineOrder: Order, Effect. watches to schedule self to know what to do next
 * TransferCargo (Order): Order, Effect. watches to schedule self for next step
 * DisembarkToEntity (Order): Order. watches to schedule self
 * TravelThroughGate (Order): Order, Effect. watches to change state and
   schedule self
+* MissileOrder: collision. watches its target to know if it should damage/kill
+  both
+
+Effects that observe
+* TransferCargoEffect: SectorEntity source/target of transfer in case destroyed
+* PointDefenseEffect: SectorEntity. watches if source ship destroyed/migrates
+  and cancels effect
+
+Misc stuff that observe:
+* SensorImage: SectorEntity. source ship in case destroyed/migrated to clear
+  sensor image (unobserve target). target to know if we need to keep track of
+  target any more.
+* ThreatTracker: SectorEntity. referenced by PointDefenseEffect, might create
+  one. used by FleeOrder. watches if ship is targeted to add targeter as a
+  threat
+* EntityOrderWatch: Order, SectorEntity. cancels an order when entity
+  migrates/destroyed. Used by lots of orders that "target" some SectorEntity in
+  case that target becomes invalid (migrates or is destroyed)
+
+## PilotView
+We set up some state while the view is open (e.g. PlayerControlOrder or
+DockingOrder with observers so we can do stuff with them interactively). But
+the view isn't saved, so we can't restore that state perfectly. And the view
+isn't strictly bound to the ship anyway, so whatever we're doing with the ship
+should still work even if the view closes.
+
+Suppose the player initiates a docking order while in PilotView and saves the
+game, then quits. If they load that save later, should we restore the state so
+that when docking completes we trigger the station UI?
 
 ## Mid-Dialog State
 Dialog mangager (stellarpunk.events.core.DialogManager) will update context as

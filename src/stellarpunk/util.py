@@ -11,6 +11,7 @@ import pdb
 import curses
 import re
 import collections
+import uuid
 from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection
 
 import numpy as np
@@ -136,6 +137,10 @@ def human_timespan(timespan_sec:float) -> str:
         return f'{timespan_sec*1000:0.2f}ms'
     else:
         return f'{timespan_sec*1000*1000:0.2}us'
+
+def uuid_to_u64(u:uuid.UUID) -> int:
+    """ maps a uuid to an unsigned 64 bit integer. not reverseable """
+    return int.from_bytes(u.bytes[0:8], byteorder='big')
 
 def sector_to_drawille(
         sector_loc_x:float, sector_loc_y:float,

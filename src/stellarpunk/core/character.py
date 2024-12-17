@@ -76,23 +76,23 @@ class Agendum:
 
 class Character(Entity):
     id_prefix = "CHR"
-    def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
+    def __init__(self, sprite:Sprite, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.portrait:Sprite = sprite
         #TODO: other character background stuff
 
         #TODO: does location matter?
-        self.location:Optional[SectorEntity] = location
+        self.location:Optional[SectorEntity] = None
 
         # how much money
         self.balance:float = 0.
 
         # owned assets (ships, stations)
         #TODO: are these actually SectorEntity instances? maybe a new co-class (Asset)
-        self.assets:MutableSequence[Asset] = []
+        self.assets:list[Asset] = []
         # activites this character is enaged in (how they interact)
-        self.agenda:MutableSequence[Agendum] = []
+        self.agenda:list[Agendum] = []
 
         self.observers:weakref.WeakSet[CharacterObserver] = weakref.WeakSet()
 
@@ -162,7 +162,7 @@ class AbstractEventManager:
 class Message(Entity):
     id_prefix = "MSG"
 
-    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:"Character", *args:Any, **kwargs:Any) -> None:
+    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:uuid.UUID, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.message_id = message_id
@@ -181,16 +181,16 @@ class Player(Entity):
         super().__init__(*args, **kwargs)
 
         # which character the player controls
-        self._character:Character = None # type: ignore[assignment]
+        self._character:Optional[Character] = None # type: ignore[assignment]
         self.agent:EconAgent = None # type: ignore[assignment]
 
         self.messages:dict[uuid.UUID, Message] = {}
 
     @property
-    def character(self) -> Character:
+    def character(self) -> Optional[Character]:
         return self._character
 
     @character.setter
-    def character(self, character:Character) -> None:
+    def character(self, character:Optional[Character]) -> None:
         self._character = character
 

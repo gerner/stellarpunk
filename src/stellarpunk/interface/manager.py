@@ -275,6 +275,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.interface.gamestate = gamestate
 
     def player_spawned(self, player:core.Player) -> None:
+        assert(player.character)
         #TODO: should probably check some state to avoid errors here
         # e.g. player already exists and didn't die
         player.character.observe(self)
@@ -282,8 +283,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate
         self.interface.gamestate = gamestate
-        assert(self.gamestate.player)
-        self.gamestate.player.character.observe(self)
+        assert(gamestate.player)
+        assert(gamestate.player.character)
+        gamestate.player.character.observe(self)
 
     # core.CharacterObserver
     def character_destroyed(self, character:core.Character) -> None:
@@ -323,7 +325,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             universe_view,
             self.focused_view()
         )
-        if self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None:
+        if self.interface.player.character and self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None:
             universe_view.select_sector(
                 self.interface.player.character.location.sector,
                 focus=True
@@ -471,7 +473,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
         def open_pilot(args:Sequence[str]) -> None:
             """ Opens a PilotView on the ship the player is piloting """
-            if not isinstance(self.interface.player.character.location, core.Ship):
+            if not self.interface.player.character or not isinstance(self.interface.player.character.location, core.Ship):
                 #TODO: what if the character is just a passenger? surely they cannot just take the helm
                 raise command_input.UserError(f'player is not in a ship to pilot')
             self.interface.swap_view(
@@ -481,7 +483,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
         def open_sector(args:Sequence[str]) -> None:
             """ Opens a sector view on the sector the player is in """
-            if self.interface.player.character.location is None or self.interface.player.character.location.sector is None:
+            if not self.interface.player.character or self.interface.player.character.location is None or self.interface.player.character.location.sector is None:
                 raise command_input.UserError("player character not in a sector")
             sector_view = sector.SectorView(self.interface.player.character.location.sector, self.gamestate, self.interface)
             self.interface.swap_view(
@@ -499,6 +501,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
         def open_character(args:Sequence[str]) -> None:
             if len(args) == 0:
+                if self.interface.player.character is None:
+                    raise command_input.UserError(f'must choose a character to open')
                 target_character = self.interface.player.character
             else:
                 try:
@@ -516,7 +520,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             if len(args) < 1:
                 raise command_input.UserError(f'need to specify station to view')
 
-            if self.interface.player.character.location is None or self.interface.player.character.location.sector is None:
+            if not self.interface.player.character or self.interface.player.character.location is None or self.interface.player.character.location.sector is None:
                 raise command_input.UserError("character is not in a sector")
 
             try:
@@ -530,6 +534,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.interface.open_view(station_view, deactivate_views=True)
 
         def open_comms(args:Sequence[str]) -> None:
+            if self.interface.player.character is None:
+                raise command_input.UserError(f'cannot open comms without acting as a character')
             if len(args) < 1:
                 raise command_input.UserError(f'need to specify message to reply to')
 
@@ -543,7 +549,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 raise command_input.UserError(f'{message.short_id()} has no reply to')
             if message.replied_at is not None:
                 raise command_input.UserError(f'already replied to {message.short_id()}')
-            speaker = message.reply_to
+            speaker = self.gamestate.entities[message.reply_to]
+            assert(isinstance(speaker, core.Character))
             message.replied_at = self.gamestate.timestamp
 
             event_args: Dict[str, Any] = {}
@@ -607,7 +614,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         if not self.interface.runtime.game_running():
             return command_list
         # additional commands always available while the game is running
-        if self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None:
+        if self.interface.player.character and self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None:
             station_tab_completer = util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.stations)
         else:
             station_tab_completer = None

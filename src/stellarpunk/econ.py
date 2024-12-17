@@ -131,10 +131,12 @@ class PlayerAgent(core.EconAgent):
 
     @property
     def location(self) -> core.SectorEntity:
+        assert(self.player.character)
         assert(self.player.character.location)
         return self.player.character.location
 
     def get_owner(self) -> core.Character:
+        assert(self.player.character)
         return self.player.character
 
     def buy_resources(self) -> Collection:
@@ -150,6 +152,7 @@ class PlayerAgent(core.EconAgent):
         return np.inf
 
     def balance(self) -> float:
+        assert(self.player.character)
         return self.player.character.balance
 
     def budget(self, resource:int) -> float:
@@ -159,6 +162,7 @@ class PlayerAgent(core.EconAgent):
         return self.location.cargo[resource]
 
     def buy(self, resource:int, price:float, amount:float) -> None:
+        assert(self.player.character)
         value = price * amount
         assert self.balance()+PRICE_EPS >= value
         assert self.location.cargo.sum() <= self.location.cargo_capacity
@@ -178,6 +182,7 @@ class PlayerAgent(core.EconAgent):
         )
 
     def sell(self, resource:int, price:float, amount:float) -> None:
+        assert(self.player.character)
         assert self.inventory(resource) >= amount
 
         self.location.cargo[resource] -= amount

@@ -512,7 +512,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         if from_sector != self.sector:
             raise ValueError(f'got unexpected from sector in migration {entity} migrating {from_sector} to {to_sector}')
 
-        assert(isinstance(self.interface.player.character.location, core.Ship))
+        assert(self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship))
         self.interface.swap_view(
                 PilotView(self.interface.player.character.location, self.gamestate, self.interface),
                 self

@@ -145,7 +145,7 @@ class DeferredEventManager(AbstractEventManager):
             event_manager.trigger_event(*event_info)
 
 
-class ScheduledTask:
+class ScheduledTask(abc.ABC):
     @abc.abstractmethod
     def act(self) -> None: ...
 

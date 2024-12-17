@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config
+from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects
 from stellarpunk.core import combat
 from stellarpunk.interface import ui_util, manager as interface_manager
 from stellarpunk.serialization import save_game
@@ -457,25 +457,41 @@ def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.Game
     sg = save_game.GameSaver(generator)
     sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
     sg.register_saver(core.Entity, save_game.EntityDispatchSaver(sg))
+    sg.register_saver(core.Player, save_game.PlayerSaver(sg))
+
     sg.register_saver(core.Sector, save_game.SectorSaver(sg))
     sg.register_saver(core.SectorWeatherRegion, save_game.SectorWeatherRegionSaver(sg))
+    sg.register_saver(core.Character, save_game.CharacterSaver(sg))
+
+    sg.register_saver(econ.PlayerAgent, save_game.PlayerAgentSaver(sg))
+    sg.register_saver(econ.StationAgent, save_game.StationAgentSaver(sg))
+    sg.register_saver(econ.ShipTraderAgent, save_game.ShipTraderAgentSaver(sg))
+    sg.register_saver(core.Message, save_game.MessageSaver(sg))
     sg.ignore_saver(core.Asteroid)
     sg.ignore_saver(core.Planet)
     sg.ignore_saver(core.Station)
     sg.ignore_saver(core.Ship)
     sg.ignore_saver(core.Missile)
     sg.ignore_saver(core.TravelGate)
-    sg.ignore_saver(core.Character)
-    sg.register_saver(core.Player, save_game.PlayerSaver(sg))
-    sg.register_saver(econ.PlayerAgent, save_game.PlayerAgentSaver(sg))
-    sg.register_saver(econ.StationAgent, save_game.StationAgentSaver(sg))
-    sg.register_saver(econ.ShipTraderAgent, save_game.ShipTraderAgentSaver(sg))
-    sg.ignore_saver(core.Message)
 
-    # orders
+    # agenda
+    sg.ignore_saver(agenda.StationManager)
+    sg.ignore_saver(agenda.PlanetManager)
+    sg.ignore_saver(agenda.CaptainAgendum)
+    sg.ignore_saver(agenda.TradingAgendum)
+    sg.ignore_saver(agenda.MiningAgendum)
+
+    #TODO: orders
+
     # effects
+    sg.ignore_saver(effects.TransferCargoEffect)
+    sg.ignore_saver(effects.TradeTransferEffect)
+    sg.ignore_saver(effects.MiningEffect)
+    sg.ignore_saver(effects.WarpOutEffect)
+    sg.ignore_saver(effects.WarpInEffect)
 
-    #TODO: other savers
+    #TODO: scheduled tasks
+    #TODO: sensor images
 
     return sg
 

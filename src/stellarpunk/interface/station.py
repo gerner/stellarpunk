@@ -292,6 +292,7 @@ class StationView(interface.GameView):
         self.gamestate.force_unpause(self)
 
     def _validate_trade(self, *args:Any) -> bool:
+        assert(self.interface.player.character)
         # validate the overall set of trades are valid
         # validate ship and station have the relevant goods
         # validate ship and station have total cargo capacity for buys/sells
@@ -504,6 +505,7 @@ class StationView(interface.GameView):
 
         def make_contact(character: core.Character) -> Callable[[], Any]:
             def handle_contact() -> None:
+                assert(self.interface.player.character)
                 event_args: Dict[str, Any] = {}
                 self.gamestate.trigger_event_immediate(
                     [character],
@@ -537,6 +539,7 @@ class StationView(interface.GameView):
             pass
 
         def contact() -> None:
+            assert(self.interface.player.character)
             self.gamestate.trigger_event_immediate(
                 [character],
                 events.e(events.Events.CONTACT),

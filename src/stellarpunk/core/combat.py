@@ -182,9 +182,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     def _cancel(self) -> None:
         self._complete()
 
-    def is_complete(self) -> bool:
-        return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time or not self.target.is_active()
-
+    # core.CollisionObserver
     def collision(self, missile:SectorEntity, target:SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         assert missile == self.ship
         if target.entity_id == self.target.identity.entity_id:
@@ -194,6 +192,9 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
 
         self.complete_order()
         damage(target)
+
+    def is_complete(self) -> bool:
+        return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time or not self.target.is_active()
 
     def act(self, dt:float) -> None:
         super().act(dt)
