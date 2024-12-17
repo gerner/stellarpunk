@@ -28,6 +28,11 @@ class EntityRegistry(abc.ABC):
     @abc.abstractmethod
     def unregister_entity(self, entity: "Entity") -> None: ...
 
+    @abc.abstractmethod
+    def contains_entity(self, entity_id:uuid.UUID) -> bool: ...
+    @abc.abstractmethod
+    def get_entity(self, entity_id:uuid.UUID) -> "Entity": ...
+
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
@@ -76,20 +81,24 @@ class Sprite:
     """ A "sprite" from a text file that can be drawn in text """
 
     @staticmethod
-    def load_sprites(data:str, sprite_size:Tuple[int, int]) -> List["Sprite"]:
+    def load_sprites(data:str, sprite_size:Tuple[int, int], sprite_namespace:str) -> List["Sprite"]:
         sprites = []
         sheet = data.split("\n")
         offset_limit = (len(sheet[0])//sprite_size[0], len(sheet)//sprite_size[1])
+        sprite_count = 0
         for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
             sprites.append(Sprite(
+                f'{sprite_namespace}.{sprite_count}',
                 [
                     x[offset_x*sprite_size[0]:offset_x*sprite_size[0]+sprite_size[0]] for x in sheet[offset_y*sprite_size[1]:offset_y*sprite_size[1]+sprite_size[1]]
                 ]
             ))
+            sprite_count += 1
 
         return sprites
 
-    def __init__(self, text:Sequence[str], attr:Optional[Dict[Tuple[int,int], Tuple[int, int]]]=None) -> None:
+    def __init__(self, sprite_id:str, text:Sequence[str], attr:Optional[Dict[Tuple[int,int], Tuple[int, int]]]=None) -> None:
+        self.sprite_id = sprite_id
         self.text = text
         self.attr = attr or {}
         self.height = len(text)

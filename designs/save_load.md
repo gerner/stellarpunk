@@ -96,6 +96,8 @@ Saving and Loading Games
     * simple fields
 * SensorSettings
     * simple fields
+* SensorImage
+    * TBD
 * config: do we want to reload from stock config or do we want to save/load the
   already parsed configs? (settings, dialogs)
 * TBD ui stuff? (do we back out of all UI to save? what about stuff like being
@@ -175,6 +177,61 @@ physics on the SectorEntity save/load logic.
 ## Observers
 There's observers everywhere and the nature of the observer is highly variable
 (e.g. orders parts of UI, etc.) So how can these be saved in a uniform way?
+
+Observables:
+* Perspective (not saved and should only be observed by UI stuff)
+* UniverseGenerator (not saved, but the observers might)
+* Effect
+* Order
+* SectorEntity:
+  * `entity_migrated`
+  * `entity_destroyed`
+  * `entity_targeted`
+* Character
+
+Irrelevant Observers:
+* Simulator: UniverseGenerator universe generated or loaded (not neither saved)
+* Starfield: Perspective. irrelevant (Starfields are UI only. StarfieldLayer is
+  saved (?) but doesn't observe)
+* UniverseView: Perspective. irrelevant
+* StartupView: UniverseGenerator. irrelevant
+
+Observers:
+* TransferCargoEffect: SectorEntity source/target of transfer in case destroyed
+* TransferCargo (Order):
+  * TransferCargoEffect: schedule self when effect changes state
+  * DockingOrder: schedule self when order changes state
+* EntityOrderWatch: Order, SectorEntity. cancels an order when entity
+  migrates/destroyed. Used by lots of orders that "target" some SectorEntity in
+  case that target becomes invalid (migrates or is destroyed)
+* TimedOrderTask: Order. cancels task if watched order changes state
+* ThreatTracker: SectorEntity. watches if ship is targeted to add targeter as a
+  threat
+* PointDefenseEffect: SectorEntity. watches if source ship destroyed/migrates
+  and cancels effect
+* PilotView:
+  * Perspective: irrelevant
+  * SectorEnttiy: player ship in case ship migrates so we can restart view
+  * PlayerControlOrder: watch if it completes/cancels so we can clear state
+  * DockingOrder: watch for when it completes so we can do station UI
+* InterfaceManager
+  * UniverseGenerator: irrelevant
+  * Character: watches Player Character in case they are destroyed to handle
+    player died UX
+* SensorImage: SectorEntity. source ship in case destroyed/migrated to clear
+  sensor image (unobserve target). target to know if we need to keep track of
+  target any more.
+* EntityOperatorAgendum: SectorEntity. operated craft so we stop agenda when
+  craft destroyed
+* CaptainAgendum: Order. formulates a threat response when at risk and pauses
+  agenda. unpauses when threat response completes/cancels
+* MiningAgendum: Order. watches mining/trading order to decide what to do next
+* TradingAgendum: Order. watches buy/sell to decide what to do next
+* MineOrder: Order, Effect. watches to schedule self to know what to do next
+* TransferCargo (Order): Order, Effect. watches to schedule self for next step
+* DisembarkToEntity (Order): Order. watches to schedule self
+* TravelThroughGate (Order): Order, Effect. watches to change state and
+  schedule self
 
 ## Mid-Dialog State
 Dialog mangager (stellarpunk.events.core.DialogManager) will update context as

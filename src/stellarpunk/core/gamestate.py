@@ -150,7 +150,6 @@ class ScheduledTask:
     def act(self) -> None: ...
 
 class Gamestate(EntityRegistry):
-    bt = None
     gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
         #if Gamestate.gamestate is not None:
@@ -230,6 +229,7 @@ class Gamestate(EntityRegistry):
 
         self.last_colliders:set[str] = set()
 
+    # base.EntityRegistry
     def register_entity(self, entity: Entity) -> narrative.EventContext:
         self.logger.debug(f'registering {entity}')
         if entity.entity_id in self.entities:
@@ -247,6 +247,11 @@ class Gamestate(EntityRegistry):
         self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
+
+    def contains_entity(self, entity_id:uuid.UUID) -> bool:
+        return entity_id in self.entities
+    def get_entity(self, entity_id:uuid.UUID) -> "Entity":
+        return self.entities[entity_id]
 
     def _pause(self, paused:Optional[bool]=None) -> None:
         self.game_runtime.time_acceleration(1.0, False)

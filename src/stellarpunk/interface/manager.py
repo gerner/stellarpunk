@@ -607,7 +607,11 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         if not self.interface.runtime.game_running():
             return command_list
         # additional commands always available while the game is running
-        in_location = self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None
+        if self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None:
+            station_tab_completer = util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.stations)
+        else:
+            station_tab_completer = None
+
         command_list.extend([
             self.bind_command("pause", lambda x: self.gamestate.pause()),
             self.bind_command("t_accel", lambda x: self.time_accel()),
@@ -618,7 +622,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("universe", open_universe),
             self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
             self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.player.messages.keys()))),
-            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.stations) if in_location else None),
+            self.bind_command("station", open_station, station_tab_completer),
             self.bind_command("toggle_mouse", toggle_mouse),
             self.bind_command("debug_collision", debug_collision),
             self.bind_command("save", save_gamestate),

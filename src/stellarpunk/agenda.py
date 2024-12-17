@@ -294,7 +294,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         super().__init__(ship, *args, **kwargs)
 
         self.ship = ship
-        self.agent = econ.ShipTraderAgent(ship, self.character, self.gamestate)
+        self.agent = econ.ShipTraderAgent.create_ship_trader_agent(ship, self.character, self.gamestate)
 
         # resources we're allowed to mine
         if allowed_resources is None:
@@ -480,7 +480,7 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
     ) -> None:
         super().__init__(ship, *args, **kwargs)
         self.ship = ship
-        self.agent = econ.ShipTraderAgent(ship, self.character, self.gamestate)
+        self.agent = econ.ShipTraderAgent.create_ship_trader_agent(ship, self.character, self.gamestate)
         self.state = TradingAgendum.State.IDLE
 
         # goods we're allowed to trade
@@ -651,7 +651,6 @@ class StationManager(EntityOperatorAgendum):
         super().__init__(station, *args, **kwargs)
 
         self.station = station
-        self.station.observe(self)
         self.agent = econ.StationAgent.create_station_agent(
             self.character,
             station,
@@ -734,7 +733,6 @@ class PlanetManager(EntityOperatorAgendum):
         super().__init__(planet, *args, **kwargs)
 
         self.planet = planet
-        self.planet.observe(self)
         self.agent = econ.StationAgent.create_planet_agent(
             self.character,
             planet,

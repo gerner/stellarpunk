@@ -13,7 +13,7 @@ from typing import Any, Optional, TypeVar
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, sim, core, narrative, generate
+from stellarpunk import util, sim, core, narrative, generate, econ
 from stellarpunk.serialization import serialize_econ_sim, util as s_util
 
 class LoadContext:
@@ -22,6 +22,7 @@ class LoadContext:
     def __init__(self, sg:"GameSaver") -> None:
         self.save_game = sg
         self.debug = False
+        self.gamestate:core.Gamestate = None # type: ignore
         self._post_loads:list[tuple[Any, Any]] = []
 
     def register_post_load(self, obj:Any, context:Any) -> None:
@@ -264,6 +265,7 @@ class GamestateSaver(Saver[core.Gamestate]):
 
         # econ agents
         bytes_written += s_util.debug_string_w("econ agents", f)
+        bytes_written += s_util.size_to_f(core.EconAgent._next_id, f)
         bytes_written += s_util.size_to_f(len(gamestate.econ_agents), f)
         for entity_id, agent in gamestate.econ_agents.items():
             bytes_written += s_util.uuid_to_f(entity_id, f)
@@ -287,8 +289,9 @@ class GamestateSaver(Saver[core.Gamestate]):
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:LoadContext) -> core.Gamestate:
-        #TODO: make sure that core.Gamestate.gamestate is this one?
+        #TODO: make sure that load_context.gamestate is this one?
         gamestate = core.Gamestate()
+        load_context.gamestate = gamestate
 
         # simple fields
         s_util.debug_string_r("simple fields", f)
@@ -341,6 +344,7 @@ class GamestateSaver(Saver[core.Gamestate]):
 
         # econ agents
         s_util.debug_string_r("econ agents", f)
+        core.EconAgent._next_id = s_util.size_from_f(f)
         count = s_util.size_from_f(f)
         for _ in range(count):
             entity_id = s_util.uuid_from_f(f)
@@ -468,7 +472,7 @@ class NoneEntitySaver(EntitySaver[core.Entity]):
     def _save_entity(self, entity:core.Entity, f:io.IOBase) -> int:
         return 0
     def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> core.Entity:
-        return core.Entity(core.Gamestate.gamestate, entity_id=entity_id)
+        return core.Entity(load_context.gamestate, entity_id=entity_id)
 
 class PlayerSaver(EntitySaver[core.Player]):
     def _save_entity(self, entity:core.Player, f:io.IOBase) -> int:
@@ -482,24 +486,24 @@ class PlayerSaver(EntitySaver[core.Player]):
         #TODO: which econ agent
         #TODO: messages
         #TODO: register for post_load
-        return core.Player(core.Gamestate.gamestate, entity_id=entity_id)
+        return core.Player(load_context.gamestate, entity_id=entity_id)
 
     def post_load(self, player:core.Player, load_context:LoadContext, context:Any) -> None:
         context_tuple:tuple[uuid.UUID, uuid.UUID, list[uuid.UUID]] = context
         character_id, agent_id, messages = context_tuple
         #pull out fully loaded character
-        character = core.Gamestate.gamestate.entities[character_id]
+        character = load_context.gamestate.entities[character_id]
         assert(isinstance(character, core.Character))
-        player.set_character(character)
+        player.character = character
 
         #pull out fully loaded econ agent
-        agent = core.Gamestate.gamestate.entities[agent_id]
+        agent = load_context.gamestate.entities[agent_id]
         assert(isinstance(agent, core.EconAgent))
         player.agent = agent
 
         #pull out fully loaded messages
         for message_id in messages:
-            message = core.Gamestate.gamestate.entities[message_id]
+            message = load_context.gamestate.entities[message_id]
             assert(isinstance(message, core.Message))
             player.messages[message_id] = message
 
@@ -541,7 +545,7 @@ class SectorSaver(EntitySaver[core.Sector]):
         radius = s_util.float_from_f(f)
         culture = s_util.from_len_pre_f(f)
 
-        sector = core.Sector(loc, radius, cymunk.Space(), core.Gamestate.gamestate, entity_id=entity_id, culture=culture)
+        sector = core.Sector(loc, radius, cymunk.Space(), load_context.gamestate, entity_id=entity_id, culture=culture)
 
         # entities. we'll reconstruct these in post load
         entities:list[uuid.UUID] = []
@@ -568,7 +572,7 @@ class SectorSaver(EntitySaver[core.Sector]):
     def post_load(self, sector:core.Sector, load_context:LoadContext, context:Any) -> None:
         entities:list[uuid.UUID] = context
         for entity_id in entities:
-            entity = core.Gamestate.gamestate.entities[entity_id]
+            entity = load_context.gamestate.entities[entity_id]
             assert(isinstance(entity, core.SectorEntity))
             sector.add_entity(entity)
 
@@ -595,8 +599,130 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](EntitySaver[SectorEntit
     def _save_entity(self, sector_entity:SectorEntity, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += self._save_sector_entity(sector_entity, f)
+        #TODO: save common fields
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> SectorEntity:
         sector_entity = self._load_sector_entity(f, load_context, entity_id)
+        #TODO: load common fields
         return sector_entity
+
+class EconAgentSaver[EconAgent: core.EconAgent](EntitySaver[EconAgent], abc.ABC):
+    @abc.abstractmethod
+    def _save_econ_agent(self, econ_agent:EconAgent, f:io.IOBase) -> int: ...
+    @abc.abstractmethod
+    def _load_econ_agent(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> EconAgent: ...
+
+    def _save_entity(self, econ_agent:EconAgent, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += self._save_econ_agent(econ_agent, f)
+        bytes_written += s_util.int_to_f(econ_agent.agent_id, f)
+        return bytes_written
+
+    def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> EconAgent:
+        econ_agent = self._load_econ_agent(f, load_context, entity_id)
+        econ_agent.agent_id = s_util.int_from_f(f)
+        return econ_agent
+
+class PlayerAgentSaver(EconAgentSaver[econ.PlayerAgent]):
+    def _save_econ_agent(self, econ_agent:econ.PlayerAgent, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(econ_agent.player.entity_id, f)
+        return bytes_written
+
+    def _load_econ_agent(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> econ.PlayerAgent:
+        player_entity_id = s_util.uuid_from_f(f)
+        player_agent = econ.PlayerAgent(load_context.gamestate, entity_id=entity_id)
+        load_context.register_post_load(player_agent, player_entity_id)
+        return player_agent
+
+    def post_load(self, player_agent:econ.PlayerAgent, load_context:LoadContext, context:Any) -> None:
+        player_id:uuid.UUID = context
+        player = load_context.gamestate.entities[player_id]
+        assert(isinstance(player, core.Player))
+        player_agent.player = player
+
+class StationAgentSaver(EconAgentSaver[econ.StationAgent]):
+    def _save_econ_agent(self, econ_agent:econ.StationAgent, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.ints_to_f(econ_agent._buy_resources, f)
+        bytes_written += s_util.ints_to_f(econ_agent._sell_resources, f)
+        bytes_written += s_util.matrix_to_f(econ_agent._buy_price, f)
+        bytes_written += s_util.matrix_to_f(econ_agent._sell_price, f)
+        bytes_written += s_util.matrix_to_f(econ_agent._budget, f)
+        bytes_written += s_util.uuid_to_f(econ_agent.station.entity_id, f)
+        bytes_written += s_util.uuid_to_f(econ_agent.owner.entity_id, f)
+        bytes_written += s_util.uuid_to_f(econ_agent.character.entity_id, f)
+
+        return bytes_written
+
+    def _load_econ_agent(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> econ.StationAgent:
+        agent = econ.StationAgent(load_context.gamestate.production_chain, load_context.gamestate, entity_id=entity_id)
+        agent._buy_resources = list(s_util.ints_from_f(f))
+        agent._sell_resources = list(s_util.ints_from_f(f))
+        agent._buy_price = s_util.matrix_from_f(f)
+        agent._sell_price = s_util.matrix_from_f(f)
+        agent._budget = s_util.matrix_from_f(f)
+
+        station_id = s_util.uuid_from_f(f)
+        owner_id = s_util.uuid_from_f(f)
+        character_id = s_util.uuid_from_f(f)
+        load_context.register_post_load(agent, (station_id, owner_id, character_id))
+
+        return agent
+
+    def post_load(self, agent:econ.StationAgent, load_context:LoadContext, context:Any) -> None:
+        context_tuple:tuple[uuid.UUID, uuid.UUID, uuid.UUID] = context
+        station_id, owner_id, character_id = context_tuple
+        station = load_context.gamestate.entities[station_id]
+        assert(isinstance(station, core.Station))
+        agent.station = station
+        owner = load_context.gamestate.entities[owner_id]
+        assert(isinstance(owner, core.Character))
+        agent.owner = owner
+        character = load_context.gamestate.entities[character_id]
+        assert(isinstance(character, core.Character))
+        agent.character = character
+
+
+class ShipTraderAgentSaver(EconAgentSaver[econ.ShipTraderAgent]):
+    def _save_econ_agent(self, econ_agent:econ.ShipTraderAgent, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(econ_agent.ship.entity_id, f)
+        bytes_written += s_util.uuid_to_f(econ_agent.character.entity_id, f)
+        return bytes_written
+
+    def _load_econ_agent(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> econ.ShipTraderAgent:
+        agent = econ.ShipTraderAgent(load_context.gamestate, entity_id=entity_id)
+        ship_id = s_util.uuid_from_f(f)
+        character_id = s_util.uuid_from_f(f)
+        load_context.register_post_load(agent, (ship_id, character_id))
+
+        return agent
+
+    def post_load(self, agent:econ.ShipTraderAgent, load_context:LoadContext, context:Any) -> None:
+        context_tuple:tuple[uuid.UUID, uuid.UUID] = context
+        ship_id, character_id = context_tuple
+        ship = load_context.gamestate.entities[ship_id]
+        assert(isinstance(ship, core.Ship))
+        agent.ship = ship
+        character = load_context.gamestate.entities[character_id]
+        assert(isinstance(character, core.Character))
+        agent.character = character
+
+class CharacterSaver(EntitySaver[core.Character]):
+    def _save_entity(self, character:core.Character, f:io.IOBase) -> int:
+        bytes_written = 0
+        return bytes_written
+
+    def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> core.Character:
+        return core.Character(entity_id=entity_id)
+
+class MessageSaver(EntitySaver[core.Message]):
+    def _save_entity(self, messsage:core.Message, f:io.IOBase) -> int:
+        bytes_written = 0
+        return bytes_written
+
+    def _load_entity(self, f:io.IOBase, load_context:LoadContext, entity_id:uuid.UUID) -> core.Message:
+        return core.Message(entity_id=entity_id)
+

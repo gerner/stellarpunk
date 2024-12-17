@@ -27,13 +27,12 @@ class CharacterObserver(abc.ABC):
     def character_destroyed(self, character: "Character") -> None:
         pass
 
-class Agendum(CharacterObserver):
+class Agendum:
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
 
     def __init__(self, character:"Character", gamestate:"Gamestate") -> None:
         self.character = character
-        self.character.observe(self)
         self.gamestate = gamestate
         self.logger = AgendumLoggerAdapter(
                 self.character,
@@ -41,9 +40,6 @@ class Agendum(CharacterObserver):
         )
 
         logging.getLogger(util.fullname(self))
-
-    def character_destroyed(self, character:"Character") -> None:
-        self.stop()
 
     def _start(self) -> None:
         pass
@@ -69,7 +65,6 @@ class Agendum(CharacterObserver):
 
     def stop(self) -> None:
         self._stop()
-        self.character.unobserve(self)
         self.gamestate.unschedule_agendum(self)
 
     def is_complete(self) -> bool:
@@ -179,7 +174,7 @@ class Message(Entity):
         self.replied_at:Optional[float] = None
 
 
-class Player(Entity, CharacterObserver):
+class Player(Entity):
     id_prefix = "PLR"
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -191,14 +186,11 @@ class Player(Entity, CharacterObserver):
 
         self.messages:dict[uuid.UUID, Message] = {}
 
-    def get_character(self) -> Character:
+    @property
+    def character(self) -> Character:
         return self._character
 
-    def set_character(self, character:Character) -> None:
-        if self._character:
-            self._character.unobserve(self)
-
+    @character.setter
+    def character(self, character:Character) -> None:
         self._character = character
-        self._character.observe(self)
 
-    character = property(get_character, set_character, doc="which character this player plays as")

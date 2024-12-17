@@ -2,6 +2,7 @@ import io
 import json
 import uuid
 import struct
+from collections.abc import Collection
 from typing import Union
 
 import numpy as np
@@ -43,6 +44,21 @@ def from_len_pre_f(f:io.IOBase, blen:int=2) -> str:
     l = int.from_bytes(prefix)
     b = f.read(l)
     return b.decode("utf8")
+
+def ints_to_f(seq:Collection[int], f:io.IOBase, blen:int=4) -> int:
+    bytes_written = 0
+    bytes_written += size_to_f(len(seq), f)
+    for x in seq:
+        bytes_written += int_to_f(x, f, blen=blen)
+    return bytes_written
+
+def ints_from_f(f:io.IOBase, blen:int=4) -> Collection[int]:
+    count = size_from_f(f)
+    seq = []
+    for i in range(count):
+        x = int_from_f(f, blen=blen)
+        seq.append(x)
+    return seq
 
 def debug_string_w(s:str, f:io.IOBase) -> int:
     #TODO: flag to turn this off

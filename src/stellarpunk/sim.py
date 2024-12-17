@@ -467,9 +467,9 @@ def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.Game
     sg.ignore_saver(core.TravelGate)
     sg.ignore_saver(core.Character)
     sg.register_saver(core.Player, save_game.PlayerSaver(sg))
-    sg.ignore_saver(econ.StationAgent)
-    sg.ignore_saver(econ.ShipTraderAgent)
-    sg.ignore_saver(econ.PlayerAgent)
+    sg.register_saver(econ.PlayerAgent, save_game.PlayerAgentSaver(sg))
+    sg.register_saver(econ.StationAgent, save_game.StationAgentSaver(sg))
+    sg.register_saver(econ.ShipTraderAgent, save_game.ShipTraderAgentSaver(sg))
     sg.ignore_saver(core.Message)
 
     # orders
@@ -527,7 +527,7 @@ def main() -> None:
         sim.run_startup()
 
         data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=generator.gamestate))
-        generator.gamestate.econ_logger = data_logger
+        sim.gamestate.econ_logger = data_logger
 
 
         # can only happen after the universe is initialized
@@ -535,7 +535,7 @@ def main() -> None:
         #TODO: intialize other modules dynamically added
 
         # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
-        event_manager.initialize(generator.gamestate, config.Events)
+        event_manager.initialize(sim.gamestate, config.Events)
 
         # last initialization
         sim.initialize()

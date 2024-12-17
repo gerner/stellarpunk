@@ -573,13 +573,15 @@ class UniverseGenerator(core.AbstractGenerator):
         # load character portraits
         self.portraits = core.Sprite.load_sprites(
                 importlib.resources.files("stellarpunk.data").joinpath("portraits.txt").read_text(),
-                (32//2, 32//4)
+                (32//2, 32//4),
+                "portrait",
         )
 
         # load station sprites
         self.station_sprites = core.Sprite.load_sprites(
                 importlib.resources.files("stellarpunk.data").joinpath("stations.txt").read_text(),
-                (96//2, 96//4)
+                (96//2, 96//4),
+                "station",
         )
 
     def _prepare_projectile_spawn_pattern(self) -> None:
@@ -978,7 +980,7 @@ class UniverseGenerator(core.AbstractGenerator):
         player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
         player = core.Player(self.gamestate)
         player.character = player_character
-        player.agent = econ.PlayerAgent(player, self.gamestate)
+        player.agent = econ.PlayerAgent.create_player_agent(player, self.gamestate)
 
         for observer in self._observers:
             observer.player_spawned(player)
@@ -1937,8 +1939,6 @@ class UniverseGenerator(core.AbstractGenerator):
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
 
-        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
-
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
 
         # set up tutorial flags
@@ -1953,6 +1953,7 @@ class UniverseGenerator(core.AbstractGenerator):
         player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_MINE), 500)
         player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_TRADE), 500)
 
+        assert(player_character.location)
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
         self.logger.info(f'tutorial guy is {refinery.captain.short_id()} in {refinery.captain.location.address_str()} {refinery.captain.name}')
         self.logger.info(f'refinery is {refinery.address_str()} {refinery.name}')
@@ -1970,8 +1971,6 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
-
-        self.gamestate.player.agent = econ.PlayerAgent(self.gamestate.player, self.gamestate)
 
         player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 

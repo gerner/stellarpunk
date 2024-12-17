@@ -118,13 +118,20 @@ class YesAgent(core.EconAgent):
         raise NotImplementedError("do not trade with the YesAgent")
 
 class PlayerAgent(core.EconAgent):
-    def __init__(self, player:core.Player, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
+    @staticmethod
+    def create_player_agent(player:core.Player, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "PlayerAgent":
+        player_agent = PlayerAgent(gamestate, *args, **kwargs)
+        player_agent.player = player
+        return player_agent
+
+    def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
         super().__init__(gamestate, *args, **kwargs)
-        self.player = player
+        self.player:core.Player = None# type: ignore
         self.gamestate = gamestate
 
     @property
     def location(self) -> core.SectorEntity:
+        assert(self.player.character.location)
         return self.player.character.location
 
     def get_owner(self) -> core.Character:
@@ -204,18 +211,18 @@ class StationAgent(core.EconAgent):
             raise ValueError(f'cannot create station agent for station that has no owner')
 
         station_agent = StationAgent(
-            station,
-            station.owner,
-            character,
             production_chain,
             gamestate
         )
+        station_agent.station = station
+        station_agent.owner = station.owner
+        station_agent.character = character
 
         resource = station.resource
         inputs = production_chain.inputs_of(resource)
 
-        station_agent._buy_resources = tuple(inputs) # type: ignore
-        station_agent._sell_resources = (resource,)
+        station_agent._buy_resources = list(int(x) for x in inputs) # type: ignore
+        station_agent._sell_resources = [int(resource)]
 
         # start with buy price half the markup on our resource, reserving the
         # other half for the trader to transport it
@@ -235,19 +242,19 @@ class StationAgent(core.EconAgent):
             raise ValueError(f'cannot create station agent for planet that has no owner')
 
         station_agent = StationAgent(
-            planet,
-            planet.owner,
-            character,
             production_chain,
             gamestate
         )
+        station_agent.station = planet
+        station_agent.owner = planet.owner
+        station_agent.character = character
 
         end_product_ids = production_chain.final_product_ids()[[
             core.production_chain.RESOURCE_REL_CONSUMER,
             core.production_chain.RESOURCE_REL_SHIP,
             core.production_chain.RESOURCE_REL_STATION,
         ]]
-        station_agent._buy_resources = tuple(end_product_ids) # type: ignore
+        station_agent._buy_resources = list(int(x) for x in end_product_ids) # type: ignore
 
         # start with buy price the markup for the consumer good again
         station_agent._buy_price[end_product_ids] = production_chain.prices[end_product_ids] * production_chain.markup[end_product_ids]
@@ -257,9 +264,6 @@ class StationAgent(core.EconAgent):
 
     def __init__(
         self,
-        station:core.SectorEntity,
-        owner:core.Character,
-        character:core.Character,
         production_chain:core.ProductionChain,
         gamestate:core.Gamestate,
         *args:Any,
@@ -267,15 +271,15 @@ class StationAgent(core.EconAgent):
     ) -> None:
         super().__init__(gamestate, *args, **kwargs)
         self.gamestate = gamestate
-        self._buy_resources:Tuple[int] = tuple() # type: ignore
-        self._sell_resources:Tuple[int] = tuple() # type: ignore
+        self._buy_resources:list[int] = list() # type: ignore
+        self._sell_resources:list[int] = list() # type: ignore
 
         self._buy_price = np.zeros((production_chain.num_products,))
         self._sell_price = np.full((production_chain.num_products,), np.inf)
         self._budget = np.zeros((production_chain.num_products,))
-        self.station = station
-        self.owner = owner
-        self.character = character
+        self.station:core.SectorEntity = None # type: ignore
+        self.owner:core.Character = None # type: ignore
+        self.character:core.Character = None # type: ignore
 
     def get_owner(self) -> core.Character:
         return self.owner
@@ -361,18 +365,29 @@ class ShipTraderAgent(core.EconAgent):
     Buy/sell prices and budget are irrelevant for this agent. We assume this
     agent is "active" and decisions are handled elsewhere. """
 
-    def __init__(
-        self,
+    @staticmethod
+    def create_ship_trader_agent(
         ship:core.Ship,
         character:core.Character,
+        gamestate:core.Gamestate,
+        *args:Any,
+        **kwargs:Any
+    ) -> "ShipTraderAgent":
+        agent = ShipTraderAgent(gamestate, *args, **kwargs)
+        agent.ship = ship
+        agent.character = character
+        return agent
+
+    def __init__(
+        self,
         gamestate:core.Gamestate,
         *args:Any,
         **kwargs:Any
     ) -> None:
         super().__init__(gamestate, *args, **kwargs)
         self.gamestate = gamestate
-        self.ship = ship
-        self.character = character
+        self.ship:core.Ship = None # type: ignore
+        self.character:core.Character = None # type: ignore
 
     def get_owner(self) -> core.Character:
         assert self.ship.owner is not None
