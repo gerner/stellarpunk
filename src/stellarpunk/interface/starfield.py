@@ -149,4 +149,4 @@ class Starfield(interface.PerspectiveObserver):
                 text[y-y_start][x-x_start] = s
                 attr[x-x_start,y-y_start] = (a,c)
 
-        return core.Sprite(["".join(t) for t in text], attr)
+        return core.Sprite("ephemeral_starfield", ["".join(t) for t in text], attr)
