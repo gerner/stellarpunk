@@ -69,8 +69,8 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
             return
         self.gamestate.schedule_order_immediate(self)
 
-    def is_complete(self) -> bool:
-        return self.completed_at > 0 or (self.mining_effect is not None and self.mining_effect.is_complete())
+    def _is_complete(self) -> bool:
+        return (self.mining_effect is not None and self.mining_effect.is_complete())
 
     def act(self, dt: float) -> None:
         if self.ship.sector != self.target.sector:
@@ -133,7 +133,7 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
     def order_cancel(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.transfer_effect is not None and self.transfer_effect.is_complete()
 
     def act(self, dt:float) -> None:
@@ -261,7 +261,7 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
         assert order == self.embark_order
         self.gamestate.schedule_order_immediate(self)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.embark_order is not None and self.embark_order.is_complete()
 
     def act(self, dt:float) -> None:
@@ -313,7 +313,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         self.warp_out:Optional[effects.WarpOutEffect] = None
         self.warp_in:Optional[effects.WarpInEffect] = None
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.phase == self.PHASE_COMPLETE
 
     def __str__(self) -> str:
@@ -533,7 +533,7 @@ class DockingOrder(core.OrderObserver, core.Order):
     def order_cancel(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         distance_to_target = util.distance(self.ship.loc, self.target.loc)
         return distance_to_target < self.surface_distance + self.target.radius
 

@@ -93,6 +93,9 @@ def test_two_missiles(gamestate, generator, sector, testui, simulator):
     assert missile2.sector is None
 
 def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
+    #TODO: this test can be flaky and sometimes keeps running.
+    #  what is non-determinitistic about it???
+
     # simulates an attack run by a single ship on another single ship
     attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0)
     attacker.sensor_settings._sensor_power = attacker.sensor_settings._max_sensor_power
@@ -103,7 +106,7 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     defender_owner.take_ownership(defender)
     defender_owner.add_agendum(agenda.CaptainAgendum(defender, defender_owner, gamestate))
 
-    attack_order = combat.AttackOrder(sector.sensor_manager.target(defender, attacker), attacker, gamestate)
+    attack_order = combat.AttackOrder(sector.sensor_manager.target(defender, attacker), attacker, gamestate, max_missiles=15)
     attacker.prepend_order(attack_order)
 
     testui.orders = [attack_order]
@@ -142,6 +145,8 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
         assert attacker.sector
         if not attack_order.is_complete():
             state_ticks[attack_order.state] += 1
+            age_sum += attack_order.target.age
+            attack_ticks += 1
         if defender.phys.force.length == 0.:
             d_zero_forces += 1
         else:
@@ -150,9 +155,6 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
             a_zero_forces += 1
         else:
             a_non_zero_forces += 1
-        if not attack_order.is_complete():
-            age_sum += attack_order.target.age
-            attack_ticks += 1
         defender_top_order = defender.top_order()
         if isinstance(defender_top_order, combat.FleeOrder):
             ticks_fleeing += 1
@@ -165,6 +167,9 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
         if isinstance(defender_current_order, movement.EvadeOrder):
             ticks_evading += 1
             evade_max_thrust_sum += defender_current_order.max_thrust
+
+        if attack_order.is_complete():
+            simulator.raise_breakpoint()
     testui.tick_callback = tick_callback
 
     simulator.notify_on_collision = True
@@ -182,5 +187,6 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     logging.info(f'{attacker.sector=} {defender.sector=} in {gamestate.timestamp}s')
     logging.info(f'target avg age: {age_sum/attack_ticks}s avg dist: {util.human_distance(dist_sum/ticks_fleeing)}')
     logging.info(f'missiles fired: {attack_order.missiles_fired}')
+    logging.info(f'target active: {attack_order.target.is_active()}')
     logging.info(f'threats destroyed: {flee_order.point_defense.targets_destroyed}')
 

@@ -14,8 +14,8 @@ def test_to_int():
         assert v2 == v1
         assert bytes_written == fp.tell()
 
-def test_save_load_registry(generator):
-    game_saver = sim.initialize_save_game(generator)
+def test_save_load_registry(event_manager, generator):
+    game_saver = sim.initialize_save_game(generator, event_manager)
     with tempfile.TemporaryFile() as fp:
         bytes_written = game_saver._save_registry(fp)
         fp.flush()
@@ -25,9 +25,9 @@ def test_save_load_registry(generator):
         game_saver._load_registry(fp)
         assert bytes_written == fp.tell()
 
-def test_trivial_gamestate(gamestate, generator, player):
+def test_trivial_gamestate(event_manager, gamestate, generator, player):
     assert player == gamestate.player
-    game_saver = sim.initialize_save_game(generator)
+    game_saver = sim.initialize_save_game(generator, event_manager)
     filename = game_saver.save(gamestate)
     g2 = game_saver.load(filename)
     #this won't work!

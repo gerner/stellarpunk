@@ -232,6 +232,7 @@ class UniverseGenerator(core.AbstractGenerator):
     def __init__(self, seed:Optional[int]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
+        self.event_manager:events.EventManager = None # type: ignore
         self.gamestate:Optional[core.Gamestate] = None
 
         #TODO: should we just use the one on gamestate? They should always be
@@ -627,15 +628,15 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models[culture] = markov.MarkovModel(romanize=False)
 
 
-    def initialize(self, empty_name_model_culture:Optional[str]=None) -> None:
+    def pre_initialize(self, event_manager:events.EventManager, empty_name_model_culture:Optional[str]=None) -> None:
+        self.event_manager = event_manager
         self._prepare_sprites()
         self._prepare_projectile_spawn_pattern()
 
         if empty_name_model_culture:
             self._load_empty_name_models(empty_name_model_culture)
             self._cultures = {}
-        #else:
-        #    self._load_name_models()
+        #else: load culture models during universe generation
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         assert(self.gamestate)
@@ -983,7 +984,7 @@ class UniverseGenerator(core.AbstractGenerator):
         assert(self.gamestate)
 
         player_character = self.spawn_character(location, balance=balance)
-        player_character.context.set_flag(events.ck(events.ContextKeys.IS_PLAYER), 1)
+        player_character.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.IS_PLAYER), 1)
         player = core.Player(self.gamestate)
         player.character = player_character
         player.agent = econ.PlayerAgent.create_player_agent(player, self.gamestate)
@@ -1951,14 +1952,14 @@ class UniverseGenerator(core.AbstractGenerator):
         # set up tutorial flags
         assert refinery.captain
         assert refinery.captain.location
-        asteroid.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_ASTEROID), asteroid.short_id_int())
-        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
-        refinery.captain.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
-        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
-        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_RESOURCE), asteroid.resource)
-        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
-        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_MINE), 500)
-        player_character.context.set_flag(events.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_TRADE), 500)
+        asteroid.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_ASTEROID), asteroid.short_id_int())
+        refinery.captain.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
+        refinery.captain.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_GUY), refinery.captain.short_id_int())
+        player_character.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_RESOURCE), asteroid.resource)
+        player_character.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_TARGET_PLAYER), player_character.short_id_int())
+        player_character.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_MINE), 500)
+        player_character.context.set_flag(self.gamestate.event_manager.ck(events.ContextKeys.TUTORIAL_AMOUNT_TO_TRADE), 500)
 
         assert(player_character.location)
         self.logger.info(f'player is {player_character.short_id()} in {player_character.location.address_str()} {player_character.name}')
@@ -2044,6 +2045,9 @@ class UniverseGenerator(core.AbstractGenerator):
     def generate_universe(self) -> core.Gamestate:
         self.logger.info(f'generating a universe...')
         self.gamestate = core.Gamestate()
+        self.gamestate.event_manager = self.event_manager
+        self.gamestate.event_manager.initialize_gamestate(self.gamestate)
+
         self.gamestate.generator = self
         self.gamestate.random = self.r
         generation_start = time.perf_counter()
@@ -2118,9 +2122,10 @@ class UniverseGenerator(core.AbstractGenerator):
         # trigger the start of game event
         self.gamestate.trigger_event(
             self.gamestate.characters.values(),
-            events.e(events.Events.START_GAME),
+            self.gamestate.event_manager.e(events.Events.START_GAME),
             {},
         )
+
 
         return self.gamestate
 
@@ -2131,10 +2136,10 @@ class UniverseGenerator(core.AbstractGenerator):
         # authoritative at this point
         self.r = self.gamestate.random
 
-        #TODO: starfields
-
         self._culture_map = dict((sector_id, sector.culture) for sector_id, sector in gamestate.sectors.items())
         self._load_name_models(culture_filter=list(set(self._culture_map.values())))
+
+        #TODO: event manager needs to be created and initialized by this point
 
         for observer in self._observers:
             observer.universe_loaded(self.gamestate)

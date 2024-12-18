@@ -50,11 +50,11 @@ class ContextKeys(enum.IntEnum):
 def send_message(gamestate:core.Gamestate, recipient:core.Character, message:core.Message) -> None:
         gamestate.trigger_event(
             [recipient],
-            ecore.e(Events.MESSAGE),
+            gamestate.event_manager.e(Events.MESSAGE),
             {
-                ecore.ck(ContextKeys.MESSAGE_SENDER): util.uuid_to_u64(message.reply_to),
-                ecore.ck(ContextKeys.MESSAGE_ID): message.message_id,
-                ecore.ck(ContextKeys.MESSAGE): message.short_id_int(),
+                gamestate.event_manager.ck(ContextKeys.MESSAGE_SENDER): util.uuid_to_u64(message.reply_to),
+                gamestate.event_manager.ck(ContextKeys.MESSAGE_ID): message.message_id,
+                gamestate.event_manager.ck(ContextKeys.MESSAGE): message.short_id_int(),
             },
         )
 
@@ -157,11 +157,11 @@ class BroadcastAction(ecore.Action):
 
         self.gamestate.trigger_event(
             nearby_characters,
-            ecore.e(Events.BROADCAST),
+            self.gamestate.event_manager.e(Events.BROADCAST),
             {
-                ecore.ck(ContextKeys.MESSAGE_SENDER): character.short_id_int(),
-                ecore.ck(ContextKeys.MESSAGE_ID): message_id,
-                ecore.ck(ContextKeys.SHIP): character.location.short_id_int(),
+                self.gamestate.event_manager.ck(ContextKeys.MESSAGE_SENDER): character.short_id_int(),
+                self.gamestate.event_manager.ck(ContextKeys.MESSAGE_ID): message_id,
+                self.gamestate.event_manager.ck(ContextKeys.SHIP): character.location.short_id_int(),
             },
             {"message": message},
         )
@@ -224,13 +224,10 @@ class MessageAction(ecore.Action):
         send_message(self.gamestate, recipient, message)
 
 
-def register_events() -> None:
-    ecore.register_events(Events)
-    ecore.register_context_keys(ContextKeys)
-    ecore.register_action(IncAction(), "inc")
-    ecore.register_action(DecAction(), "dec")
-    ecore.register_action(BroadcastAction(), "broadcast")
-    ecore.register_action(MessageAction(), "message")
-
-# TODO: should we not eagerly do this?
-register_events()
+def register_events(event_manager:ecore.EventManager) -> None:
+    event_manager.register_events(Events)
+    event_manager.register_context_keys(ContextKeys)
+    event_manager.register_action(IncAction(), "inc")
+    event_manager.register_action(DecAction(), "dec")
+    event_manager.register_action(BroadcastAction(), "broadcast")
+    event_manager.register_action(MessageAction(), "message")

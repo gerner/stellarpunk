@@ -41,9 +41,11 @@ Saving and Loading Games
       which cultures are active)
     * observers (references)
 * EventManager:
-    * simple fields/references
+    * event queue
     * action schedule
-    * do we want to reload events or just get from config?
+    * error check: code registers events, context keys, actions. double check
+      against prior registrations. new registrations are ok, conflicts are not.
+    * actual events and such should be reloaded from config
 * Sector (an entity)
     * simple fields/references
     * entities (at least which are in this sector as actual entities are owned

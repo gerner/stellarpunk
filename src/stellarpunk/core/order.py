@@ -73,7 +73,10 @@ class Effect(abc.ABC):
         pass
 
     def is_complete(self) -> bool:
-        return self.completed_at > 0
+        return self.completed_at > 0 or self._is_complete()
+
+    def _is_complete(self) -> bool:
+        return False
 
     def begin_effect(self) -> None:
         """ Triggers the event to start working.
@@ -214,7 +217,10 @@ class Order:
     def is_complete(self) -> bool:
         """ Indicates that this Order is ready to complete and be removed from
         the order queue. """
-        return self.completed_at > 0
+        return self.completed_at > 0 or self._is_complete()
+
+    def _is_complete(self) -> bool:
+        return False
 
     def _begin(self) -> None:
         pass
@@ -259,6 +265,9 @@ class Order:
                 pass
         self.child_orders.clear()
 
+        if self.parent_order:
+            self.parent_order.child_orders.remove(self)
+
         self._complete()
         for observer in self.observers:
             observer.order_complete(self)
@@ -287,6 +296,9 @@ class Order:
                 # order might already have been removed from the queue
                 pass
         self.child_orders.clear()
+
+        if self.parent_order:
+            self.parent_order.child_orders.remove(self)
 
         self._cancel()
         for observer in self.observers:

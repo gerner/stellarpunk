@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 #TODO: can we just globally assign this? how do we keep this in sync with others?
 POINT_DEFENSE_COLLISION_TYPE = 1
 
-def initialize() -> None:
-    logger.info("initialized")
-    for sector in core.Gamestate.gamestate.sectors.values():
+def initialize_gamestate(gamestate:core.Gamestate) -> None:
+    logger.info("initializing combat for this gamestate...")
+    for sector in gamestate.sectors.values():
         sector.space.add_collision_handler(POINT_DEFENSE_COLLISION_TYPE, core.SECTOR_ENTITY_COLLISION_TYPE, pre_solve = point_defense_collision_handler)
 
 def point_defense_collision_handler(space:cymunk.Space, arbiter:cymunk.Arbiter) -> bool:
@@ -193,8 +193,8 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self.complete_order()
         damage(target)
 
-    def is_complete(self) -> bool:
-        return self.completed_at > 0 or self.gamestate.timestamp > self.expiration_time or not self.target.is_active()
+    def _is_complete(self) -> bool:
+        return self.gamestate.timestamp > self.expiration_time or not self.target.is_active()
 
     def act(self, dt:float) -> None:
         super().act(dt)
@@ -212,7 +212,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         SEARCH = enum.auto()
         GIVEUP = enum.auto()
 
-    def __init__(self, target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, **kwargs:Any) -> None:
+    def __init__(self, target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:Optional[int]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         assert self.ship.sector
@@ -227,6 +227,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.fire_backoff_time = 1.0
         self.max_fire_rel_bearing = max_fire_rel_bearing
         self.ttl_order_time = 2.
+        #TODO: max_missiles is a temporary hack to limit how many missiles we can shoot
+        self.max_missiles = max_missiles
 
         self.state = AttackOrder.State.APPROACH
 
@@ -242,8 +244,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
         super()._begin()
         self.logger.debug(f'beginning attack on {self.target.identity.short_id}')
 
-    def is_complete(self) -> bool:
-        return self.completed_at > 0. or not self.target.is_active()
+    def _is_complete(self) -> bool:
+        return not self.target.is_active()
 
     def _ttl_order(self, order:core.Order, ttl:Optional[float]=None) -> None:
         if ttl is None:
@@ -258,7 +260,6 @@ class AttackOrder(movement.AbstractSteeringOrder):
         #TODO: search, for now give up
         self.logger.debug(f'giving up search for target {self.target.identity.short_id}')
         self.state = AttackOrder.State.GIVEUP
-        self.cancel_order()
 
     def _do_approach(self) -> None:
         self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min), max_speed=self.ship.max_speed()*2.))
@@ -345,6 +346,9 @@ class AttackOrder(movement.AbstractSteeringOrder):
         # if we've got enough confidence take shot, else gain confidence
         # only fire a missile if we're vaguely pointed toward the target
         if self.target.age < self.max_fire_age and self.gamestate.timestamp - self.last_fire_ts > self.fire_period:
+            #TODO: temporary hack to limit attacking
+            if self.max_missiles is not None and self.missiles_fired >= self.max_missiles:
+                return AttackOrder.State.GIVEUP
             if abs(util.normalize_angle(util.bearing(self.ship.loc, self.target.loc) - self.ship.angle, shortest=True)) < self.max_fire_rel_bearing and self.target.profile / self.ship.sensor_settings.max_threshold > self.min_profile_to_threshold:
                 return AttackOrder.State.FIRE
             else:
@@ -377,6 +381,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
             self._do_fire()
         elif self.state == AttackOrder.State.AIM:
             self._do_aim(dt)
+        elif self.state == AttackOrder.State.GIVEUP:
+            self.cancel_order()
         else:
             raise ValueError(f'unknown attack order state {self.state}')
 
@@ -646,13 +652,13 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.ttl_order_time = 5.
+        self.last_target_ttl = 30.
 
         self.threat_tracker = ThreatTracker(self.ship)
 
         assert self.ship.sector
         self.point_defense = PointDefenseEffect(self.ship, self.ship.sector, self.gamestate, threat_tracker=self.threat_tracker)
 
-        self.last_target_ts = 0.
         self.max_thrust = self.ship.max_thrust
 
     def _ttl_order(self, order:core.Order) -> None:
@@ -680,10 +686,10 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         self.ship.sensor_settings.set_transponder(True)
         self.threat_tracker.stop_tracking()
 
-    def is_complete(self) -> bool:
-        if self.completed_at > 0:
+    def _is_complete(self) -> bool:
+        if len(self.threat_tracker) == 0:
             return True
-        elif len(self.threat_tracker) == 0:
+        if self.gamestate.timestamp - self.threat_tracker.last_target_ts > self.last_target_ttl:
             return True
         return False
 

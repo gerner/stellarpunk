@@ -247,12 +247,12 @@ class PolygonDemo(interface.View):
 
 
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
-    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, sg:save_game.GameSaver) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver) -> None:
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(generator, self.mixer)
         self.gamestate:core.Gamestate = None # type: ignore
         self.generator = generator
-        self.event_manager = event_manager
+        self.event_manager = core.AbstractEventManager()
         self.game_saver = sg
 
         self.profiler:Optional[cProfile.Profile] = None
@@ -262,7 +262,6 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.interface.key_list = {x.key:x for x in self.key_list()}
         self.mixer.__enter__()
         self.interface.__enter__()
-        self.register_events()
         return self
 
     def __exit__(self, *args:Any) -> None:
@@ -295,18 +294,20 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             # TODO: what should we do when the player's character dies?
             self.open_universe()
 
-    def initialize(self) -> None:
+    def pre_initialize(self, event_manager:events.EventManager) -> None:
+        self.event_manager = event_manager
+        self.register_events(event_manager)
         self.interface.initialize()
         self.generator.observe(self)
 
         startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
         self.interface.open_view(startup_view)
 
-    def register_events(self) -> None:
-        events.register_action(ui_events.DialogAction(self.interface, self.event_manager), "dialog")
-        events.register_action(ui_events.PlayerNotification(self.interface), "player_notification")
-        events.register_action(ui_events.PlayerReceiveBroadcast(self.interface), "player_receive_broadcast")
-        events.register_action(ui_events.PlayerReceiveMessage(self.interface), "player_receive_message")
+    def register_events(self, event_manager:events.EventManager) -> None:
+        event_manager.register_action(ui_events.DialogAction(self.interface), "dialog")
+        event_manager.register_action(ui_events.PlayerNotification(self.interface), "player_notification")
+        event_manager.register_action(ui_events.PlayerReceiveBroadcast(self.interface), "player_receive_broadcast")
+        event_manager.register_action(ui_events.PlayerReceiveMessage(self.interface), "player_receive_message")
 
     def focused_view(self) -> Optional[interface.View]:
         """ Get the topmost view that's not the topmost CommandInput """
@@ -556,9 +557,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             event_args: Dict[str, Any] = {}
             self.gamestate.trigger_event(
                 [speaker],
-                events.e(events.Events.CONTACT),
+                self.event_manager.e(events.Events.CONTACT),
                 {
-                    events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
+                    self.event_manager.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                 },
                 event_args
             )

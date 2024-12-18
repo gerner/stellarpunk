@@ -3,20 +3,30 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate, interface, sensors
+from stellarpunk import core, sim, generate, interface, sensors, events
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
-def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
+def event_manager() -> events.EventManager:
+    em = events.EventManager()
+    events.register_events(em)
+    #TODO: all events (e.g. ui manager events) should be registered by this point
+    #TODO: this is where events are setup from config, do we need to worry about that?
+    em.pre_initialize({})
+    return em
+
+@pytest.fixture
+def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventManager) -> core.Gamestate:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
+    event_manager.initialize_gamestate(gamestate)
     return gamestate
 
 @pytest.fixture
-def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
+def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(seed=0)
     ug.gamestate = gamestate
-    ug.initialize(empty_name_model_culture="test")
+    ug.pre_initialize(event_manager, empty_name_model_culture="test")
     gamestate.random = ug.r
     gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
@@ -60,15 +70,15 @@ def econ_logger() -> MonitoringEconDataLogger:
     return MonitoringEconDataLogger()
 
 @pytest.fixture
-def simulator(gamestate:core.Gamestate, generator:generate.UniverseGenerator, testui:MonitoringUI) -> sim.Simulator:
+def simulator(event_manager:events.EventManager, gamestate:core.Gamestate, generator:generate.UniverseGenerator, testui:MonitoringUI) -> sim.Simulator:
     simulation = MonitoringSimulator(generator, testui)
     simulation.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
     testui.runtime = simulation
 
     simulation.pre_initialize()
-    simulation.gamestate = gamestate
-    simulation.initialize()
+
+    simulation.initialize_gamestate(gamestate)
     simulation.start_game()
 
     return simulation

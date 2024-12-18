@@ -2,6 +2,7 @@
 
 import abc
 import logging
+import enum
 import uuid
 import weakref
 from typing import Optional, Any, TYPE_CHECKING
@@ -132,7 +133,11 @@ class Character(Entity):
             agendum.start()
 
 class AbstractEventManager:
-    def transfer_events(self, other:"AbstractEventManager") -> None:
+    def e(self, event_id: enum.IntEnum) -> int:
+        raise NotImplementedError()
+    def ck(self, context_key: enum.IntEnum) -> int:
+        raise NotImplementedError()
+    def f(self, flag:str) -> int:
         raise NotImplementedError()
     def trigger_event(
         self,
@@ -141,8 +146,7 @@ class AbstractEventManager:
         context: Mapping[int,int],
         event_args: MutableMapping[str, Any],
     ) -> None:
-        pass
-        #raise NotImplementedError()
+        raise NotImplementedError()
 
     def trigger_event_immediate(
         self,
@@ -151,12 +155,10 @@ class AbstractEventManager:
         context: Mapping[int,int],
         event_args: MutableMapping[str, Any],
     ) -> None:
-        pass
-        #raise NotImplementedError()
+        raise NotImplementedError()
 
     def tick(self) -> None:
-        pass
-        #raise NotImplementedError()
+        raise NotImplementedError()
 
 
 class Message(Entity):

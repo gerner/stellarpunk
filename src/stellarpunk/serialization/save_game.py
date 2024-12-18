@@ -14,7 +14,7 @@ from typing import Any, Optional, TypeVar
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, sim, core, narrative, generate, econ
+from stellarpunk import util, sim, core, narrative, generate, econ, events
 from stellarpunk.serialization import serialize_econ_sim, util as s_util
 
 class LoadContext:
@@ -63,7 +63,7 @@ class GameSaver:
 
     Organizes configuration and dispatches to various sorts of save logic. """
 
-    def __init__(self, generator:generate.UniverseGenerator) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.logger = logging.getLogger(util.fullname(self))
 
         self.debug = True
@@ -73,7 +73,9 @@ class GameSaver:
         self._class_key_lookup:dict[type, int] = {}
         self._key_class_lookup:dict[int, type] = {}
 
+        # we'll need these as part of saving and loading
         self.generator = generator
+        self.event_manager = event_manager
 
     def _gen_save_filename(self) -> str:
         return f'save_{time.time()}.stpnk'
@@ -189,8 +191,14 @@ class GameSaver:
             temp_name = temp_save_file.name
             self.logger.debug(f'saving to temp file {temp_save_file.name}')
             save_file:io.IOBase = temp_save_file # type: ignore
-            #TODO: put metadata about the save game at the top for quick retrieval
+            # put metadata about the save game at the top for quick retrieval
             bytes_written += self._save_metadata(gamestate, save_file)
+
+            #TODO: put some global state error checking stuff. these are things
+            # we don't actually save, but game state references like config
+            # items. this helps avoid inconsistencies down the road as
+            # code/config changes between save/load
+            # e.g. sprites, cultures, event context keys
 
             # save class -> key registration
             bytes_written += self._save_registry(save_file)
@@ -224,14 +232,20 @@ class GameSaver:
             save_game = self._load_metadata(save_file)
             load_context.debug = save_game.debug_flag
 
+            #TODO: global state erorr checking stuff
+
             # load the class -> key registration
             self._load_registry(save_file)
 
             s_util.debug_string_r("gamestate", save_file)
             gamestate = self.load_object(core.Gamestate, save_file, load_context)
 
-            #TODO: do we need to do any final setup?
+            # final set up
 
+            # we created the gamestate so it's our responsibility to set its
+            # event manager and post_initialize it
+            gamestate.event_manager = self.event_manager
+            gamestate.event_manager.initialize_gamestate(gamestate)
             self.generator.load_universe(gamestate)
 
             return gamestate
@@ -286,6 +300,7 @@ class GamestateSaver(Saver[core.Gamestate]):
             bytes_written += s_util.uuid_to_f(agent.entity_id, f)
 
         #TODO: task lists
+        #TODO: event manager: event_queue and action schedule
 
         # starfields
         bytes_written += s_util.debug_string_w("starfields", f)
@@ -379,6 +394,7 @@ class GamestateSaver(Saver[core.Gamestate]):
             gamestate.representing_agent(entity_id, agent)
 
         #TODO: task lists
+        #TODO: event manager: event_queue and action schedule
 
         # starfields
         s_util.debug_string_r("starfields", f)

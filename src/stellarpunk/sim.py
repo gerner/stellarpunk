@@ -25,14 +25,14 @@ AUTOSAVE_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
-    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[core.AbstractEventManager]=None, game_saver:Optional[save_game.GameSaver]=None) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, game_saver:Optional[save_game.GameSaver]=None, context_stack:Optional[contextlib.ExitStack]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
+        self.context_stack=context_stack
         self.generator = generator
         # we create a dummy gamestate immediately, but we get the real one by
         # watching for UniverseGenerator events
         self.gamestate:core.Gamestate = None #type: ignore
         self.ui = ui
-        self.event_manager = event_manager or core.AbstractEventManager()
 
         self.pause_on_collision = False
         self.notify_on_collision = False
@@ -170,25 +170,39 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
     def should_breakpoint(self) -> bool:
         return self.should_raise_breakpoint
 
+    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
+        """ post-gamestate generation/loading initialization.
+
+        initialize_gamestate is a pattern. it can be called many times with
+        different gamestates. we can assume we'll only be operating on one
+        gamestate at a time and if we get a new initialize_gamestate call, we
+        should toss the old gamestate."""
+
+        self.gamestate = gamestate
+        self.gamestate.game_runtime = self
+
+        if self.context_stack is not None:
+            data_logger = self.context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=self.gamestate))
+            self.gamestate.econ_logger = data_logger
+            data_logger.begin_simulation()
+
+        # can only happen after the universe is initialized
+        combat.initialize_gamestate(self.gamestate)
+        #TODO: intialize_gamestate for other modules dynamically added
+
+        for sector in self.gamestate.sectors.values():
+            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected, post_solve = self._ship_collision_handler)
+
 
     # generate.UniverseGeneratorObserver
     def universe_generated(self, gamestate:core.Gamestate) -> None:
-        self.gamestate = gamestate
+        self.initialize_gamestate(gamestate)
 
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
-        self.gamestate = gamestate
-
+        self.initialize_gamestate(gamestate)
 
     def pre_initialize(self) -> None:
         self.generator.observe(self)
-
-    def initialize(self) -> None:
-        """ One-time initialize of the simulation. """
-        self.gamestate.game_runtime = self
-        # transfer deferred events during (e.g.) universe generation into the
-        # actual event_manager
-        for sector in self.gamestate.sectors.values():
-            sector.space.set_default_collision_handler(pre_solve = self._ship_collision_detected, post_solve = self._ship_collision_handler)
 
     def _tick_space(self, dt: float) -> None:
         # update physics simulations
@@ -367,7 +381,7 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
         self._tick_agenda(dt)
         self._tick_tasks(dt)
 
-        self.event_manager.tick()
+        self.gamestate.event_manager.tick()
 
         self.gamestate.ticks += 1
         self.gamestate.timestamp += dt
@@ -473,8 +487,8 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
             ticktime = now - starttime
             self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
-def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.GameSaver:
-    sg = save_game.GameSaver(generator)
+def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager) -> save_game.GameSaver:
+    sg = save_game.GameSaver(generator, event_manager)
     sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
     sg.register_saver(core.Entity, save_game.EntityDispatchSaver(sg))
     sg.register_saver(core.Player, save_game.PlayerSaver(sg))
@@ -542,49 +556,44 @@ def main() -> None:
         # there are some circular dependencies which we resolve through
         # interleaving construction and initialization
 
+        #TODO: how can code register stuff if we don't create the EventManager prior to this point?
+        # code must have registered events, context keys, actions and the event manager must be fully initialized prior to this point because we're about to populate contexts and trigger events
+
         mgr = context_stack.enter_context(util.PDBManager())
 
-        generator = generate.UniverseGenerator()
         event_manager = events.EventManager()
-        sg = initialize_save_game(generator)
-        ui = context_stack.enter_context(interface_manager.InterfaceManager(generator, event_manager, sg))
+        events.register_events(event_manager)
 
-        generator.initialize()
+        generator = generate.UniverseGenerator()
+        sg = initialize_save_game(generator, event_manager)
+        ui = context_stack.enter_context(interface_manager.InterfaceManager(generator, sg))
+
+        generator.pre_initialize(event_manager)
 
         ui_util.initialize()
-        ui.initialize()
+        ui.pre_initialize(event_manager)
 
         # note: universe generator is handled by the ui if the player chooses
         # a new game or to load the game
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
-        sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager, game_saver=sg)
+        sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, game_saver=sg, context_stack=context_stack)
         sim.pre_initialize()
 
         ui.interface.runtime = sim
 
+        # this event_manager pre-initialization must happen as late as possible
+        # prior to gamestate creation so code has a chance to register events
+        # and such
+        event_manager.pre_initialize(config.Events)
+
         sim.run_startup()
-
-        data_logger = context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=generator.gamestate))
-        sim.gamestate.econ_logger = data_logger
-
-
-        # can only happen after the universe is initialized
-        combat.initialize()
-        #TODO: intialize other modules dynamically added
-
-        # initialize event_manager as late as possible, after other units have had a chance to initialize and therefore register events/context keys/actions
-        event_manager.initialize(sim.gamestate, config.Events)
-
-        # last initialization
-        sim.initialize()
 
         # experimentally chosen so that we don't get multiple gcs during a tick
         # this helps a lot because there's lots of short lived objects during a
         # tick and it's better if they stay in the youngest generation
         #TODO: should we just disable a gc while we're doing a tick?
         gc.set_threshold(700*4, 10*4, 10*4)
-        data_logger.begin_simulation()
         sim.run()
 
         counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), sim.gamestate.counters)))

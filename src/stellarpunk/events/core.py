@@ -59,56 +59,6 @@ class Action:
     ) -> None:
         pass
 
-
-_event_offset = 0
-RegisteredEventSpaces:dict[enum.EnumMeta, int] = {}
-_context_key_offset = 0
-RegisteredContextSpaces:dict[enum.EnumMeta, int] = {}
-RegisteredActions:dict[Action, str] = {}
-
-
-def e(event_id: enum.IntEnum) -> int:
-    return event_id + RegisteredEventSpaces[event_id.__class__]
-
-
-def ck(context_key: enum.IntEnum) -> int:
-    return context_key + RegisteredContextSpaces[context_key.__class__]
-
-
-def register_events(events: enum.EnumMeta) -> None:
-    if len(events) > 0:
-        if not all(isinstance(x, int) for x in events): # type: ignore[var-annotated]
-            raise ValueError("members of events must all be int-like")
-        if min(events) not in [0, 1]:
-            raise ValueError("events must start at 0 or 1")
-        if max(events) > len(events):
-            raise ValueError("events must be continuous")
-    global _event_offset
-    RegisteredEventSpaces[events] = _event_offset
-    _event_offset += max(events)+1
-
-
-def register_context_keys(context_keys: enum.EnumMeta) -> None:
-    if len(context_keys) > 0:
-        if not all(isinstance(x, int) for x in context_keys): # type: ignore[var-annotated]
-            raise ValueError("members of context keys must all be int-like")
-        if min(context_keys) not in [0, 1]:
-            raise ValueError("context keys must start at 0 or 1")
-        if max(context_keys) > len(context_keys):
-            raise ValueError("context keys must be continuous")
-    global _context_key_offset
-    RegisteredContextSpaces[context_keys] = _context_key_offset
-    _context_key_offset += max(context_keys)+1
-
-
-def register_action(action: Action, name:str) -> None:
-    #if name is None:
-    #    name = util.camel_to_snake(action.__class__.__name__)
-    #    if name.endswith("_action"):
-    #        name = name[:-len("_action")]
-    RegisteredActions[action] = name
-
-
 """
 events.register_events(MyEvents)
 events.register_context_keys(MyContextKeys)
@@ -125,7 +75,15 @@ class EventManager(core.AbstractEventManager):
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate:core.Gamestate = None # type: ignore[assignment]
         self.director:narrative.Director = None # type: ignore[assignment]
-        self.event_queue:collections.deque[tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
+
+        # this is mapping to/from code specific logic and EventManager logic
+        self._event_offset = 0
+        self.RegisteredEventSpaces:dict[enum.EnumMeta, int] = {}
+        self._context_key_offset = 0
+        self.RegisteredContextSpaces:dict[enum.EnumMeta, int] = {}
+        self.RegisteredActions:dict[Action, str] = {}
+
+        # this is mapping to/from EventContext id space and EventManager logic
         self.actions:dict[int, Action] = {}
         self.event_types:dict[str, int] = {}
         self.event_type_lookup:dict[int, str] = {}
@@ -134,27 +92,75 @@ class EventManager(core.AbstractEventManager):
         self.action_ids:dict[str, int] = {}
         self.action_id_lookup:dict[int, str] = {}
 
+        # this is actual dynamic state
+        self.event_queue:collections.deque[tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
         self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, narrative.Action]] = task_schedule.TaskSchedule()
 
-    def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
-        self.gamestate = gamestate
-        old_event_manager = self.gamestate.event_manager
-        self.gamestate.event_manager = self
+    # logic helping code interact with the event system
+    def e(self, event_id: enum.IntEnum) -> int:
+        """ map code specific event id to the global EventContext event id """
+        return event_id + self.RegisteredEventSpaces[event_id.__class__]
 
+    def ck(self, context_key: enum.IntEnum) -> int:
+        """ map code specific context key to the global EventContext key """
+        return context_key + self.RegisteredContextSpaces[context_key.__class__]
+
+    def f(self, flag:str) -> int:
+        """ map global flag string name to EventContext key """
+        return self.context_keys[flag]
+
+    def register_events(self, events: enum.EnumMeta) -> None:
+        """ Registers a set of events code might trigger later
+
+        Code keeps its own notion of events and this registration maps into a
+        global event space. The names of the enum items
+
+        events: is an enum specific code will use to identify the events later
+
+        """
+        if len(events) > 0:
+            if not all(isinstance(x, int) for x in events): # type: ignore[var-annotated]
+                raise ValueError("members of events must all be int-like")
+            if min(events) not in [0, 1]:
+                raise ValueError("events must start at 0 or 1")
+            if max(events) > len(events):
+                raise ValueError("events must be continuous")
+        self.RegisteredEventSpaces[events] = self._event_offset
+        self._event_offset += max(events)+1
+
+    def register_context_keys(self, context_keys: enum.EnumMeta) -> None:
+        if len(context_keys) > 0:
+            if not all(isinstance(x, int) for x in context_keys): # type: ignore[var-annotated]
+                raise ValueError("members of context keys must all be int-like")
+            if min(context_keys) not in [0, 1]:
+                raise ValueError("context keys must start at 0 or 1")
+            if max(context_keys) > len(context_keys):
+                raise ValueError("context keys must be continuous")
+        self.RegisteredContextSpaces[context_keys] = self._context_key_offset
+        self._context_key_offset += max(context_keys)+1
+
+    def register_action(self, action: Action, name:str) -> None:
+        #if name is None:
+        #    name = util.camel_to_snake(action.__class__.__name__)
+        #    if name.endswith("_action"):
+        #        name = name[:-len("_action")]
+        self.RegisteredActions[action] = name
+
+    def pre_initialize(self, events: Mapping[str, Any]) -> None:
+        """ pre-gamestate creation/loading initialization. """
         # assign integer ids for events, contexts, actions
         action_validators:dict[int, Callable[[Mapping], bool]] = {}
 
-        for event_enum in RegisteredEventSpaces:
+        for event_enum in self.RegisteredEventSpaces:
             for event_key in event_enum: # type: ignore[var-annotated]
-                self.event_types[util.camel_to_snake(event_key.name)] = event_key + RegisteredEventSpaces[event_enum]
+                self.event_types[util.camel_to_snake(event_key.name)] = event_key + self.RegisteredEventSpaces[event_enum]
 
-        for context_enum in RegisteredContextSpaces:
+        for context_enum in self.RegisteredContextSpaces:
             for context_key in context_enum: # type: ignore[var-annotated]
-                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + RegisteredContextSpaces[context_enum]
+                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + self.RegisteredContextSpaces[context_enum]
 
         action_count = 0
-        for action, action_name in RegisteredActions.items():
-            action.initialize(self.gamestate)
+        for action, action_name in self.RegisteredActions.items():
             self.action_ids[action_name] = action_count
             self.actions[action_count] = action
             action_validators[action_count] = action.validate
@@ -169,10 +175,15 @@ class EventManager(core.AbstractEventManager):
         self.logger.info(f'known actions {self.action_ids.keys()}')
         self.director = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
 
-        self.logger.info(f'transferring events from {old_event_manager} to {self}')
-        old_event_manager.transfer_events(self)
-
         self.logger.info(f'event manager initialized')
+
+    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
+        """ post gamestate creation/loading initialization. """
+        self.gamestate = gamestate
+        self.gamestate.event_manager = self
+
+        for action in self.actions.values():
+            action.initialize(self.gamestate)
 
     def trigger_event(
         self,
@@ -261,11 +272,10 @@ class EventManager(core.AbstractEventManager):
 
 
 class DialogManager:
-    def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, event_manager:EventManager, character: core.Character, speaker: core.Character) -> None:
+    def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, character: core.Character, speaker: core.Character) -> None:
         self.dialog = dialog
         self.current_id = dialog.root_id
         self.gamestate = gamestate
-        self.event_manager = event_manager
         self.character = character
         self.speaker = speaker
 
@@ -279,16 +289,16 @@ class DialogManager:
 
     def do_node(self) -> None:
         for flag in self.dialog.nodes[self.current_id].flags:
-            self.character.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.character.context.set_flag(self.gamestate.event_manager.f(flag), 1)
         for flag in self.dialog.nodes[self.current_id].speaker_flags:
-            self.speaker.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.speaker.context.set_flag(self.gamestate.event_manager.f(flag), 1)
 
     def choose(self, choice:dialog.DialogChoice) -> None:
         if choice not in self.choices:
             raise ValueError(f'given choice is not current node {self.current_id} choices')
 
         for flag in choice.flags:
-            self.character.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.character.context.set_flag(self.gamestate.event_manager.f(flag), 1)
         for flag in choice.speaker_flags:
-            self.speaker.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.speaker.context.set_flag(self.gamestate.event_manager.f(flag), 1)
         self.current_id = choice.node_id

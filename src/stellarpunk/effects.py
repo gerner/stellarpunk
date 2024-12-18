@@ -65,7 +65,7 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
         max_x, max_y = np.max(locs, axis=0)
         return (min_x, max_y, max_x, min_y)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self._completed_transfer
 
     def act(self, dt:float) -> None:
@@ -172,12 +172,12 @@ class MiningEffect(TransferCargoEffect):
         if self.destination.captain is not None:
             self.gamestate.trigger_event(
                 [self.destination.captain],
-                events.e(events.Events.MINED),
+                self.gamestate.event_manager.e(events.Events.MINED),
                 {
-                    events.ck(events.ContextKeys.TARGET): self.source.short_id_int(),
-                    events.ck(events.ContextKeys.RESOURCE): self.resource,
-                    events.ck(events.ContextKeys.AMOUNT): int(amount),
-                    events.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.destination.cargo[self.resource]),
+                    self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.source.short_id_int(),
+                    self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): self.resource,
+                    self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                    self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.destination.cargo[self.resource]),
                 },
             )
 
@@ -199,7 +199,7 @@ class WarpOutEffect(core.Effect):
         ur = self.loc + self.radius
         return (ll[0], ll[1], ur[0], ur[1])
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.gamestate.timestamp >= self.expiration_time
 
 class WarpInEffect(core.Effect):
@@ -219,6 +219,6 @@ class WarpInEffect(core.Effect):
         ur = self.loc + self.radius
         return (ll[0], ll[1], ur[0], ur[1])
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.gamestate.timestamp >= self.expiration_time
 

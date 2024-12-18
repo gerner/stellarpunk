@@ -18,7 +18,7 @@ class KillRotationOrder(core.Order):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.ship.angular_velocity == 0
 
     def act(self, dt: float) -> None:
@@ -42,7 +42,7 @@ class RotateOrder(AbstractSteeringOrder):
         super().__init__(*args, **kwargs)
         self.target_angle = util.normalize_angle(target_angle)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.ship.angular_velocity == 0 and util.isclose(util.normalize_angle(self.ship.angle), self.target_angle)
 
     def act(self, dt: float) -> None:
@@ -73,7 +73,7 @@ class KillVelocityOrder(AbstractSteeringOrder):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return not KillVelocityOrder.in_motion(self.ship)
 
     def act(self, dt: float) -> None:
@@ -253,7 +253,7 @@ class GoToLocation(AbstractSteeringOrder):
     def estimate_eta(self) -> float:
         return GoToLocation.compute_eta(self.ship, np.array(self._target_location), self.safety_factor)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         # computing this is expensive, so don't if we can avoid it
         if self.distance_estimate > self.arrival_distance*5:
             return False
@@ -408,7 +408,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     #    self.est_tv_volume = self.gamestate.dt
     #    self.last_est_tv = self.gamestate.timestamp
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         # TODO: when do we stop evading?
         return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) > self.escape_distance or not self.target.is_active()
 
@@ -515,7 +515,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     def estimate_eta(self) -> float:
         return self.intercept_time
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) < self.arrival_distance or not self.target.is_active()
 
     def act(self, dt:float) -> None:
@@ -575,7 +575,7 @@ class WaitOrder(AbstractSteeringOrder):
         super().__init__(*args, **kwargs)
         self.wait_wakeup_period = 10.
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         # wait forever
         return False
 

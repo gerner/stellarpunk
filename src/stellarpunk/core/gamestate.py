@@ -113,38 +113,6 @@ class AbstractGenerator:
     @abc.abstractmethod
     def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
 
-class DeferredEventManager(AbstractEventManager):
-    """ Defers events for handling by a "real" event manager. """
-    def __init__(self) -> None:
-        self._events:list[tuple[Iterable[Character], int, Mapping[int, int], MutableMapping[str, Any]]] = []
-
-    def trigger_event(
-        self,
-        characters: Iterable[Character],
-        event_type: int,
-        context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
-    ) -> None:
-        self.logger = logging.getLogger(util.fullname(self))
-        self._events.append((characters, event_type, context, event_args))
-
-    def trigger_event_immediate(
-        self,
-        characters: Iterable[Character],
-        event_type: int,
-        context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
-    ) -> None:
-        self.logger.debug(f'deferring event: {event_type}')
-        # cannot defer immediate events!
-        raise NotImplementedError()
-        #self.events_immediate.append((characters, event_type, context, event_args))
-
-    def transfer_events(self, event_manager:AbstractEventManager) -> None:
-        for event_info in self._events:
-            event_manager.trigger_event(*event_info)
-
-
 class ScheduledTask(abc.ABC):
     @abc.abstractmethod
     def act(self) -> None: ...
@@ -160,7 +128,7 @@ class Gamestate(EntityRegistry):
         self.logger = logging.getLogger(util.fullname(self))
         self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
-        self.event_manager:AbstractEventManager = DeferredEventManager()
+        self.event_manager:AbstractEventManager = AbstractEventManager()#DeferredEventManager()
 
         # this will get replaced by the generator's random generator
         self.random = np.random.default_rng()
