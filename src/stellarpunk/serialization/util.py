@@ -60,6 +60,21 @@ def ints_from_f(f:io.IOBase, blen:int=4) -> Collection[int]:
         seq.append(x)
     return seq
 
+def floats_to_f(seq:Collection[float], f:io.IOBase) -> int:
+    bytes_written = 0
+    bytes_written += size_to_f(len(seq), f)
+    for x in seq:
+        bytes_written += float_to_f(x, f)
+    return bytes_written
+
+def floats_from_f(f:io.IOBase) -> Collection[float]:
+    count = size_from_f(f)
+    seq = []
+    for i in range(count):
+        x = float_from_f(f)
+        seq.append(x)
+    return seq
+
 def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
     bytes_written = 0
     bytes_written += size_to_f(len(uuids), f)

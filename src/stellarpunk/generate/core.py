@@ -113,7 +113,7 @@ def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars
 
     return starfield_layer
 
-def generate_starfield(random:np.random.Generator, radius:float, desired_stars_per_char:float, min_zoom:float, max_zoom:float, layer_zoom_step:float, mu:float=0.3, sigma:float=0.15) -> Sequence[core.StarfieldLayer]:
+def generate_starfield(random:np.random.Generator, radius:float, desired_stars_per_char:float, min_zoom:float, max_zoom:float, layer_zoom_step:float, mu:float=0.3, sigma:float=0.15) -> list[core.StarfieldLayer]:
     """ Generates a sequence of starfield layers according to parameters.
 
     random: npumpy.random.Generator to use for generation of the field
@@ -133,7 +133,7 @@ def generate_starfield(random:np.random.Generator, radius:float, desired_stars_p
     if layer_zoom_step >= 1. or layer_zoom_step <= 0.:
         raise ValueError(f'{layer_zoom_step=} must be strictly between 0 and 1')
 
-    starfield:List[core.StarfieldLayer] = []
+    starfield:list[core.StarfieldLayer] = []
 
     for zoom in [min_zoom, min_zoom*layer_zoom_step]:
         # generate layers of constant density in stars per character

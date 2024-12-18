@@ -8,7 +8,7 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List, Type, Set
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -218,14 +218,14 @@ class Gamestate(EntityRegistry):
 
         self.counters = [0.] * len(Counters)
 
-        self.starfield:Sequence[StarfieldLayer] = []
-        self.sector_starfield:Sequence[StarfieldLayer] = []
-        self.portrait_starfield:Sequence[StarfieldLayer] = []
+        self.starfield:list[StarfieldLayer] = []
+        self.sector_starfield:list[StarfieldLayer] = []
+        self.portrait_starfield:list[StarfieldLayer] = []
 
         # list for in iterator appends
         # set for destroying exactly once
-        self.entity_destroy_list:List[Entity] = []
-        self.entity_destroy_set:Set[Entity] = set()
+        self.entity_destroy_list:list[Entity] = []
+        self.entity_destroy_set:set[Entity] = set()
 
         self.last_colliders:set[str] = set()
 

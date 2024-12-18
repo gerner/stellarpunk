@@ -8,6 +8,7 @@ import uuid
 import datetime
 import logging
 import contextlib
+import tempfile
 from typing import Any, Optional, TypeVar
 
 import numpy as np
@@ -170,15 +171,24 @@ class GameSaver:
     def post_load_object(self, obj:Any, load_context:LoadContext, context:Any) -> None:
         self._save_register[type(obj)].post_load(obj, load_context, context)
 
-    def save(self, gamestate:core.Gamestate, save_file:Optional[io.IOBase]=None) -> str:
+    def auto_save(self, gamestate:core.Gamestate) -> str:
+        #TODO: should we keep old autosaves?
+        save_filename = "autosave.stpnk"
+        save_filename = os.path.join(self._save_path, save_filename)
+        return self.save(gamestate, save_filename)
+
+    def save(self, gamestate:core.Gamestate, save_filename:Optional[str]=None) -> str:
         self.logger.info("saving...")
         start_time = time.perf_counter()
-        save_filename = self._gen_save_filename()
-        save_filename = os.path.join(self._save_path, save_filename)
+        if save_filename is None:
+            save_filename = self._gen_save_filename()
+            save_filename = os.path.join(self._save_path, save_filename)
         bytes_written = 0
         with contextlib.ExitStack() as context_stack:
-            if save_file is None:
-                save_file = context_stack.enter_context(open(save_filename, "wb"))
+            temp_save_file = context_stack.enter_context(tempfile.NamedTemporaryFile("wb", delete=not self.debug))
+            temp_name = temp_save_file.name
+            self.logger.debug(f'saving to temp file {temp_save_file.name}')
+            save_file:io.IOBase = temp_save_file # type: ignore
             #TODO: put metadata about the save game at the top for quick retrieval
             bytes_written += self._save_metadata(gamestate, save_file)
 
@@ -189,7 +199,10 @@ class GameSaver:
             bytes_written += s_util.debug_string_w("gamestate", save_file)
             bytes_written += self.save_object(gamestate, save_file)
 
-        self.logger.info(f'saved {bytes_written}bytes in {time.perf_counter()-start_time}s')
+            # move the temp file into final home, so we only end up with good files
+            os.rename(temp_save_file.name, save_filename)
+
+        self.logger.info(f'saved {bytes_written}bytes to {save_filename} in {time.perf_counter()-start_time}s')
 
         return save_filename
 
@@ -273,7 +286,18 @@ class GamestateSaver(Saver[core.Gamestate]):
             bytes_written += s_util.uuid_to_f(agent.entity_id, f)
 
         #TODO: task lists
-        #TODO: starfields
+
+        # starfields
+        bytes_written += s_util.debug_string_w("starfields", f)
+        bytes_written += s_util.size_to_f(len(gamestate.starfield), f)
+        for starfield in gamestate.starfield:
+            bytes_written += self.save_game.save_object(entity, f)
+        bytes_written += s_util.size_to_f(len(gamestate.sector_starfield), f)
+        for starfield in gamestate.starfield:
+            bytes_written += self.save_game.save_object(entity, f)
+        bytes_written += s_util.size_to_f(len(gamestate.portrait_starfield), f)
+        for starfield in gamestate.starfield:
+            bytes_written += self.save_game.save_object(entity, f)
 
         # entity destroy list
         bytes_written += s_util.debug_string_w("entity destroy list", f)
@@ -347,7 +371,7 @@ class GamestateSaver(Saver[core.Gamestate]):
         s_util.debug_string_r("econ agents", f)
         core.EconAgent._next_id = s_util.size_from_f(f)
         count = s_util.size_from_f(f)
-        for _ in range(count):
+        for i in range(count):
             entity_id = s_util.uuid_from_f(f)
             agent_id = s_util.uuid_from_f(f)
             agent = gamestate.entities[agent_id]
@@ -355,7 +379,21 @@ class GamestateSaver(Saver[core.Gamestate]):
             gamestate.representing_agent(entity_id, agent)
 
         #TODO: task lists
-        #TODO: starfields
+
+        # starfields
+        s_util.debug_string_r("starfields", f)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            starfield = self.save_game.load_object(core.StarfieldLayer, f, load_context)
+            gamestate.starfield.append(starfield)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            starfield = self.save_game.load_object(core.StarfieldLayer, f, load_context)
+            gamestate.sector_starfield.append(starfield)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            starfield = self.save_game.load_object(core.StarfieldLayer, f, load_context)
+            gamestate.portrait_starfield.append(starfield)
 
         # entity destroy list
         s_util.debug_string_r("entity destroy list", f)
@@ -376,6 +414,39 @@ class GamestateSaver(Saver[core.Gamestate]):
         s_util.debug_string_r("gamestate done", f)
 
         return gamestate
+
+class StarfieldLayerSaver(Saver[core.StarfieldLayer]):
+    def save(self, starfield:core.StarfieldLayer, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.floats_to_f(starfield.bbox, f)
+        bytes_written += s_util.float_to_f(starfield.zoom, f)
+
+        # num_stars and density will get computed for us on load
+        bytes_written += s_util.size_to_f(len(starfield._star_list), f)
+        for loc, size, spectral_class in starfield._star_list:
+            bytes_written += s_util.float_to_f(loc[0], f)
+            bytes_written += s_util.float_to_f(loc[1], f)
+            bytes_written += s_util.float_to_f(size, f)
+            bytes_written += s_util.int_to_f(spectral_class, f)
+
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:LoadContext) -> core.StarfieldLayer:
+        bbox_list = s_util.floats_from_f(f)
+        assert(len(bbox) == 4)
+        bbox:tuple[float, float, float, float] = tuple(bbox_list) # type: ignore
+        zoom = s_util.float_from_f(f)
+        starfield = core.StarfieldLayer(bbox, zoom)
+
+        # num_stars and density will get computed for us by add_star
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            loc = (s_util.float_from_f(f), s_util.float_from_f(f))
+            size = s_util.float_from_f(f)
+            spectral_class = s_util.int_from_f(f)
+            starfield.add_star(loc, size, spectral_class)
+
+        return starfield
 
 class EntityDispatchSaver(Saver[core.Entity]):
     """ Saves and loads Entities by dispatching to class specific logic.

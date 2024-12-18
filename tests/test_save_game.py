@@ -28,9 +28,8 @@ def test_save_load_registry(generator):
 def test_trivial_gamestate(gamestate, generator, player):
     assert player == gamestate.player
     game_saver = sim.initialize_save_game(generator)
-    with tempfile.TemporaryFile() as fp:
-        filename = game_saver.save(gamestate)
-        g2 = game_saver.load(filename)
+    filename = game_saver.save(gamestate)
+    g2 = game_saver.load(filename)
     #this won't work!
     #assert g2 == gamestate
 

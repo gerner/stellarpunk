@@ -20,10 +20,12 @@ from stellarpunk.serialization import save_game
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
+#TODO: 30 seconds seems far too short
+AUTOSAVE_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
-    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[core.AbstractEventManager]=None) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, event_manager:Optional[core.AbstractEventManager]=None, game_saver:Optional[save_game.GameSaver]=None) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.generator = generator
         # we create a dummy gamestate immediately, but we get the real one by
@@ -90,6 +92,10 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
         self.fast_mode = False
         self.reference_realtime = 0.
         self.reference_gametime = 0.
+
+        self.game_saver = game_saver
+        self.next_autosave_timestamp = 0.
+        self.autosave_period = AUTOSAVE_PERIOD_SEC
 
     def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:
         return self.enable_collisions
@@ -333,6 +339,17 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
     def _tick_destroy(self, dt:float) -> None:
         self.gamestate.handle_destroy_entities()
 
+    def _tick_autosave(self, dt:float) -> None:
+        if self.game_saver is None:
+            return
+
+        #TODO: do I want this to be game seconds or wall seconds?
+        #TODO: what about time acceleration?
+        #TODO: what about doing a ton of stuff while paused?
+        if self.gamestate.timestamp > self.next_autosave_timestamp:
+            self.game_saver.auto_save(self.gamestate)
+            self.next_autosave_timestamp = self.gamestate.timestamp + AUTOSAVE_PERIOD_SEC
+
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
@@ -357,6 +374,9 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
 
         self._tick_record(dt)
         self._tick_destroy(dt)
+
+        # autosave at end so we're in a simple and consistent state
+        self._tick_autosave(dt)
 
         if self.gamestate.one_tick:
             self.gamestate.paused = True
@@ -461,6 +481,8 @@ def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.Game
 
     sg.register_saver(core.Sector, save_game.SectorSaver(sg))
     sg.register_saver(core.SectorWeatherRegion, save_game.SectorWeatherRegionSaver(sg))
+    sg.register_saver(core.StarfieldLayer, save_game.StarfieldLayerSaver(sg))
+
     sg.register_saver(core.Character, save_game.CharacterSaver(sg))
 
     sg.register_saver(econ.PlayerAgent, save_game.PlayerAgentSaver(sg))
@@ -468,11 +490,11 @@ def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.Game
     sg.register_saver(econ.ShipTraderAgent, save_game.ShipTraderAgentSaver(sg))
     sg.register_saver(core.Message, save_game.MessageSaver(sg))
     sg.ignore_saver(core.Asteroid)
+    sg.ignore_saver(core.TravelGate)
     sg.ignore_saver(core.Planet)
     sg.ignore_saver(core.Station)
     sg.ignore_saver(core.Ship)
     sg.ignore_saver(core.Missile)
-    sg.ignore_saver(core.TravelGate)
 
     # agenda
     sg.ignore_saver(agenda.StationManager)
@@ -491,6 +513,7 @@ def initialize_save_game(generator:generate.UniverseGenerator) -> save_game.Game
     sg.ignore_saver(effects.WarpInEffect)
 
     #TODO: scheduled tasks
+    #TODO: sensor settings
     #TODO: sensor images
 
     return sg
@@ -535,7 +558,7 @@ def main() -> None:
         # a new game or to load the game
 
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
-        sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager)
+        sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, event_manager=event_manager, game_saver=sg)
         sim.pre_initialize()
 
         ui.interface.runtime = sim
