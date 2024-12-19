@@ -36,3 +36,7 @@ def test_trivial_gamestate(event_manager, gamestate, generator, player):
     assert gamestate.random.integers(42) == g2.random.integers(42)
     assert gamestate.player.entity_id == g2.player.entity_id
     assert gamestate.production_chain == g2.production_chain
+
+def test_event_state(event_manager, gamestate, generator):
+    # trigger some events
+    pass

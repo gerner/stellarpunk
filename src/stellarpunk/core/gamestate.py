@@ -471,7 +471,7 @@ class Gamestate(EntityRegistry):
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
+        event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
         self.event_manager.trigger_event(characters, event_type, context, event_args)
 
@@ -480,6 +480,6 @@ class Gamestate(EntityRegistry):
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
+        event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
         self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)

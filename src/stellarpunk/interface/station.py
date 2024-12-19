@@ -506,14 +506,12 @@ class StationView(interface.GameView):
         def make_contact(character: core.Character) -> Callable[[], Any]:
             def handle_contact() -> None:
                 assert(self.interface.player.character)
-                event_args: Dict[str, Any] = {}
                 self.gamestate.trigger_event_immediate(
                     [character],
                     self.gamestate.event_manager.e(events.Events.CONTACT),
                     {
                         self.gamestate.event_manager.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                     },
-                    event_args
                 )
 
             return handle_contact

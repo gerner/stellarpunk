@@ -3,19 +3,43 @@
 from libcpp cimport bool
 from libcpp.set cimport set
 from cpython.ref cimport PyObject
+from cython.operator cimport dereference, preincrement
 
 cdef extern from "task_schedule.hpp":
+    cdef cppclass ScheduledTask:
+        double timestamp
+        PyObject* task
+
     # note this class handles ref counting
     cdef cppclass cTaskSchedule:
+        size_t size()
         size_t count(PyObject* task)
         bool empty(double timestamp)
         void push(double timestamp, PyObject* task)
         PyObject* top()
         PyObject* pop()
         size_t erase(PyObject *task)
+        set[ScheduledTask].iterator begin()
+        set[ScheduledTask].iterator end()
+
+cdef class TaskScheduleIterator:
+    cdef set[ScheduledTask].iterator itr
+    cdef set[ScheduledTask].iterator end
+
+    def __next__(self):
+        if self.itr == self.end:
+            raise StopIteration()
+
+        timestamp = dereference(self.itr).timestamp
+        task = <object>dereference(self.itr).task
+        preincrement(self.itr)
+        return (timestamp, task)
 
 cdef class TaskSchedule:
     cdef cTaskSchedule schedule
+
+    def size(self):
+        return self.schedule.size()
 
     def empty(self, timestamp):
         return self.schedule.empty(timestamp)
@@ -48,3 +72,9 @@ cdef class TaskSchedule:
             self.schedule.pop()
 
         return tasks
+
+    def __iter__(self):
+        cdef TaskScheduleIterator itr = TaskScheduleIterator()
+        itr.itr = self.schedule.begin()
+        itr.end = self.schedule.end()
+        return itr

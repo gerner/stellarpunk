@@ -3,7 +3,7 @@ import json
 import uuid
 import struct
 from collections.abc import Collection
-from typing import Union
+from typing import Union, Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -45,6 +45,37 @@ def from_len_pre_f(f:io.IOBase, blen:int=2) -> str:
     b = f.read(l)
     return b.decode("utf8")
 
+def primitive_to_f(x:Union[int,float,str,bool], f:io.IOBase, slen:int=2, ilen:int=4) -> int:
+    bytes_written = 0
+    if isinstance(x, int):
+        bytes_written += f.write(b'i')
+        bytes_written += int_to_f(x, f, blen=ilen)
+    elif isinstance(x, float):
+        bytes_written += f.write(b'f')
+        bytes_written += float_to_f(x, f)
+    elif isinstance(x, str):
+        bytes_written += f.write(b's')
+        bytes_written += to_len_pre_f(x, f, blen=slen)
+    elif isinstance(x, bool):
+        bytes_written += f.write(b'b')
+        bytes_written += int_to_f(1 if x else 0, f, blen=1)
+    else:
+        raise ValueError(f'x must be int,float,str,bool. {x=}')
+    return bytes_written
+
+def primitive_from_f(f:io.IOBase, slen:int=2, ilen:int=4) -> Union[int,float,str,bool]:
+    type_code = f.read(1)
+    if type_code == b'i':
+        return int_from_f(f, blen=ilen)
+    elif type_code == b'f':
+        return float_from_f(f)
+    elif type_code == b's':
+        return from_len_pre_f(f, blen=slen)
+    elif type_code == b'b':
+        return int_from_f(f, blen=1) == 1
+    else:
+        raise ValueError(f'got unexpected type {type_code=}')
+
 def ints_to_f(seq:Collection[int], f:io.IOBase, blen:int=4) -> int:
     bytes_written = 0
     bytes_written += size_to_f(len(seq), f)
@@ -75,6 +106,14 @@ def floats_from_f(f:io.IOBase) -> Collection[float]:
         seq.append(x)
     return seq
 
+def fancy_dict_to_f[K, V](d:dict[K, V], f:io.IOBase, k:Callable[[K, io.IOBase], int], v:Callable[[V, io.IOBase], int]) -> int:
+    bytes_written = 0
+    return bytes_written
+
+def fancy_dict_from_f[K, V](f:io.IOBase, k:Callable[[io.IOBase], K], v:Callable[[io.IOBase], V]) -> dict[K, V]:
+    ret:dict[K, V] = {}
+    return ret
+
 def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
     bytes_written = 0
     bytes_written += size_to_f(len(uuids), f)
@@ -82,7 +121,7 @@ def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
         bytes_written += uuid_to_f(u, f)
     return bytes_written
 
-def uuids_from_f(f:io.IOBase) -> Collection[uuid.UUID]:
+def uuids_from_f(f:io.IOBase) -> list[uuid.UUID]:
     count = size_from_f(f)
     seq = []
     for i in range(count):

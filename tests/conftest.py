@@ -19,7 +19,7 @@ def event_manager() -> events.EventManager:
 def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventManager) -> core.Gamestate:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
-    event_manager.initialize_gamestate(gamestate)
+    event_manager.initialize_gamestate(events.EventState(), gamestate)
     return gamestate
 
 @pytest.fixture

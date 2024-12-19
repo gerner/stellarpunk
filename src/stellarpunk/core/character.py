@@ -5,7 +5,7 @@ import logging
 import enum
 import uuid
 import weakref
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Optional, Any, Union, TYPE_CHECKING
 from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
@@ -144,7 +144,7 @@ class AbstractEventManager:
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
+        event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         raise NotImplementedError()
 
@@ -153,7 +153,7 @@ class AbstractEventManager:
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
+        event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         raise NotImplementedError()
 

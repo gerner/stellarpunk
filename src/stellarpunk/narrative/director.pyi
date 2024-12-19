@@ -63,37 +63,37 @@ class Event:
     event_type: int
     event_context: Mapping[int, int]
     entity_context: EntityStore
-    args: Any
+    args: dict[str, Union[int,float,str,bool]]
 
     def __init__(
         self,
         event_type: int,
         event_context: Mapping[int, int],
         entity_context: EntityStore,
-        args: Any
+        args: dict[str, Union[int,float,str,bool]]
     ) -> None: ...
 
 
-class CharacterCandidate:
+class CharacterCandidate[CharacterData]:
     character_context: EventContext = ...
-    data: Any = ...
+    data: CharacterData = ...
 
-    def __init__(self, character_context: EventContext, data: Any) -> None: ...
+    def __init__(self, character_context: EventContext, data: CharacterData) -> None: ...
 
 
-class Action:
+class Action[CharacterData]:
     action_id: int = ...
-    character_candidate: CharacterCandidate = ...
-    args: Any = ...
+    character_candidate: CharacterCandidate[CharacterData] = ...
+    args: dict[str, Union[int,float,str,bool]] = ...
 
     def __init__(
         self,
         action_id: int,
-        character_candidate: CharacterCandidate,
-        args: Any,
+        character_candidate: CharacterCandidate[CharacterData],
+        args: dict[str, Union[int,float,str,bool]],
     ) -> None: ...
 
 
-class Director:
+class Director[CharacterData]:
     def __init__(self, rules: Mapping[int, Iterable[Rule]]) -> None: ...
-    def evaluate(self, event: Event, character_candidates: Iterable[CharacterCandidate]) -> List[Action]: ...
+    def evaluate(self, event: Event, character_candidates: Iterable[CharacterCandidate[CharacterData]]) -> List[Action]: ...

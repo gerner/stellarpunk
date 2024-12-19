@@ -54,8 +54,8 @@ class Action:
         character: core.Character,
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: MutableMapping[str, Any],
-        action_args: Mapping[str, Any]
+        event_args: MutableMapping[str, Union[int,float,str,bool]],
+        action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
         pass
 
@@ -67,6 +67,12 @@ events.register_action(A()) for A in [Action1, Action2, Action3]
 
 trigger_event([dude], events.e(MyEvents.coolio), narrative.context({events.ck(MyContextKeys.foo): 27}), bob, billy, stuff="yes", other_stuff=42)
 """
+
+class EventState:
+    def __init__(self) -> None:
+        self.event_queue:collections.deque[tuple[narrative.Event, Iterable["narrative.CharacterCandidate[core.Character]"]]] = collections.deque()
+        self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, "narrative.Action[core.Character]"]] = task_schedule.TaskSchedule()
+
 
 class EventManager(core.AbstractEventManager):
     def __init__(
@@ -93,8 +99,7 @@ class EventManager(core.AbstractEventManager):
         self.action_id_lookup:dict[int, str] = {}
 
         # this is actual dynamic state
-        self.event_queue:collections.deque[tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
-        self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, narrative.Action]] = task_schedule.TaskSchedule()
+        self.event_state = EventState()
 
     # logic helping code interact with the event system
     def e(self, event_id: enum.IntEnum) -> int:
@@ -177,8 +182,9 @@ class EventManager(core.AbstractEventManager):
 
         self.logger.info(f'event manager initialized')
 
-    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
+    def initialize_gamestate(self, event_state:EventState, gamestate:core.Gamestate) -> None:
         """ post gamestate creation/loading initialization. """
+        self.event_state = event_state
         self.gamestate = gamestate
         self.gamestate.event_manager = self
 
@@ -190,10 +196,10 @@ class EventManager(core.AbstractEventManager):
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any],
+        event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
-        self.event_queue.append((
+        self.event_state.event_queue.append((
             narrative.Event(
                 event_type,
                 context,
@@ -208,7 +214,7 @@ class EventManager(core.AbstractEventManager):
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any],
+        event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         actions_processed = self._do_event(
             narrative.Event(
@@ -226,19 +232,19 @@ class EventManager(core.AbstractEventManager):
         # check for relevant events and process them
         events_processed = 0
         actions_processed = 0
-        while len(self.event_queue) > 0:
-            event, candidates = self.event_queue.popleft()
+        while len(self.event_state.event_queue) > 0:
+            event, candidates = self.event_state.event_queue.popleft()
             actions_processed += self._do_event(event, candidates)
             events_processed += 1
 
-        for event, action in self.action_schedule.pop_current_tasks(self.gamestate.timestamp):
+        for event, action in self.event_state.action_schedule.pop_current_tasks(self.gamestate.timestamp):
             self._do_action(event, action)
             actions_processed += 1
 
         self.gamestate.counters[core.Counters.EVENTS_PROCESSED] += events_processed
         self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED] += actions_processed
 
-    def _do_event(self, event: narrative.Event, candidates:Iterable[narrative.CharacterCandidate]) -> int:
+    def _do_event(self, event: narrative.Event, candidates:Iterable["narrative.CharacterCandidate[core.Character]"]) -> int:
         actions_processed = 0
         self.logger.debug(f'evaluating event {self.event_type_lookup[event.event_type]} ({event.event_type}) for {list(x.data.short_id() for x in candidates)}')
         actions = self.director.evaluate(event, candidates)
@@ -247,8 +253,9 @@ class EventManager(core.AbstractEventManager):
 
             if "_delay" in action.args:
                 delay = action.args["_delay"]
+                assert(isinstance(delay, int) or isinstance(delay, float))
                 self.logger.debug(f'delaying action {self.action_id_lookup[action.action_id]} {action.action_id} by {delay}')
-                self.action_schedule.push_task(
+                self.event_state.action_schedule.push_task(
                     self.gamestate.timestamp+delay,
                     (event, action)
                 )

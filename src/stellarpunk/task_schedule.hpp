@@ -38,6 +38,10 @@ class cTaskSchedule {
             }
         }
 
+        size_t size() {
+            return task_schedule.size();
+        }
+
         size_t count(PyObject *task) {
             return tasks.count(task);
         }
@@ -52,6 +56,7 @@ class cTaskSchedule {
                 assert(task_schedule.count(t) == 1);
                 task_schedule.erase(t);
                 task_schedule.insert(ScheduledTask(timestamp, task));
+                tasks[task] = timestamp;
                 return;
             }
             Py_XINCREF(task);
@@ -82,5 +87,13 @@ class cTaskSchedule {
             tasks.erase(task);
             Py_XDECREF(task);
             return 1;
+        }
+
+        std::set<ScheduledTask>::const_iterator begin() const {
+            return task_schedule.begin();
+        }
+
+        std::set<ScheduledTask>::const_iterator end() const {
+            return task_schedule.end();
         }
 };

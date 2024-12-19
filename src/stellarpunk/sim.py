@@ -489,16 +489,18 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
 
 def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager) -> save_game.GameSaver:
     sg = save_game.GameSaver(generator, event_manager)
-    sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
-    sg.register_saver(core.Entity, save_game.EntityDispatchSaver(sg))
-    sg.register_saver(core.Player, save_game.PlayerSaver(sg))
 
-    sg.register_saver(core.Sector, save_game.SectorSaver(sg))
+    sg.register_saver(events.EventState, save_game.EventStateSaver(sg))
+    sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
+
     sg.register_saver(core.SectorWeatherRegion, save_game.SectorWeatherRegionSaver(sg))
     sg.register_saver(core.StarfieldLayer, save_game.StarfieldLayerSaver(sg))
 
+    # entities
+    sg.register_saver(core.Entity, save_game.EntityDispatchSaver(sg))
+    sg.register_saver(core.Player, save_game.PlayerSaver(sg))
+    sg.register_saver(core.Sector, save_game.SectorSaver(sg))
     sg.register_saver(core.Character, save_game.CharacterSaver(sg))
-
     sg.register_saver(econ.PlayerAgent, save_game.PlayerAgentSaver(sg))
     sg.register_saver(econ.StationAgent, save_game.StationAgentSaver(sg))
     sg.register_saver(econ.ShipTraderAgent, save_game.ShipTraderAgentSaver(sg))
@@ -511,6 +513,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(core.Missile)
 
     # agenda
+    #TODO: we need a generic Agenda dispatch just like Entity
     sg.ignore_saver(agenda.StationManager)
     sg.ignore_saver(agenda.PlanetManager)
     sg.ignore_saver(agenda.CaptainAgendum)
@@ -518,8 +521,10 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(agenda.MiningAgendum)
 
     #TODO: orders
+    #TODO: we need a generic OrderDispatch just like Entity
 
     # effects
+    #TODO: we need a generic EffectDispatch just like Entity
     sg.ignore_saver(effects.TransferCargoEffect)
     sg.ignore_saver(effects.TradeTransferEffect)
     sg.ignore_saver(effects.MiningEffect)
@@ -589,22 +594,23 @@ def main() -> None:
 
         sim.run_startup()
 
-        # experimentally chosen so that we don't get multiple gcs during a tick
-        # this helps a lot because there's lots of short lived objects during a
-        # tick and it's better if they stay in the youngest generation
-        #TODO: should we just disable a gc while we're doing a tick?
-        gc.set_threshold(700*4, 10*4, 10*4)
-        sim.run()
+        if sim.gamestate:
+            # experimentally chosen so that we don't get multiple gcs during a tick
+            # this helps a lot because there's lots of short lived objects during a
+            # tick and it's better if they stay in the youngest generation
+            #TODO: should we just disable a gc while we're doing a tick?
+            gc.set_threshold(700*4, 10*4, 10*4)
+            sim.run()
 
-        counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), sim.gamestate.counters)))
-        logging.info(f'counters:\n{counter_str}')
+            counter_str = "\n".join(map(lambda x: f'{str(x[0])}:\t{x[1]}', zip(list(core.Counters), sim.gamestate.counters)))
+            logging.info(f'counters:\n{counter_str}')
 
-        assert all(x == y for x,y in zip(sim.gamestate.entities.values(), sim.gamestate.entities_short.values()))
-        logging.info(f'entities:\t{len(sim.gamestate.entities)}')
-        logging.info(f'ticks:\t{sim.gamestate.ticks}')
-        logging.info(f'timestamp:\t{sim.gamestate.timestamp}')
-        real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()
-        logging.info(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
+            assert all(x == y for x,y in zip(sim.gamestate.entities.values(), sim.gamestate.entities_short.values()))
+            logging.info(f'entities:\t{len(sim.gamestate.entities)}')
+            logging.info(f'ticks:\t{sim.gamestate.ticks}')
+            logging.info(f'timestamp:\t{sim.gamestate.timestamp}')
+            real_span, game_span, rel_drift, expected_rel_drift = sim.compute_timedrift()
+            logging.info(f'timedrift: {real_span} vs {game_span} {rel_drift:.3f} vs {expected_rel_drift:.3f}')
 
         logging.info("done.")
 

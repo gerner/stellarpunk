@@ -2046,7 +2046,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self.logger.info(f'generating a universe...')
         self.gamestate = core.Gamestate()
         self.gamestate.event_manager = self.event_manager
-        self.gamestate.event_manager.initialize_gamestate(self.gamestate)
+        self.gamestate.event_manager.initialize_gamestate(events.EventState(), self.gamestate)
 
         self.gamestate.generator = self
         self.gamestate.random = self.r

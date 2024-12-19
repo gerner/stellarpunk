@@ -554,14 +554,12 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             assert(isinstance(speaker, core.Character))
             message.replied_at = self.gamestate.timestamp
 
-            event_args: Dict[str, Any] = {}
             self.gamestate.trigger_event(
                 [speaker],
                 self.event_manager.e(events.Events.CONTACT),
                 {
                     self.event_manager.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                 },
-                event_args
             )
 
         def toggle_mouse(args:Sequence[str]) -> None:
