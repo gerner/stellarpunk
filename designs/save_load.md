@@ -146,6 +146,30 @@ associated object.
 
 # Issues
 
+## Object References
+We have a global, authoritative owner for entities in the gamestate and every
+entity has a unique id. So anyone else can just save the id. But other things
+(e.g. Order, Effect, Agendum, SensorImage) do not and there might be references
+floating around (e.g. task schedules in gamestate or various SensorImages
+floating around combat stuff).
+
+We could deal with this by creating global registries and identiifers for these
+things too. That's a lot of extra ids to manage and it's not so natural to have
+global registries of these objects the way it is for entities (e.g. narrative
+director needs to be able to reference a global store of entities which adds
+extra motivation for such a global registry).
+
+ScheduledTask: could have a separate registry in Gamestate for these. But we
+could just let them live in the task schedule as authoritative. If it's not in
+the task schedule, we will not save it. Right now (2024-12-19) the only
+ScheduledTask is combat.TimedOrderTask and the only long-lived reference to
+those is in the task schedule.
+
+SensorImage: could live on SensorSettings which could keep track of all sensor
+images a particular ship has targeted and do deduplication. Maybe this is a
+weakref style registry so we don't have to be careful about notifying the
+registry when we're done with SensorImage objects?
+
 ## Dynamic vs Static State
 
 Some stuff, like production chain, or sector layout in the universe, doesn't
@@ -168,6 +192,12 @@ Configuration Items:
 * character portraits and other sprites
 * other config settings in config.toml
 
+Decision: config, sprites, events, etc. all get loaded from whatever is in the
+code. Save games can store some sanity checking stuff to make sure they are
+compatible, but whatever is in code is authoritative. If there's a conflict,
+the save is invalid. Or we'll need to come up with some kind of resolution
+(e.g. migrate old save to new)
+
 ## Initialization Methods
 These exist all over and might assume we're starting fresh. Should we still
 run these when loading? before or after loading? Some are called before the
@@ -176,11 +206,19 @@ universe is generated, some after. So that might be tricky.
 Maybe loading is an alternative to universe generation so we should do all the
 loading instead of universe generation?
 
+Decision: separate global, one-time-per-process initialize from
+one-time-per-gamestate. New pattern has `pre_initialize` (one-time-per-process)
+and `initialize_gamestate`. Some stuff still has `initialize`
+(one-time-per-process) where it doesn't care about gamestate.
+
 ## Physics Object Ownership?
 Who owns the physics object? The object needs a reference to the SectorEntity
 and vice versa. Might make sense for the SectorEntity to be responsible for
 storing/loading the physics object? puts a dependency for understanding
 physics on the SectorEntity save/load logic.
+
+Decision: SectorEntity owns the phys object. SectorSaver will add
+SectorEntities to its space once entities are loaded.
 
 ## Observers
 There's observers everywhere and the nature of the observer is highly variable

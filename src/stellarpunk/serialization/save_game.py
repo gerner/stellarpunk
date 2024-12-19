@@ -157,6 +157,8 @@ class GameSaver:
     def save_object(self, obj:Any, f:io.IOBase, klass:Optional[type]=None) -> int:
         if klass is None:
             klass = type(obj)
+        else:
+            assert(isinstance(obj, klass))
 
         bytes_written = 0
         if self.debug:
@@ -168,13 +170,14 @@ class GameSaver:
         if load_context.debug:
             klassname = s_util.from_len_pre_f(f)
             fullname = s_util.from_len_pre_f(f)
-            assert(klassname == f'__so:{util.fullname(klass)}')
+            if klassname != f'__so:{util.fullname(klass)}':
+                raise ValueError(f'{klassname} not __so:{util.fullname(klass)} at {f.tell()}')
         return self._save_register[klass].load(f, load_context)
 
     def post_load_object(self, obj:Any, load_context:LoadContext, context:Any) -> None:
         self._save_register[type(obj)].post_load(obj, load_context, context)
 
-    def auto_save(self, gamestate:core.Gamestate) -> str:
+    def autosave(self, gamestate:core.Gamestate) -> str:
         #TODO: should we keep old autosaves?
         save_filename = "autosave.stpnk"
         save_filename = os.path.join(self._save_path, save_filename)
@@ -206,6 +209,9 @@ class GameSaver:
             # e.g. sprites, cultures, event context keys
 
             bytes_written += s_util.debug_string_w("event state", save_file)
+            #TODO: shouldn't we be saving it off of gamestate and not us?
+            # this is hard because Gamestate has an AbstractEventManager which
+            # doesn't (can't) expose EventState
             bytes_written += self.save_object(self.event_manager.event_state, save_file)
 
             # save the simulator which will recursively save everything
@@ -248,13 +254,13 @@ class GameSaver:
             event_state = self.load_object(events.EventState, save_file, load_context)
             s_util.debug_string_r("gamestate", save_file)
             gamestate = self.load_object(core.Gamestate, save_file, load_context)
+            gamestate.event_manager = self.event_manager
 
             # final set up
             load_context.load_complete()
 
             # we created the gamestate so it's our responsibility to set its
             # event manager and post_initialize it
-            gamestate.event_manager = self.event_manager
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
             self.generator.load_universe(gamestate)
 
@@ -478,18 +484,28 @@ class GamestateSaver(Saver[core.Gamestate]):
             bytes_written += s_util.uuid_to_f(agent.entity_id, f)
 
         #TODO: task lists
+        # tricky bit here is that orders, effects, agenda are actually saved
+        # elsewhere and we've just got references to them in the schedule. we
+        # need to somehow fetch those references somehow. however, there's not
+        # global repository of them and they don't have some identifier we can
+        # use.
+
+        # order schedule (orders saved off ships)
+        # effect schedule (effects saved off sectors)
+        # agenda schedule (agenda saved off characters)
+        # task schedule (we save them here)
 
         # starfields
         bytes_written += s_util.debug_string_w("starfields", f)
         bytes_written += s_util.size_to_f(len(gamestate.starfield), f)
         for starfield in gamestate.starfield:
-            bytes_written += self.save_game.save_object(entity, f)
+            bytes_written += self.save_game.save_object(starfield, f)
         bytes_written += s_util.size_to_f(len(gamestate.sector_starfield), f)
         for starfield in gamestate.starfield:
-            bytes_written += self.save_game.save_object(entity, f)
+            bytes_written += self.save_game.save_object(starfield, f)
         bytes_written += s_util.size_to_f(len(gamestate.portrait_starfield), f)
         for starfield in gamestate.starfield:
-            bytes_written += self.save_game.save_object(entity, f)
+            bytes_written += self.save_game.save_object(starfield, f)
 
         # entity destroy list
         bytes_written += s_util.debug_string_w("entity destroy list", f)
@@ -591,7 +607,7 @@ class GamestateSaver(Saver[core.Gamestate]):
         # entity destroy list
         s_util.debug_string_r("entity destroy list", f)
         count = s_util.size_from_f(f)
-        for _ in range(count):
+        for i in range(count):
             entity_id = s_util.uuid_from_f(f)
             gamestate.destroy_entity(gamestate.entities[entity_id])
 
@@ -599,7 +615,7 @@ class GamestateSaver(Saver[core.Gamestate]):
         s_util.debug_string_r("last colliders", f)
         count = s_util.size_from_f(f)
         last_colliders = set()
-        for _ in range(count):
+        for i in range(count):
             last_colliders.add(s_util.from_len_pre_f(f))
         gamestate.last_colliders = last_colliders
 
@@ -620,7 +636,7 @@ class StarfieldLayerSaver(Saver[core.StarfieldLayer]):
             bytes_written += s_util.float_to_f(loc[0], f)
             bytes_written += s_util.float_to_f(loc[1], f)
             bytes_written += s_util.float_to_f(size, f)
-            bytes_written += s_util.int_to_f(spectral_class, f)
+            bytes_written += s_util.int_to_f(int(spectral_class), f)
 
         return bytes_written
 
@@ -641,14 +657,14 @@ class StarfieldLayerSaver(Saver[core.StarfieldLayer]):
 
         return starfield
 
-class EntityDispatchSaver(Saver[core.Entity]):
+class DispatchSaver[T](Saver[T]):
     """ Saves and loads Entities by dispatching to class specific logic.
 
     Gamestate doesn't know the type of entity when loading, so this saver reads
     a type code it writes during saving. all other saving/loading logic is
     dispatched to class specific logic. """
 
-    def save(self, entity:core.Entity, f:io.IOBase) -> int:
+    def save(self, entity:T, f:io.IOBase) -> int:
         bytes_written = 0
 
         # save key so we know what type of entity to load!
@@ -660,7 +676,7 @@ class EntityDispatchSaver(Saver[core.Entity]):
 
         return bytes_written
 
-    def load(self, f:io.IOBase, load_context:LoadContext) -> core.Entity:
+    def load(self, f:io.IOBase, load_context:LoadContext) -> T:
         # read entity type
         class_id = s_util.int_from_f(f)
         klass = self.save_game.class_from_key(class_id)
@@ -798,7 +814,7 @@ class SectorSaver(EntitySaver[core.Sector]):
         # effects
         bytes_written += s_util.size_to_f(len(sector._effects), f)
         for effect in sector._effects:
-            bytes_written += self.save_game.save_object(effect, f)
+            bytes_written += self.save_game.save_object(effect, f, klass=core.Effect)
 
         #TODO: collision observers
 
@@ -999,7 +1015,7 @@ class CharacterSaver(EntitySaver[core.Character]):
 
         bytes_written += s_util.size_to_f(len(character.agenda), f)
         for agendum in character.agenda:
-            bytes_written += self.save_game.save_object(agendum, f)
+            bytes_written += self.save_game.save_object(agendum, f, klass=core.Agendum)
 
         #TODO: observers
         return bytes_written
@@ -1055,7 +1071,7 @@ class MessageSaver(EntitySaver[core.Message]):
         message_body = s_util.from_len_pre_f(f)
         timestamp = s_util.float_from_f(f)
         reply_to = s_util.uuid_from_f(f)
-        message = core.Message(message_id, subject, message_body, timestamp, reply_to, entity_id=entity_id)
+        message = core.Message(message_id, subject, message_body, timestamp, reply_to, load_context.gamestate, entity_id=entity_id)
         has_replied_at = s_util.int_from_f(f, blen=1) == 1
         if has_replied_at:
             message.replied_at = s_util.float_from_f(f)

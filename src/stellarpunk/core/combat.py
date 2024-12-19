@@ -12,7 +12,6 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core, config
 from stellarpunk.orders import movement, collision
-from stellarpunk.core.gamestate import Gamestate, ScheduledTask
 from .sector_entity import SectorEntity, ObjectType
 from .order import Effect
 
@@ -54,19 +53,19 @@ def damage(craft:core.SectorEntity) -> bool:
     core.Gamestate.gamestate.destroy_entity(craft)
     return True
 
-class TimedOrderTask(ScheduledTask, core.OrderObserver):
+class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
     @staticmethod
     def ttl_order(order:core.Order, ttl:float) -> "TimedOrderTask":
         tot = TimedOrderTask(order)
-        Gamestate.gamestate.schedule_task(Gamestate.gamestate.timestamp + ttl, tot)
+        core.Gamestate.gamestate.schedule_task(core.Gamestate.gamestate.timestamp + ttl, tot)
         return tot
     def __init__(self, order:core.Order) -> None:
         self.order = order
         order.observe(self)
     def order_cancel(self, order:core.Order) -> None:
-        Gamestate.gamestate.unschedule_task(self)
+        core.Gamestate.gamestate.unschedule_task(self)
     def order_complete(self, order:core.Order) -> None:
-        Gamestate.gamestate.unschedule_task(self)
+        core.Gamestate.gamestate.unschedule_task(self)
     def act(self) -> None:
         self.order.cancel_order()
 
@@ -142,7 +141,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, gamestate:Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[SectorEntity]=None) -> core.Missile:
+    def spawn_missile(ship:core.Ship, gamestate:core.Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[SectorEntity]=None) -> core.Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius, strict=True)
         v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity

@@ -20,8 +20,6 @@ from stellarpunk.serialization import save_game
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
-#TODO: 30 seconds seems far too short
-AUTOSAVE_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
 class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
@@ -94,8 +92,6 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
         self.reference_gametime = 0.
 
         self.game_saver = game_saver
-        self.next_autosave_timestamp = 0.
-        self.autosave_period = AUTOSAVE_PERIOD_SEC
 
     def _ship_collision_detected(self, arbiter:cymunk.Arbiter) -> bool:
         return self.enable_collisions
@@ -353,17 +349,6 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
     def _tick_destroy(self, dt:float) -> None:
         self.gamestate.handle_destroy_entities()
 
-    def _tick_autosave(self, dt:float) -> None:
-        if self.game_saver is None:
-            return
-
-        #TODO: do I want this to be game seconds or wall seconds?
-        #TODO: what about time acceleration?
-        #TODO: what about doing a ton of stuff while paused?
-        if self.gamestate.timestamp > self.next_autosave_timestamp:
-            self.game_saver.auto_save(self.gamestate)
-            self.next_autosave_timestamp = self.gamestate.timestamp + AUTOSAVE_PERIOD_SEC
-
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
@@ -388,9 +373,6 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
 
         self._tick_record(dt)
         self._tick_destroy(dt)
-
-        # autosave at end so we're in a simple and consistent state
-        self._tick_autosave(dt)
 
         if self.gamestate.one_tick:
             self.gamestate.paused = True
@@ -490,14 +472,16 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
 def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager) -> save_game.GameSaver:
     sg = save_game.GameSaver(generator, event_manager)
 
+    # top level stuff
     sg.register_saver(events.EventState, save_game.EventStateSaver(sg))
     sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
 
+    # Sector stuff
     sg.register_saver(core.SectorWeatherRegion, save_game.SectorWeatherRegionSaver(sg))
     sg.register_saver(core.StarfieldLayer, save_game.StarfieldLayerSaver(sg))
 
-    # entities
-    sg.register_saver(core.Entity, save_game.EntityDispatchSaver(sg))
+    # entities (live in Gamestate)
+    sg.register_saver(core.Entity, save_game.DispatchSaver[core.Entity](sg))
     sg.register_saver(core.Player, save_game.PlayerSaver(sg))
     sg.register_saver(core.Sector, save_game.SectorSaver(sg))
     sg.register_saver(core.Character, save_game.CharacterSaver(sg))
@@ -512,28 +496,31 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(core.Ship)
     sg.ignore_saver(core.Missile)
 
-    # agenda
-    #TODO: we need a generic Agenda dispatch just like Entity
+    #TODO: agenda (live in Character)
+    sg.register_saver(core.Agendum, save_game.DispatchSaver[core.Agendum](sg))
     sg.ignore_saver(agenda.StationManager)
     sg.ignore_saver(agenda.PlanetManager)
     sg.ignore_saver(agenda.CaptainAgendum)
     sg.ignore_saver(agenda.TradingAgendum)
     sg.ignore_saver(agenda.MiningAgendum)
 
-    #TODO: orders
-    #TODO: we need a generic OrderDispatch just like Entity
+    #TODO: orders (live in Ship)
+    sg.register_saver(core.Effect, save_game.DispatchSaver[core.Order](sg))
+    #TODO: different sorts of orders...
 
-    # effects
-    #TODO: we need a generic EffectDispatch just like Entity
+    #TODO: effects (live in Sector)
+    sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
+    sg.ignore_saver(effects.TransferCargoEffect)
     sg.ignore_saver(effects.TransferCargoEffect)
     sg.ignore_saver(effects.TradeTransferEffect)
     sg.ignore_saver(effects.MiningEffect)
     sg.ignore_saver(effects.WarpOutEffect)
     sg.ignore_saver(effects.WarpInEffect)
 
-    #TODO: scheduled tasks
-    #TODO: sensor settings
-    #TODO: sensor images
+    #TODO: scheduled tasks (live in Gamestate)
+    sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
+    #TODO: sensor settings (live in SectorEntity)
+    #TODO: sensor images (live in SensorSettings)
 
     return sg
 

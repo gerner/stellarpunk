@@ -102,18 +102,20 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
     def _enter_load_game(self) -> None:
         self.viewscreen.erase()
 
-        def load_game(filename:str) -> None:
-            self._game_saver.load(filename)
+        def load_game(save:save_game.SaveGame) -> None:
+            self.interface.log_message(f'loading savegame "{save.filename}"')
+            self._game_saver.load(save.filename)
+            self.interface.log_message(f'game loaded.')
             self._universe_loaded = True
             #TODO: should we let the user press a key first?
             self._enter_mode(Mode.EXIT)
 
         # get savegame options
         load_options = []
-        for save_game in self._game_saver.list_save_games():
+        for s in self._game_saver.list_save_games():
             load_options.append(ui_util.TextMenuItem(
-                save_game.filename,
-                lambda: load_game(save_game.filename)
+                s.filename,
+                lambda s=s: load_game(s) # type: ignore
             ))
 
         self._load_menu = ui_util.Menu(

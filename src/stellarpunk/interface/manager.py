@@ -249,7 +249,7 @@ class PolygonDemo(interface.View):
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
     def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver) -> None:
         self.mixer = audio.Mixer()
-        self.interface = interface.Interface(generator, self.mixer)
+        self.interface = interface.Interface(sg, generator, self.mixer)
         self.gamestate:core.Gamestate = None # type: ignore
         self.generator = generator
         self.event_manager = core.AbstractEventManager()
@@ -591,7 +591,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
         def save_gamestate(args:Sequence[str]) -> None:
-            self.game_saver.save(self.gamestate)
+            self.interface.log_message(f'saving game...')
+            filename = self.game_saver.save(self.gamestate)
+            self.interface.log_message(f'game saved to "{filename}"')
 
         command_list = [
             self.bind_command("raise", raise_exception),

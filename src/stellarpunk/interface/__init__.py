@@ -24,6 +24,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import util, core, config, generate
+from stellarpunk.serialization import save_game
 from stellarpunk.core import combat
 
 class Layout(enum.Enum):
@@ -646,8 +647,10 @@ class FPSCounter:
         return self.current_fps
 
 class Interface(AbstractInterface):
-    def __init__(self, *args:Any, **kwargs:Any):
+    def __init__(self, game_saver:save_game.GameSaver, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
+        self.game_saver = game_saver
+        self.next_autosave_timestamp = 0.
         self.stdscr:curses.window = None # type: ignore[assignment]
 
         self.desired_fps = Settings.MAX_FPS
@@ -1055,6 +1058,21 @@ class Interface(AbstractInterface):
         else:
             return False
 
+    def _tick_autosave(self) -> None:
+        if self.game_saver is None:
+            return
+        if self.gamestate is None:
+            return
+
+        #TODO: do I want this to be game seconds or wall seconds?
+        #TODO: what about time acceleration?
+        #TODO: what about doing a ton of stuff while paused?
+        if self.gamestate.timestamp > self.next_autosave_timestamp:
+            self.log_message('saving game...')
+            self.game_saver.autosave(self.gamestate)
+            self.log_message('game saved.')
+            self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
+
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()
         self.fps_counter.update_fps(start_time)
@@ -1090,6 +1108,8 @@ class Interface(AbstractInterface):
             self.stdscr.noutrefresh()
             curses.doupdate()
 
+        # autosave
+        self._tick_autosave()
 
         #TODO: this can block in the case of mouse clicks
         #TODO: see note above about setting mouseinterval to 0 which fixes this?

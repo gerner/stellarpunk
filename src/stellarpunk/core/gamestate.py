@@ -120,12 +120,8 @@ class ScheduledTask(abc.ABC):
 class Gamestate(EntityRegistry):
     gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
-        #if Gamestate.gamestate is not None:
-        #    raise ValueError()
-        #import traceback
-        #Gamestate.bt = traceback.format_stack()
-        Gamestate.gamestate = self
         self.logger = logging.getLogger(util.fullname(self))
+
         self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
         self.event_manager:AbstractEventManager = AbstractEventManager()#DeferredEventManager()
@@ -196,6 +192,13 @@ class Gamestate(EntityRegistry):
         self.entity_destroy_set:set[Entity] = set()
 
         self.last_colliders:set[str] = set()
+
+        if Gamestate.gamestate is not None:
+            self.logger.info(f'replacing existing gamestate with running for {Gamestate.gamestate.ticks} ticks and {Gamestate.gamestate.timestamp} game secs with {len(Gamestate.gamestate.entities)} entities')
+        #    raise ValueError()
+        #import traceback
+        #Gamestate.bt = traceback.format_stack()
+        Gamestate.gamestate = self
 
     # base.EntityRegistry
     def register_entity(self, entity: Entity) -> narrative.EventContext:
