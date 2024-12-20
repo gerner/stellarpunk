@@ -16,7 +16,7 @@ import cymunk # type: ignore
 from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects
 from stellarpunk.core import combat
 from stellarpunk.interface import ui_util, manager as interface_manager
-from stellarpunk.serialization import save_game
+from stellarpunk.serialization import save_game, econ as s_econ, gamestate as s_gamestate, events as s_events, sector as s_sector, character as s_character, sector_entity as s_sector_entity
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
@@ -480,28 +480,30 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg = save_game.GameSaver(generator, event_manager)
 
     # top level stuff
-    sg.register_saver(events.EventState, save_game.EventStateSaver(sg))
-    sg.register_saver(core.Gamestate, save_game.GamestateSaver(sg))
+    sg.register_saver(events.EventState, s_events.EventStateSaver(sg))
+    sg.register_saver(core.Gamestate, s_gamestate.GamestateSaver(sg))
+    sg.register_saver(core.StarfieldLayer, s_gamestate.StarfieldLayerSaver(sg))
 
     # Sector stuff
-    sg.register_saver(core.SectorWeatherRegion, save_game.SectorWeatherRegionSaver(sg))
-    sg.register_saver(core.StarfieldLayer, save_game.StarfieldLayerSaver(sg))
+    sg.register_saver(core.SectorWeatherRegion, s_sector.SectorWeatherRegionSaver(sg))
 
     # entities (live in Gamestate)
     sg.register_saver(core.Entity, save_game.DispatchSaver[core.Entity](sg))
-    sg.register_saver(core.Player, save_game.PlayerSaver(sg))
-    sg.register_saver(core.Sector, save_game.SectorSaver(sg))
-    sg.register_saver(core.Character, save_game.CharacterSaver(sg))
-    sg.register_saver(econ.PlayerAgent, save_game.PlayerAgentSaver(sg))
-    sg.register_saver(econ.StationAgent, save_game.StationAgentSaver(sg))
-    sg.register_saver(econ.ShipTraderAgent, save_game.ShipTraderAgentSaver(sg))
-    sg.register_saver(core.Message, save_game.MessageSaver(sg))
-    sg.ignore_saver(core.Asteroid)
-    sg.ignore_saver(core.TravelGate)
-    sg.ignore_saver(core.Planet)
-    sg.ignore_saver(core.Station)
-    sg.ignore_saver(core.Ship)
-    sg.ignore_saver(core.Missile)
+    sg.register_saver(core.Player, s_character.PlayerSaver(sg))
+    sg.register_saver(core.Sector, s_sector.SectorSaver(sg))
+    sg.register_saver(core.Character, s_character.CharacterSaver(sg))
+    sg.register_saver(econ.PlayerAgent, s_econ.PlayerAgentSaver(sg))
+    sg.register_saver(econ.StationAgent, s_econ.StationAgentSaver(sg))
+    sg.register_saver(econ.ShipTraderAgent, s_econ.ShipTraderAgentSaver(sg))
+    sg.register_saver(core.Message, s_character.MessageSaver(sg))
+
+    #TODO:
+    sg.register_saver(core.Asteroid, s_gamestate.NoneEntitySaver(sg))
+    sg.register_saver(core.TravelGate, s_gamestate.NoneEntitySaver(sg))
+    sg.register_saver(core.Planet, s_gamestate.NoneEntitySaver(sg))
+    sg.register_saver(core.Station, s_gamestate.NoneEntitySaver(sg))
+    sg.register_saver(core.Ship, s_gamestate.NoneEntitySaver(sg))
+    sg.register_saver(core.Missile, s_gamestate.NoneEntitySaver(sg))
 
     #TODO: agenda (live in Character)
     sg.register_saver(core.Agendum, save_game.DispatchSaver[core.Agendum](sg))
