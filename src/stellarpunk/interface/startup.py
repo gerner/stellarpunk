@@ -65,7 +65,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
     def _enter_main_menu(self) -> None:
         self.viewscreen.erase()
-        menu_items:ui_util.TextMenuItem = []
+        menu_items:list[ui_util.TextMenuItem] = []
         if self.interface.gamestate:
             menu_items.append(ui_util.TextMenuItem(
                 "Resume", lambda: self._enter_mode(Mode.RESUME)

@@ -551,7 +551,7 @@ class UniverseGenerator(core.AbstractGenerator):
     def _choose_station_sprite(self) -> core.Sprite:
         return self.station_sprites[self.r.integers(0, len(self.station_sprites))]
 
-    def _phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> cymunk.Body:
+    def phys_body(self, mass:Optional[float]=None, radius:Optional[float]=None) -> cymunk.Body:
         if mass is None:
             body = cymunk.Body()
         else:
@@ -560,7 +560,7 @@ class UniverseGenerator(core.AbstractGenerator):
             body = cymunk.Body(mass, moment)
         return body
 
-    def _phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
+    def phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
         shape.collision_type = core.SECTOR_ENTITY_COLLISION_TYPE
@@ -650,7 +650,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.station.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.station.SENSOR_INTERCEPT)
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-        station_body = self._phys_body()
+        station_body = self.phys_body()
         station = core.Station(
             self._choose_station_sprite(),
             np.array((x, y), dtype=np.float64),
@@ -667,7 +667,7 @@ class UniverseGenerator(core.AbstractGenerator):
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
         assert station.cargo.sum() <= station.cargo_capacity
 
-        self._phys_shape(station_body, station, station_radius)
+        self.phys_shape(station_body, station, station_radius)
         station.mass = config.Settings.generate.SectorEntities.station.MASS
 
         sector.add_entity(station)
@@ -680,7 +680,7 @@ class UniverseGenerator(core.AbstractGenerator):
         planet_radius = config.Settings.generate.SectorEntities.planet.RADIUS
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.planet.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.planet.SENSOR_INTERCEPT)
-        planet_body = self._phys_body()
+        planet_body = self.phys_body()
         planet = core.Planet(
             np.array((x, y), dtype=np.float64),
             planet_body,
@@ -692,7 +692,7 @@ class UniverseGenerator(core.AbstractGenerator):
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
 
-        self._phys_shape(planet_body, planet, planet_radius)
+        self.phys_shape(planet_body, planet, planet_radius)
         planet.mass = config.Settings.generate.SectorEntities.planet.MASS
 
         sector.add_entity(planet)
@@ -710,7 +710,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_fine_thrust = config.Settings.generate.SectorEntities.ship.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.ship.MAX_TORQUE
 
-        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship_body = self.phys_body(ship_mass, ship_radius)
         ship = core.Ship(
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
@@ -721,7 +721,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
 
-        self._phys_shape(ship_body, ship, ship_radius)
+        self.phys_shape(ship_body, ship, ship_radius)
 
         ship.mass = ship_mass
         ship.moment = ship_body.moment
@@ -760,7 +760,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_fine_thrust = config.Settings.generate.SectorEntities.missile.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.missile.MAX_TORQUE
 
-        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship_body = self.phys_body(ship_mass, ship_radius)
         ship = core.Missile(
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
@@ -771,7 +771,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
 
-        self._phys_shape(ship_body, ship, ship_radius)
+        self.phys_shape(ship_body, ship, ship_radius)
 
         ship.mass = ship_mass
         ship.moment = ship_body.moment
@@ -807,7 +807,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_fine_thrust = config.Settings.generate.SectorEntities.projectile.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.projectile.MAX_TORQUE
 
-        ship_body = self._phys_body(ship_mass, ship_radius)
+        ship_body = self.phys_body(ship_mass, ship_radius)
         ship = core.Projectile(
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
@@ -818,7 +818,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
 
-        shape = self._phys_shape(ship_body, ship, ship_radius)
+        shape = self.phys_shape(ship_body, ship, ship_radius)
         shape.group = 1
 
         ship.mass = ship_mass
@@ -870,7 +870,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         sensor_settings = sensors.SensorSettings()
         sensor_settings.set_transponder(True)
-        body = self._phys_body()
+        body = self.phys_body()
         gate = core.TravelGate(
             destination,
             direction,
@@ -883,7 +883,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
 
-        self._phys_shape(body, gate, gate_radius)
+        self.phys_shape(body, gate, gate_radius)
 
         sector.add_entity(gate)
 
@@ -897,7 +897,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
-        body = self._phys_body()
+        body = self.phys_body()
         asteroid = core.Asteroid(
             resource,
             amount,
@@ -910,7 +910,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
 
-        self._phys_shape(body, asteroid, asteroid_radius)
+        self.phys_shape(body, asteroid, asteroid_radius)
         asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
 
         sector.add_entity(asteroid)
