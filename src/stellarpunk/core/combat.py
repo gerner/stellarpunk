@@ -304,7 +304,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.last_fire_ts = self.gamestate.timestamp
 
         #TODO: after firing what should we do?
-        self._ttl_order(core.Order(self.ship, self.gamestate), ttl=self.fire_backoff_time)
+        self._ttl_order(core.NullOrder(self.ship, self.gamestate), ttl=self.fire_backoff_time)
 
     def _do_aim(self, dt:float) -> None:
         # get in close enough that a launched missile will be able to lock on to the target

@@ -170,6 +170,24 @@ images a particular ship has targeted and do deduplication. Maybe this is a
 weakref style registry so we don't have to be careful about notifying the
 registry when we're done with SensorImage objects?
 
+Order: lives on Ship
+Effect: lives on Sector
+Agendum: lives on Character
+
+In the last four cases where we have items that live on some entity, we could
+have the owning entity keep some kind of a registry of these things where the
+items have items unique within the scope of that entity. None of these items
+will ever move to another entity, so that should be good enough. Then we can
+save a combination of the entity id of the owning entity plus the local id of
+the object. The entities will need to provide some way to fetch objects by id.
+
+For example, whenever we make a SensorImage, SensorSettings could assign it an
+identifier and keep a registry of all the active SensorImages with id to object
+lookup. Perhaps that would be a weakref.WeakValuesDictionary so we don't have
+to keep careful track of object lifetimes.
+
+We could do the same thing for orders, effects, agenda.
+
 ## Dynamic vs Static State
 
 Some stuff, like production chain, or sector layout in the universe, doesn't

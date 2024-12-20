@@ -98,7 +98,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
         # in these cases we'll just give a null order so they just stay exactly
         # where they are, without collision avoidance or any other steering.
-        order = core.Order(ship, gamestate)
+        order = core.NullOrder(ship, gamestate)
     else:
         raise ValueError(f'can not load {history_entry["o"]["o"]}')
     ship.prepend_order(order)

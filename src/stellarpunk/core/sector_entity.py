@@ -224,9 +224,6 @@ class Planet(SectorEntity, Asset):
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-        self.transponder_on = True
-
-
 class Station(SectorEntity, Asset):
 
     id_prefix = "STA"
@@ -240,8 +237,6 @@ class Station(SectorEntity, Asset):
         self.cargo_capacity = 1e5
 
         self.sprite = sprite
-
-        self.transponder_on = True
 
 class Asteroid(SectorEntity):
 
@@ -274,7 +269,6 @@ class Projectile(SectorEntity):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         # projectiles don't run transponders
-        self.transponder_on = False
 
 def write_history_to_file(entity:Union["sector.Sector", SectorEntity], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
     fout:TextIO

@@ -166,7 +166,7 @@ class GenerationError(Exception):
         self.case = case
 
 def order_fn_null(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
-    return core.Order(ship, gamestate)
+    return core.NullOrder(ship, gamestate)
 
 def order_fn_wait(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     return orders.WaitOrder(ship, gamestate)

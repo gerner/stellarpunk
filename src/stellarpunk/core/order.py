@@ -169,7 +169,7 @@ class OrderObserver:
         pass
 
 
-class Order:
+class Order(abc.ABC):
     def __init__(self, ship: "Ship", gamestate: "Gamestate", observer:Optional[OrderObserver]=None) -> None:
         self.gamestate = gamestate
         self.ship = ship
@@ -306,8 +306,11 @@ class Order:
         self.observers.clear()
         self.gamestate.unschedule_order(self)
 
+    @abc.abstractmethod
     def act(self, dt:float) -> None:
         """ Performs one immediate tick's worth of action for this order """
         pass
 
-
+class NullOrder(Order):
+    def act(self, dt:float) -> None:
+        pass

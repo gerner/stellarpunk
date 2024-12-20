@@ -13,10 +13,18 @@ from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects
+from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors
 from stellarpunk.core import combat
 from stellarpunk.interface import ui_util, manager as interface_manager
-from stellarpunk.serialization import save_game, econ as s_econ, gamestate as s_gamestate, events as s_events, sector as s_sector, character as s_character, sector_entity as s_sector_entity
+from stellarpunk.serialization import (
+    save_game, econ as s_econ,
+    gamestate as s_gamestate,
+    events as s_events,
+    sector as s_sector,
+    character as s_character,
+    sector_entity as s_sector_entity,
+    #order as s_order,
+)
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
@@ -496,13 +504,13 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(econ.StationAgent, s_econ.StationAgentSaver(sg))
     sg.register_saver(econ.ShipTraderAgent, s_econ.ShipTraderAgentSaver(sg))
     sg.register_saver(core.Message, s_character.MessageSaver(sg))
+    sg.register_saver(core.Ship, s_sector_entity.ShipSaver(sg))
 
-    #TODO:
+    #TODO: more entities
     sg.register_saver(core.Asteroid, s_gamestate.NoneEntitySaver(sg))
     sg.register_saver(core.TravelGate, s_gamestate.NoneEntitySaver(sg))
     sg.register_saver(core.Planet, s_gamestate.NoneEntitySaver(sg))
     sg.register_saver(core.Station, s_gamestate.NoneEntitySaver(sg))
-    sg.register_saver(core.Ship, s_gamestate.NoneEntitySaver(sg))
     sg.register_saver(core.Missile, s_gamestate.NoneEntitySaver(sg))
 
     #TODO: agenda (live in Character)
@@ -514,7 +522,9 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(agenda.MiningAgendum)
 
     #TODO: orders (live in Ship)
-    sg.register_saver(core.Effect, save_game.DispatchSaver[core.Order](sg))
+    sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
+    sg.ignore_saver(core.NullOrder)
+    #sg.register_saver(core.NullOrder, s_order.NullOrderSaver[core.NullOrder](sg))
     #TODO: different sorts of orders...
 
     #TODO: effects (live in Sector)
@@ -529,6 +539,8 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     #TODO: scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
     #TODO: sensor settings (live in SectorEntity)
+    sg.register_saver(core.AbstractSensorSettings, save_game.DispatchSaver[core.AbstractSensorSettings](sg))
+    sg.ignore_saver(sensors.SensorSettings)
     #TODO: sensor images (live in SensorSettings)
 
     return sg

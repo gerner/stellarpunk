@@ -10,7 +10,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from .sector_entity import SectorEntity, ObjectType, HistoryEntry
-from .order import Order
+from .order import Order, NullOrder
 from .character import Asset
 
 if TYPE_CHECKING:
@@ -37,7 +37,6 @@ class Ship(SectorEntity, Asset):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-
         # SI units (newtons and newton-meters)
         # max_base_thrust is the underlying maximum
         # max_thrust is the current set max thrust (which can fall below base)
@@ -50,9 +49,8 @@ class Ship(SectorEntity, Asset):
         self.max_torque = 0.
 
         self._orders: Deque[Order] = collections.deque()
-        self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: Order(ship, gamestate)
+        self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: NullOrder(ship, gamestate)
 
-        self.transponder_on = False#True
 
     def _destroy(self) -> None:
         self._clear_orders()
@@ -165,6 +163,5 @@ class Missile(Ship):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         # missiles don't run transponders
-        self.transponder_on = False
         self.firer:Optional[SectorEntity] = None
 

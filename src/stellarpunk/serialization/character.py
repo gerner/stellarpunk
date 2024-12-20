@@ -65,7 +65,6 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         bytes_written += s_util.size_to_f(len(character.agenda), f)
         for agendum in character.agenda:
             bytes_written += self.save_game.save_object(agendum, f, klass=core.Agendum)
-
         #TODO: observers
         return bytes_written
 
@@ -91,12 +90,21 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         )
         character.balance = balance
         if has_location:
-            load_context.register_post_load(character, location_id)
+            load_context.register_post_load(character, (location_id, asset_ids))
         return character
 
     def post_load(self, character:core.Character, load_context:save_game.LoadContext, context:Any) -> None:
-        location_id:uuid.UUID = context
-        character.location
+        context_data:tuple[uuid.UUID, list[uuid.UUID]] = context
+        location_id, asset_ids = context
+
+        location = load_context.gamestate.entities[location_id]
+        assert(isinstance(location, core.SectorEntity))
+        character.location = location
+
+        for asset_id in asset_ids:
+            asset = load_context.gamestate.entities[asset_id]
+            assert(isinstance(asset, core.Asset))
+            character.assets.append(asset)
 
 class MessageSaver(s_gamestate.EntitySaver[core.Message]):
     def _save_entity(self, message:core.Message, f:io.IOBase) -> int:
