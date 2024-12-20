@@ -589,6 +589,12 @@ class AbstractInterface(abc.ABC):
             self.views[-1].focus()
         #TODO: else case, other code assumes there's always a view
 
+    def close_all_views(self) -> None:
+        for view in self.views.copy():
+            self.views.remove(view)
+            view.terminate()
+        assert(len(self.views) == 0)
+
     def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
         if old_view is not None:
             self.close_view(old_view)
@@ -1062,6 +1068,10 @@ class Interface(AbstractInterface):
         if self.game_saver is None:
             return
         if self.gamestate is None:
+            return
+        if self.gamestate.is_force_paused():
+            # no autosave whlie force paused, we'll pick it back up when it
+            # gets force paused (even if it stays paused)
             return
 
         #TODO: do I want this to be game seconds or wall seconds?

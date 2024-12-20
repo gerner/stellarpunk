@@ -13,6 +13,7 @@ class Mode(enum.Enum):
     """ Startup Menu Modes """
     NONE = enum.auto()
     MAIN_MENU = enum.auto()
+    RESUME = enum.auto()
     NEW_GAME = enum.auto()
     LOAD_GAME = enum.auto()
     EXIT_GAME = enum.auto()
@@ -56,29 +57,42 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self._universe_loaded = True
 
     def _generate_universe(self) -> None:
-        self._generator_thread = threading.Thread(target=self._generator.generate_universe)
-        self._generator_thread.start()
+        gamestate = self._generator.generate_universe()
+        self.interface.log_message("new universe created")
+        gamestate.force_pause(self)
+        # the gamestate will get sent to people via an event on universe
+        # generator
 
     def _enter_main_menu(self) -> None:
         self.viewscreen.erase()
+        menu_items:ui_util.TextMenuItem = []
+        if self.interface.gamestate:
+            menu_items.append(ui_util.TextMenuItem(
+                "Resume", lambda: self._enter_mode(Mode.RESUME)
+            ))
+        menu_items.extend([
+            ui_util.TextMenuItem(
+                "New Game", lambda: self._enter_mode(Mode.NEW_GAME)
+            ),
+            ui_util.TextMenuItem(
+                "Load Game", lambda: self._enter_mode(Mode.LOAD_GAME)
+            ),
+            ui_util.TextMenuItem(
+                "Exit Game", lambda: self._enter_mode(Mode.EXIT_GAME)
+            ),
+        ])
         self._main_menu = ui_util.Menu(
             "Main Menu",
-            ui_util.number_text_menu_items([
-                ui_util.TextMenuItem(
-                    "New Game", lambda: self._enter_mode(Mode.NEW_GAME)
-                ),
-                ui_util.TextMenuItem(
-                    "Load Game", lambda: self._enter_mode(Mode.LOAD_GAME)
-                ),
-                ui_util.TextMenuItem(
-                    "Exit", lambda: self._enter_mode(Mode.EXIT_GAME)
-                ),
-            ])
+            ui_util.number_text_menu_items(menu_items)
         )
+
+    def _enter_resume(self) -> None:
+        self.interface.close_view(self)
 
     def _enter_new_game(self) -> None:
         self._generator.observe(self)
-        self._generate_universe()
+        self._generator_thread = threading.Thread(target=self._generate_universe)
+        self._generator_thread.start()
 
     def _exit_new_game(self) -> None:
         assert(self._universe_loaded)
@@ -97,14 +111,20 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
         assert self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
-        self.interface.swap_view(pilot_view, self)
+        self.interface.close_all_views()
+        if len(self.interface.views) > 0:
+            raise Exception()
+        self.interface.open_view(pilot_view)
 
     def _enter_load_game(self) -> None:
         self.viewscreen.erase()
 
         def load_game(save:save_game.SaveGame) -> None:
             self.interface.log_message(f'loading savegame "{save.filename}"')
-            self._game_saver.load(save.filename)
+            gamestate = self._game_saver.load(save.filename)
+            gamestate.force_pause(self)
+            # the gamestate will get sent to people via an event from universe
+            # generator
             self.interface.log_message(f'game loaded.')
             self._universe_loaded = True
             #TODO: should we let the user press a key first?
@@ -131,7 +151,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
         assert self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
-        self.interface.swap_view(pilot_view, self)
+        self.interface.close_all_views()
+        self.interface.open_view(pilot_view)
 
     def _enter_exit_game(self) -> None:
         self.interface.runtime.exit_startup()
@@ -152,6 +173,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self._mode = mode
         if mode == Mode.MAIN_MENU:
             self._enter_main_menu()
+        elif mode == Mode.RESUME:
+            self._enter_resume()
         elif mode == Mode.NEW_GAME:
             self._enter_new_game()
         elif mode == Mode.LOAD_GAME:
@@ -165,10 +188,19 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
     def initialize(self) -> None:
         self.logger.info(f'starting startup view')
+
+        if self.interface.gamestate:
+            self.interface.gamestate.force_pause(self)
+
+        self.viewscreen.erase()
         self.interface.reinitialize_screen(name="Stellarpunk")
         self._start_time = time.time()
 
         self._enter_mode(Mode.MAIN_MENU)
+
+    def terminate(self) -> None:
+        if self.interface.gamestate:
+            self.interface.gamestate.force_unpause(self)
 
     def _draw_main_menu(self) -> None:
         y = 15
@@ -181,7 +213,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self.viewscreen.addstr(16, 15, f'{self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
         #TODO: janky hack to draw a progress bar
         m = ui_util.MeterMenu("foo", [])
-        m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=self._estimated_generation_ticks), 17, 15)
+        m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
         #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
         if self._universe_loaded:
             self.viewscreen.addstr(18, 15, f'universe generated.')

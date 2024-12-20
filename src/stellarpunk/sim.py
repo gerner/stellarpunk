@@ -81,8 +81,8 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
 
         # a little book-keeping for storing collisions during step callbacks
         # this is not for external consumption
-        self._collisions:List[Tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
-        self._colliders:Set[str] = set()
+        self._collisions:list[tuple[core.SectorEntity, core.SectorEntity, tuple[float, float], float]] = []
+        self._colliders:set[str] = set()
 
         # some settings related to time acceleration
         # how many seconds of simulation (as in dt) should elapse per second
@@ -174,9 +174,22 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
         gamestate at a time and if we get a new initialize_gamestate call, we
         should toss the old gamestate."""
 
+        self.dt = self.desired_dt
+        self.next_economy_sample = 0.
+        self._collisions = []
+        self._colliders = set()
+        self.time_accel_rate = 1.0
+        self.fast_mode = False
+
         self.gamestate = gamestate
         self.gamestate.game_runtime = self
 
+        self.reference_realtime = time.perf_counter()
+        self.reference_gametime = self.gamestate.timestamp
+
+        # TODO: this context should only exist for as long as this gamestate
+        # does. how do we properly close related resources?
+        # similarly for economy_log (and why do we need that if we have this?)
         if self.context_stack is not None:
             data_logger = self.context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=self.gamestate))
             self.gamestate.econ_logger = data_logger
@@ -428,18 +441,12 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
         while self.startup_running:
             now = time.perf_counter()
             self._handle_synchronization(now, next_tick)
-            starttime = time.perf_counter()
             next_tick = next_tick + self.dt
             timeout = next_tick - now
             self.ui.tick(timeout, self.dt)
 
     def run(self) -> None:
-
-        self.reference_realtime = time.perf_counter()
-        self.reference_gametime = self.gamestate.timestamp
-
         next_tick = time.perf_counter()+self.dt
-
         while self.keep_running:
             if self.should_raise:
                 raise Exception("debug breakpoint in Simulator at start of tick")
@@ -568,6 +575,7 @@ def main() -> None:
         # note: universe generator is handled by the ui if the player chooses
         # a new game or to load the game
 
+        #TODO: should this be tied to the gamestate?
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
         sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, game_saver=sg, context_stack=context_stack)
         sim.pre_initialize()

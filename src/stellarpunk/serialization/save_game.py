@@ -448,7 +448,12 @@ class GamestateSaver(Saver[core.Gamestate]):
         #bytes_written += s_util.float_to_f(gamestate.dt, f)
         #bytes_written += s_util.float_to_f(gamestate.min_tick_sleep, f)
         bytes_written += s_util.int_to_f(gamestate.ticks, f)
-        assert(gamestate.force_pause_holder is None) # can't save while force paused
+
+        # in general we can't save while force paused since we force pause
+        # because we're at risk of putting the gamestate in an inconsistent
+        # state (e.g. middle of dialog)
+        assert(not gamestate.is_force_paused())
+
         bytes_written += s_util.uuid_to_f(gamestate.player.entity_id, f)
         #TODO: should we save counters?
 

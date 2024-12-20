@@ -409,6 +409,9 @@ class MeterMenu(UIComponent):
         value_str = f'{diff_str}{option.setting}'
         canvas.addstr(y, x, f'{value_str:>{self.left_number_width}} ', attr)
 
+        assert(option.value <= option.maximum)
+        assert(option.setting <= option.maximum)
+
         # meter visual █░▓▁
         # show original value and current setting
         # shade the difference between value and current setting

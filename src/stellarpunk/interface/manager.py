@@ -591,9 +591,17 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
         def save_gamestate(args:Sequence[str]) -> None:
+            if self.gamestate.is_force_paused():
+                raise command_input.UserError("can't save right now. finish what you're in the middle of")
+
             self.interface.log_message(f'saving game...')
             filename = self.game_saver.save(self.gamestate)
             self.interface.log_message(f'game saved to "{filename}"')
+
+        def menu(args:Sequence[str]) -> None:
+            startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
+            self.interface.open_view(startup_view)
+
 
         command_list = [
             self.bind_command("raise", raise_exception),
@@ -634,6 +642,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("toggle_mouse", toggle_mouse),
             self.bind_command("debug_collision", debug_collision),
             self.bind_command("save", save_gamestate),
+            self.bind_command("menu", menu),
         ])
         return command_list
 

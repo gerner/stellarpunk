@@ -176,7 +176,7 @@ class Gamestate(EntityRegistry):
 
         self.one_tick = False
         self.paused = False
-        self.force_pause_holder:Optional[object] = None
+        self.force_pause_holders:set[object] = set()
 
         self.player:Player = None # type: ignore[assignment]
 
@@ -232,23 +232,32 @@ class Gamestate(EntityRegistry):
             self.paused = paused
 
     def pause(self, paused:Optional[bool]=None) -> None:
-        if self.force_pause_holder is not None:
+        if len(self.force_pause_holders) > 0:
+            assert(self.paused)
             return
         self._pause(paused)
 
     def force_pause(self, requesting_object:object) -> None:
-        if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
-            raise ValueError(f'already paused by {self.force_pause}')
+        #if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
+        #    raise ValueError(f'already paused by {self.force_pause}')
+        self._pause(True)
+        self.force_pause_holders.add(requesting_object)
+
+    def is_force_paused(self, requesting_object:Optional[object]=None) -> bool:
+        if requesting_object is None:
+            return len(self.force_pause_holders) > 0
         else:
-            self._pause(True)
-            self.force_pause_holder = requesting_object
+            return requesting_object in self.force_pause_holders
 
     def force_unpause(self, requesting_object:object) -> None:
-        if self.force_pause_holder != requesting_object:
+        if requesting_object not in self.force_pause_holders:
             raise ValueError(f'pause requested by {self.force_pause}')
         else:
-            self.force_pause_holder = None
-            self._pause(False)
+            self.force_pause_holders.remove(requesting_object)
+            if len(self.force_pause_holders) == 0:
+                self._pause(False)
+            else:
+                assert(self.paused)
 
     def breakpoint(self) -> None:
         if self.game_runtime.should_breakpoint():
