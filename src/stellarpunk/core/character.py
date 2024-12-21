@@ -33,6 +33,7 @@ class Agendum:
     interact with the world. """
 
     def __init__(self, character:"Character", gamestate:"Gamestate") -> None:
+        self.agenda_id = uuid.uuid4()
         self.character = character
         self.gamestate = gamestate
         self.logger = AgendumLoggerAdapter(
@@ -128,9 +129,14 @@ class Character(Entity):
         asset.owner = self
 
     def add_agendum(self, agendum:Agendum, start:bool=True) -> None:
+        agendum.gamestate.register_agendum(agendum)
         self.agenda.append(agendum)
         if start:
             agendum.start()
+
+    def remove_agendum(self, agendum:Agendum) -> None:
+        self.agenda.remove(agendum)
+        agendum.gamestate.unregister_agendum(agendum)
 
 class AbstractEventManager:
     def e(self, event_id: enum.IntEnum) -> int:

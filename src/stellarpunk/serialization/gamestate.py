@@ -61,6 +61,13 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             # we save as a generic effect which will handle its own dispatch
             bytes_written += self.save_game.save_object(effect, f, klass=core.Effect)
 
+        # agenda
+        bytes_written += s_util.debug_string_w("agenda", f)
+        bytes_written += s_util.size_to_f(len(gamestate.agenda), f)
+        for agenda in gamestate.agenda.values():
+            # we save as a generic effect which will handle its own dispatch
+            bytes_written += self.save_game.save_object(agenda, f, klass=core.Agendum)
+
         # sectors
         # save the sector ids in the right order
         # this gives us enough info to reconstruct sectors dict, sector_idx,
@@ -165,6 +172,13 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for i in range(count):
             effect = self.save_game.load_object(core.Effect, f, load_context)
             # effects should have registered themselves with the gamestate,
+
+        # load agenda
+        s_util.debug_string_r("agenda", f)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            agenda = self.save_game.load_object(core.Agendum, f, load_context)
+            # agenda should have registered themselves with the gamestate,
 
         # sectors
         # load sector ids and sector edges from file

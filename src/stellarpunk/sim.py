@@ -513,7 +513,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(core.Station, s_gamestate.NoneEntitySaver(sg))
     sg.register_saver(core.Missile, s_gamestate.NoneEntitySaver(sg))
 
-    #TODO: agenda (live in Character)
+    #TODO: agenda
     sg.register_saver(core.Agendum, save_game.DispatchSaver[core.Agendum](sg))
     sg.ignore_saver(agenda.StationManager)
     sg.ignore_saver(agenda.PlanetManager)
@@ -521,14 +521,14 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(agenda.TradingAgendum)
     sg.ignore_saver(agenda.MiningAgendum)
 
-    #TODO: orders (live in Ship)
+    #TODO: orders
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
     sg.register_saver(core.NullOrder, s_order.NullOrderSaver(sg))
     sg.register_saver(orders.movement.WaitOrder, s_order.NullOrderSaver(sg))
     #sg.register_saver(core.NullOrder, s_order.NullOrderSaver[core.NullOrder](sg))
     #TODO: different sorts of orders...
 
-    #TODO: effects (live in Sector)
+    #TODO: effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
     sg.ignore_saver(effects.TransferCargoEffect)
     sg.ignore_saver(effects.TransferCargoEffect)

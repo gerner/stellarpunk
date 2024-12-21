@@ -133,9 +133,10 @@ class Gamestate(EntityRegistry):
         self.entities_short: Dict[int, Entity] = {}
         self.entity_context_store = narrative.EntityStore()
 
-        # global registry of all orders, effects
+        # global registry of all orders, effects, agenda
         self.orders: dict[uuid.UUID, Order] = {}
         self.effects: dict[uuid.UUID, Effect] = {}
+        self.agenda: dict[uuid.UUID, Agendum] = {}
 
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
@@ -252,6 +253,18 @@ class Gamestate(EntityRegistry):
             assert(k == effect.effect_id)
             assert(effect in effect.sector._effects)
             assert(effect.sector.entity_id in self.entities)
+
+    def register_agendum(self, agendum: Agendum) -> None:
+        self.agenda[agendum.agenda_id] = agendum
+
+    def unregister_agendum(self, agendum: Agendum) -> None:
+        del self.agenda[agendum.agenda_id]
+
+    def sanity_check_agenda(self) -> None:
+        for k, agendum in self.agenda.items():
+            assert(k == agendum.agenda_id)
+            assert(agendum in agendum.character.agenda)
+            assert(agendum.character.entity_id in self.entities)
 
     def contains_entity(self, entity_id:uuid.UUID) -> bool:
         return entity_id in self.entities

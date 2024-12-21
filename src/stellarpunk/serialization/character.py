@@ -64,12 +64,14 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
 
         bytes_written += s_util.size_to_f(len(character.agenda), f)
         for agendum in character.agenda:
-            bytes_written += self.save_game.save_object(agendum, f, klass=core.Agendum)
+            bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
+
         #TODO: observers
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Character:
         has_location = s_util.int_from_f(f, blen=1)
+        location_id:Optional[uuid.UUID] = None
         if has_location:
             location_id = s_util.uuid_from_f(f)
         sprite_id = s_util.from_len_pre_f(f)
@@ -77,10 +79,10 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         asset_ids = s_util.uuids_from_f(f)
         home_sector_id = s_util.uuid_from_f(f)
 
-        agenda = []
+        agenda_ids = []
         count = s_util.size_from_f(f)
         for i in range(count):
-            agenda.append(self.save_game.load_object(core.Agendum, f, load_context))
+            agenda_ids.append(s_util.uuid_from_f(f))
 
         character = core.Character(
             load_context.generator.sprite_store[sprite_id],
@@ -89,22 +91,26 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
             home_sector_id=home_sector_id
         )
         character.balance = balance
-        if has_location:
-            load_context.register_post_load(character, (location_id, asset_ids))
+        load_context.register_post_load(character, (location_id, asset_ids, agenda_ids))
         return character
 
     def post_load(self, character:core.Character, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, list[uuid.UUID]] = context
-        location_id, asset_ids = context
+        context_data:tuple[Optional[uuid.UUID], list[uuid.UUID], list[uuid.UUID]] = context
+        location_id, asset_ids, agenda_ids = context
 
-        location = load_context.gamestate.entities[location_id]
-        assert(isinstance(location, core.SectorEntity))
-        character.location = location
+        if location_id is not None:
+            location = load_context.gamestate.entities[location_id]
+            assert(isinstance(location, core.SectorEntity))
+            character.location = location
 
         for asset_id in asset_ids:
             asset = load_context.gamestate.entities[asset_id]
             assert(isinstance(asset, core.Asset))
             character.assets.append(asset)
+
+        for agenda_id in agenda_ids:
+            agendum = load_context.gamestate.agenda[agenda_id]
+            character.agenda.append(agenda_id)
 
 class MessageSaver(s_gamestate.EntitySaver[core.Message]):
     def _save_entity(self, message:core.Message, f:io.IOBase) -> int:

@@ -186,6 +186,8 @@ class GameSaver:
         start_time = time.perf_counter()
 
         gamestate.sanity_check_orders()
+        gamestate.sanity_check_effects()
+        gamestate.sanity_check_agenda()
 
         if save_filename is None:
             save_filename = self._gen_save_filename()
@@ -263,6 +265,11 @@ class GameSaver:
             # we created the gamestate so it's our responsibility to set its
             # event manager and post_initialize it
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
+
+            gamestate.sanity_check_orders()
+            gamestate.sanity_check_effects()
+            gamestate.sanity_check_agenda()
+
             self.generator.load_universe(gamestate)
 
             return gamestate
