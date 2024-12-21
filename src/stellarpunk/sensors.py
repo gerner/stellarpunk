@@ -1,8 +1,9 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
-from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 import uuid
 import logging
+import weakref
+from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 
 import rtree.index
 import numpy.typing as npt
@@ -242,6 +243,9 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
         This does not reset state, but future updates will be with respect to
         the new detector. """
+        if detector.sensor_settings.has_image(self.identity.entity_id):
+            return detector.sensor_settings.get_image(self.identity.entity_id)
+
         identity = self._identity
         image = SensorImage(self._target, detector, self._sensor_manager, identity=self._identity)
         image._last_update = self._last_update
@@ -254,6 +258,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         image._loc_bias = self._loc_bias
         image._velocity_bias = self._velocity_bias
         image._last_bias_update_ts = self._last_bias_update_ts
+        detector.sensor_settings.register_image(image)
 
         assert image._ship
 
@@ -277,6 +282,19 @@ class SensorSettings(core.AbstractSensorSettings):
         self._thrust_seconds = 0.
 
         self._ignore_bias = False
+
+        self._images:weakref.WeakValueDictionary[uuid.UUID, core.AbstractSensorImage] = weakref.WeakValueDictionary()
+
+    def register_image(self, image:core.AbstractSensorImage) -> None:
+        self._images[image.identity.entity_id] = image
+    #def unregister_image(self, image:AbstractSensorImage) -> None: ...
+    def has_image(self, target_id:uuid.UUID) -> bool:
+        return target_id in self._images
+    def get_image(self, target_id:uuid.UUID) -> core.AbstractSensorImage:
+        return self._images[target_id]
+    @property
+    def images(self) -> Iterable[core.AbstractSensorImage]:
+        return self._images.values()
 
     @property
     def max_sensor_power(self) -> float:
@@ -394,10 +412,16 @@ class SensorManager(core.AbstractSensorManager):
     def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):
             raise ValueError(f'{detector} cannot detect {target}')
-        image = SensorImage(target, detector, self)
-        image.initialize()
-        image.update(notify_target=notify_target)
-        return image
+        if detector.sensor_settings.has_image(target.entity_id):
+            image = detector.sensor_settings.get_image(target.entity_id)
+            image.update(notify_target=notify_target)
+            return image
+        else:
+            image = SensorImage(target, detector, self)
+            image.initialize()
+            image.update(notify_target=notify_target)
+            detector.sensor_settings.register_image(image)
+            return image
 
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
         # range to detect passive targets

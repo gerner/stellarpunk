@@ -540,9 +540,12 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     #TODO: scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
     #TODO: sensor settings (live in SectorEntity)
-    sg.register_saver(core.AbstractSensorSettings, save_game.DispatchSaver[core.AbstractSensorSettings](sg))
+    sg.ignore_saver(core.AbstractSensorSettings)
     sg.ignore_saver(sensors.SensorSettings)
+
     #TODO: sensor images (live in SensorSettings)
+    sg.ignore_saver(core.AbstractSensorImage)
+    sg.ignore_saver(sensors.SensorImage)
 
     return sg
 
