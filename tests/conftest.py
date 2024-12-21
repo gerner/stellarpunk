@@ -20,7 +20,9 @@ def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventMa
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
     event_manager.initialize_gamestate(events.EventState(), gamestate)
-    return gamestate
+    yield gamestate
+    gamestate.sanity_check_orders()
+    gamestate.sanity_check_effects()
 
 @pytest.fixture
 def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> generate.UniverseGenerator:

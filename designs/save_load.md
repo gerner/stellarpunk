@@ -198,6 +198,82 @@ Entities themselves, but the rule is that Entities cannot require another
 Entity during construction. This hasn't been a problem so far for Entities, but
 will require substantial refactoring of Orders, Effects, Agenda, SensorImages.
 
+Decision: Orders, Events, SensorImages are not allowed to require Entities or each other in their constructors. Instead use factory methods that create an object and initialize it. A pattern like so seems to work ok:
+
+```python
+from typing import Type
+
+class Order:
+  @classmethod
+  def create_order[T](
+      cls:Type[T],
+      some_entity:core.Entity,
+      other_stuff:Foo,
+      *args:Any,
+      keyword_args:int=15,
+      **kwargs:Any
+  ) -> T:
+    # the generic here and the cls:Type[T], along with calling cls as the
+    # constructor  make sure the type system knows this returns a polymorphic
+    # type, and not just a plain Order
+
+    # notice we rotate the arguments so they come in the right order to the
+    # constructors. By the time we get to Order.__init__ all that will be left
+    # are the arguments we care about.
+
+    o = cls(*args, other_stuff, keyword_args=keyword_args, _check_flag=True, **kwargs)
+    o.some_entity = some_entity
+    # other initialization that requires entities, etc. goes here
+    return o
+
+  def __init__(self, other_stuff:Foo, keyword_args:int=15, _check_flag:bool=False) -> None:
+    # _check_flag helps make sure we never call the naked constructor
+    # because we're doing some type checking ignoring shenanigans we're
+    # introducing potentially dificult to catch errors
+    # at least with this assert we'll fail early and get a stack trace that
+    # tells us exactly where the problem is
+    assert(_check_flag)
+
+    # we have to use type: ignore here because we will, in practice always have
+    # this field set via the factory method above, even though, if we call this
+    # constructor directly it # won't be. This will save us a lot of asserts
+    # later.
+    self.some_entity:core.Entity = None # type: ignore
+    self.other_stuff = Foo
+
+    # other logic that does not require entities, etc. goes here
+
+class SomeOrder(Order):
+  @classmethod
+  def create_some_order[T](cls, other_order:core.Order, other_arg:int, *args:Any, **kwargs:Any) -> T:
+    # we call cls.create_order and not Order.create_order or even
+    # SomeOrder.create_order in case we're subclassed. That way we can continue
+    # the pattern and the type system will always know we're returning the most
+    # specific type. This is analogous to the cls constructor call in
+    # create_order above.
+
+    # again, rotate the arguments. it doesn't matter for kwargs which are
+    # orderless anyway. We don't eve need to list them in the signature of
+    # create_som_order. we can just forward them.
+    o = cls.create_order(*args, other_arg, **kwargs)
+    o.other_order = other_order
+    # other initialization needing entities, etc. goes here
+    return o
+
+  def __init__ (self, other_arg:int, *args:Any, **kwargs:Any) -> None:
+    # a usual, call the super constructor, forwarding arguments
+    super().__init__(*args, **kwargs)
+    self.other_order:core.Order = None # type: ignore
+    self.other_arg = other_arg
+    # other logic not needing entities, etc. goes here
+
+def some_logic():
+  # now we can call the factory method to get a correctly typed order. this is
+  # exactly the same as if we were using the constructor without the factory
+  # method, just with a factory method call in there.
+  some_order = some_order.create_some_order(other_order, other_arg, some_entity, other_stuff, keyword_args=25)
+```
+
 ## Dynamic vs Static State
 
 Some stuff, like production chain, or sector layout in the universe, doesn't

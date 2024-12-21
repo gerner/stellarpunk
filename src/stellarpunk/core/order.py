@@ -3,6 +3,7 @@
 import abc
 import logging
 import collections
+import uuid
 import weakref
 from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set, Type
 
@@ -32,6 +33,7 @@ class EffectObserver:
 
 class Effect(abc.ABC):
     def __init__(self, sector:"Sector", gamestate:"Gamestate", observer:Optional[EffectObserver]=None) -> None:
+        self.effect_id = uuid.uuid4()
         self.sector = sector
         self.gamestate = gamestate
         self.started_at = -1.
@@ -110,6 +112,7 @@ class Effect(abc.ABC):
             observer.effect_complete(self)
         self.observers.clear()
 
+        #TODO: do we need to wrap this is a try/catch the way we do with orders?
         self.sector.remove_effect(self)
 
     def cancel_effect(self) -> None:
@@ -201,6 +204,7 @@ class Order(abc.ABC):
 
         assert(_check_flag)
 
+        self.order_id = uuid.uuid4()
         self.gamestate = gamestate
         self.ship:"Ship" = None # type: ignore
         self.logger:OrderLoggerAdapter = None # type: ignore

@@ -303,11 +303,13 @@ class Sector(Entity):
             pass
 
     def add_effect(self, effect:Effect) -> None:
+        effect.gamestate.register_effect(effect)
         self._effects.append(effect)
         effect.begin_effect()
 
     def remove_effect(self, effect:Effect) -> None:
         self._effects.remove(effect)
+        effect.gamestate.unregister_effect(effect)
 
     def current_effects(self) -> Iterable[Effect]:
         return self._effects

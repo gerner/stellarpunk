@@ -133,6 +133,10 @@ class Gamestate(EntityRegistry):
         self.entities_short: Dict[int, Entity] = {}
         self.entity_context_store = narrative.EntityStore()
 
+        # global registry of all orders, effects
+        self.orders: dict[uuid.UUID, Order] = {}
+        self.effects: dict[uuid.UUID, Effect] = {}
+
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
 
@@ -218,6 +222,30 @@ class Gamestate(EntityRegistry):
         self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
+
+    def register_order(self, order: Order) -> None:
+        self.orders[order.order_id] = order
+
+    def unregister_order(self, order: Order) -> None:
+        del self.orders[order.order_id]
+
+    def sanity_check_orders(self) -> None:
+        for k, order in self.orders.items():
+            assert(k == order.order_id)
+            assert(order in order.ship._orders)
+            assert(order.ship.entity_id in self.entities)
+
+    def register_effect(self, effect: Effect) -> None:
+        self.effects[effect.effect_id] = effect
+
+    def unregister_effect(self, effect: Effect) -> None:
+        del self.effects[effect.effect_id]
+
+    def sanity_check_effects(self) -> None:
+        for k, effect in self.effects.items():
+            assert(k == effect.effect_id)
+            assert(effect in effect.sector._effects)
+            assert(effect.sector.entity_id in self.entities)
 
     def contains_entity(self, entity_id:uuid.UUID) -> bool:
         return entity_id in self.entities

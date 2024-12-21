@@ -110,11 +110,13 @@ class Ship(SectorEntity, Asset):
             if co.gamestate.is_order_scheduled(co):
                 co.gamestate.unschedule_order(co)
 
+        order.gamestate.register_order(order)
         self._orders.appendleft(order)
         if begin:
             order.begin_order()
 
     def append_order(self, order:Order, begin:bool=False) -> None:
+        order.gamestate.register_order(order)
         self._orders.append(order)
         if begin:
             order.begin_order()
@@ -122,6 +124,7 @@ class Ship(SectorEntity, Asset):
     def remove_order(self, order:Order) -> None:
         if order in self._orders:
             self._orders.remove(order)
+            order.gamestate.unregister_order(order)
 
         co = self.current_order()
         if co is not None and not co.gamestate.is_order_scheduled(co):
@@ -134,13 +137,6 @@ class Ship(SectorEntity, Asset):
     def clear_orders(self, gamestate:"Gamestate") -> None:
         self._clear_orders()
         self.prepend_order(self.default_order(gamestate))
-
-    def pop_current_order(self) -> None:
-        self._orders.popleft()
-
-    def complete_current_order(self) -> None:
-        order = self._orders.popleft()
-        order.complete_order()
 
     def top_order(self) -> Optional[Order]:
         current_order = self.current_order()

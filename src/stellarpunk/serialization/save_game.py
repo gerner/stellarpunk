@@ -184,6 +184,9 @@ class GameSaver:
     def save(self, gamestate:core.Gamestate, save_filename:Optional[str]=None) -> str:
         self.logger.info("saving...")
         start_time = time.perf_counter()
+
+        gamestate.sanity_check_orders()
+
         if save_filename is None:
             save_filename = self._gen_save_filename()
             save_filename = os.path.join(self._save_path, save_filename)

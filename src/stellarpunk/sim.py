@@ -270,7 +270,7 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
                 if order.is_complete():
                     ship = order.ship
                     self.logger.debug(f'ship {ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
-                    ship.complete_current_order()
+                    order.complete_order()
 
                     next_order = ship.current_order()
                     if not next_order:
@@ -524,6 +524,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     #TODO: orders (live in Ship)
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
     sg.ignore_saver(core.NullOrder)
+    sg.ignore_saver(orders.movement.WaitOrder)
     #sg.register_saver(core.NullOrder, s_order.NullOrderSaver[core.NullOrder](sg))
     #TODO: different sorts of orders...
 
