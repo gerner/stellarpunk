@@ -25,7 +25,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         # effects
         bytes_written += s_util.size_to_f(len(sector._effects), f)
         for effect in sector._effects:
-            bytes_written += self.save_game.save_object(effect, f, klass=core.Effect)
+            bytes_written += s_util.uuid_to_f(effect.effect_id, f)
 
         #TODO: collision observers
 
@@ -56,10 +56,10 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         entities:list[uuid.UUID] = list(s_util.uuids_from_f(f))
 
         # effects
+        effect_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for _ in range(count):
-            # can't use add_effect since it calls begin_effect
-            sector._effects.append(self.save_game.load_object(core.Effect, f, load_context))
+            effect_ids.append(s_util.uuid_from_f(f))
 
         #TODO: collision observers
 
@@ -68,15 +68,20 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         for _ in range(count):
             sector.add_region(self.save_game.load_object(core.SectorWeatherRegion, f, load_context))
 
-        load_context.register_post_load(sector, entities)
+        load_context.register_post_load(sector, (entities, effect_ids))
         return sector
 
     def post_load(self, sector:core.Sector, load_context:save_game.LoadContext, context:Any) -> None:
-        entities:list[uuid.UUID] = context
+        context_data:tuple[list[uuid.UUID], list[uuid.UUID]] = context
+        entities, effect_ids = context_data
         for entity_id in entities:
             entity = load_context.gamestate.entities[entity_id]
             assert(isinstance(entity, core.SectorEntity))
             sector.add_entity(entity)
+        for effect_id in effect_ids:
+            effect = load_context.gamestate.effects[effect_id]
+            # can't use add_effect because it calls begin effect
+            sector._effects.append(effect)
 
 class SectorWeatherRegionSaver(save_game.Saver[core.SectorWeatherRegion]):
     def save(self, weather:core.SectorWeatherRegion, f:io.IOBase) -> int:

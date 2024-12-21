@@ -46,6 +46,21 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             # we save as a generic entity which will handle its own dispatch
             bytes_written += self.save_game.save_object(entity, f, klass=core.Entity)
 
+        # orders
+        bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += s_util.size_to_f(len(gamestate.orders), f)
+        for order in gamestate.orders.values():
+            # we save as a generic order which will handle its own dispatch
+            bytes_written += self.save_game.save_object(order, f, klass=core.Order)
+
+
+        # effects
+        bytes_written += s_util.debug_string_w("effects", f)
+        bytes_written += s_util.size_to_f(len(gamestate.effects), f)
+        for effect in gamestate.effects.values():
+            # we save as a generic effect which will handle its own dispatch
+            bytes_written += self.save_game.save_object(effect, f, klass=core.Effect)
+
         # sectors
         # save the sector ids in the right order
         # this gives us enough info to reconstruct sectors dict, sector_idx,
@@ -71,10 +86,10 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         # global repository of them and they don't have some identifier we can
         # use.
 
-        # order schedule (orders saved off ships)
-        # effect schedule (effects saved off sectors)
-        # agenda schedule (agenda saved off characters)
-        # task schedule (we save them here)
+        # order schedule
+        # effect schedule
+        # agenda schedule
+        # task schedule
 
         # starfields
         bytes_written += s_util.debug_string_w("starfields", f)
@@ -136,6 +151,20 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         player = gamestate.entities[player_id]
         assert(isinstance(player, core.Player))
         gamestate.player = player
+
+        # load orders
+        s_util.debug_string_r("orders", f)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            order = self.save_game.load_object(core.Order, f, load_context)
+            # orders should have registered themselves with the gamestate,
+
+        # load effects
+        s_util.debug_string_r("effects", f)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            effect = self.save_game.load_object(core.Effect, f, load_context)
+            # effects should have registered themselves with the gamestate,
 
         # sectors
         # load sector ids and sector edges from file

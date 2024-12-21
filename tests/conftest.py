@@ -1,5 +1,6 @@
-import pytest
+from typing import Generator
 
+import pytest
 import cymunk # type: ignore
 import numpy as np
 
@@ -16,7 +17,7 @@ def event_manager() -> events.EventManager:
     return em
 
 @pytest.fixture
-def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventManager) -> core.Gamestate:
+def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventManager) -> Generator[core.Gamestate, None, None]:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
     event_manager.initialize_gamestate(events.EventState(), gamestate)

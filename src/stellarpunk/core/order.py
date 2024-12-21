@@ -197,14 +197,17 @@ class Order(abc.ABC):
         o.initialize_order(ship)
         return o
 
-    def __init__(self, gamestate: "Gamestate", *args:Any, observer:Optional[OrderObserver]=None, _check_flag:bool=False, **kwargs:Any) -> None:
+    def __init__(self, gamestate: "Gamestate", *args:Any, observer:Optional[OrderObserver]=None, order_id:Optional[uuid.UUID]=None, _check_flag:bool=False, **kwargs:Any) -> None:
         # we need *args and **kwargs even though they (should be) None because
         # mypy gets confused when we forward *args and **kwargs from
         # create_order in the case that cls is Order
 
         assert(_check_flag)
 
-        self.order_id = uuid.uuid4()
+        if order_id:
+            self.order_id = order_id
+        else:
+            self.order_id = uuid.uuid4()
         self.gamestate = gamestate
         self.ship:"Ship" = None # type: ignore
         self.logger:OrderLoggerAdapter = None # type: ignore

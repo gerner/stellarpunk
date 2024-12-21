@@ -234,6 +234,12 @@ class Gamestate(EntityRegistry):
             assert(k == order.order_id)
             assert(order in order.ship._orders)
             assert(order.ship.entity_id in self.entities)
+            if order.parent_order:
+                assert(order.parent_order.ship == order.ship)
+                assert(order.parent_order.order_id in self.orders)
+            for child_order in order.child_orders:
+                assert(child_order.ship == order.ship)
+                assert(child_order.order_id in self.orders)
 
     def register_effect(self, effect: Effect) -> None:
         self.effects[effect.effect_id] = effect

@@ -11,12 +11,13 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
     @abc.abstractmethod
     def _save_order(self, order:Order, f:io.IOBase) -> int: ...
     @abc.abstractmethod
-    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext) -> tuple[Order, Any]: ...
-    @abc.abstractmethod
-    def _post_load_order(self, order:Order, load_context:save_game.LoadContext, extra_context:Any) -> None: ...
+    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[Order, Any]: ...
+    def _post_load_order(self, order:Order, load_context:save_game.LoadContext, extra_context:Any) -> None:
+        pass
 
     def save(self, order:Order, f:io.IOBase) -> int:
         bytes_written = 0
+        bytes_written += s_util.uuid_to_f(order.order_id, f)
         bytes_written += s_util.uuid_to_f(order.ship.entity_id, f)
         bytes_written += s_util.float_to_f(order.started_at, f)
         bytes_written += s_util.float_to_f(order.completed_at, f)
@@ -39,6 +40,7 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> Order:
+        order_id = s_util.uuid_from_f(f)
         ship_id = s_util.uuid_from_f(f)
         started_at = s_util.float_from_f(f)
         completed_at = s_util.float_from_f(f)
@@ -55,7 +57,8 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
 
         #TODO: observers
 
-        order, extra_context = self._load_order(f, load_context)
+        order, extra_context = self._load_order(f, load_context, order_id)
+        load_context.gamestate.register_order(order)
         load_context.register_post_load(order, (ship_id, parent_id, child_ids, extra_context))
         return order
 
@@ -72,3 +75,11 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
             order.child_orders.append(load_context.gamestate.orders[child_id])
 
         self._post_load_order(order, load_context, extra_context)
+
+class NullOrderSaver(OrderSaver[core.NullOrder]):
+    def _save_order(self, order:core.NullOrder, f:io.IOBase) -> int:
+        return 0
+
+    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[core.NullOrder, Any]:
+        return (core.NullOrder(load_context.gamestate, _check_flag=True, order_id=order_id), None)
+

@@ -23,7 +23,7 @@ from stellarpunk.serialization import (
     sector as s_sector,
     character as s_character,
     sector_entity as s_sector_entity,
-    #order as s_order,
+    order as s_order,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -523,8 +523,8 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
 
     #TODO: orders (live in Ship)
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
-    sg.ignore_saver(core.NullOrder)
-    sg.ignore_saver(orders.movement.WaitOrder)
+    sg.register_saver(core.NullOrder, s_order.NullOrderSaver(sg))
+    sg.register_saver(orders.movement.WaitOrder, s_order.NullOrderSaver(sg))
     #sg.register_saver(core.NullOrder, s_order.NullOrderSaver[core.NullOrder](sg))
     #TODO: different sorts of orders...
 

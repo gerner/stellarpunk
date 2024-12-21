@@ -134,7 +134,7 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         bytes_written += s_util.debug_string_w("orders", f)
         bytes_written += s_util.size_to_f(len(ship._orders), f)
         for order in ship._orders:
-            bytes_written += self.save_game.save_object(order, f, klass=core.Order)
+            bytes_written += s_util.uuid_to_f(order.order_id, f)
 
         #TODO: default_order_fn
 
@@ -153,18 +153,26 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
 
         # orders
         s_util.debug_string_r("orders", f)
+        order_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for i in range(count):
-            ship._orders.append(self.save_game.load_object(core.Order, f, load_context))
+            order_id = s_util.uuid_from_f(f)
+            order_ids.append(order_id)
 
         #TODO: default_order_fn
 
-        return (ship, None)
+        return (ship, order_ids)
 
     def _phys_body(self, mass:float, radius:float) -> cymunk.Body:
         # ship is a non-static body so we override the default implementation
         # which creates static bodies
         return self.save_game.generator.phys_body(mass, radius)
+
+    def _post_load_sector_entity(self, ship:core.Ship, load_context:save_game.LoadContext, extra_context:Any) -> None:
+        order_ids:list[uuid.UUID] = extra_context
+        for order_id in order_ids:
+            order = load_context.gamestate.orders[order_id]
+            ship._orders.append(order)
 
 #TODO: should we inherit from ShipSaver?
 class MissileSaver(SectorEntitySaver[core.Missile]):
@@ -185,8 +193,9 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
 
         # orders
         bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += s_util.size_to_f(len(ship._orders), f)
         for order in ship._orders:
-            bytes_written += self.save_game.save_object(order, f, klass=core.Order)
+            bytes_written += s_util.uuid_to_f(order.order_id, f)
 
         #TODO: default_order_fn
 
@@ -209,9 +218,11 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
 
         # orders
         s_util.debug_string_r("orders", f)
+        order_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for i in range(count):
-            ship._orders.append(self.save_game.load_object(core.Order, f, load_context))
+            order_id = s_util.uuid_from_f(f)
+            order_ids.append(order_id)
 
         #TODO: default_order_fn
 
@@ -223,7 +234,13 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
         return self.save_game.generator.phys_body(mass, radius)
 
     def _post_load_sector_entity(self, ship:core.Missile, load_context:save_game.LoadContext, extra_context:Any) -> None:
-        firer_id:uuid.UUID = extra_context
+        context_data:tuple[uuid.UUID, list[uuid.UUID]] = extra_context
+        firer_id, order_ids = context_data
         firer = load_context.gamestate.entities[firer_id]
         assert(isinstance(firer, core.SectorEntity))
         ship.firer = firer
+
+        for order_id in order_ids:
+            order = load_context.gamestate.orders[order_id]
+            ship._orders.append(order)
+

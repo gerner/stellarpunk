@@ -125,7 +125,7 @@ class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorE
             self.select_target(None, None)
 
     def _compute_grid(self, max_ticks:int=10) -> None:
-        self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
+        self._cached_grid = util.compute_uigrid(self.perspective.bbox, self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
 
     def draw_grid(self) -> None:
         """ Draws a grid at tick lines. """
