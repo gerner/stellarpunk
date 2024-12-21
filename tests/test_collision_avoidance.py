@@ -84,7 +84,7 @@ def test_basic_collision_avoidance(gamestate, generator, sector, testui, simulat
     ship_driver = generator.spawn_ship(sector, 0, 2400, v=(0,0), w=0, theta=0)
     ship_blocker = generator.spawn_ship(sector, -300, 1200, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     # d = v_i*t + 1/2 a * t**2
@@ -109,7 +109,7 @@ def test_head_on_static_collision_avoidance(gamestate, generator, sector, testui
     ship_driver = generator.spawn_ship(sector, 0, 3500, v=(0,0), w=0, theta=0)
     ship_blocker = generator.spawn_ship(sector, 0, 1700, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     testui.eta = goto_order.estimate_eta() * 1.1
@@ -134,7 +134,7 @@ def test_blocker_wall_collision_avoidance(gamestate, generator, sector, testui, 
     ship_driver = generator.spawn_ship(sector, -400, 20000, v=(0.,0.), w=0., theta=0.)
     ship_driver.set_velocity(np.array((0., 0.)))
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     # a "wall" of blockers to the left of our target
@@ -161,9 +161,9 @@ def test_simple_ships_intersecting(gamestate, generator, sector, testui, simulat
     ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0)
     ship_b = generator.spawn_ship(sector, 0, -5000, v=(0,0), w=0, theta=np.pi/2)
 
-    goto_a = orders.GoToLocation(np.array((5000.,0.)), ship_a, gamestate)
+    goto_a = orders.GoToLocation.create_go_to_location(np.array((5000.,0.)), ship_a, gamestate)
     ship_a.prepend_order(goto_a)
-    goto_b = orders.GoToLocation(np.array((0.,5000.)), ship_b, gamestate)
+    goto_b = orders.GoToLocation.create_go_to_location(np.array((0.,5000.)), ship_b, gamestate)
     ship_b.prepend_order(goto_b)
 
     a_cbdr = False
@@ -193,9 +193,9 @@ def test_headon_ships_intersecting(gamestate, generator, sector, testui, simulat
     ship_a = generator.spawn_ship(sector, -5000, 0, v=(0,0), w=0, theta=0, entity_id=uuids[1])
     ship_b = generator.spawn_ship(sector, 5000, 0, v=(0,0), w=0, theta=np.pi, entity_id=uuids[0])
 
-    goto_a = orders.GoToLocation(np.array((10000.,0.)), ship_a, gamestate)
+    goto_a = orders.GoToLocation.create_go_to_location(np.array((10000.,0.)), ship_a, gamestate)
     ship_a.prepend_order(goto_a)
-    goto_b = orders.GoToLocation(np.array((-10000.,0.)), ship_b, gamestate)
+    goto_b = orders.GoToLocation.create_go_to_location(np.array((-10000.,0.)), ship_b, gamestate)
     ship_b.prepend_order(goto_b)
 
     eta = max(goto_a.estimate_eta(), goto_b.estimate_eta())
@@ -284,7 +284,7 @@ def test_ship_existing_velocity(gamestate, generator, sector, testui, simulator)
     ship_driver = generator.spawn_ship(sector, -61548.10777914036, -122932.75622689343, v=[130.58825256350576, -20.791840524660724], w=-0.4600420747138861, theta=-0.10231674372628569)
     ship_blocker = generator.spawn_station(sector, -45858.953065820686, -126065.49162802949, resource=0)
 
-    goto_order = orders.GoToLocation(np.array([-61165.07884422924, -152496.78251442552]), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array([-61165.07884422924, -152496.78251442552]), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -532,7 +532,7 @@ def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
     num_blockers = 20
     generator.spawn_resource_field(sector, 0., 0., 0, num_blockers, radius=5e3, mean_per_asteroid=1, variance_per_asteroid=0)
 
-    goto_order = orders.GoToLocation(np.array([0., 0.]), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array([0., 0.]), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     eta = goto_order.estimate_eta()

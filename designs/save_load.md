@@ -188,6 +188,16 @@ to keep careful track of object lifetimes.
 
 We could do the same thing for orders, effects, agenda.
 
+This is further complicated because each of these things hang off of Entity
+objects but also reference other entity objects. So when we go to load them,
+the Entity they reference might not be loaded yet which complicates things. For
+instance, a GoToLocation Order might live on a Ship and reference some
+SectorEntity. The Ship might get loaded before the SectorEntity, which leads to
+the Order being loaded before the SectorEntity. The same problem exists with
+Entities themselves, but the rule is that Entities cannot require another
+Entity during construction. This hasn't been a problem so far for Entities, but
+will require substantial refactoring of Orders, Effects, Agenda, SensorImages.
+
 ## Dynamic vs Static State
 
 Some stuff, like production chain, or sector layout in the universe, doesn't

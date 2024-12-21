@@ -166,10 +166,10 @@ class GenerationError(Exception):
         self.case = case
 
 def order_fn_null(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
-    return core.NullOrder(ship, gamestate)
+    return core.NullOrder.create_order(ship, gamestate)
 
 def order_fn_wait(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
-    return orders.WaitOrder(ship, gamestate)
+    return orders.WaitOrder.create_wait_order(ship, gamestate)
 
 def order_fn_goto_random_station(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     if ship.sector is None:
@@ -1992,7 +1992,7 @@ class UniverseGenerator(core.AbstractGenerator):
         character.take_ownership(threat)
         character.add_agendum(agenda.CaptainAgendum(threat, character, self.gamestate, enable_threat_response=False))
 
-        order = combat.HuntOrder(ship.entity_id, threat, self.gamestate, start_loc=ship.loc)
+        order = combat.HuntOrder.create_hunt_order(ship.entity_id, threat, self.gamestate, start_loc=ship.loc)
         threat.clear_orders(self.gamestate)
         threat.prepend_order(order)
 

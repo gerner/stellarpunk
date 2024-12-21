@@ -4,7 +4,7 @@ import abc
 import logging
 import collections
 import weakref
-from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set
+from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set, Type
 
 import numpy as np
 
@@ -170,13 +170,40 @@ class OrderObserver:
 
 
 class Order(abc.ABC):
-    def __init__(self, ship: "Ship", gamestate: "Gamestate", observer:Optional[OrderObserver]=None) -> None:
+    @classmethod
+    def create_order[T: "Order"](cls:Type[T], ship:"Ship", gamestate:"Gamestate", *args:Any, **kwargs:Any) -> T:
+        """ creates an order and initializes it for use.
+
+        we're playing generic type shenanigans to make this available with good
+        type hints on all subclasses. notice also how we're "rotating" the
+        arguments so we preserve the right order for each __init__ call,
+        assuming they forward *args and **kwargs.
+
+        this classmethod create pattern can be matched by subclasses in order
+        to separate the creation of a subclass Order object from the
+        initialization of that object using arguments we're not allowed to put
+        in the constructor (e.g. Entity, other orders, etc.)
+
+        we do ths to facilitate saving and loading orders without needing to
+        have the corresponding entity objects loaded at the time we're loading
+        this order. """
+
+        # we need to forward *args and **kwargs here because cls likely is not
+        # Order and so *args and **kwargs are likely not None
+        o = cls(*args, gamestate, _check_flag=True, **kwargs)
+        o.initialize_order(ship)
+        return o
+
+    def __init__(self, gamestate: "Gamestate", *args:Any, observer:Optional[OrderObserver]=None, _check_flag:bool=False, **kwargs:Any) -> None:
+        # we need *args and **kwargs even though they (should be) None because
+        # mypy gets confused when we forward *args and **kwargs from
+        # create_order in the case that cls is Order
+
+        assert(_check_flag)
+
         self.gamestate = gamestate
-        self.ship = ship
-        self.logger = OrderLoggerAdapter(
-                ship,
-                logging.getLogger(util.fullname(self)),
-        )
+        self.ship:"Ship" = None # type: ignore
+        self.logger:OrderLoggerAdapter = None # type: ignore
         self.o_name = util.fullname(self)
         self.started_at = -1.
         self.completed_at = -1.
@@ -187,6 +214,13 @@ class Order(abc.ABC):
         self.observers:weakref.WeakSet[OrderObserver] = weakref.WeakSet()
         if observer is not None:
             self.observe(observer)
+
+    def initialize_order(self, ship:"Ship") -> None:
+        self.ship = ship
+        self.logger = OrderLoggerAdapter(
+                ship,
+                logging.getLogger(util.fullname(self)),
+        )
 
     def __str__(self) -> str:
         return f'{self.__class__} for {self.ship}'
@@ -312,5 +346,8 @@ class Order(abc.ABC):
         pass
 
 class NullOrder(Order):
+    @classmethod
+    def create_null_order[T:"NullOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        return cls.create_order(*args, **kwargs)
     def act(self, dt:float) -> None:
         pass

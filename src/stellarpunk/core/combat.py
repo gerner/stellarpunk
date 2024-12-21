@@ -2,10 +2,11 @@
 
 import logging
 import enum
-from typing import Optional, Tuple, Any, Set, List, Deque, Iterator, MutableMapping
 import collections
 import math
 import uuid
+from typing import Optional, Tuple, Any, Set, List, Deque, Iterator, MutableMapping, Type
+
 import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
@@ -149,14 +150,19 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         assert isinstance(new_entity, core.Missile)
         missile:core.Missile = new_entity
         missile.firer = owner
-        missile_order = MissileOrder(target_image.copy(missile), missile, gamestate)
+        missile_order = MissileOrder.create_missile_order(target_image.copy(missile), missile, gamestate)
         missile.prepend_order(missile_order)
         missile.sensor_settings.set_sensors(1.0)
 
         return missile
 
+    @classmethod
+    def create_missile_order[T:"MissileOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        return cls.create_pursue_order(*args, **kwargs)
+
     def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, avoid_collisions=False, **kwargs)
+        kwargs["avoid_collisions"] = False
+        super().__init__(*args, **kwargs)
         self.avoid_collisions=False
 
         self.ttl = 240
@@ -211,11 +217,17 @@ class AttackOrder(movement.AbstractSteeringOrder):
         SEARCH = enum.auto()
         GIVEUP = enum.auto()
 
-    def __init__(self, target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:Optional[int]=None, **kwargs:Any) -> None:
+    @classmethod
+    def create_attack_order[T:"AttackOrder"](cls:Type[T], target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:Optional[int]=None, **kwargs:Any) -> T:
+        o = cls.create_abstract_steering_order(*args, distance_min=distance_min, distance_max=distance_max, max_active_age=max_active_age, max_passive_age=max_passive_age, search_distance=search_distance, max_fire_rel_bearing=max_fire_rel_bearing, max_missiles=max_missiles, **kwargs)
+        assert o.ship.sector
+        o.target = target
+        return o
+
+    def __init__(self, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:Optional[int]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        assert self.ship.sector
-        self.target = target
+        self.target:core.AbstractSensorImage = None # type: ignore
         self.distance_min = distance_min
         self.distance_max = distance_max
         self.max_active_age = max_active_age
@@ -226,7 +238,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.fire_backoff_time = 1.0
         self.max_fire_rel_bearing = max_fire_rel_bearing
         self.ttl_order_time = 2.
-        #TODO: max_missiles is a temporary hack to limit how many missiles we can shoot
+        #TODO: a temporary hack to limit how many missiles we can shoot
         self.max_missiles = max_missiles
 
         self.state = AttackOrder.State.APPROACH
@@ -253,7 +265,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self._add_child(order)
 
     def _do_last_location(self) -> None:
-        self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
+        self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
@@ -261,10 +273,10 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.state = AttackOrder.State.GIVEUP
 
     def _do_approach(self) -> None:
-        self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min), max_speed=self.ship.max_speed()*2.))
+        self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=self.distance_max-0.2*(self.distance_max-self.distance_min), max_speed=self.ship.max_speed()*2.))
 
     def _do_withdraw(self) -> None:
-        self._ttl_order(movement.EvadeOrder(self.target, self.ship, self.gamestate, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
+        self._ttl_order(movement.EvadeOrder.create_evade_order(self.target, self.ship, self.gamestate, escape_distance=self.distance_min+0.2*(self.distance_max-self.distance_min)))
 
     def _do_shadow(self, dt:float) -> None:
         assert self.ship.sector
@@ -304,13 +316,13 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.last_fire_ts = self.gamestate.timestamp
 
         #TODO: after firing what should we do?
-        self._ttl_order(core.NullOrder(self.ship, self.gamestate), ttl=self.fire_backoff_time)
+        self._ttl_order(core.NullOrder.create_null_order(self.ship, self.gamestate), ttl=self.fire_backoff_time)
 
     def _do_aim(self, dt:float) -> None:
         # get in close enough that a launched missile will be able to lock on to the target
 
         if self.target.profile / self.ship.sensor_settings.max_threshold < self.min_profile_to_threshold:
-            self._ttl_order(movement.PursueOrder(self.target, self.ship, self.gamestate, arrival_distance=1e3, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
+            self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=1e3, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
             return
 
         bearing = util.bearing(self.ship.loc, self.target.loc)
@@ -595,15 +607,20 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
 
 
 class HuntOrder(core.Order):
-    def __init__(self, target_id:uuid.UUID, *args:Any, start_loc:Optional[npt.NDArray[np.float64]], **kwargs:Any) -> None:
+    @classmethod
+    def create_hunt_order[T:"HuntOrder"](cls:Type[T], target_id:uuid.UUID, *args:Any, start_loc:Optional[npt.NDArray[np.float64]], **kwargs:Any) -> T:
+        o =  cls.create_order(*args, target_id, **kwargs)
+        if start_loc is None:
+            o.start_loc = o.ship.loc
+        else:
+            o.start_loc = start_loc
+        return o
+
+    def __init__(self, target_id:uuid.UUID, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.target_id = target_id
         self.attack_order:Optional[AttackOrder] = None
-        if start_loc is None:
-            self.start_loc = self.ship.loc
-        else:
-            self.start_loc = start_loc
-
+        self.start_loc:npt.NDArray[np.float64] = None # type: ignore
         self.ttl_order_time = 5.
 
     def _ttl_order(self, order:core.Order, ttl:Optional[float]=None) -> None:
@@ -638,27 +655,33 @@ class HuntOrder(core.Order):
         # target
         target = self._scan_target()
         if target:
-            self.attack_order = AttackOrder(target, self.ship, self.gamestate)
+            self.attack_order = AttackOrder.create_attack_order(target, self.ship, self.gamestate)
             self._add_child(self.attack_order)
         else:
             # choose a search location
             loc = self.start_loc
             # go there for a bit
-            self._ttl_order(movement.GoToLocation(loc, self.ship, self.gamestate))
+            self._ttl_order(movement.GoToLocation.create_go_to_location(loc, self.ship, self.gamestate))
 
 class FleeOrder(core.Order, core.SectorEntityObserver):
     """ Keeps track of threats and flees from them until "safe" """
+    @classmethod
+    def create_flee_order[T:"FleeOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        o = cls.create_order(*args, **kwargs)
+        assert o.ship.sector
+        o.threat_tracker = ThreatTracker(o.ship)
+        o.point_defense = PointDefenseEffect(o.ship, o.ship.sector, o.gamestate, threat_tracker=o.threat_tracker)
+        o.max_thrust = o.ship.max_thrust
+        return o
+
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.ttl_order_time = 5.
         self.last_target_ttl = 30.
 
-        self.threat_tracker = ThreatTracker(self.ship)
-
-        assert self.ship.sector
-        self.point_defense = PointDefenseEffect(self.ship, self.ship.sector, self.gamestate, threat_tracker=self.threat_tracker)
-
-        self.max_thrust = self.ship.max_thrust
+        self.threat_tracker:ThreatTracker = None # type: ignore
+        self.point_defense:PointDefenseEffect = None # type: ignore
+        self.max_thrust = 0.0
 
     def _ttl_order(self, order:core.Order) -> None:
         TimedOrderTask.ttl_order(order, self.ttl_order_time)
@@ -731,4 +754,4 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
         # evade closest threat
 
         self.max_thrust = self._choose_thrust()
-        self._ttl_order(movement.EvadeOrder(self.threat_tracker.closest_threat, self.ship, self.gamestate, max_thrust=self.max_thrust))
+        self._ttl_order(movement.EvadeOrder.create_evade_order(self.threat_tracker.closest_threat, self.ship, self.gamestate, max_thrust=self.max_thrust))

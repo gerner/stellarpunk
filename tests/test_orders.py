@@ -36,7 +36,7 @@ def test_zero_rotation_time(gamestate, generator, sector, testui, simulator):
     """ Tests rotation starting with zero angular velocity """
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=-np.pi/4)
 
-    rotate_order = orders.RotateOrder(np.pi, ship_driver, gamestate)
+    rotate_order = orders.RotateOrder.create_rotate_order(np.pi, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
 
     eta = collision.rotation_time(np.pi, 0, ship_driver.max_angular_acceleration())
@@ -54,7 +54,7 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     """ Tests rotation starting with non zero angular velocity """
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=-2, theta=0)
 
-    rotate_order = orders.RotateOrder(np.pi/2, ship_driver, gamestate)
+    rotate_order = orders.RotateOrder.create_rotate_order(np.pi/2, ship_driver, gamestate)
     ship_driver.prepend_order(rotate_order)
 
     eta = collision.rotation_time(rotate_order.target_angle, ship_driver.angular_velocity, ship_driver.max_angular_acceleration())
@@ -75,7 +75,7 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -101,7 +101,7 @@ def test_gotolocation_with_entity_target(gamestate, generator, sector, testui, s
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
     ship_blocker = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -129,7 +129,7 @@ def test_gotolocation_with_sympathetic_starting_velocity(gamestate, generator, s
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
     ship_driver.set_velocity(np.array((0., -10.)) * 50.)
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -155,7 +155,7 @@ def test_gotolocation_with_deviating_starting_velocity(gamestate, generator, sec
     ship_driver = generator.spawn_ship(sector, 0, 15000, v=(0,0), w=0, theta=0)
     ship_driver.set_velocity(np.array((-4., -10.)) * 50.)
 
-    goto_order = orders.GoToLocation(np.array((0.,0.)), ship_driver, gamestate)
+    goto_order = orders.GoToLocation.create_go_to_location(np.array((0.,0.)), ship_driver, gamestate)
     ship_driver.prepend_order(goto_order)
 
     distance = np.linalg.norm(ship_driver.loc)
@@ -226,7 +226,7 @@ def test_basic_mining_order(gamestate, generator, sector, testui, simulator):
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
     asteroid = generator.spawn_asteroid(sector, 0, 0, resource, 5e2)
     # ship mines the asteroid
-    mining_order = orders.MineOrder(asteroid, 3.5e2, ship, gamestate)
+    mining_order = orders.MineOrder.create_mine_order(asteroid, 3.5e2, ship, gamestate)
     ship.prepend_order(mining_order)
 
     testui.orders = [mining_order]
@@ -252,7 +252,7 @@ def test_over_mine(gamestate, generator, sector, testui, simulator):
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
     asteroid = generator.spawn_asteroid(sector, 0, 0, resource, 2.5e2)
     # ship mines the asteroid
-    mining_order = orders.MineOrder(asteroid, 3.5e2, ship, gamestate)
+    mining_order = orders.MineOrder.create_mine_order(asteroid, 3.5e2, ship, gamestate)
     ship.prepend_order(mining_order)
 
     testui.orders = [mining_order]
@@ -280,7 +280,7 @@ def test_basic_transfer_order(gamestate, generator, sector, testui, simulator):
     ship_a.cargo[0] = 5e2
 
     # ship mines the asteroid
-    transfer_order = orders.TransferCargo(ship_b, 0, 3.5e2, ship_a, gamestate)
+    transfer_order = orders.TransferCargo.create_transfer_cargo(ship_b, 0, 3.5e2, ship_a, gamestate)
     ship_a.prepend_order(transfer_order)
 
     testui.orders = [transfer_order]
@@ -306,7 +306,7 @@ def test_over_transfer(gamestate, generator, sector, testui, simulator):
     ship_b = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
     ship_a.cargo[0] = 2.5e2
 
-    transfer_order = orders.TransferCargo(ship_b, 0, 3.5e2, ship_a, gamestate)
+    transfer_order = orders.TransferCargo.create_transfer_cargo(ship_b, 0, 3.5e2, ship_a, gamestate)
     ship_a.prepend_order(transfer_order)
 
     testui.orders = [transfer_order]
@@ -375,7 +375,7 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
     station = generator.spawn_station(sector, 0, 0, resource=0)
 
     arrival_distance = 1.5e3
-    goto_order = orders.DockingOrder(station, ship_driver, gamestate, surface_distance=arrival_distance - station.radius)
+    goto_order = orders.DockingOrder.create_docking_order(station, ship_driver, gamestate, surface_distance=arrival_distance - station.radius)
 
 
     ship_driver.prepend_order(goto_order)

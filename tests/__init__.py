@@ -84,7 +84,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
     if order_type in ("stellarpunk.orders.GoToLocation", "stellarpunk.orders.movement.GoToLocation"):
         arrival_distance = history_entry["o"].get("ad", 1.5e3)
         min_distance = history_entry["o"].get("md", None)
-        gorder = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
+        gorder = orders.GoToLocation.create_go_to_location(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
         #if "nn" in history_entry["o"]:
         #    gorder.neighbor_analyzer.set_nearest_neighbors(history_entry["o"]["nn"])
 
@@ -98,7 +98,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
         # in these cases we'll just give a null order so they just stay exactly
         # where they are, without collision avoidance or any other steering.
-        order = core.NullOrder(ship, gamestate)
+        order = core.NullOrder.create_null_order(ship, gamestate)
     else:
         raise ValueError(f'can not load {history_entry["o"]["o"]}')
     ship.prepend_order(order)

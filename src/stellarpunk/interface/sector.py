@@ -264,14 +264,14 @@ class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorE
                 except Exception:
                     raise command_input.UserError("need two int args for x,y pos")
             self.selected_entity.clear_orders(self.gamestate)
-            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.gamestate)
+            order = orders.GoToLocation.create_go_to_location(np.array((x,y)), self.selected_entity, self.gamestate)
             self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.UserError(f'order only valid on a ship target')
             self.selected_entity.clear_orders(self.gamestate)
-            order = orders.WaitOrder(self.selected_entity, self.gamestate)
+            order = orders.WaitOrder.create_wait_order(self.selected_entity, self.gamestate)
             self.selected_entity.prepend_order(order)
 
         def debug_entity(args:Sequence[str])->None: self.debug_entity = not self.debug_entity

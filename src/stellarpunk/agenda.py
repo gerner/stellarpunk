@@ -265,7 +265,7 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
             threat_image = self.craft.sector.sensor_manager.target(threat, craft)
             self.threat_response.add_threat(threat_image)
             return
-        self.threat_response = combat.FleeOrder(self.ship, self.gamestate)
+        self.threat_response = combat.FleeOrder.create_flee_order(self.ship, self.gamestate)
         self.threat_response.observe(self)
         threat_image = self.craft.sector.sensor_manager.target(threat, self.craft)
         self.threat_response.add_threat(threat_image)
@@ -437,7 +437,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
             floor_price = 0.
 
             self.state = MiningAgendum.State.TRADING
-            self.transfer_order = ocore.TradeCargoToStation(
+            self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                     station_agent, self.agent, floor_price,
                     station, resource, self.ship.cargo[resource],
                     self.ship, self.gamestate)
@@ -456,7 +456,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
             #TODO: choose amount to harvest
             # push mining order
             self.state = MiningAgendum.State.MINING
-            self.mining_order = ocore.MineOrder(target, 1e3, self.ship, self.gamestate)
+            self.mining_order = ocore.MineOrder.create_mine_order(target, 1e3, self.ship, self.gamestate)
             self.mining_order.observe(self)
             self.ship.prepend_order(self.mining_order)
 
@@ -584,7 +584,7 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         amount = min(station.cargo[resource], self.ship.cargo_capacity - self.ship.cargo.sum())
 
         self.state = TradingAgendum.State.BUYING
-        self.buy_order = ocore.TradeCargoFromStation(
+        self.buy_order = ocore.TradeCargoFromStation.create_trade_cargo_from_station(
                 self.agent, station_agent, ceiling_price,
                 station, resource, amount,
                 self.ship, self.gamestate)
@@ -618,7 +618,7 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         floor_price = 0.
 
         self.state = TradingAgendum.State.SELLING
-        self.sell_order = ocore.TradeCargoToStation(
+        self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                 station_agent, self.agent, floor_price,
                 station, resource, self.ship.cargo[resource],
                 self.ship, self.gamestate)

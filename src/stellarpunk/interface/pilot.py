@@ -9,7 +9,7 @@ import curses
 import enum
 import collections
 import uuid
-from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping, Set
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping, Set, Type
 
 import numpy as np
 import cymunk # type: ignore
@@ -75,6 +75,10 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
     This order does nothing (at all). It's important that this is cleaned up if
     the player at any time relinquishes control.
     """
+
+    @classmethod
+    def create_player_control_order[T:"PlayerControlOrder"](cls:Type[T], dt:float, *args: Any, **kwargs: Any) -> T:
+        return cls.create_abstract_steering_order(*args, dt, **kwargs)
 
     def __init__(self, dt:float, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -363,7 +367,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
                 raise command_input.UserError("cannot reach the asteroid")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
             assert isinstance(selected_entity, core.Asteroid)
-            order = orders.MineOrder(selected_entity, math.inf, self.ship, self.gamestate)
+            order = orders.MineOrder.create_mine_order(selected_entity, math.inf, self.ship, self.gamestate)
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
@@ -377,7 +381,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
                 raise command_input.UserError("cannot reach the station")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
             assert isinstance(selected_entity, core.Station)
-            order = orders.DockingOrder(selected_entity, self.ship, self.gamestate)
+            order = orders.DockingOrder.create_docking_order(selected_entity, self.ship, self.gamestate)
             dock_station = selected_entity
 
             def complete_docking(order: core.Order) -> None:
@@ -390,7 +394,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_pursue(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target")
-            order = movement.PursueOrder(self.presenter.selected_target_image, self.ship, self.gamestate)
+            order = movement.PursueOrder.create_pursue_order(self.presenter.selected_target_image, self.ship, self.gamestate)
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
@@ -398,7 +402,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target")
 
-            order = movement.EvadeOrder(self.presenter.selected_target_image, self.ship, self.gamestate)
+            order = movement.EvadeOrder.create_evade_order(self.presenter.selected_target_image, self.ship, self.gamestate)
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
@@ -406,7 +410,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target")
 
-            order = combat.AttackOrder(self.presenter.selected_target_image, self.ship, self.gamestate)
+            order = combat.AttackOrder.create_attack_order(self.presenter.selected_target_image, self.ship, self.gamestate)
             self.ship.clear_orders(self.gamestate)
             self.ship.prepend_order(order)
 
@@ -550,7 +554,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             self.logger.info("entering player control")
             self.ship.clear_orders(self.gamestate)
 
-            control_order = PlayerControlOrder(
+            control_order = PlayerControlOrder.create_player_control_order(
                 self.interface.runtime.get_dt(),
                 self.ship,
                 self.gamestate,
@@ -622,7 +626,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
 
             self.ship.clear_orders(self.gamestate)
 
-            goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.gamestate, arrival_distance=5e2)
+            goto_order = movement.GoToLocation.create_go_to_location(np.array((sector_x, sector_y)), self.ship, self.gamestate, arrival_distance=5e2)
             self.ship.prepend_order(goto_order)
 
             self.mouse_state = MouseState.EMPTY

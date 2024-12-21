@@ -49,7 +49,7 @@ class Ship(SectorEntity, Asset):
         self.max_torque = 0.
 
         self._orders: Deque[Order] = collections.deque()
-        self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: NullOrder(ship, gamestate)
+        self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: NullOrder.create_null_order(ship, gamestate)
 
 
     def _destroy(self) -> None:
