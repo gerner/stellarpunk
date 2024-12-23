@@ -82,21 +82,19 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
     def _load_game(self) -> None:
         assert(self._save_game)
         self.interface.log_message(f'loading savegame "{self._save_game.filename}" ...')
+        start_time = time.perf_counter()
         gamestate = self._game_saver.load(self._save_game.filename)
         gamestate.force_pause(self)
         # the gamestate will get sent to people via an event from universe
         # generator
         self._loaded_gamestate = gamestate
-        self.interface.log_message(f'game loaded.')
+        end_time = time.perf_counter()
+        self.interface.log_message(f'game loaded in {end_time-start_time:.2f}s.')
         self._universe_loaded = True
 
     def _enter_main_menu(self) -> None:
         self.viewscreen.erase()
         menu_items:list[ui_util.TextMenuItem] = []
-        if self.interface.gamestate:
-            menu_items.append(ui_util.TextMenuItem(
-                "Resume", lambda: self._enter_mode(Mode.RESUME)
-            ))
         menu_items.extend([
             ui_util.TextMenuItem(
                 "New Game", lambda: self._enter_mode(Mode.NEW_GAME)
@@ -108,6 +106,10 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
                 "Exit Game", lambda: self._enter_mode(Mode.EXIT_GAME)
             ),
         ])
+        if self.interface.gamestate:
+            menu_items.append(ui_util.TextMenuItem(
+                "Resume", lambda: self._enter_mode(Mode.RESUME)
+            ))
         self._main_menu = ui_util.Menu(
             "Main Menu",
             ui_util.number_text_menu_items(menu_items)

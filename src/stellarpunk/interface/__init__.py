@@ -1079,8 +1079,10 @@ class Interface(AbstractInterface):
         #TODO: what about doing a ton of stuff while paused?
         if self.gamestate.timestamp > self.next_autosave_timestamp:
             self.log_message('saving game...')
+            start_time = time.perf_counter()
             self.game_saver.autosave(self.gamestate)
-            self.log_message('game saved.')
+            end_time = time.perf_counter()
+            self.log_message(f'game saved in {end_time-start_time:.2f}s.')
             self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
 
     def tick(self, timeout:float, dt:float) -> None:

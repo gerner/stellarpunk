@@ -6,6 +6,7 @@ import curses
 import uuid
 import collections
 import logging
+import time
 from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
 import numpy as np
@@ -595,8 +596,10 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 raise command_input.UserError("can't save right now. finish what you're in the middle of")
 
             self.interface.log_message(f'saving game...')
+            start_time = time.perf_counter()
             filename = self.game_saver.save(self.gamestate)
-            self.interface.log_message(f'game saved to "{filename}"')
+            end_time = time.perf_counter()
+            self.interface.log_message(f'game saved to "{filename}" in {end_time-start_time:.2f}s')
 
         def menu(args:Sequence[str]) -> None:
             startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
