@@ -6,8 +6,11 @@ import uuid
 import abc
 import enum
 import functools
-from typing import Optional, Union, Any
-from collections.abc import Iterable, Iterator, MutableMapping
+import gzip
+import json
+import weakref
+from typing import Optional, Union, Any, TextIO, TYPE_CHECKING, Type
+from collections.abc import Iterable, Iterator, MutableMapping, Collection, Sequence, Generator
 
 import numpy as np
 import numpy.typing as npt
@@ -16,9 +19,221 @@ import rtree.index # type: ignore
 
 from stellarpunk import util
 from .base import Entity
-from .sector_entity import SectorEntity, Planet, Station, Asteroid, TravelGate, SECTOR_ENTITY_COLLISION_TYPE
-from .ship import Ship
-from .order import Effect
+
+if TYPE_CHECKING:
+    #TODO: I'd like to get rid of this. it's only needed for
+    # SectorEntity.captain which isn't actually used here at all. Stations,
+    # Planets and Ships can have captains. But we should really specialize
+    # those types with a common CaptainableSectorEntity or something which can
+    # live in sector_entity.py
+    from . import character
+
+    #TODO: maybe effects should live on gamestate instead? could be keyed by
+    # sector id to make one collection for each sector
+    from .order import Effect
+
+SECTOR_ENTITY_COLLISION_TYPE = 0
+
+class HistoryEntry:
+    def __init__(
+            self,
+            prefix:str,
+            entity_id:uuid.UUID,
+            ts:float,
+            loc:tuple,
+            radius:float,
+            angle:float,
+            velocity:tuple,
+            angular_velocity:float,
+            force:tuple,
+            torque:float,
+            order_hist:Optional[dict]=None
+    ) -> None:
+        self.entity_id = entity_id
+        self.ts = ts
+
+        self.order_hist = order_hist
+
+        self.loc = loc
+        self.radius = radius
+        self.angle = angle
+        self.prefix = prefix
+
+        self.velocity = velocity
+        self.angular_velocity = angular_velocity
+
+        self.force = force
+        self.torque = torque
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "p": self.prefix,
+            "eid": str(self.entity_id),
+            "ts": self.ts,
+            "loc": self.loc,
+            "r": self.radius,
+            "a": self.angle,
+            "v": self.velocity,
+            "av": self.angular_velocity,
+            "f": self.force,
+            "t": self.torque,
+            "o": self.order_hist,
+        }
+
+def write_history_to_file(entity:Union["Sector", "SectorEntity"], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
+    fout:TextIO
+    if isinstance(f, str):
+        needs_close = True
+        if f.endswith(".gz"):
+            fout = gzip.open(f, mode+"t") # type: ignore[assignment]
+        else:
+            fout = open(f, mode) # type: ignore[assignment]
+    else:
+        needs_close = False
+        fout = f
+
+    entities:Iterable[SectorEntity]
+    if isinstance(entity, SectorEntity):
+        entities = [entity]
+    else:
+        entities = entity.entities.values()
+
+    for ent in entities:
+        history = ent.get_history()
+        for entry in history:
+            fout.write(json.dumps(entry.to_json()))
+            fout.write("\n")
+        if len(history) == 0 or history[-1].ts < now:
+            fout.write(json.dumps(ent.to_history(now).to_json()))
+            fout.write("\n")
+    if needs_close:
+        fout.close()
+
+class SectorEntityObserver:
+    def entity_migrated(self, entity:"SectorEntity", from_sector:"Sector", to_sector:"Sector") -> None:
+        pass
+
+    def entity_destroyed(self, entity:"SectorEntity") -> None:
+        pass
+
+    def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
+        pass
+
+class SectorEntity(Entity):
+    """ An entity in space in a sector. """
+
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.sector:Optional["Sector"] = None
+
+        # some physical properties (in SI units)
+        self.mass = 0.
+        self.moment = 0.
+        #TODO: are all entities just circles?
+        self.radius = 0.
+        self.cargo_capacity = 5e2
+
+        self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
+
+        # who is responsible for this entity?
+        self.captain: Optional["character.Character"] = None
+
+        phys.position = (loc[0], loc[1])
+
+        # physics simulation entity (we don't manage this, just have a pointer to it)
+        self.phys = phys
+        self.phys_shape:Any = None
+
+        self.history: collections.deque[HistoryEntry] = collections.deque(maxlen=history_length)
+
+        self.observers:weakref.WeakSet[SectorEntityObserver] = weakref.WeakSet()
+
+        self.sensor_settings=sensor_settings
+
+    def observe(self, observer:SectorEntityObserver) -> None:
+        self.observers.add(observer)
+
+    def unobserve(self, observer:SectorEntityObserver) -> None:
+        try:
+            self.observers.remove(observer)
+        except KeyError:
+            pass
+
+    def migrate(self, to_sector:"Sector") -> None:
+        if self.sector is None:
+            raise Exception("cannot migrate if from sector is None")
+        from_sector = self.sector
+        if self.sector is not None:
+            self.sector.remove_entity(self)
+        to_sector.add_entity(self)
+        for o in self.observers.copy():
+            o.entity_migrated(self, from_sector, to_sector)
+
+        self._migrate(to_sector)
+
+    def _migrate(self, to_sector:"Sector") -> None:
+        pass
+
+    def destroy(self) -> None:
+        for o in self.observers.copy():
+            o.entity_destroyed(self)
+        self.observers.clear()
+
+        self._destroy()
+        self.phys.data = None
+        super().destroy()
+
+    def _destroy(self) -> None:
+        pass
+
+    def target(self, threat:"SectorEntity") -> None:
+        for o in self.observers.copy():
+            o.entity_targeted(self, threat)
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return np.array(self.phys.velocity)
+    @property
+    def speed(self) -> float: return self.phys.velocity.length
+    @property
+    def angle(self) -> float: return self.phys.angle
+    @property
+    def angular_velocity(self) -> float: return self.phys.angular_velocity
+
+    def distance_to(self, other:"SectorEntity") -> float:
+        if other.sector != self.sector:
+            raise ValueError(f'other in sector {other.sector} but we are in sector {self.sector}')
+        return util.distance(self.loc, other.loc) - self.radius - other.radius
+
+    def cargo_full(self) -> bool:
+        return np.sum(self.cargo) == self.cargo_capacity
+
+    def get_history(self) -> Sequence[HistoryEntry]:
+
+        return (HistoryEntry(
+                self.id_prefix,
+                self.entity_id, 0,
+                tuple(self.phys.position), self.radius, self.angle,
+                tuple(self.phys.velocity), self.angular_velocity,
+                (0.,0.), 0,
+        ),)
+        return self.history
+
+    def to_history(self, timestamp:float) -> HistoryEntry:
+        return HistoryEntry(
+                self.id_prefix,
+                self.entity_id, timestamp,
+                tuple(self.phys.position), self.radius, self.angle,
+                tuple(self.phys.velocity), self.angular_velocity,
+                (0.,0.), 0,
+        )
+    def address_str(self) -> str:
+        if self.sector:
+            return f'{self.short_id()}@{self.sector.short_id()}'
+        else:
+            return f'{self.short_id()}@None'
 
 class CollisionObserver:
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -28,12 +243,24 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
-    def __init__(self, entity:SectorEntity):
-        self.object_type = entity.object_type
-        self.id_prefix = entity.id_prefix
-        self.entity_id = entity.entity_id
-        self.short_id = entity.short_id()
-        self.radius = entity.radius
+    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None):
+        if entity:
+            self.object_type:Type[SectorEntity]=type(entity)
+            self.id_prefix = entity.id_prefix
+            self.entity_id = entity.entity_id
+            self.short_id = entity.short_id()
+            self.radius = entity.radius
+        else:
+            assert(object_type)
+            assert(id_prefix)
+            assert(entity_id)
+            assert(short_id)
+            assert(radius)
+            self.object_type = object_type
+            self.id_prefix = id_prefix
+            self.entity_id = entity_id
+            self.short_id = short_id
+            self.radius = radius
         # must be updated externally
         self.angle = 0.0
 
@@ -92,9 +319,6 @@ class AbstractSensorImage:
     @abc.abstractmethod
     def inactive_reason(self) -> SensorImageInactiveReason: ...
     @abc.abstractmethod
-    def is_detector_active(self) -> bool:
-        ...
-    @abc.abstractmethod
     def update(self, notify_target:bool=True) -> bool:
         """ Update the image if possible under current sensor conditions
 
@@ -102,10 +326,7 @@ class AbstractSensorImage:
         ...
 
     @abc.abstractmethod
-    def detector_short_id(self) -> str: ...
-    @property
-    @abc.abstractmethod
-    def detector_entity_id(self) -> uuid.UUID: ...
+    def set_sensor_manager(self, sensor_manager:"AbstractSensorManager") -> None: ...
 
     @abc.abstractmethod
     def copy(self, detector:SectorEntity) -> "AbstractSensorImage": ...
@@ -113,15 +334,15 @@ class AbstractSensorImage:
 class AbstractSensorSettings:
     @abc.abstractmethod
     def register_image(self, image:AbstractSensorImage) -> None: ...
-    #@abc.abstractmethod
-    #def unregister_image(self, image:AbstractSensorImage) -> None: ...
+    @abc.abstractmethod
+    def unregister_image(self, image:AbstractSensorImage) -> None: ...
     @abc.abstractmethod
     def has_image(self, target_id:uuid.UUID) -> bool: ...
     @abc.abstractmethod
     def get_image(self, target_id:uuid.UUID) -> AbstractSensorImage: ...
     @property
     @abc.abstractmethod
-    def images(self) -> Iterable[AbstractSensorImage]: ...
+    def images(self) -> Collection[AbstractSensorImage]: ...
 
     @property
     @abc.abstractmethod
@@ -157,8 +378,12 @@ class AbstractSensorSettings:
     def ignore_bias(self) -> bool: ...
 
 class AbstractSensorManager:
-    def compute_effective_profile(self, ship:SectorEntity) -> float:
-        return 100.
+    @abc.abstractmethod
+    def compute_effective_profile(self, ship:SectorEntity) -> float: ...
+
+    @abc.abstractmethod
+    def compute_effective_threshold(self, ship:SectorEntity) -> float: ...
+
 
     def compute_target_profile(self, target:SectorEntity, detector:SectorEntity) -> float:
         return 100.
@@ -235,11 +460,6 @@ class Sector(Entity):
         # a "culture" for the sector which helps with consistent naming
         self.culture = culture
 
-        self.planets:list[Planet] = []
-        self.stations:list[Station] = []
-        self.ships:list[Ship] = []
-        self.asteroids:dict[int, list[Asteroid]] = collections.defaultdict(list)
-
         # id -> entity for all entities in the sector
         self.entities:dict[uuid.UUID, SectorEntity] = {}
 
@@ -248,7 +468,7 @@ class Sector(Entity):
         # we do rely on this to provide a spatial index of the sector
         self.space:cymunk.Space = space
 
-        self._effects: collections.deque[Effect] = collections.deque()
+        self._effects: collections.deque["Effect"] = collections.deque()
 
         self.collision_observers: MutableMapping[uuid.UUID, set[CollisionObserver]] = collections.defaultdict(set)
 
@@ -314,34 +534,25 @@ class Sector(Entity):
             # after we've destroyed the thing it observes)
             pass
 
-    def add_effect(self, effect:Effect) -> None:
+    def add_effect(self, effect:"Effect") -> None:
         effect.gamestate.register_effect(effect)
         self._effects.append(effect)
         effect.begin_effect()
 
-    def remove_effect(self, effect:Effect) -> None:
+    def remove_effect(self, effect:"Effect") -> None:
         self._effects.remove(effect)
         effect.gamestate.unregister_effect(effect)
 
-    def current_effects(self) -> Iterable[Effect]:
+    def current_effects(self) -> Iterable["Effect"]:
         return self._effects
+
+    def entities_by_type[T:SectorEntity](self, klass:Type[T]) -> Generator[T, None, None]:
+        for v in self.entities.values():
+            if isinstance(v, klass):
+                yield v
 
     def add_entity(self, entity:SectorEntity) -> None:
         #TODO: worry about collisions at location?
-
-        if isinstance(entity, Planet):
-            self.planets.append(entity)
-        elif isinstance(entity, Station):
-            self.stations.append(entity)
-        elif isinstance(entity, Ship):
-            self.ships.append(entity)
-        elif isinstance(entity, Asteroid):
-            self.asteroids[entity.resource].append(entity)
-        else:
-            #isinstance(entity, TravelGate):
-            #isinstance(entity, Missile):
-            #raise ValueError(f'unknown entity type {entity.__class__}')
-            pass
 
         if entity.phys.is_static:
             self.space.add(entity.phys_shape)
@@ -358,20 +569,6 @@ class Sector(Entity):
 
         if entity.entity_id in self.collision_observers:
             del self.collision_observers[entity.entity_id]
-
-        if isinstance(entity, Planet):
-            self.planets.remove(entity)
-        elif isinstance(entity, Station):
-            self.stations.remove(entity)
-        elif isinstance(entity, Ship):
-            self.ships.remove(entity)
-        elif isinstance(entity, Asteroid):
-            self.asteroids[entity.resource].remove(entity)
-        else:
-            #isinstance(entity, TravelGate):
-            #isinstance(entity, Missile):
-            #raise ValueError(f'unknown entity type {entity.__class__}')
-            pass
 
         if entity.phys.is_static:
             self.space.remove(entity.phys_shape)

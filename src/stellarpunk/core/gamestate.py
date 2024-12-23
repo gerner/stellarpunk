@@ -17,8 +17,7 @@ import rtree.index # type: ignore
 from stellarpunk import util, task_schedule, narrative
 from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer
 from .production_chain import ProductionChain
-from .sector import Sector
-from .sector_entity import SectorEntity
+from .sector import Sector, SectorEntity
 from .order import Order, Effect
 from .character import Character, Player, Agendum, Message, AbstractEventManager
 

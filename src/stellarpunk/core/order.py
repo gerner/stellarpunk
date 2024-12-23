@@ -10,9 +10,9 @@ from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set, Type
 import numpy as np
 
 from stellarpunk import util, core
+from .sector import Sector
 
 if TYPE_CHECKING:
-    from .sector import Sector
     from .ship import Ship
     from .gamestate import Gamestate
 

@@ -75,7 +75,7 @@ class StationAgentSaver(EconAgentSaver[econ.StationAgent]):
         context_tuple:tuple[uuid.UUID, uuid.UUID, uuid.UUID] = context
         station_id, owner_id, character_id = context_tuple
         station = load_context.gamestate.entities[station_id]
-        assert(isinstance(station, core.Station))
+        assert(isinstance(station, core.Station | core.Planet))
         agent.station = station
         owner = load_context.gamestate.entities[owner_id]
         assert(isinstance(owner, core.Character))

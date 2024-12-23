@@ -24,6 +24,7 @@ from stellarpunk.serialization import (
     character as s_character,
     sector_entity as s_sector_entity,
     order as s_order,
+    sensors as s_sensors,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -308,7 +309,7 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
         if self.ticks_per_hist_sample > 0:
             for sector in self.gamestate.sectors.values():
                 if self.gamestate.ticks % self.ticks_per_hist_sample == sector.entity_id.int % self.ticks_per_hist_sample:
-                    for ship in sector.ships:
+                    for ship in sector.entities_by_type(core.Ship):
                         ship.history.append(ship.to_history(self.gamestate.timestamp))
 
         if self.economy_log is not None and self.gamestate.timestamp > self.next_economy_sample:
@@ -325,7 +326,7 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
             total_speed = 0.
             total_neighbors = 0.
             for sector in self.gamestate.sectors.values():
-                for ship in sector.ships:
+                for ship in sector.entities_by_type(core.Ship):
                     total_ships += 1
                     total_speed += ship.phys.speed
                     if len(ship._orders) > 0:
@@ -505,13 +506,11 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(econ.ShipTraderAgent, s_econ.ShipTraderAgentSaver(sg))
     sg.register_saver(core.Message, s_character.MessageSaver(sg))
     sg.register_saver(core.Ship, s_sector_entity.ShipSaver(sg))
-
-    #TODO: more entities
-    sg.register_saver(core.Asteroid, s_gamestate.NoneEntitySaver(sg))
-    sg.register_saver(core.TravelGate, s_gamestate.NoneEntitySaver(sg))
-    sg.register_saver(core.Planet, s_gamestate.NoneEntitySaver(sg))
-    sg.register_saver(core.Station, s_gamestate.NoneEntitySaver(sg))
-    sg.register_saver(core.Missile, s_gamestate.NoneEntitySaver(sg))
+    sg.register_saver(core.Asteroid, s_sector_entity.AsteroidSaver(sg))
+    sg.register_saver(core.TravelGate, s_sector_entity.TravelGateSaver(sg))
+    sg.register_saver(core.Planet, s_sector_entity.PlanetSaver(sg))
+    sg.register_saver(core.Station, s_sector_entity.StationSaver(sg))
+    sg.register_saver(core.Missile, s_sector_entity.MissileSaver(sg))
 
     #TODO: agenda
     sg.register_saver(core.Agendum, save_game.DispatchSaver[core.Agendum](sg))
@@ -525,6 +524,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
     sg.register_saver(core.NullOrder, s_order.NullOrderSaver(sg))
     sg.register_saver(orders.movement.WaitOrder, s_order.NullOrderSaver(sg))
+    sg.register_saver(combat.HuntOrder, s_order.NullOrderSaver(sg))
     #sg.register_saver(core.NullOrder, s_order.NullOrderSaver[core.NullOrder](sg))
     #TODO: different sorts of orders...
 
@@ -539,13 +539,13 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
 
     #TODO: scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
-    #TODO: sensor settings (live in SectorEntity)
-    sg.ignore_saver(core.AbstractSensorSettings)
-    sg.ignore_saver(sensors.SensorSettings)
+    # sensor settings (live in SectorEntity)
+    sg.register_saver(core.AbstractSensorSettings, s_sensors.SensorSettingsSaver(sg))
+    sg.register_saver(sensors.SensorSettings, s_sensors.SensorSettingsSaver(sg))
 
-    #TODO: sensor images (live in SensorSettings)
-    sg.ignore_saver(core.AbstractSensorImage)
-    sg.ignore_saver(sensors.SensorImage)
+    # sensor images (live in SensorSettings)
+    sg.register_saver(core.AbstractSensorImage, s_sensors.SensorImageSaver(sg))
+    sg.register_saver(sensors.SensorImage, s_sensors.SensorImageSaver(sg))
 
     return sg
 

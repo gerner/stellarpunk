@@ -10,7 +10,7 @@ from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
 from .base import Entity, Sprite, EconAgent, Asset
-from .sector_entity import SectorEntity
+from .sector import SectorEntity
 
 if TYPE_CHECKING:
     from .gamestate import Gamestate

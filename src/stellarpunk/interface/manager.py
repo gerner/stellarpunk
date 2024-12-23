@@ -526,7 +526,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
             try:
                 station_id = uuid.UUID(args[0])
-                target_station = next(x for x in self.interface.player.character.location.sector.stations if x.entity_id == station_id)
+                target_station = next(x for x in self.interface.player.character.location.sector.entities_by_type(core.Station) if x.entity_id == station_id)
             except:
                 raise command_input.UserError(f'{args[0]} not a recognized station id')
 
@@ -624,7 +624,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             return command_list
         # additional commands always available while the game is running
         if self.interface.player.character and self.interface.player.character.location is not None and self.interface.player.character.location.sector is not None:
-            station_tab_completer = util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.stations)
+            station_tab_completer = util.tab_completer(str(x.entity_id) for x in self.interface.player.character.location.sector.entities_by_type(core.Station))
         else:
             station_tab_completer = None
 

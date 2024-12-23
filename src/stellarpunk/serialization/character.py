@@ -108,9 +108,10 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
             assert(isinstance(asset, core.Asset))
             character.assets.append(asset)
 
-        for agenda_id in agenda_ids:
-            agendum = load_context.gamestate.agenda[agenda_id]
-            character.agenda.append(agenda_id)
+        #TODO: agenda
+        #for agenda_id in agenda_ids:
+        #    agendum = load_context.gamestate.agenda[agenda_id]
+        #    character.agenda.append(agenda_id)
 
 class MessageSaver(s_gamestate.EntitySaver[core.Message]):
     def _save_entity(self, message:core.Message, f:io.IOBase) -> int:

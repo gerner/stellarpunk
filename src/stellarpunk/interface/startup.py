@@ -16,10 +16,11 @@ class Mode(enum.Enum):
     RESUME = enum.auto()
     NEW_GAME = enum.auto()
     LOAD_GAME = enum.auto()
+    LOADING = enum.auto()
     EXIT_GAME = enum.auto()
     EXIT = enum.auto()
 
-class StartupView(interface.View, generate.UniverseGeneratorObserver):
+class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.GameSaverObserver):
     """ Startup screen for giving player loading feedback.
 
     Watches universe generation and gives player info about progress.
@@ -31,6 +32,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
         self._generator = generator
         self._generator_thread:Optional[threading.Thread] = None
+        self._threaded_generation = True
 
         self._game_saver = game_saver
 
@@ -42,6 +44,12 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self._estimated_generation_ticks = 0
         self._generation_ticks = 0
 
+        self._main_menu = ui_util.Menu("null", [])
+        self._load_menu = ui_util.Menu("null", [])
+
+        self._save_game:Optional[save_game.SaveGame] = None
+        self._loaded_gamestate:Optional[core.Gamestate] = None
+
     def estimated_generation_ticks(self, ticks:int) -> None:
         self._estimated_generation_ticks = ticks
 
@@ -51,17 +59,36 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
 
     def generation_tick(self) -> None:
         self._generation_ticks += 1
-        self.logger.debug(f'tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+        self.logger.debug(f'generation tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+
+    def load_start(self, ticks:int, game_saver:save_game.GameSaver) -> None:
+        self._estimated_generation_ticks = ticks
+
+    def load_tick(self, game_saver:save_game.GameSaver) -> None:
+        self._generation_ticks += 1
+        self.logger.debug(f'load tick: {self._generation_ticks}/{self._estimated_generation_ticks}')
 
     def universe_generated(self, gamestate:core.Gamestate) -> None:
         self._universe_loaded = True
 
     def _generate_universe(self) -> None:
+        self.interface.log_message("generating a universe...")
         gamestate = self._generator.generate_universe()
         self.interface.log_message("new universe created")
         gamestate.force_pause(self)
         # the gamestate will get sent to people via an event on universe
         # generator
+
+    def _load_game(self) -> None:
+        assert(self._save_game)
+        self.interface.log_message(f'loading savegame "{self._save_game.filename}" ...')
+        gamestate = self._game_saver.load(self._save_game.filename)
+        gamestate.force_pause(self)
+        # the gamestate will get sent to people via an event from universe
+        # generator
+        self._loaded_gamestate = gamestate
+        self.interface.log_message(f'game loaded.')
+        self._universe_loaded = True
 
     def _enter_main_menu(self) -> None:
         self.viewscreen.erase()
@@ -90,16 +117,23 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self.interface.close_view(self)
 
     def _enter_new_game(self) -> None:
+        self._generation_ticks = 0
+        self._estimated_generation_ticks = 100
         self._generator.observe(self)
-        self._generator_thread = threading.Thread(target=self._generate_universe)
-        self._generator_thread.start()
+        if self._threaded_generation:
+            self._generator_thread = threading.Thread(target=self._generate_universe)
+            self._generator_thread.start()
+        else:
+            self._generate_universe()
 
     def _exit_new_game(self) -> None:
         assert(self._universe_loaded)
         self._generator.unobserve(self)
         #TODO: should we have a timeout here?
-        assert(self._generator_thread is not None)
-        self._generator_thread.join()
+        if self._threaded_generation:
+            assert(self._generator_thread is not None)
+            self._generator_thread.join()
+            self._generator_thread = None
         assert(self._generator.gamestate)
         self._generator.gamestate.production_chain.viz().render("/tmp/production_chain", format="pdf")
         assert(self.interface.gamestate)
@@ -120,15 +154,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         self.viewscreen.erase()
 
         def load_game(save:save_game.SaveGame) -> None:
-            self.interface.log_message(f'loading savegame "{save.filename}"')
-            gamestate = self._game_saver.load(save.filename)
-            gamestate.force_pause(self)
-            # the gamestate will get sent to people via an event from universe
-            # generator
-            self.interface.log_message(f'game loaded.')
-            self._universe_loaded = True
-            #TODO: should we let the user press a key first?
-            self._enter_mode(Mode.EXIT)
+            self._save_game = save
+            self._enter_mode(Mode.LOADING)
 
         # get savegame options
         load_options = []
@@ -143,11 +170,41 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
             ui_util.number_text_menu_items(load_options)
         )
 
-    def _exit_load_game(self) -> None:
+    def _enter_loading(self) -> None:
+        self.viewscreen.erase()
+
+        self._generation_ticks = 0
+        self._estimated_generation_ticks = 100
+        self._game_saver.observe(self)
+
+        if self._threaded_generation:
+            self._generator_thread = threading.Thread(target=self._load_game)
+            self._generator_thread.start()
+        else:
+            self._load_game()
+
+    def _exit_loading(self) -> None:
         assert(self._universe_loaded)
+
+        if self._threaded_generation:
+            assert(self._generator_thread is not None)
+            self._generator_thread.join()
+            self._generator_thread = None
+
+        self._game_saver.unobserve(self)
 
         self.interface.runtime.exit_startup()
         self.interface.runtime.start_game()
+
+        assert self._loaded_gamestate
+        assert self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship)
+        assert self.interface.player == self._loaded_gamestate.player
+        pilot_view = pilot.PilotView(self.interface.player.character.location, self._loaded_gamestate, self.interface)
+        self.interface.close_all_views()
+        if len(self.interface.views) > 0:
+            raise Exception()
+        self.interface.open_view(pilot_view)
+
 
         assert self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship)
         pilot_view = pilot.PilotView(self.interface.player.character.location, self._generator.gamestate, self.interface)
@@ -166,8 +223,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         # leave the old mode
         if self._mode == Mode.NEW_GAME:
             self._exit_new_game()
-        elif self._mode == Mode.LOAD_GAME:
-            self._exit_load_game()
+        elif self._mode == Mode.LOADING:
+            self._exit_loading()
 
         # enter the new mode
         self._mode = mode
@@ -179,6 +236,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
             self._enter_new_game()
         elif mode == Mode.LOAD_GAME:
             self._enter_load_game()
+        elif mode == Mode.LOADING:
+            self._enter_loading()
         elif mode == Mode.EXIT_GAME:
             self._enter_exit_game()
         elif mode == Mode.EXIT:
@@ -224,7 +283,23 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         # selecting one loads that game and then transitions 
         y = 15
         x = 15
-        self._load_menu.draw(self.viewscreen, y, x)
+        if len(self._load_menu.options) > 0:
+            self._load_menu.draw(self.viewscreen, y, x)
+        else:
+            self.viewscreen.addstr(18, 15, f'no save games to load.')
+            self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
+
+    def _draw_loading(self) -> None:
+        self.viewscreen.erase()
+        self.viewscreen.addstr(15, 15, f'loading game...')
+        self.viewscreen.addstr(16, 15, f'{self._generation_ticks}/{self._estimated_generation_ticks}')
+        #TODO: janky hack to draw a progress bar
+        m = ui_util.MeterMenu("foo", [])
+        m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
+        #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
+        if self._universe_loaded:
+            self.viewscreen.addstr(18, 15, f'game loaded.')
+            self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
 
     def update_display(self) -> None:
         # TODO: have some clever graphic for the main menu
@@ -235,6 +310,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
             self._draw_new_game()
         elif self._mode == Mode.LOAD_GAME:
             self._draw_load_game()
+        elif self._mode == Mode.LOADING:
+            self._draw_loading()
         else:
             raise ValueError(f'cannot draw mode {self._mode}')
         self.interface.refresh_viewscreen()
@@ -257,11 +334,28 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
         def cancel() -> None:
             self._enter_mode(Mode.MAIN_MENU)
 
-        key_list = list(self._load_menu.key_list())
-        key_list.extend(self.bind_aliases(
-            [curses.ascii.ESC], cancel, help_key="startup_load_cancel"
-        ))
-        return key_list
+        if len(self._load_menu.options) > 0:
+            key_list = list(self._load_menu.key_list())
+            key_list.extend(self.bind_aliases(
+                [curses.ascii.ESC], cancel, help_key="startup_load_cancel"
+            ))
+            return key_list
+        else:
+            return self.bind_aliases(
+                [curses.ascii.ESC, curses.ascii.CR], cancel, help_key="startup_load_cancel"
+            )
+
+
+    def _key_list_loading(self) -> Collection[interface.KeyBinding]:
+        if self._universe_loaded:
+            def begin() -> None:
+                self._enter_mode(Mode.EXIT)
+            key_list = self.bind_aliases(
+                [curses.ascii.ESC, curses.ascii.CR], begin, help_key="startup_start_game"
+            )
+            return key_list
+        else:
+            return []
 
     def key_list(self) -> Collection[interface.KeyBinding]:
         if self._mode == Mode.MAIN_MENU:
@@ -270,6 +364,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver):
             return self._key_list_new_game()
         elif self._mode == Mode.LOAD_GAME:
             return self._key_list_load_game()
+        elif self._mode == Mode.LOADING:
+            return self._key_list_loading()
         else:
             raise ValueError(f'unknown mode {self._mode}')
 

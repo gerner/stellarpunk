@@ -45,6 +45,12 @@ def from_len_pre_f(f:io.IOBase, blen:int=2) -> str:
     b = f.read(l)
     return b.decode("utf8")
 
+def bool_to_f(b:bool, f:io.IOBase) -> int:
+    return int_to_f(1 if b else 0, f, blen=1)
+
+def bool_from_f(f:io.IOBase) -> bool:
+    return int_from_f(f, blen=1) == 1
+
 def primitive_to_f(x:Union[int,float,str,bool], f:io.IOBase, slen:int=2, ilen:int=4) -> int:
     bytes_written = 0
     if isinstance(x, int):
@@ -105,6 +111,17 @@ def floats_from_f(f:io.IOBase) -> Collection[float]:
         x = float_from_f(f)
         seq.append(x)
     return seq
+
+def float_pair_to_f(a:npt.NDArray[np.float64], f:io.IOBase) -> int:
+    bytes_written = 0
+    bytes_written += float_to_f(a[0], f)
+    bytes_written += float_to_f(a[1], f)
+    return bytes_written
+
+def float_pair_from_f(f:io.IOBase) -> npt.NDArray[np.float64]:
+    x = float_from_f(f)
+    y = float_from_f(f)
+    return np.array((x, y))
 
 def fancy_dict_to_f[K, V](d:dict[K, V], f:io.IOBase, k:Callable[[K, io.IOBase], int], v:Callable[[V, io.IOBase], int]) -> int:
     bytes_written = 0

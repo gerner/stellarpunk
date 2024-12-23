@@ -2,10 +2,9 @@ import io
 import uuid
 from typing import Any
 
-from stellarpunk import core
-
 import cymunk # type: ignore
 
+from stellarpunk import core, sensors
 from . import save_game, util as s_util, gamestate as s_gamestate
 
 class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
@@ -67,6 +66,8 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         count = s_util.size_from_f(f)
         for _ in range(count):
             sector.add_region(self.save_game.load_object(core.SectorWeatherRegion, f, load_context))
+
+        sector.sensor_manager = sensors.SensorManager(sector)
 
         load_context.register_post_load(sector, (entities, effect_ids))
         return sector

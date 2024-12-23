@@ -174,13 +174,13 @@ def order_fn_wait(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
 def order_fn_goto_random_station(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     if ship.sector is None:
         raise Exception("cannot go to location if ship isn't in a sector")
-    station = gamestate.random.choice(np.array(ship.sector.stations))
+    station = gamestate.random.choice(np.array(ship.sector.entities_by_type(core.Station)))
     return orders.GoToLocation.goto_entity(station, ship, gamestate)
 
 def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestate) -> core.Order:
     if ship.sector is None:
         raise Exception("cannot disembark to if ship isn't in a sector")
-    station = gamestate.random.choice(np.array(ship.sector.stations))
+    station = gamestate.random.choice(np.array(ship.sector.entities_by_type(core.Station)))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
 class GenerationStep(enum.Enum):
@@ -872,7 +872,6 @@ class UniverseGenerator(core.AbstractGenerator):
         sensor_settings.set_transponder(True)
         body = self.phys_body()
         gate = core.TravelGate(
-            destination,
             direction,
             np.array((x,y), dtype=np.float64),
             body,
@@ -882,6 +881,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_gate_name(destination, sector.culture),
             entity_id=entity_id
         )
+        gate.destination = destination
 
         self.phys_shape(body, gate, gate_radius)
 
@@ -1160,8 +1160,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
         sum_eta = 0.
         num_eta = 0
-        for ship in sector.ships:
-            for station in sector.stations:
+        for ship in sector.entities_by_type(core.Ship):
+            for station in sector.entities_by_type(core.Station):
                 sum_eta += orders.movement.GoToLocation.compute_eta(ship, station.loc)
                 num_eta += 1
         self.logger.info(f'mean eta: {sum_eta / num_eta}')
@@ -1247,7 +1247,7 @@ class UniverseGenerator(core.AbstractGenerator):
         if amount <= 0:
             return
 
-        asteroids = sector.asteroids[resource].copy()
+        asteroids = list(x for x in sector.entities_by_type(core.Asteroid) if x.resource == resource)
         if not asteroids:
             raise ValueError(f'no asteroids of type {resource} in sector {sector.short_id()}')
 
@@ -1838,7 +1838,7 @@ class UniverseGenerator(core.AbstractGenerator):
             mean_habitable_resources:float,
             mean_uninhabitable_resources:float,
             num_cultures:int,
-    ) -> None:
+    ) -> tuple[npt.NDArray, npt.NDArray]:
         assert(self.gamestate)
         # set up pre-expansion sectors, resources
 
@@ -1913,6 +1913,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # establish post-expansion production elements and equipment
         # establish current-era characters and distribute roles
 
+        return sector_ids, habitable_mask
+
     def generate_player(self) -> None:
         assert(self.gamestate)
 
@@ -1967,11 +1969,12 @@ class UniverseGenerator(core.AbstractGenerator):
         self.logger.info(f'refinery is {refinery.address_str()} {refinery.name}')
         self.logger.info(f'asteroid is {asteroid.address_str()} {asteroid.name}')
 
-    def generate_player_for_combat_test(self) -> None:
+    def generate_player_for_combat_test(self, sector_ids:npt.NDArray, habitable_mask:npt.NDArray) -> None:
         assert(self.gamestate)
 
         # choose an uninhabited sector
-        sector = self.r.choice(self.non_habitable_sectors, 1)[0] # type: ignore
+        sector_id = self.r.choice(sector_ids[~habitable_mask], 1)[0] # type: ignore
+        sector = self.gamestate.sectors[sector_id]
 
         # spawn the player, character, ship, etc.
         ship_loc = np.array((0., 0.))
@@ -2086,7 +2089,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self.generate_starfields()
 
         # generate sectors
-        self.generate_sectors(
+        sector_ids, habitable_mask = self.generate_sectors(
             universe_radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
             num_sectors=config.Settings.generate.Universe.NUM_SECTORS,
             sector_radius=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
@@ -2102,8 +2105,8 @@ class UniverseGenerator(core.AbstractGenerator):
         for observer in self._observers:
             observer.generation_step(GenerationStep.PLAYER)
             observer.generation_tick()
-        self.generate_player()
-        #self.generate_player_for_combat_test()
+        #self.generate_player()
+        self.generate_player_for_combat_test(sector_ids, habitable_mask)
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
         self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')

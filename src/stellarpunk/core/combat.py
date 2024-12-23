@@ -13,8 +13,6 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core, config
 from stellarpunk.orders import movement, collision
-from .sector_entity import SectorEntity, ObjectType
-from .order import Effect
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +140,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, gamestate:core.Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[SectorEntity]=None) -> core.Missile:
+    def spawn_missile(ship:core.Ship, gamestate:core.Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[core.SectorEntity]=None) -> core.Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius, strict=True)
         v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity
@@ -188,7 +186,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         self._complete()
 
     # core.CollisionObserver
-    def collision(self, missile:SectorEntity, target:SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
+    def collision(self, missile:core.SectorEntity, target:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         assert missile == self.ship
         if target.entity_id == self.target.identity.entity_id:
             self.logger.debug(f'missile hit desired target {target} impulse: {impulse} ke: {ke}!')
@@ -399,7 +397,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
 class PDTarget:
     """ Tracks objects in point defense firing cone. """
-    def __init__(self, entity:SectorEntity):
+    def __init__(self, entity:core.SectorEntity):
         self.entity = entity
         self.birth_ts = core.Gamestate.gamestate.timestamp
         self.last_seen = self.birth_ts

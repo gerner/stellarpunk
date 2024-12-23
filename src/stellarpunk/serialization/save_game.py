@@ -10,6 +10,7 @@ import logging
 import contextlib
 import tempfile
 import itertools
+import weakref
 from typing import Any, Optional, TypeVar, Union
 
 import numpy as np
@@ -27,7 +28,16 @@ class LoadContext:
         self.debug = False
         self.generator:generate.UniverseGenerator = sg.generator
         self.gamestate:core.Gamestate = None # type: ignore
+        self.references:set[Any] = set()
         self._post_loads:list[tuple[Any, Any]] = []
+
+    def reference(self, obj:Any) -> None:
+        """ hang on to a reference to an object.
+
+        useful when the only collection in first load pass is holding weakrefs.
+        this way these objects will stay alive until this LoadContext goes away
+        """
+        self.references.add(obj)
 
     def register_post_load(self, obj:Any, context:Any) -> None:
         self._post_loads.append((obj, context))
@@ -36,9 +46,14 @@ class LoadContext:
         for obj, context in self._post_loads:
             self.save_game.post_load_object(obj, self, context)
 
+class SaverObserver:
+    def load_tick(self, saver:"Saver") -> None:
+        pass
+
 class Saver[T](abc.ABC):
     def __init__(self, save_game:"GameSaver"):
         self.save_game = save_game
+        self._observers:weakref.WeakSet[SaverObserver] = weakref.WeakSet()
 
     @abc.abstractmethod
     def save(self, obj:T, f:io.IOBase) -> int: ...
@@ -48,6 +63,19 @@ class Saver[T](abc.ABC):
     def post_load(self, obj:T, load_context:LoadContext, context:Any) -> None:
         pass
 
+    def estimate_ticks(self, obj:T) -> int:
+        return 0
+
+    def observe(self, observer:SaverObserver) -> None:
+        self._observers.add(observer)
+
+    def unobserve(self, observer:SaverObserver) -> None:
+        self._observers.remove(observer)
+
+    def load_tick(self) -> None:
+        for observer in self._observers:
+            observer.load_tick(self)
+
 class NoneSaver(Saver[None]):
     def save(self, obj:None, f:io.IOBase) -> int:
         return 0
@@ -55,12 +83,23 @@ class NoneSaver(Saver[None]):
         return None
 
 class SaveGame:
-    def __init__(self, debug_flag:bool, save_date:datetime.datetime, filename:str=""):
+    def __init__(self, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, filename:str=""):
         self.filename = filename
         self.debug_flag = debug_flag
         self.save_date = save_date
+        self.estimated_ticks = estimated_ticks
 
-class GameSaver:
+class GameSaverObserver:
+    def load_start(self, estimated_ticks:int, game_saver:"GameSaver") -> None:
+        pass
+
+    def load_tick(self, game_saver:"GameSaver") -> None:
+        pass
+
+    def load_complete(self, load_context:LoadContext, game_saver:"GameSaver") -> None:
+        pass
+
+class GameSaver(SaverObserver):
     """ Central point for saving a game.
 
     Organizes configuration and dispatches to various sorts of save logic. """
@@ -80,6 +119,19 @@ class GameSaver:
         # we'll need these as part of saving and loading
         self.generator = generator
         self.event_manager = event_manager
+
+        self._observers:weakref.WeakSet[GameSaverObserver] = weakref.WeakSet()
+
+    def observe(self, observer:GameSaverObserver) -> None:
+        self._observers.add(observer)
+
+    def unobserve(self, observer:GameSaverObserver) -> None:
+        self._observers.remove(observer)
+
+    # SaverObserver
+    def load_tick(self, saver:Saver) -> None:
+        for observer in self._observers:
+            observer.load_tick(self)
 
     def _gen_save_filename(self) -> str:
         return f'save_{time.time()}.stpnk'
@@ -117,21 +169,24 @@ class GameSaver:
 
     def _save_metadata(self, gamestate:core.Gamestate, save_file:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("metadata", save_file)
         if self.debug:
             bytes_written += s_util.int_to_f(1, save_file, blen=1)
         else:
             bytes_written += s_util.int_to_f(0, save_file, blen=1)
 
         bytes_written += s_util.to_len_pre_f(datetime.datetime.now().isoformat(), save_file)
+        estimated_ticks = self.estimate_ticks(gamestate)
+        bytes_written += s_util.int_to_f(estimated_ticks, save_file)
         return bytes_written
 
     def _load_metadata(self, save_file:io.IOBase) -> SaveGame:
-        s_util.debug_string_r("metadata", save_file)
         debug_flag = s_util.int_from_f(save_file, blen=1)
         save_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(save_file))
+        estimated_ticks = s_util.int_from_f(save_file)
+        for observer in self._observers:
+            observer.load_start(estimated_ticks, self)
 
-        return SaveGame(debug_flag==1, save_date)
+        return SaveGame(debug_flag==1, save_date, estimated_ticks)
 
     def key_from_class(self, klass:type) -> int:
         return self._class_key_lookup[klass]
@@ -147,10 +202,19 @@ class GameSaver:
         key = len(self._class_key_lookup)
         self._class_key_lookup[klass] = key
         self._key_class_lookup[key] = klass
+        saver.observe(self)
         return key
 
     def ignore_saver(self, klass:type) -> int:
         return self.register_saver(klass, NoneSaver(self))
+
+    def estimate_ticks(self, obj:Any, klass:Optional[type]=None) -> int:
+        if klass is None:
+            klass = type(obj)
+        else:
+            assert(isinstance(obj, klass))
+
+        return self._save_register[klass].estimate_ticks(obj)
 
     def save_object(self, obj:Any, f:io.IOBase, klass:Optional[type]=None) -> int:
         if klass is None:
@@ -271,6 +335,9 @@ class GameSaver:
             gamestate.sanity_check_agenda()
 
             self.generator.load_universe(gamestate)
+
+            for observer in self._observers:
+                observer.load_complete(load_context, self)
 
             return gamestate
 

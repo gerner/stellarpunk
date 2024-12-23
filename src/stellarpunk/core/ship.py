@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from .sector_entity import SectorEntity, ObjectType, HistoryEntry
+from .sector import SectorEntity, HistoryEntry
 from .order import Order, NullOrder
 from .character import Asset
 
@@ -32,7 +32,6 @@ class Ship(SectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
 
     id_prefix = "SHP"
-    object_type = ObjectType.SHIP
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -154,7 +153,6 @@ class Ship(SectorEntity, Asset):
 
 class Missile(Ship):
     id_prefix = "MSL"
-    object_type = ObjectType.MISSILE
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)

@@ -346,7 +346,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_jump(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for jump")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.TRAVEL_GATE:
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, core.TravelGate):
                 raise command_input.UserError("target is not identified as a travel gate")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
@@ -360,7 +360,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_mine(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for mining")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.ASTEROID:
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, core.Asteroid):
                 raise command_input.UserError("target is not identified as an asteroid")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
@@ -374,7 +374,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_dock(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for docking")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.STATION:
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, core.Station):
                 raise command_input.UserError("target is not identified as a station")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
@@ -615,7 +615,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
 
             r_x = self.perspective.meters_per_char[0]
             r_y = self.perspective.meters_per_char[1]
-            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if x.identity.object_type != core.ObjectType.PROJECTILE), None)
+            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if not issubclass(x.identity.object_type, core.Projectile)), None)
             if hit:
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
@@ -642,7 +642,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             raise ValueError("ship must be in a sector to select a target")
 
         potential_targets = sorted(
-            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and x.identity.object_type != core.ObjectType.PROJECTILE),
+            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and issubclass(x.identity.object_type, core.Projectile)),
             key=lambda x: util.distance(self.ship.loc, x.loc)
         )
 
@@ -887,7 +887,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
 
         status_y += 9
 
-        if self.presenter.selected_target_image.identified and self.presenter.selected_target_image.identity.object_type == core.ObjectType.STATION:
+        if self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, core.Station):
             #TODO: how do we get the product type?
             entity_id = self.presenter.selected_target_image.identity.entity_id
             if entity_id in self.sector.entities:
@@ -896,7 +896,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
                 assert selected_entity.resource is not None
                 label_product = "product:"
                 self.viewscreen.addstr(status_y, status_x, f'{label_product:>12} {ui_util.product_name(self.gamestate.production_chain, selected_entity.resource, 20)}')
-        elif self.presenter.selected_target_image.identified and self.presenter.selected_target_image.identity.object_type == core.ObjectType.ASTEROID:
+        elif self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, core.Asteroid):
             entity_id = self.presenter.selected_target_image.identity.entity_id
             if entity_id in self.sector.entities:
                 selected_entity = self.sector.entities[entity_id]

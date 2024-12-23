@@ -186,17 +186,17 @@ class Icons:
 
     @staticmethod
     def sensor_image_icon(entity:core.SensorIdentity) -> str:
-        if entity.object_type in (core.ObjectType.SHIP, core.ObjectType.MISSILE):
+        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
             icon = Icons.angle_to_ship(entity.angle)
-        elif entity.object_type == core.ObjectType.STATION:
+        elif isinstance(entity, core.Station):
             icon = Icons.STATION
-        elif entity.object_type == core.ObjectType.PLANET:
+        elif isinstance(entity, core.Planet):
             icon = Icons.PLANET
-        elif entity.object_type == core.ObjectType.ASTEROID:
+        elif isinstance(entity, core.Asteroid):
             icon = Icons.ASTEROID
-        elif entity.object_type == core.ObjectType.TRAVEL_GATE:
+        elif isinstance(entity, core.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif entity.object_type == core.ObjectType.PROJECTILE:
+        elif isinstance(entity, core.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = Icons.UNKNOWN

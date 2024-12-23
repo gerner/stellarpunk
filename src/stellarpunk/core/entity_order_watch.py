@@ -1,8 +1,7 @@
 from typing import Optional
 
 from stellarpunk.core.order import Order, OrderObserver
-from stellarpunk.core.sector import Sector
-from stellarpunk.core.sector_entity import SectorEntity, SectorEntityObserver
+from stellarpunk.core.sector import Sector, SectorEntity, SectorEntityObserver
 
 class EntityOrderWatch(OrderObserver, SectorEntityObserver):
     """ Watches a SectorEntity, cancels an order on destroy/migrate """

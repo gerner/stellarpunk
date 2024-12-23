@@ -309,7 +309,7 @@ class Presenter:
             last_y = hist_y
         """
 
-        if entity.identified and entity.identity.object_type not in (core.ObjectType.ASTEROID, core.ObjectType.PROJECTILE):
+        if entity.identified and issubclass(entity.identity.object_type, core.Asteroid | core.Projectile):
             speed = util.magnitude(*entity.velocity)
             if speed > 0.:
                 name_tag = f' {entity.identity.short_id} {speed:.0f}'
@@ -326,7 +326,7 @@ class Presenter:
 
     def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.AbstractSensorImage]) -> None:
 
-        only_projectile = all(entity.identified and entity.identity.object_type == core.ObjectType.PROJECTILE for entity in entities)
+        only_projectile = all(entity.identified and issubclass(entity.identity.object_type, core.Projectile) for entity in entities)
 
         icons = set(interface.Icons.sensor_image_icon(x.identity) if x.identified else interface.Icons.UNKNOWN for x in entities)
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE

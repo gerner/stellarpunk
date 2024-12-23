@@ -11,6 +11,9 @@ from stellarpunk import core
 from . import serialize_econ_sim, save_game, util as s_util
 
 class GamestateSaver(save_game.Saver[core.Gamestate]):
+    def estimate_ticks(self, gamestate:core.Gamestate) -> int:
+        return len(gamestate.entities) + len(gamestate.orders) + len(gamestate.effects) + len(gamestate.agenda) + 1
+
     def save(self, gamestate:core.Gamestate, f:io.IOBase) -> int:
         bytes_written = 0
 
@@ -150,6 +153,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         count = s_util.size_from_f(f)
         for i in range(count):
             entity = self.save_game.load_object(core.Entity, f, load_context)
+            self.load_tick()
             # entities should have registered themselves with the gamestate,
             # getting a fresh, empty context and then populated it
 
@@ -165,6 +169,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for i in range(count):
             order = self.save_game.load_object(core.Order, f, load_context)
             # orders should have registered themselves with the gamestate,
+            self.load_tick()
 
         # load effects
         s_util.debug_string_r("effects", f)
@@ -172,6 +177,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for i in range(count):
             effect = self.save_game.load_object(core.Effect, f, load_context)
             # effects should have registered themselves with the gamestate,
+            self.load_tick()
 
         # load agenda
         s_util.debug_string_r("agenda", f)
@@ -179,6 +185,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for i in range(count):
             agenda = self.save_game.load_object(core.Agendum, f, load_context)
             # agenda should have registered themselves with the gamestate,
+            self.load_tick()
 
         # sectors
         # load sector ids and sector edges from file
@@ -243,6 +250,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             last_colliders.add(s_util.from_len_pre_f(f))
         gamestate.last_colliders = last_colliders
 
+        self.load_tick()
 
         s_util.debug_string_r("gamestate done", f)
 
