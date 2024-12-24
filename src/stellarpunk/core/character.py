@@ -9,10 +9,9 @@ from typing import Optional, Any, Union
 from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
-from .base import Entity, Sprite, EconAgent
-from .sector import SectorEntity
+from . import base, sector
 
-class Asset(Entity):
+class Asset(base.Entity):
     """ An abc for classes that are assets ownable by characters. """
     def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
         # forward arguments onward, so implementing classes should inherit us
@@ -84,16 +83,16 @@ class AbstractAgendum(abc.ABC):
         """ Lets the character interact. Called when scheduled. """
         pass
 
-class Character(Entity):
+class Character(base.Entity):
     id_prefix = "CHR"
-    def __init__(self, sprite:Sprite, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
+    def __init__(self, sprite:base.Sprite, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.portrait:Sprite = sprite
+        self.portrait:base.Sprite = sprite
         #TODO: other character background stuff
 
         #TODO: does location matter?
-        self.location:Optional[SectorEntity] = None
+        self.location:Optional[sector.SectorEntity] = None
 
         # how much money
         self.balance:float = 0.
@@ -175,7 +174,7 @@ class AbstractEventManager:
         raise NotImplementedError()
 
 
-class Message(Entity):
+class Message(base.Entity):
     id_prefix = "MSG"
 
     def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:uuid.UUID, *args:Any, **kwargs:Any) -> None:
@@ -190,7 +189,7 @@ class Message(Entity):
         self.replied_at:Optional[float] = None
 
 
-class Player(Entity):
+class Player(base.Entity):
     id_prefix = "PLR"
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -198,7 +197,7 @@ class Player(Entity):
 
         # which character the player controls
         self._character:Optional[Character] = None # type: ignore[assignment]
-        self.agent:EconAgent = None # type: ignore[assignment]
+        self.agent:base.EconAgent = None # type: ignore[assignment]
 
         self.messages:dict[uuid.UUID, Message] = {}
 
@@ -209,4 +208,9 @@ class Player(Entity):
     @character.setter
     def character(self, character:Optional[Character]) -> None:
         self._character = character
+
+class CrewedSectorEntity(sector.SectorEntity):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.captain: Optional["Character"] = None
 

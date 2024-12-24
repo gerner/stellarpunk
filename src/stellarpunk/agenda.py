@@ -11,7 +11,7 @@ import numpy.typing as npt
 
 from stellarpunk import core, econ, util
 import stellarpunk.orders.core as ocore
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector_entity
 from stellarpunk.orders import movement
 
 class Agendum(core.AbstractAgendum, abc.ABC):
@@ -51,7 +51,7 @@ def possible_buys(
     else:
         buy_hits = buy_from_stations
     for hit in buy_hits:
-        if not isinstance(hit, core.Station):
+        if not isinstance(hit, sector_entity.Station):
             continue
         agent = gamestate.econ_agents[hit.entity_id]
         for resource in agent.sell_resources():
@@ -86,7 +86,7 @@ def possible_sales(
     else:
         sale_hits = allowed_stations
     for hit in sale_hits:
-        if not isinstance(hit, core.Station):
+        if not isinstance(hit, sector_entity.Station):
             continue
         agent = gamestate.econ_agents[hit.entity_id]
         for resource in agent.buy_resources():
@@ -111,7 +111,7 @@ def choose_station_to_buy_from(
         allowed_resources:List[int],
         buy_from_stations:Optional[List[core.SectorEntity]],
         sell_to_stations:Optional[List[core.SectorEntity]]
-        ) -> Optional[Tuple[int, core.Station, core.EconAgent, float, float]]:
+        ) -> Optional[Tuple[int, sector_entity.Station, core.EconAgent, float, float]]:
 
     if ship.sector is None:
         raise ValueError(f'{ship} in no sector')
@@ -165,7 +165,7 @@ def choose_station_to_sell_to(
         ship_agent:core.EconAgent,
         allowed_resources:List[int],
         sell_to_stations:Optional[List[core.SectorEntity]]
-        ) -> Optional[Tuple[int, core.Station, core.EconAgent]]:
+        ) -> Optional[Tuple[int, sector_entity.Station, core.EconAgent]]:
     """ Choose a station to sell goods from ship to """
 
     if ship.sector is None:
@@ -182,7 +182,7 @@ def choose_station_to_sell_to(
     sales = possible_sales(gamestate, ship, ship_agent, allowed_resources, sell_to_stations)
 
     best_profit_per_time = 0.
-    best_trade:Optional[Tuple[int, core.Station, core.EconAgent]] = None
+    best_trade:Optional[Tuple[int, sector_entity.Station, core.EconAgent]] = None
     for resource in sales.keys():
         for sale_price, amount, sale_station in sales[resource]:
             profit = sale_price * amount
@@ -368,7 +368,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         self.state = MiningAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self)
 
-    def _choose_asteroid(self) -> Optional[core.Asteroid]:
+    def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
         if self.ship.sector is None:
             raise ValueError(f'{self.ship} in no sector')
 
@@ -377,7 +377,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         distances = []
         candidates = []
         for hit in self.ship.sector.spatial_point(self.ship.loc):
-            if not isinstance(hit, core.Asteroid):
+            if not isinstance(hit, sector_entity.Asteroid):
                 continue
             if hit.resource not in self.allowed_resources:
                 continue
@@ -669,7 +669,7 @@ class StationManager(EntityOperatorAgendum):
     trading, price setting, although it might delegate those reponsiblities.
     """
 
-    def __init__(self, station:core.Station, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, station:sector_entity.Station, *args:Any, **kwargs:Any) -> None:
         super().__init__(station, *args, **kwargs)
 
         self.station = station
@@ -751,7 +751,7 @@ class StationManager(EntityOperatorAgendum):
 class PlanetManager(EntityOperatorAgendum):
     """ Manage consumption and trading for planet/hab. """
 
-    def __init__(self, planet:core.Planet, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, planet:sector_entity.Planet, *args:Any, **kwargs:Any) -> None:
         super().__init__(planet, *args, **kwargs)
 
         self.planet = planet

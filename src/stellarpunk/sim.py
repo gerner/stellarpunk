@@ -14,7 +14,7 @@ import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import ui_util, manager as interface_manager
 from stellarpunk.serialization import (
     save_game, econ as s_econ,
@@ -487,11 +487,11 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(econ.ShipTraderAgent, s_econ.ShipTraderAgentSaver(sg))
     sg.register_saver(core.Message, s_character.MessageSaver(sg))
     sg.register_saver(core.Ship, s_sector_entity.ShipSaver(sg))
-    sg.register_saver(core.Asteroid, s_sector_entity.AsteroidSaver(sg))
-    sg.register_saver(core.TravelGate, s_sector_entity.TravelGateSaver(sg))
-    sg.register_saver(core.Planet, s_sector_entity.PlanetSaver(sg))
-    sg.register_saver(core.Station, s_sector_entity.StationSaver(sg))
-    sg.register_saver(core.Missile, s_sector_entity.MissileSaver(sg))
+    sg.register_saver(sector_entity.Asteroid, s_sector_entity.AsteroidSaver(sg))
+    sg.register_saver(sector_entity.TravelGate, s_sector_entity.TravelGateSaver(sg))
+    sg.register_saver(sector_entity.Planet, s_sector_entity.PlanetSaver(sg))
+    sg.register_saver(sector_entity.Station, s_sector_entity.StationSaver(sg))
+    sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
 
     #TODO: agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))

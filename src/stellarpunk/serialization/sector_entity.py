@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import core
+from stellarpunk.core import combat, sector_entity
 
 import cymunk # type: ignore
 
@@ -178,8 +179,8 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
             ship._orders.append(order)
 
 #TODO: should we inherit from ShipSaver?
-class MissileSaver(SectorEntitySaver[core.Missile]):
-    def _save_sector_entity(self, ship:core.Missile, f:io.IOBase) -> int:
+class MissileSaver(SectorEntitySaver[combat.Missile]):
+    def _save_sector_entity(self, ship:combat.Missile, f:io.IOBase) -> int:
         bytes_written = 0
 
         # basic fields
@@ -204,9 +205,9 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
 
         return bytes_written
 
-    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.Missile, Any]:
+    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[combat.Missile, Any]:
         num_products = load_context.gamestate.production_chain.shape[0]
-        ship = core.Missile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        ship = combat.Missile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
         #TODO: basic fields
         s_util.debug_string_r("basic fields", f)
@@ -236,7 +237,7 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
         # which creates static bodies
         return self.save_game.generator.phys_body(mass, radius)
 
-    def _post_load_sector_entity(self, ship:core.Missile, load_context:save_game.LoadContext, extra_context:Any) -> None:
+    def _post_load_sector_entity(self, ship:combat.Missile, load_context:save_game.LoadContext, extra_context:Any) -> None:
         context_data:tuple[uuid.UUID, list[uuid.UUID]] = extra_context
         firer_id, order_ids = context_data
         firer = load_context.gamestate.entities[firer_id]
@@ -248,27 +249,27 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
             assert(isinstance(order, core.Order))
             ship._orders.append(order)
 
-class PlanetSaver(SectorEntitySaver[core.Planet]):
-    def _save_sector_entity(self, sector_entity:core.Planet, f:io.IOBase) -> int:
+class PlanetSaver(SectorEntitySaver[sector_entity.Planet]):
+    def _save_sector_entity(self, sector_entity:sector_entity.Planet, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.float_to_f(sector_entity.population, f)
         return bytes_written
-    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.Planet, Any]:
+    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[sector_entity.Planet, Any]:
         population = s_util.float_from_f(f)
         num_products = load_context.gamestate.production_chain.shape[0]
-        planet = core.Planet(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        planet = sector_entity.Planet(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
         planet.population = population
         return (planet, None)
 
-class StationSaver(SectorEntitySaver[core.Station]):
-    def _save_sector_entity(self, sector_entity:core.Station, f:io.IOBase) -> int:
+class StationSaver(SectorEntitySaver[sector_entity.Station]):
+    def _save_sector_entity(self, sector_entity:sector_entity.Station, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.int_to_f(int(sector_entity.resource), f)
         bytes_written += s_util.float_to_f(sector_entity.next_batch_time, f)
         bytes_written += s_util.float_to_f(sector_entity.next_production_time, f)
         bytes_written += s_util.to_len_pre_f(sector_entity.sprite.sprite_id, f)
         return bytes_written
-    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.Station, Any]:
+    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[sector_entity.Station, Any]:
 
         resource = s_util.int_from_f(f)
         next_batch_time = s_util.float_from_f(f)
@@ -277,46 +278,46 @@ class StationSaver(SectorEntitySaver[core.Station]):
         sprite = load_context.generator.sprite_store[sprite_id]
 
         num_products = load_context.gamestate.production_chain.shape[0]
-        station = core.Station(sprite, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        station = sector_entity.Station(sprite, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
         station.resource = resource
         station.next_batch_time = next_batch_time
         station.next_production_time = next_production_time
         return (station, None)
 
-class AsteroidSaver(SectorEntitySaver[core.Asteroid]):
-    def _save_sector_entity(self, asteroid:core.Asteroid, f:io.IOBase) -> int:
+class AsteroidSaver(SectorEntitySaver[sector_entity.Asteroid]):
+    def _save_sector_entity(self, asteroid:sector_entity.Asteroid, f:io.IOBase) -> int:
         return s_util.int_to_f(int(asteroid.resource), f)
 
-    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.Asteroid, Any]:
+    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[sector_entity.Asteroid, Any]:
         resource = s_util.int_from_f(f)
         num_products = load_context.gamestate.production_chain.shape[0]
-        asteroid = core.Asteroid(resource, 0.0, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        asteroid = sector_entity.Asteroid(resource, 0.0, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
         return (asteroid, None)
 
-class TravelGateSaver(SectorEntitySaver[core.TravelGate]):
-    def _save_sector_entity(self, sector_entity:core.TravelGate, f:io.IOBase) -> int:
+class TravelGateSaver(SectorEntitySaver[sector_entity.TravelGate]):
+    def _save_sector_entity(self, sector_entity:sector_entity.TravelGate, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.uuid_to_f(sector_entity.destination.entity_id, f)
         bytes_written += s_util.float_to_f(sector_entity.direction, f)
         return bytes_written
-    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.TravelGate, Any]:
+    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[sector_entity.TravelGate, Any]:
         destination_id = s_util.uuid_from_f(f)
         direction = s_util.float_from_f(f)
         num_products = load_context.gamestate.production_chain.shape[0]
-        gate = core.TravelGate(direction, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        gate = sector_entity.TravelGate(direction, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
         return (gate, destination_id)
 
-    def _post_load_sector_entity(self, sector_entity:core.TravelGate, load_context:save_game.LoadContext, extra_context:Any) -> None:
+    def _post_load_sector_entity(self, sector_entity:sector_entity.TravelGate, load_context:save_game.LoadContext, extra_context:Any) -> None:
         destination_id:uuid.UUID = extra_context
         destination = load_context.gamestate.entities[destination_id]
         assert(isinstance(destination, core.Sector))
         sector_entity.destination = destination
 
-class ProjectileSaver(SectorEntitySaver[core.Projectile]):
-    def _save_sector_entity(self, sector_entity:core.Projectile, f:io.IOBase) -> int:
+class ProjectileSaver(SectorEntitySaver[sector_entity.Projectile]):
+    def _save_sector_entity(self, sector_entity:sector_entity.Projectile, f:io.IOBase) -> int:
         bytes_written = 0
         return bytes_written
-    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.Projectile, Any]:
+    def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[sector_entity.Projectile, Any]:
         num_products = load_context.gamestate.production_chain.shape[0]
-        projectile = core.Projectile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        projectile = sector_entity.Projectile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
         return (projectile, None)

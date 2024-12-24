@@ -12,18 +12,13 @@ import cymunk # type: ignore
 from stellarpunk import util
 from . import base, character, sector
 
-class CrewedSectorEntity(sector.SectorEntity):
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.captain: Optional["character.Character"] = None
-
-class Planet(CrewedSectorEntity, character.Asset):
+class Planet(character.CrewedSectorEntity, character.Asset):
     id_prefix = "HAB"
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-class Station(CrewedSectorEntity, character.Asset):
+class Station(character.CrewedSectorEntity, character.Asset):
     id_prefix = "STA"
     def __init__(self, sprite:base.Sprite, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)

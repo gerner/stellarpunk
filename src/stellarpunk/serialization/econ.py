@@ -4,6 +4,7 @@ import abc
 from typing import Any
 
 from stellarpunk import core, econ
+from stellarpunk.core import sector_entity
 
 from . import save_game, util as s_util, gamestate as s_gamestate
 
@@ -75,7 +76,7 @@ class StationAgentSaver(EconAgentSaver[econ.StationAgent]):
         context_tuple:tuple[uuid.UUID, uuid.UUID, uuid.UUID] = context
         station_id, owner_id, character_id = context_tuple
         station = load_context.gamestate.entities[station_id]
-        assert(isinstance(station, core.Station | core.Planet))
+        assert(isinstance(station, sector_entity.Station | sector_entity.Planet))
         agent.station = station
         owner = load_context.gamestate.entities[owner_id]
         assert(isinstance(owner, core.Character))

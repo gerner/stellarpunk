@@ -11,6 +11,7 @@ import numpy.typing as npt
 import numpy as np
 
 from stellarpunk import core, config, util
+from stellarpunk.core import sector_entity
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         assert self._target
         assert self._ship
 
-        if isinstance(self._target, core.Projectile):
+        if isinstance(self._target, sector_entity.Projectile):
             self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
             return
 

@@ -169,7 +169,7 @@ class MiningEffect(TransferCargoEffect):
     #TODO: do we want to log mining somewhere?
     def _deliver(self, amount: float) -> None:
         super()._deliver(amount)
-        if isinstance(self, core.CrewedSectorEntity) and self.destination.captain is not None:
+        if isinstance(self.destination, core.CrewedSectorEntity) and self.destination.captain is not None:
             self.gamestate.trigger_event(
                 [self.destination.captain],
                 self.gamestate.event_manager.e(events.Events.MINED),

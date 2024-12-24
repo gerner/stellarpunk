@@ -13,6 +13,7 @@ import numpy as np
 import dtmf # type: ignore
 
 from stellarpunk import interface, core, config, util, events
+from stellarpunk.core import sector_entity
 from stellarpunk.interface import ui_util, starfield
 from stellarpunk.interface.ui_util import ValidationError
 
@@ -58,7 +59,7 @@ class Mode(enum.Enum):
 class StationView(interface.GameView):
     """ UI experience while docked at a station. """
     def __init__(
-            self, station: core.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
+            self, station: sector_entity.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.station = station

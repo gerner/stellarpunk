@@ -15,7 +15,6 @@ from .gamestate import Gamestate
 from .sector import Sector
 from .ship import Ship
 
-
 class EffectObserver:
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)

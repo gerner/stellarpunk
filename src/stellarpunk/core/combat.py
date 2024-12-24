@@ -37,7 +37,7 @@ def is_hostile(craft:core.SectorEntity, threat:core.SectorEntity) -> bool:
     #TODO: improve this logic
     hostile = False
     # is it a weapon (e.g. missile)
-    if isinstance(threat, core.Missile):
+    if isinstance(threat, Missile):
         hostile = True
     # is it known to be hostile?
     # is it running with its transponder off?
@@ -51,6 +51,14 @@ def damage(craft:core.SectorEntity) -> bool:
     # for now we just destroy the entity
     core.Gamestate.gamestate.destroy_entity(craft)
     return True
+
+class Missile(core.Ship):
+    id_prefix = "MSL"
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        # missiles don't run transponders
+        self.firer:Optional[core.SectorEntity] = None
 
 class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
     @staticmethod
@@ -140,13 +148,13 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
     """ Steer toward a collision with the target """
 
     @staticmethod
-    def spawn_missile(ship:core.Ship, gamestate:core.Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[core.SectorEntity]=None) -> core.Missile:
+    def spawn_missile(ship:core.Ship, gamestate:core.Gamestate, target_image:core.AbstractSensorImage, initial_velocity:float=100, spawn_distance_forward:float=100, spawn_radius:float=100, owner:Optional[core.SectorEntity]=None) -> Missile:
         assert ship.sector
         loc = gamestate.generator.gen_sector_location(ship.sector, center=ship.loc + util.polar_to_cartesian(spawn_distance_forward, ship.angle), occupied_radius=75, radius=spawn_radius, strict=True)
         v = util.polar_to_cartesian(initial_velocity, ship.angle) + ship.velocity
-        new_entity = gamestate.generator.spawn_sector_entity(core.Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
-        assert isinstance(new_entity, core.Missile)
-        missile:core.Missile = new_entity
+        new_entity = gamestate.generator.spawn_sector_entity(Missile, ship.sector, loc[0], loc[1], v=v, w=0.0)
+        assert isinstance(new_entity, Missile)
+        missile:Missile = new_entity
         missile.firer = owner
         missile_order = MissileOrder.create_missile_order(target_image.copy(missile), missile, gamestate)
         missile.prepend_order(missile_order)

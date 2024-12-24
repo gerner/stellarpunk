@@ -9,24 +9,9 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from . import base
-from .sector import SectorEntity, HistoryEntry
-from .sector_entity import CrewedSectorEntity
-from .character import Asset
+from . import base, sector, character
 
-class PointDefenseSettings:
-    def __init__(self) -> None:
-        self.rof:float = 0.
-        self.muzzle_velocity:float = 0.
-        self.dispersion_angle:float = 0.
-        self.projectile_ttl:float = 0.
-        self.target_max_age:float = 0.
-        self.fire_arc:float = 0.
-        self.max_angular_velocity:float = 0.
-
-        self.heading:float = 0.
-
-class Ship(CrewedSectorEntity, Asset):
+class Ship(character.CrewedSectorEntity, character.Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship], base.AbstractOrder]"
 
     id_prefix = "SHP"
@@ -52,12 +37,12 @@ class Ship(CrewedSectorEntity, Asset):
     def _destroy(self) -> None:
         self._clear_orders()
 
-    def get_history(self) -> Sequence[HistoryEntry]:
+    def get_history(self) -> Sequence[sector.HistoryEntry]:
         return self.history
 
-    def to_history(self, timestamp:float) -> HistoryEntry:
+    def to_history(self, timestamp:float) -> sector.HistoryEntry:
         order_hist = self._orders[0].to_history() if self._orders else None
-        return HistoryEntry(
+        return sector.HistoryEntry(
                 self.id_prefix,
                 self.entity_id, timestamp,
                 tuple(self.phys.position), self.radius, self.angle,
@@ -147,12 +132,4 @@ class Ship(CrewedSectorEntity, Asset):
             return self._orders[0]
         else:
             return None
-
-class Missile(Ship):
-    id_prefix = "MSL"
-
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        # missiles don't run transponders
-        self.firer:Optional[SectorEntity] = None
 

@@ -25,7 +25,7 @@ import numpy.typing as npt
 
 from stellarpunk import util, core, config, generate
 from stellarpunk.serialization import save_game
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector_entity
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -186,17 +186,17 @@ class Icons:
 
     @staticmethod
     def sensor_image_icon(entity:core.SensorIdentity) -> str:
-        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
+        if isinstance(entity, core.Ship) or isinstance(entity, combat.Missile):
             icon = Icons.angle_to_ship(entity.angle)
-        elif isinstance(entity, core.Station):
+        elif isinstance(entity, sector_entity.Station):
             icon = Icons.STATION
-        elif isinstance(entity, core.Planet):
+        elif isinstance(entity, sector_entity.Planet):
             icon = Icons.PLANET
-        elif isinstance(entity, core.Asteroid):
+        elif isinstance(entity, sector_entity.Asteroid):
             icon = Icons.ASTEROID
-        elif isinstance(entity, core.TravelGate):
+        elif isinstance(entity, sector_entity.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif isinstance(entity, core.Projectile):
+        elif isinstance(entity, sector_entity.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = Icons.UNKNOWN
@@ -209,17 +209,17 @@ class Icons:
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
-        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
+        if isinstance(entity, core.Ship) or isinstance(entity, combat.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
-        elif isinstance(entity, core.Station):
+        elif isinstance(entity, sector_entity.Station):
             icon = Icons.STATION
-        elif isinstance(entity, core.Planet):
+        elif isinstance(entity, sector_entity.Planet):
             icon = Icons.PLANET
-        elif isinstance(entity, core.Asteroid):
+        elif isinstance(entity, sector_entity.Asteroid):
             icon = Icons.ASTEROID
-        elif isinstance(entity, core.TravelGate):
+        elif isinstance(entity, sector_entity.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif isinstance(entity, core.Projectile):
+        elif isinstance(entity, sector_entity.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = Icons.UNKNOWN
@@ -227,9 +227,9 @@ class Icons:
 
     @staticmethod
     def sector_entity_attr(entity:core.SectorEntity) -> int:
-        if isinstance(entity, core.Asteroid):
+        if isinstance(entity, sector_entity.Asteroid):
             return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
-        elif isinstance(entity, core.TravelGate):
+        elif isinstance(entity, sector_entity.TravelGate):
             return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
         else:
             return 0

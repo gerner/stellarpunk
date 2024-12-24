@@ -15,6 +15,7 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, orders, effects, config
+from stellarpunk.core import sector_entity
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
 class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorEntityObserver):
@@ -103,7 +104,7 @@ class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorE
                 #TODO: display queued orders?
                 #for order in list(entity.orders)[1:]:
                 #    self.interface.log_message(f'queued: {order}')
-            elif isinstance(entity, core.TravelGate):
+            elif isinstance(entity, sector_entity.TravelGate):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} direction: {entity.direction}')
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')

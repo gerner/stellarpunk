@@ -15,6 +15,7 @@ from numba import jit # type: ignore
 import cymunk # type: ignore
 
 from stellarpunk import util, core
+from stellarpunk.core import order
 from stellarpunk.orders import collision
 
 ANGLE_EPS = 8e-2 # about 3 degrees #2e-3 # about .06 degrees
@@ -33,7 +34,7 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
-class AbstractSteeringOrder(core.Order, abc.ABC):
+class AbstractSteeringOrder(order.Order, abc.ABC):
     @classmethod
     def create_abstract_steering_order[T:"AbstractSteeringOrder"](cls:Type[T],
             *args:Any,

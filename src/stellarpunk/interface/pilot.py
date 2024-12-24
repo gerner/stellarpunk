@@ -15,7 +15,7 @@ import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders, config
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
 from stellarpunk.orders import steering, movement, collision
@@ -306,7 +306,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         return observer
 
 
-    def open_station_view(self, dock_station: core.Station) -> None:
+    def open_station_view(self, dock_station: sector_entity.Station) -> None:
         # TODO: make sure we're within docking range?
         station_view = v_station.StationView(dock_station, self.ship, self.gamestate, self.interface)
         self.interface.open_view(station_view, deactivate_views=True)
@@ -346,13 +346,13 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_jump(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for jump")
-            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, core.TravelGate):
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.TravelGate):
                 raise command_input.UserError("target is not identified as a travel gate")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the travel gate")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, core.TravelGate)
+            assert isinstance(selected_entity, sector_entity.TravelGate)
             order = orders.TravelThroughGate(selected_entity, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
@@ -360,13 +360,13 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_mine(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for mining")
-            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, core.Asteroid):
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Asteroid):
                 raise command_input.UserError("target is not identified as an asteroid")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the asteroid")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, core.Asteroid)
+            assert isinstance(selected_entity, sector_entity.Asteroid)
             order = orders.MineOrder.create_mine_order(selected_entity, math.inf, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
@@ -374,13 +374,13 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def order_dock(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for docking")
-            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, core.Station):
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
                 raise command_input.UserError("target is not identified as a station")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the station")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, core.Station)
+            assert isinstance(selected_entity, sector_entity.Station)
             order = orders.DockingOrder.create_docking_order(selected_entity, self.ship, self.gamestate)
             dock_station = selected_entity
 
@@ -615,7 +615,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
 
             r_x = self.perspective.meters_per_char[0]
             r_y = self.perspective.meters_per_char[1]
-            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if not issubclass(x.identity.object_type, core.Projectile)), None)
+            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if not issubclass(x.identity.object_type, sector_entity.Projectile)), None)
             if hit:
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
@@ -642,7 +642,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             raise ValueError("ship must be in a sector to select a target")
 
         potential_targets = sorted(
-            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and issubclass(x.identity.object_type, core.Projectile)),
+            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and issubclass(x.identity.object_type, sector_entity.Projectile)),
             key=lambda x: util.distance(self.ship.loc, x.loc)
         )
 
@@ -887,20 +887,20 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
 
         status_y += 9
 
-        if self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, core.Station):
+        if self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
             #TODO: how do we get the product type?
             entity_id = self.presenter.selected_target_image.identity.entity_id
             if entity_id in self.sector.entities:
                 selected_entity = self.sector.entities[entity_id]
-                assert isinstance(selected_entity, core.Station)
+                assert isinstance(selected_entity, sector_entity.Station)
                 assert selected_entity.resource is not None
                 label_product = "product:"
                 self.viewscreen.addstr(status_y, status_x, f'{label_product:>12} {ui_util.product_name(self.gamestate.production_chain, selected_entity.resource, 20)}')
-        elif self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, core.Asteroid):
+        elif self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Asteroid):
             entity_id = self.presenter.selected_target_image.identity.entity_id
             if entity_id in self.sector.entities:
                 selected_entity = self.sector.entities[entity_id]
-                assert isinstance(selected_entity, core.Asteroid)
+                assert isinstance(selected_entity, sector_entity.Asteroid)
                 #TODO: how do we get the resource type?
                 assert selected_entity.resource is not None
                 label_ore = "ore:"

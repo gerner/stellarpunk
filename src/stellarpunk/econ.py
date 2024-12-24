@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import core, util, events
+from stellarpunk.core import sector_entity
 
 #TODO: unify this with the one in effects
 AMOUNT_EPS = 0.5
@@ -208,7 +209,7 @@ class StationAgent(core.EconAgent):
     """
 
     @classmethod
-    def create_station_agent(cls, character:core.Character, station:core.Station, production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
+    def create_station_agent(cls, character:core.Character, station:sector_entity.Station, production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
         if station.resource is None:
             raise ValueError(f'cannot create station agent for station that has no resource')
 
@@ -242,7 +243,7 @@ class StationAgent(core.EconAgent):
         return station_agent
 
     @classmethod
-    def create_planet_agent(cls, character:core.Character, planet:core.Planet,  production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
+    def create_planet_agent(cls, character:core.Character, planet:sector_entity.Planet,  production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
         if planet.owner is None:
             raise ValueError(f'cannot create station agent for planet that has no owner')
 

@@ -14,7 +14,7 @@ from numba import jit # type: ignore
 import rtree.index # type: ignore
 
 from stellarpunk import core, interface, util, effects, config, sensors
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector_entity
 from stellarpunk.orders import steering, collision
 
 SENSOR_ANGLE_BINS = np.linspace(0, 2*np.pi, 64)
@@ -126,7 +126,7 @@ class Presenter:
         assert isinstance(self.view.viewscreen, interface.Canvas)
         window = self.view.viewscreen.window
         if isinstance(effect, effects.MiningEffect):
-            if not isinstance(effect.source, core.Asteroid):
+            if not isinstance(effect.source, sector_entity.Asteroid):
                 raise Exception("expected mining effect source to be an asteroid")
             icon = interface.Icons.EFFECT_MINING
             icon_attr = curses.color_pair(interface.Icons.RESOURCE_COLORS[effect.source.resource])
@@ -309,7 +309,7 @@ class Presenter:
             last_y = hist_y
         """
 
-        if entity.identified and issubclass(entity.identity.object_type, core.Asteroid | core.Projectile):
+        if entity.identified and issubclass(entity.identity.object_type, sector_entity.Asteroid | sector_entity.Projectile):
             speed = util.magnitude(*entity.velocity)
             if speed > 0.:
                 name_tag = f' {entity.identity.short_id} {speed:.0f}'
@@ -326,7 +326,7 @@ class Presenter:
 
     def draw_multiple_entities(self, y:int, x:int, entities:Sequence[core.AbstractSensorImage]) -> None:
 
-        only_projectile = all(entity.identified and issubclass(entity.identity.object_type, core.Projectile) for entity in entities)
+        only_projectile = all(entity.identified and issubclass(entity.identity.object_type, sector_entity.Projectile) for entity in entities)
 
         icons = set(interface.Icons.sensor_image_icon(x.identity) if x.identified else interface.Icons.UNKNOWN for x in entities)
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
@@ -364,10 +364,10 @@ class Presenter:
             screen_x, screen_y = self.perspective.sector_to_screen(entity.loc[0], entity.loc[1])
             last_loc = (screen_x, screen_y)
             if last_loc in occupied:
-                if isinstance(entity, core.Projectile):
+                if isinstance(entity, sector_entity.Projectile):
                         continue
                 entities = occupied[last_loc]
-                if isinstance(entities[0], core.Projectile):
+                if isinstance(entities[0], sector_entity.Projectile):
                     occupied[last_loc] = [entity]
                 else:
                     entities.append(entity)

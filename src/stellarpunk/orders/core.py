@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import util, core, effects, econ
+from stellarpunk.core import sector_entity
 from stellarpunk.narrative import director
 from . import movement
 
@@ -17,7 +18,7 @@ from .steering import ZERO_VECTOR
 
 class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
     @classmethod
-    def create_mine_order[T:"MineOrder"](cls:Type[T], target: core.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> MineOrder:
+    def create_mine_order[T:"MineOrder"](cls:Type[T], target: sector_entity.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> MineOrder:
         o = cls.create_order(*args, max_dist=max_dist, **kwargs)
         o.target = target
         o.eow = core.EntityOrderWatch(o, target)
@@ -337,14 +338,14 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     PHASE_COMPLETE = 4
 
     @classmethod
-    def create_travel_through_gate[T:"TravelThroughGate"](cls:Type[T], target_gate: core.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> T:
+    def create_travel_through_gate[T:"TravelThroughGate"](cls:Type[T], target_gate: sector_entity.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> T:
         o = cls.create_order(*args, position_margin=position_margin, travel_time=travel_time, travel_thrust=travel_thrust, max_gate_dist=max_gate_dist, **kwargs)
         o.target_gate = target_gate
         o.eow = core.EntityOrderWatch(o, target_gate)
 
         return o
 
-    def __init__(self, target_gate: core.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> None:
+    def __init__(self, target_gate: sector_entity.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.target_gate:core.TravelGate = None # type: ignore
