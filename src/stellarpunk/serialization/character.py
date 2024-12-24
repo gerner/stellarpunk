@@ -104,14 +104,14 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
             character.location = location
 
         for asset_id in asset_ids:
-            asset = load_context.gamestate.entities[asset_id]
-            assert(isinstance(asset, core.Asset))
+            asset = load_context.gamestate.get_entity(asset_id, core.Asset)
+            asset.owner = character
             character.assets.append(asset)
 
-        #TODO: agenda
-        #for agenda_id in agenda_ids:
-        #    agendum = load_context.gamestate.agenda[agenda_id]
-        #    character.agenda.append(agenda_id)
+        # agenda
+        for agenda_id in agenda_ids:
+            agendum = load_context.gamestate.agenda[agenda_id]
+            character.agenda.append(agendum)
 
 class MessageSaver(s_gamestate.EntitySaver[core.Message]):
     def _save_entity(self, message:core.Message, f:io.IOBase) -> int:

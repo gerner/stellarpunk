@@ -30,6 +30,7 @@ class AgendumSaver[T:agenda.Agendum](save_game.Saver[T], abc.ABC):
         character_id = s_util.uuid_from_f(f)
         s_util.debug_string_r("type specific", f)
         (agendum, extra_context) = self._load_agendum(f, load_context, agenda_id)
+        load_context.gamestate.register_agendum(agendum)
 
         load_context.register_post_load(agendum, (character_id, extra_context))
 

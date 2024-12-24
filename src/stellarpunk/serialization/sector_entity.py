@@ -147,7 +147,7 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         num_products = load_context.gamestate.production_chain.shape[0]
         ship = core.Ship(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
-        #TODO: basic fields
+        # basic fields
         s_util.debug_string_r("basic fields", f)
         ship.max_base_thrust = s_util.float_from_f(f)
         ship.max_thrust = s_util.float_from_f(f)
@@ -209,7 +209,7 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         num_products = load_context.gamestate.production_chain.shape[0]
         ship = combat.Missile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
-        #TODO: basic fields
+        # basic fields
         s_util.debug_string_r("basic fields", f)
         ship.max_base_thrust = s_util.float_from_f(f)
         ship.max_thrust = s_util.float_from_f(f)

@@ -56,7 +56,6 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             # we save as a generic order which will handle its own dispatch
             bytes_written += self.save_game.save_object(order, f, klass=core.Order)
 
-
         # effects
         bytes_written += s_util.debug_string_w("effects", f)
         bytes_written += s_util.size_to_f(len(gamestate.effects), f)
@@ -89,17 +88,32 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             bytes_written += s_util.uuid_to_f(entity_id, f)
             bytes_written += s_util.uuid_to_f(agent.entity_id, f)
 
-        #TODO: task lists
-        # tricky bit here is that orders, effects, agenda are actually saved
-        # elsewhere and we've just got references to them in the schedule. we
-        # need to somehow fetch those references somehow. however, there's not
-        # global repository of them and they don't have some identifier we can
-        # use.
+        # task lists
 
-        # order schedule
-        # effect schedule
-        # agenda schedule
-        # task schedule
+        # order schedule (orders stored in order registry)
+        bytes_written += s_util.debug_string_w("order schedule", f)
+        bytes_written += s_util.size_to_f(gamestate._order_schedule.size(), f)
+        for (timestamp, order) in gamestate._order_schedule:
+            bytes_written += s_util.float_to_f(timestamp, f)
+            bytes_written += s_util.uuid_to_f(order.order_id, f)
+        # effect schedule (effects stored in effect registry)
+        bytes_written += s_util.debug_string_w("effect schedule", f)
+        bytes_written += s_util.size_to_f(gamestate._effect_schedule.size(), f)
+        for (timestamp, effect) in gamestate._effect_schedule:
+            bytes_written += s_util.float_to_f(timestamp, f)
+            bytes_written += s_util.uuid_to_f(effect.effect_id, f)
+        # agenda schedule (agenda stored in agenda reigstry)
+        bytes_written += s_util.debug_string_w("agenda schedule", f)
+        bytes_written += s_util.size_to_f(gamestate._agenda_schedule.size(), f)
+        for (timestamp, agendum) in gamestate._agenda_schedule:
+            bytes_written += s_util.float_to_f(timestamp, f)
+            bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
+        # task schedule (tasks stored here)
+        bytes_written += s_util.debug_string_w("task schedule", f)
+        bytes_written += s_util.size_to_f(gamestate._task_schedule.size(), f)
+        for (timestamp, task) in gamestate._task_schedule:
+            bytes_written += s_util.float_to_f(timestamp, f)
+            bytes_written += self.save_game.save_object(task, f)
 
         # starfields
         bytes_written += s_util.debug_string_w("starfields", f)
@@ -128,7 +142,6 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> core.Gamestate:
-        #TODO: make sure that load_context.gamestate is this one?
         gamestate = core.Gamestate()
         load_context.gamestate = gamestate
 
@@ -217,8 +230,37 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             assert(isinstance(agent, core.EconAgent))
             gamestate.representing_agent(entity_id, agent)
 
-        #TODO: task lists
-        #TODO: event manager: event_queue and action schedule
+        # task lists
+        s_util.debug_string_r("order schedule", f)
+        scheduled_order_ids:list[tuple[float, uuid.UUID]] = []
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            timestamp = s_util.float_from_f(f)
+            order_id = s_util.uuid_from_f(f)
+            scheduled_order_ids.append((timestamp, order_id))
+
+        s_util.debug_string_r("effect schedule", f)
+        scheduled_effect_ids:list[tuple[float, uuid.UUID]] = []
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            timestamp = s_util.float_from_f(f)
+            effect_id = s_util.uuid_from_f(f)
+            scheduled_effect_ids.append((timestamp, effect_id))
+
+        s_util.debug_string_r("agenda schedule", f)
+        scheduled_agenda_ids:list[tuple[float, uuid.UUID]] = []
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            timestamp = s_util.float_from_f(f)
+            agenda_id = s_util.uuid_from_f(f)
+            scheduled_agenda_ids.append((timestamp, agenda_id))
+
+        s_util.debug_string_r("task schedule", f)
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            timestamp = s_util.float_from_f(f)
+            scheduled_task = self.save_game.load_object(core.ScheduledTask, f, load_context)
+            gamestate._task_schedule.push_task(timestamp, scheduled_task)
 
         # starfields
         s_util.debug_string_r("starfields", f)
@@ -250,11 +292,24 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             last_colliders.add(s_util.from_len_pre_f(f))
         gamestate.last_colliders = last_colliders
 
+        load_context.register_post_load(gamestate, (scheduled_order_ids, scheduled_effect_ids, scheduled_agenda_ids))
+
         self.load_tick()
 
         s_util.debug_string_r("gamestate done", f)
 
         return gamestate
+
+    def post_load(self, gamestate:core.Gamestate, load_context:save_game.LoadContext, context:Any) -> None:
+        context_data:tuple[list[tuple[float, uuid.UUID]], list[tuple[float, uuid.UUID]], list[tuple[float, uuid.UUID]]] = context
+        order_ids, effect_ids, agenda_ids = context_data
+
+        for timestamp, order_id in order_ids:
+            gamestate._order_schedule.push_task(timestamp, gamestate.orders[order_id])
+        for timestamp, effect_id in effect_ids:
+            gamestate._effect_schedule.push_task(timestamp, gamestate.effects[effect_id])
+        for timestamp, agenda_id in agenda_ids:
+            gamestate._agenda_schedule.push_task(timestamp, gamestate.agenda[agenda_id])
 
 class StarfieldLayerSaver(save_game.Saver[core.StarfieldLayer]):
     def save(self, starfield:core.StarfieldLayer, f:io.IOBase) -> int:
