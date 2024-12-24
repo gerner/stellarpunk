@@ -185,18 +185,22 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
-    def sensor_image_icon(entity:core.SensorIdentity) -> str:
-        if isinstance(entity, core.Ship) or isinstance(entity, combat.Missile):
-            icon = Icons.angle_to_ship(entity.angle)
-        elif isinstance(entity, sector_entity.Station):
+    def sensor_image_icon(image:core.AbstractSensorImage) -> str:
+        if not image.identified:
+            return Icons.UNKNOWN
+
+        identity = image.identity
+        if issubclass(identity.object_type, core.Ship):
+            icon = Icons.angle_to_ship(identity.angle)
+        elif issubclass(identity.object_type, sector_entity.Station):
             icon = Icons.STATION
-        elif isinstance(entity, sector_entity.Planet):
+        elif issubclass(identity.object_type, sector_entity.Planet):
             icon = Icons.PLANET
-        elif isinstance(entity, sector_entity.Asteroid):
+        elif issubclass(identity.object_type, sector_entity.Asteroid):
             icon = Icons.ASTEROID
-        elif isinstance(entity, sector_entity.TravelGate):
+        elif issubclass(identity.object_type, sector_entity.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif isinstance(entity, sector_entity.Projectile):
+        elif issubclass(identity.object_type, sector_entity.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = Icons.UNKNOWN
@@ -204,8 +208,21 @@ class Icons:
 
 
     @staticmethod
-    def sensor_image_attr(image:core.SensorIdentity) -> int:
-        return 0
+    def sensor_image_attr(image:core.AbstractSensorImage) -> int:
+        if not image.identified:
+            return 0
+
+        identity = image.identity
+        if issubclass(identity.object_type, sector_entity.Asteroid):
+            #TODO: how do we want to handle learning about these kinds of
+            # specific properties of sensor images?
+            entity = core.Gamestate.gamestate.entities[identity.entity_id]
+            assert(isinstance(entity, sector_entity.Asteroid))
+            return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
+        elif issubclass(identity.object_type, sector_entity.TravelGate):
+            return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
+        else:
+            return 0
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:

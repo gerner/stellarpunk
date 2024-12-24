@@ -273,10 +273,10 @@ class Presenter:
 
         #TODO: icon and text info below should depend on whether we have fully
         #resolved the sensor reading
-        icon = interface.Icons.sensor_image_icon(entity.identity) if entity.identified else interface.Icons.UNKNOWN
-        icon_attr |= interface.Icons.sensor_image_attr(entity.identity) if entity.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN)
+        icon = interface.Icons.sensor_image_icon(entity)
+        icon_attr |= interface.Icons.sensor_image_attr(entity)
 
-        description_attr = interface.Icons.sensor_image_attr(entity.identity) if entity.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN)
+        description_attr = interface.Icons.sensor_image_attr(entity)
         if entity.identity.entity_id == self.selected_target:
             icon_attr |= curses.A_STANDOUT
         else:
@@ -328,10 +328,10 @@ class Presenter:
 
         only_projectile = all(entity.identified and issubclass(entity.identity.object_type, sector_entity.Projectile) for entity in entities)
 
-        icons = set(interface.Icons.sensor_image_icon(x.identity) if x.identified else interface.Icons.UNKNOWN for x in entities)
+        icons = set(interface.Icons.sensor_image_icon(x) for x in entities)
         icon = icons.pop() if len(icons) == 1 else interface.Icons.MULTIPLE
 
-        icon_attrs = set(interface.Icons.sensor_image_attr(x.identity) if x.identified else curses.color_pair(interface.Icons.COLOR_UNKNOWN) for x in entities)
+        icon_attrs = set(interface.Icons.sensor_image_attr(x) for x in entities)
         icon_attr = icon_attrs.pop() if len(icon_attrs) == 1 else 0
 
         prefixes = set(x.identity.id_prefix if x.identified else "???" for x in entities)

@@ -425,18 +425,18 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
                 command_list.update({x.command: x for x in v.command_list()})
             self.interface.open_view(command_input.CommandInput(self.interface, commands=command_list))
 
-        if self.interface.runtime.game_running():
-            keys = [self.bind_key(ord(" "), self.gamestate.pause)]
-        else:
-            keys = []
+        def pause() -> None:
+            if self.interface.runtime.game_running():
+                self.gamestate.pause()
 
-        keys.extend([
+        keys = [
+            self.bind_key(ord(" "), pause),
             self.bind_key(ord(">"), self.time_accel),
             self.bind_key(ord("<"), self.time_decel),
             self.bind_key(ord("."), self.tick_step),
             self.bind_key(ord(":"), open_command_prompt),
             self.bind_key(ord("?"), self.help),
-        ])
+        ]
         return keys
 
     def command_list(self) -> Collection[interface.CommandBinding]:
