@@ -10,8 +10,22 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
     def save(self, sensor_settings:sensors.SensorSettings, f:io.IOBase) -> int:
         bytes_written = 0
 
-        #TODO: basic fields
+        # basic fields
         bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += s_util.float_to_f(sensor_settings._max_sensor_power, f)
+        bytes_written += s_util.float_to_f(sensor_settings._sensor_intercept, f)
+        bytes_written += s_util.float_to_f(sensor_settings._sensor_power, f)
+        bytes_written += s_util.bool_to_f(sensor_settings._transponder_on, f)
+        bytes_written += s_util.float_to_f(sensor_settings._thrust, f)
+
+        bytes_written += s_util.float_to_f(sensor_settings._last_sensor_power, f)
+        bytes_written += s_util.float_to_f(sensor_settings._last_sensor_power_ts, f)
+        bytes_written += s_util.float_to_f(sensor_settings._last_transponder_ts, f)
+        bytes_written += s_util.float_to_f(sensor_settings._last_thrust, f)
+        bytes_written += s_util.float_to_f(sensor_settings._last_thrust_ts, f)
+
+        bytes_written += s_util.float_to_f(sensor_settings._thrust_seconds, f)
+        bytes_written += s_util.bool_to_f(sensor_settings._ignore_bias, f)
 
         # images
         bytes_written += s_util.debug_string_w("images", f)
@@ -22,10 +36,38 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> sensors.SensorSettings:
-        sensor_settings = sensors.SensorSettings()
-
-        #TODO: basic fields
+        # basic fields
         s_util.debug_string_r("basic fields", f)
+        max_sensor_power = s_util.float_from_f(f)
+        sensor_intercept = s_util.float_from_f(f)
+
+        sensor_power = s_util.float_from_f(f)
+        transponder_on = s_util.bool_from_f(f)
+        thrust = s_util.float_from_f(f)
+
+        last_sensor_power = s_util.float_from_f(f)
+        last_sensor_power_ts = s_util.float_from_f(f)
+        last_transponder_ts = s_util.float_from_f(f)
+        last_thrust = s_util.float_from_f(f)
+        last_thrust_ts = s_util.float_from_f(f)
+
+        thrust_seconds = s_util.float_from_f(f)
+        ignore_bias = s_util.bool_from_f(f)
+
+        sensor_settings = sensors.SensorSettings(max_sensor_power, sensor_intercept)
+
+        sensor_settings._sensor_power = sensor_power
+        sensor_settings._transponder_on = transponder_on
+        sensor_settings._thrust = thrust
+
+        sensor_settings._last_sensor_power = last_sensor_power
+        sensor_settings._last_sensor_power_ts = last_sensor_power_ts
+        sensor_settings._last_transponder_ts = last_transponder_ts
+        sensor_settings._last_thrust = last_thrust
+        sensor_settings._last_thrust_ts = last_thrust_ts
+
+        sensor_settings._thrust_seconds = thrust_seconds
+        sensor_settings._ignore_bias = ignore_bias
 
         # images
         s_util.debug_string_r("images", f)

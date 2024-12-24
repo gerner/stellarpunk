@@ -642,7 +642,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             raise ValueError("ship must be in a sector to select a target")
 
         potential_targets = sorted(
-            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and issubclass(x.identity.object_type, sector_entity.Projectile)),
+            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and not issubclass(x.identity.object_type, sector_entity.Projectile)),
             key=lambda x: util.distance(self.ship.loc, x.loc)
         )
 
