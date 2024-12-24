@@ -2,7 +2,7 @@
 
 import enum
 import numbers
-from typing import TYPE_CHECKING, Mapping, Any, Tuple
+from typing import Mapping, Any, Tuple
 
 from . import core as ecore
 from stellarpunk import narrative, core, dialog, util

@@ -9,15 +9,13 @@ import abc
 import uuid
 import itertools
 import logging
-from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, TYPE_CHECKING
+import collections
+from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union
 
 import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import narrative, util
-
-if TYPE_CHECKING:
-    from .character import Character
 
 logger = logging.getLogger(__name__)
 
@@ -66,15 +64,6 @@ class Entity(abc.ABC):
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
-
-
-class Asset(Entity):
-    """ An abc for classes that are assets ownable by characters. """
-    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
-        # forward arguments onward, so implementing classes should inherit us
-        # first
-        super().__init__(*args, **kwargs)
-        self.owner = owner
 
 
 class Sprite:
@@ -194,3 +183,47 @@ class StarfieldLayer:
         self.num_stars += 1
         self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
 
+class AbstractOrder(abc.ABC):
+    def __init__(self, order_id:Optional[uuid.UUID]=None) -> None:
+        if order_id:
+            self.order_id = order_id
+        else:
+            self.order_id = uuid.uuid4()
+
+        self.parent_order:Optional[AbstractOrder] = None
+        self.child_orders:collections.deque[AbstractOrder] = collections.deque()
+
+    @abc.abstractmethod
+    def to_history(self) -> dict: ...
+    @abc.abstractmethod
+    def estimate_eta(self) -> float: ...
+    @abc.abstractmethod
+    def begin_order(self) -> None: ...
+    @abc.abstractmethod
+    def cancel_order(self) -> None: ...
+    @abc.abstractmethod
+    def is_complete(self) -> bool: ...
+    @abc.abstractmethod
+    def pause(self) -> None: ...
+    @abc.abstractmethod
+    def resume(self) -> None: ...
+    @abc.abstractmethod
+    def register(self) -> None: ...
+    @abc.abstractmethod
+    def unregister(self) -> None: ...
+    @abc.abstractmethod
+    def base_act(self, dt:float) -> None: ...
+    @abc.abstractmethod
+    def sanity_check(self, order_id:uuid.UUID) -> None: ...
+
+class AbstractEffect(abc.ABC):
+    def __init__(self, effect_id:Optional[uuid.UUID]=None) -> None:
+        if effect_id:
+            self.effect_id=effect_id
+        else:
+            self.effect_id = uuid.uuid4()
+
+    @abc.abstractmethod
+    def act(self, dt:float) -> None: ...
+    @abc.abstractmethod
+    def sanity_check(self, effect_id:uuid.UUID) -> None: ...

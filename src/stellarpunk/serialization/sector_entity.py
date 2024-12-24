@@ -173,6 +173,7 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         order_ids:list[uuid.UUID] = extra_context
         for order_id in order_ids:
             order = load_context.gamestate.orders[order_id]
+            assert(isinstance(order, core.Order))
             ship._orders.append(order)
 
 #TODO: should we inherit from ShipSaver?
@@ -243,6 +244,7 @@ class MissileSaver(SectorEntitySaver[core.Missile]):
 
         for order_id in order_ids:
             order = load_context.gamestate.orders[order_id]
+            assert(isinstance(order, core.Order))
             ship._orders.append(order)
 
 class PlanetSaver(SectorEntitySaver[core.Planet]):

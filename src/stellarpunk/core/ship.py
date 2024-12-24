@@ -3,18 +3,15 @@
 A special kind of SectorEntity that has mobility, can be ordered, etc. """
 
 import collections
-from typing import TypeAlias, Callable, Any, Deque, Optional, Sequence, Union, TYPE_CHECKING
+from typing import TypeAlias, Callable, Any, Optional, Sequence, Union
 
 import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
+from . import base
 from .sector import SectorEntity, HistoryEntry
-from .order import Order, NullOrder
 from .character import Asset
-
-if TYPE_CHECKING:
-    from .gamestate import Gamestate
 
 class PointDefenseSettings:
     def __init__(self) -> None:
@@ -29,7 +26,7 @@ class PointDefenseSettings:
         self.heading:float = 0.
 
 class Ship(SectorEntity, Asset):
-    DefaultOrderSig:TypeAlias = "Callable[[Ship, Gamestate], Order]"
+    DefaultOrderSig:TypeAlias = "Callable[[Ship], base.AbstractOrder]"
 
     id_prefix = "SHP"
 
@@ -47,8 +44,8 @@ class Ship(SectorEntity, Asset):
         # max torque for turning (in newton-meters)
         self.max_torque = 0.
 
-        self._orders: Deque[Order] = collections.deque()
-        self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: NullOrder.create_null_order(ship, gamestate)
+        self._orders: collections.deque[base.AbstractOrder] = collections.deque()
+        self.default_order_fn:Ship.DefaultOrderSig = None # type: ignore
 
 
     def _destroy(self) -> None:
@@ -99,45 +96,44 @@ class Ship(SectorEntity, Asset):
     def set_angular_velocity(self, angular_velocity:float) -> None:
         self.phys.angular_velocity = angular_velocity
 
-    def default_order(self, gamestate: "Gamestate") -> Order:
-        return self.default_order_fn(self, gamestate)
+    def default_order(self) -> base.AbstractOrder:
+        return self.default_order_fn(self)
 
-    def prepend_order(self, order:Order, begin:bool=True) -> None:
+    def prepend_order(self, order:base.AbstractOrder, begin:bool=True) -> None:
         co = self.current_order()
         if co is not None:
-            #TODO: should we do anything else to suspend the current order?
-            if co.gamestate.is_order_scheduled(co):
-                co.gamestate.unschedule_order(co)
+            co.pause()
 
-        order.gamestate.register_order(order)
+        order.register()
         self._orders.appendleft(order)
+
         if begin:
             order.begin_order()
 
-    def append_order(self, order:Order, begin:bool=False) -> None:
-        order.gamestate.register_order(order)
+    def append_order(self, order:base.AbstractOrder, begin:bool=False) -> None:
+        order.register()
         self._orders.append(order)
         if begin:
             order.begin_order()
 
-    def remove_order(self, order:Order) -> None:
+    def remove_order(self, order:base.AbstractOrder) -> None:
         if order in self._orders:
             self._orders.remove(order)
-            order.gamestate.unregister_order(order)
+            order.unregister()
 
         co = self.current_order()
-        if co is not None and not co.gamestate.is_order_scheduled(co):
-            co.gamestate.schedule_order_immediate(co)
+        if co:
+            co.resume()
 
     def _clear_orders(self) -> None:
         while self._orders:
             self._orders[0].cancel_order()
 
-    def clear_orders(self, gamestate:"Gamestate") -> None:
+    def clear_orders(self) -> None:
         self._clear_orders()
-        self.prepend_order(self.default_order(gamestate))
+        self.prepend_order(self.default_order())
 
-    def top_order(self) -> Optional[Order]:
+    def top_order(self) -> Optional[base.AbstractOrder]:
         current_order = self.current_order()
         if current_order is None:
             return None
@@ -145,7 +141,7 @@ class Ship(SectorEntity, Asset):
             current_order = current_order.parent_order
         return current_order
 
-    def current_order(self) -> Optional[Order]:
+    def current_order(self) -> Optional[base.AbstractOrder]:
         if len(self._orders) > 0:
             return self._orders[0]
         else:

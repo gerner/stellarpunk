@@ -9,11 +9,19 @@ from typing import Optional, Any, Union, TYPE_CHECKING
 from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
-from .base import Entity, Sprite, EconAgent, Asset
+from .base import Entity, Sprite, EconAgent
 from .sector import SectorEntity
 
 if TYPE_CHECKING:
     from .gamestate import Gamestate
+
+class Asset(Entity):
+    """ An abc for classes that are assets ownable by characters. """
+    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
+        # forward arguments onward, so implementing classes should inherit us
+        # first
+        super().__init__(*args, **kwargs)
+        self.owner = owner
 
 
 class AgendumLoggerAdapter(logging.LoggerAdapter):

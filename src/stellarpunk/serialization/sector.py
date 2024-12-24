@@ -81,6 +81,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
             sector.add_entity(entity)
         for effect_id in effect_ids:
             effect = load_context.gamestate.effects[effect_id]
+            assert(isinstance(effect, core.Effect))
             # can't use add_effect because it calls begin effect
             sector._effects.append(effect)
 

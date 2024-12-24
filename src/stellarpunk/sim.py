@@ -267,27 +267,8 @@ class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
     def _tick_orders(self, dt: float) -> None:
         orders_processed = 0
         for order in self.gamestate.pop_current_orders():
-            if order == order.ship.current_order():
-                if order.is_complete():
-                    ship = order.ship
-                    self.logger.debug(f'ship {ship.entity_id} completed {order} in {self.gamestate.timestamp - order.started_at:.2f} est {order.init_eta:.2f}')
-                    order.complete_order()
-
-                    next_order = ship.current_order()
-                    if not next_order:
-                        ship.prepend_order(ship.default_order(self.gamestate))
-                    elif not self.gamestate.is_order_scheduled(next_order):
-                        #TODO: this is kind of janky, can't we just demand that orders schedule themselves?
-                        # what about the order queue being simply a queue?
-                        self.gamestate.schedule_order_immediate(next_order)
-                else:
-                    order.act(dt)
-            else:
-                # else order isn't the front item, so we'll ignore this action
-                self.logger.warning(f'got non-front order scheduled action: {order=} vs {order.ship.current_order()=}')
-                self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
+            order.base_act(dt)
             orders_processed += 1
-
         self.gamestate.counters[core.Counters.ORDERS_PROCESSED] += orders_processed
 
     def _tick_effects(self, dt: float) -> None:

@@ -10,7 +10,8 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import util
-from .base import Entity, Sprite, Asset
+from .base import Entity, Sprite
+from .character import Asset
 from . import sector
 
 class Planet(sector.SectorEntity, Asset):

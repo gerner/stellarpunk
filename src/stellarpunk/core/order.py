@@ -9,12 +9,11 @@ from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set, Type
 
 import numpy as np
 
-from stellarpunk import util, core
+from stellarpunk import util
+from . import base
+from .gamestate import Gamestate
 from .sector import Sector
-
-if TYPE_CHECKING:
-    from .ship import Ship
-    from .gamestate import Gamestate
+from .ship import Ship
 
 
 class EffectObserver:
@@ -31,9 +30,9 @@ class EffectObserver:
         pass
 
 
-class Effect(abc.ABC):
-    def __init__(self, sector:"Sector", gamestate:"Gamestate", observer:Optional[EffectObserver]=None) -> None:
-        self.effect_id = uuid.uuid4()
+class Effect(base.AbstractEffect):
+    def __init__(self, sector:"Sector", gamestate:"Gamestate", *args:Any, observer:Optional[EffectObserver]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.sector = sector
         self.gamestate = gamestate
         self.started_at = -1.
@@ -145,6 +144,10 @@ class Effect(abc.ABC):
         if self.is_complete():
             self.complete_effect()
 
+    def sanity_check(self, effect_id:uuid.UUID) -> None:
+        assert(effect_id == self.effect_id)
+        assert(self in self.sector._effects)
+        assert(self.sector.entity_id in self.gamestate.entities)
 
 class OrderLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, ship:"Ship", *args:Any, **kwargs:Any):
@@ -172,7 +175,7 @@ class OrderObserver:
         pass
 
 
-class Order(abc.ABC):
+class Order(base.AbstractOrder):
     @classmethod
     def create_order[T: "Order"](cls:Type[T], ship:"Ship", gamestate:"Gamestate", *args:Any, **kwargs:Any) -> T:
         """ creates an order and initializes it for use.
@@ -197,17 +200,15 @@ class Order(abc.ABC):
         o.initialize_order(ship)
         return o
 
-    def __init__(self, gamestate: "Gamestate", *args:Any, observer:Optional[OrderObserver]=None, order_id:Optional[uuid.UUID]=None, _check_flag:bool=False, **kwargs:Any) -> None:
+    def __init__(self, gamestate: "Gamestate", *args:Any, observer:Optional[OrderObserver]=None, _check_flag:bool=False, **kwargs:Any) -> None:
         # we need *args and **kwargs even though they (should be) None because
         # mypy gets confused when we forward *args and **kwargs from
         # create_order in the case that cls is Order
 
         assert(_check_flag)
 
-        if order_id:
-            self.order_id = order_id
-        else:
-            self.order_id = uuid.uuid4()
+        super().__init__(*args, **kwargs)
+
         self.gamestate = gamestate
         self.ship:"Ship" = None # type: ignore
         self.logger:OrderLoggerAdapter = None # type: ignore
@@ -215,8 +216,6 @@ class Order(abc.ABC):
         self.started_at = -1.
         self.completed_at = -1.
         self.init_eta = np.inf
-        self.parent_order:Optional[Order] = None
-        self.child_orders:Deque[Order] = collections.deque()
 
         self.observers:weakref.WeakSet[OrderObserver] = weakref.WeakSet()
         if observer is not None:
@@ -346,6 +345,54 @@ class Order(abc.ABC):
             observer.order_cancel(self)
         self.observers.clear()
         self.gamestate.unschedule_order(self)
+
+    def base_act(self, dt:float) -> None:
+        if self == self.ship.current_order():
+            if self.is_complete():
+                ship = self.ship
+                self.logger.debug(f'ship {self.ship.entity_id} completed {self} in {self.gamestate.timestamp - self.started_at:.2f} est {self.init_eta:.2f}')
+                self.complete_order()
+
+                next_order = self.ship.current_order()
+                if not next_order:
+                    self.ship.clear_orders()
+                elif not self.gamestate.is_order_scheduled(next_order):
+                    #TODO: this is kind of janky, can't we just demand that orders schedule themselves?
+                    # what about the order queue being simply a queue?
+                    self.gamestate.schedule_order_immediate(next_order)
+            else:
+                self.act(dt)
+        else:
+            # else order isn't the front item, so we'll ignore this action
+            self.logger.warning(f'got non-front order scheduled action: {self} vs {self.ship.current_order()=}')
+            #self.gamestate.counters[core.Counters.NON_FRONT_ORDER_ACTION] += 1
+
+    def sanity_check(self, order_id:uuid.UUID) -> None:
+        assert(order_id == self.order_id)
+        assert(self in self.ship._orders)
+        assert(self.ship.entity_id in self.gamestate.entities)
+        if self.parent_order:
+            assert(isinstance(self.parent_order, Order))
+            assert(self.parent_order.ship == self.ship)
+            assert(self.parent_order.order_id in self.gamestate.orders)
+        for child_order in self.child_orders:
+            assert(isinstance(child_order, Order))
+            assert(child_order.ship == self.ship)
+            assert(child_order.order_id in self.gamestate.orders)
+
+    def pause(self) -> None:
+        if self.gamestate.is_order_scheduled(self):
+            self.gamestate.unschedule_order(self)
+
+    def resume(self) -> None:
+        if not self.gamestate.is_order_scheduled(self):
+            self.gamestate.schedule_order_immediate(self)
+
+    def register(self) -> None:
+        self.gamestate.register_order(self)
+
+    def unregister(self) -> None:
+        self.gamestate.unregister_order(self)
 
     @abc.abstractmethod
     def act(self, dt:float) -> None:

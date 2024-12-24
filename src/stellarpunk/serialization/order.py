@@ -70,9 +70,13 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         assert(isinstance(ship, core.Ship))
         order.initialize_order(ship)
         if parent_id:
-            order.parent_order = load_context.gamestate.orders[parent_id]
+            parent_order = load_context.gamestate.orders[parent_id]
+            assert(isinstance(parent_order, core.Order))
+            order.parent_order = parent_order
         for child_id in child_ids:
-            order.child_orders.append(load_context.gamestate.orders[child_id])
+            child_order = load_context.gamestate.orders[child_id]
+            assert(isinstance(child_order, core.Order))
+            order.child_orders.append(child_order)
 
         self._post_load_order(order, load_context, extra_context)
 

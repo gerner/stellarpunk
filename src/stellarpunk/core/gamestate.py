@@ -15,10 +15,9 @@ import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule, narrative
-from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer
+from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
-from .order import Order, Effect
 from .character import Character, Player, Agendum, Message, AbstractEventManager
 
 DT_EPSILON = 1.0/120.0
@@ -133,8 +132,8 @@ class Gamestate(EntityRegistry):
         self.entity_context_store = narrative.EntityStore()
 
         # global registry of all orders, effects, agenda
-        self.orders: dict[uuid.UUID, Order] = {}
-        self.effects: dict[uuid.UUID, Effect] = {}
+        self.orders: dict[uuid.UUID, AbstractOrder] = {}
+        self.effects: dict[uuid.UUID, AbstractEffect] = {}
         self.agenda: dict[uuid.UUID, Agendum] = {}
 
         # the production chain of resources (ingredients
@@ -161,10 +160,10 @@ class Gamestate(EntityRegistry):
         self.characters:Dict[uuid.UUID, Character] = {}
 
         # priority queue of order items in form (scheduled timestamp, agendum)
-        self._order_schedule:task_schedule.TaskSchedule[Order] = task_schedule.TaskSchedule()
+        self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
 
         # priority queue of effects
-        self._effect_schedule:task_schedule.TaskSchedule[Effect] = task_schedule.TaskSchedule()
+        self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
 
         # priority queue of agenda items in form (scheduled timestamp, agendum)
         self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
@@ -223,35 +222,25 @@ class Gamestate(EntityRegistry):
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
 
-    def register_order(self, order: Order) -> None:
+    def register_order(self, order: AbstractOrder) -> None:
         self.orders[order.order_id] = order
 
-    def unregister_order(self, order: Order) -> None:
+    def unregister_order(self, order: AbstractOrder) -> None:
         del self.orders[order.order_id]
 
     def sanity_check_orders(self) -> None:
         for k, order in self.orders.items():
-            assert(k == order.order_id)
-            assert(order in order.ship._orders)
-            assert(order.ship.entity_id in self.entities)
-            if order.parent_order:
-                assert(order.parent_order.ship == order.ship)
-                assert(order.parent_order.order_id in self.orders)
-            for child_order in order.child_orders:
-                assert(child_order.ship == order.ship)
-                assert(child_order.order_id in self.orders)
+            order.sanity_check(k)
 
-    def register_effect(self, effect: Effect) -> None:
+    def register_effect(self, effect: AbstractEffect) -> None:
         self.effects[effect.effect_id] = effect
 
-    def unregister_effect(self, effect: Effect) -> None:
+    def unregister_effect(self, effect: AbstractEffect) -> None:
         del self.effects[effect.effect_id]
 
     def sanity_check_effects(self) -> None:
         for k, effect in self.effects.items():
-            assert(k == effect.effect_id)
-            assert(effect in effect.sector._effects)
-            assert(effect.sector.entity_id in self.entities)
+            effect.sanity_check(k)
 
     def register_agendum(self, agendum: Agendum) -> None:
         self.agenda[agendum.agenda_id] = agendum
@@ -356,14 +345,14 @@ class Gamestate(EntityRegistry):
             self.entity_destroy_list.append(entity)
             self.entity_destroy_set.add(entity)
 
-    def is_order_scheduled(self, order:Order) -> bool:
+    def is_order_scheduled(self, order:AbstractOrder) -> bool:
         return self._order_schedule.is_task_scheduled(order)
 
-    def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
+    def schedule_order_immediate(self, order:AbstractOrder, jitter:float=0.) -> None:
         self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
         self.schedule_order(self.timestamp + DT_EPSILON, order, jitter)
 
-    def schedule_order(self, timestamp:float, order:Order, jitter:float=0.) -> None:
+    def schedule_order(self, timestamp:float, order:AbstractOrder, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
@@ -373,16 +362,16 @@ class Gamestate(EntityRegistry):
         self._order_schedule.push_task(timestamp, order)
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
-    def unschedule_order(self, order:Order) -> None:
+    def unschedule_order(self, order:AbstractOrder) -> None:
         self._order_schedule.cancel_task(order)
 
-    def pop_current_orders(self) -> Sequence[Order]:
+    def pop_current_orders(self) -> Sequence[AbstractOrder]:
         return self._order_schedule.pop_current_tasks(self.timestamp)
 
-    def schedule_effect_immediate(self, effect:Effect, jitter:float=0.) -> None:
+    def schedule_effect_immediate(self, effect:AbstractEffect, jitter:float=0.) -> None:
         self.schedule_effect(self.timestamp + DT_EPSILON, effect, jitter)
 
-    def schedule_effect(self, timestamp: float, effect:Effect, jitter:float=0.) -> None:
+    def schedule_effect(self, timestamp: float, effect:AbstractEffect, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
@@ -391,10 +380,10 @@ class Gamestate(EntityRegistry):
 
         self._effect_schedule.push_task(timestamp, effect)
 
-    def unschedule_effect(self, effect:Effect) -> None:
+    def unschedule_effect(self, effect:AbstractEffect) -> None:
         self._effect_schedule.cancel_task(effect)
 
-    def pop_current_effects(self) -> Sequence[Effect]:
+    def pop_current_effects(self) -> Sequence[AbstractEffect]:
         return self._effect_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
