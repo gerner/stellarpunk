@@ -44,6 +44,12 @@ class Effect(base.AbstractEffect):
         if observer is not None:
             self.observe(observer)
 
+    def register(self) -> None:
+        self.gamestate.register_effect(self)
+
+    def unregister(self) -> None:
+        self.gamestate.unregister_effect(self)
+
     def observe(self, observer:EffectObserver) -> None:
         self.observers.add(observer)
 

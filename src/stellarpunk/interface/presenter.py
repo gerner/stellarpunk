@@ -120,7 +120,7 @@ class Presenter:
         return compute_sensor_cone_memoize(stopped, quantized_theta, neighborhood_radius, collision_margin, ship.radius, -(self.perspective.bbox[2]-self.perspective.bbox[0])/2, -(self.perspective.bbox[3]-self.perspective.bbox[1])/2, self.view.viewscreen_bounds, self.perspective.meters_per_char)
 
 
-    def draw_effect(self, effect:core.Effect) -> None:
+    def draw_effect(self, effect:core.AbstractEffect) -> None:
         """ Draws an effect (if visible) on the map. """
 
         assert isinstance(self.view.viewscreen, interface.Canvas)

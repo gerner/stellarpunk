@@ -9,7 +9,7 @@ import functools
 import gzip
 import json
 import weakref
-from typing import Optional, Union, Any, TextIO, TYPE_CHECKING, Type
+from typing import Optional, Union, Any, TextIO, Type
 from collections.abc import Iterable, Iterator, MutableMapping, Collection, Sequence, Generator
 
 import numpy as np
@@ -18,12 +18,7 @@ import cymunk # type: ignore
 import rtree.index # type: ignore
 
 from stellarpunk import util
-from .base import Entity
-
-if TYPE_CHECKING:
-    #TODO: maybe effects should live on gamestate instead? could be keyed by
-    # sector id to make one collection for each sector
-    from .order import Effect
+from . import base
 
 SECTOR_ENTITY_COLLISION_TYPE = 0
 
@@ -112,7 +107,7 @@ class SectorEntityObserver:
     def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
         pass
 
-class SectorEntity(Entity):
+class SectorEntity(base.Entity):
     """ An entity in space in a sector. """
 
     def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
@@ -431,7 +426,7 @@ class SectorWeather:
         self.sensor_factor *= region.sensor_factor
 
 
-class Sector(Entity):
+class Sector(base.Entity):
     """ A region of space containing resources, stations, ships. """
 
     id_prefix = "SEC"
@@ -458,7 +453,7 @@ class Sector(Entity):
         # we do rely on this to provide a spatial index of the sector
         self.space:cymunk.Space = space
 
-        self._effects: collections.deque["Effect"] = collections.deque()
+        self._effects: collections.deque[base.AbstractEffect] = collections.deque()
 
         self.collision_observers: MutableMapping[uuid.UUID, set[CollisionObserver]] = collections.defaultdict(set)
 
@@ -524,16 +519,16 @@ class Sector(Entity):
             # after we've destroyed the thing it observes)
             pass
 
-    def add_effect(self, effect:"Effect") -> None:
-        effect.gamestate.register_effect(effect)
+    def add_effect(self, effect:base.AbstractEffect) -> None:
+        effect.register()
         self._effects.append(effect)
         effect.begin_effect()
 
-    def remove_effect(self, effect:"Effect") -> None:
+    def remove_effect(self, effect:base.AbstractEffect) -> None:
         self._effects.remove(effect)
-        effect.gamestate.unregister_effect(effect)
+        effect.unregister()
 
-    def current_effects(self) -> Iterable["Effect"]:
+    def current_effects(self) -> Iterable[base.AbstractEffect]:
         return self._effects
 
     def entities_by_type[T:SectorEntity](self, klass:Type[T]) -> Generator[T, None, None]:
