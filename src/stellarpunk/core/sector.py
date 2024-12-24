@@ -21,13 +21,6 @@ from stellarpunk import util
 from .base import Entity
 
 if TYPE_CHECKING:
-    #TODO: I'd like to get rid of this. it's only needed for
-    # SectorEntity.captain which isn't actually used here at all. Stations,
-    # Planets and Ships can have captains. But we should really specialize
-    # those types with a common CaptainableSectorEntity or something which can
-    # live in sector_entity.py
-    from . import character
-
     #TODO: maybe effects should live on gamestate instead? could be keyed by
     # sector id to make one collection for each sector
     from .order import Effect
@@ -135,9 +128,6 @@ class SectorEntity(Entity):
         self.cargo_capacity = 5e2
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
-
-        # who is responsible for this entity?
-        self.captain: Optional["character.Character"] = None
 
         phys.position = (loc[0], loc[1])
 

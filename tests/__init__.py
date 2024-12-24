@@ -170,7 +170,7 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
         self.margin = 2e2
         self.min_neighbor_dist = np.inf
 
-        self.agenda:List[core.Agendum] = []
+        self.agenda:List[core.AbstractAgendum] = []
         self.orders:List[core.Order] = []
         self.cannot_stop_orders:List[orders.GoToLocation] = []
         self.cannot_avoid_collision_orders:List[steering.AbstractSteeringOrder] = []

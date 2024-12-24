@@ -69,7 +69,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         bytes_written += s_util.size_to_f(len(gamestate.agenda), f)
         for agenda in gamestate.agenda.values():
             # we save as a generic effect which will handle its own dispatch
-            bytes_written += self.save_game.save_object(agenda, f, klass=core.Agendum)
+            bytes_written += self.save_game.save_object(agenda, f, klass=core.AbstractAgendum)
 
         # sectors
         # save the sector ids in the right order
@@ -183,7 +183,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         s_util.debug_string_r("agenda", f)
         count = s_util.size_from_f(f)
         for i in range(count):
-            agenda = self.save_game.load_object(core.Agendum, f, load_context)
+            agenda = self.save_game.load_object(core.AbstractAgendum, f, load_context)
             # agenda should have registered themselves with the gamestate,
             self.load_tick()
 

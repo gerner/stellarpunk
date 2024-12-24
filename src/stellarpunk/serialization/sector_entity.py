@@ -47,7 +47,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written += s_util.debug_string_w("others", f)
         bytes_written += s_util.float_to_f(sector_entity.cargo_capacity, f)
         bytes_written += s_util.matrix_to_f(sector_entity.cargo, f)
-        if sector_entity.captain:
+        if isinstance(sector_entity, core.CrewedSectorEntity) and sector_entity.captain:
             bytes_written += s_util.int_to_f(1, f, blen=1)
             bytes_written += s_util.uuid_to_f(sector_entity.captain.entity_id, f)
         else:
@@ -114,6 +114,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         captain_id, extra_context = context_data
 
         if captain_id is not None:
+            assert(isinstance(sector_entity, core.CrewedSectorEntity))
             captain = load_context.gamestate.entities[captain_id]
             assert(isinstance(captain, core.Character))
             sector_entity.captain = captain

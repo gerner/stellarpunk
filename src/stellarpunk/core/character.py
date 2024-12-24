@@ -5,15 +5,12 @@ import logging
 import enum
 import uuid
 import weakref
-from typing import Optional, Any, Union, TYPE_CHECKING
+from typing import Optional, Any, Union
 from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
 from .base import Entity, Sprite, EconAgent
 from .sector import SectorEntity
-
-if TYPE_CHECKING:
-    from .gamestate import Gamestate
 
 class Asset(Entity):
     """ An abc for classes that are assets ownable by characters. """
@@ -36,14 +33,13 @@ class CharacterObserver(abc.ABC):
     def character_destroyed(self, character: "Character") -> None:
         pass
 
-class Agendum:
+class AbstractAgendum(abc.ABC):
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
 
-    def __init__(self, character:"Character", gamestate:"Gamestate") -> None:
+    def __init__(self, ) -> None:
         self.agenda_id = uuid.uuid4()
-        self.character = character
-        self.gamestate = gamestate
+        self.character:Character = None # type: ignore
         self.logger = AgendumLoggerAdapter(
                 self.character,
                 logging.getLogger(util.fullname(self)),
@@ -69,13 +65,17 @@ class Agendum:
     def unpause(self) -> None:
         self._unpause()
 
-    def pause(self) -> None:
-        self._pause()
-        self.gamestate.unschedule_agendum(self)
+    @abc.abstractmethod
+    def pause(self) -> None: ...
 
-    def stop(self) -> None:
-        self._stop()
-        self.gamestate.unschedule_agendum(self)
+    @abc.abstractmethod
+    def stop(self) -> None: ...
+
+    @abc.abstractmethod
+    def register(self) -> None: ...
+
+    @abc.abstractmethod
+    def unregister(self) -> None: ...
 
     def is_complete(self) -> bool:
         return False
@@ -102,7 +102,7 @@ class Character(Entity):
         #TODO: are these actually SectorEntity instances? maybe a new co-class (Asset)
         self.assets:list[Asset] = []
         # activites this character is enaged in (how they interact)
-        self.agenda:list[Agendum] = []
+        self.agenda:list[AbstractAgendum] = []
 
         self.observers:weakref.WeakSet[CharacterObserver] = weakref.WeakSet()
 
@@ -136,15 +136,15 @@ class Character(Entity):
         self.assets.append(asset)
         asset.owner = self
 
-    def add_agendum(self, agendum:Agendum, start:bool=True) -> None:
-        agendum.gamestate.register_agendum(agendum)
+    def add_agendum(self, agendum:AbstractAgendum, start:bool=True) -> None:
+        agendum.register()
         self.agenda.append(agendum)
         if start:
             agendum.start()
 
-    def remove_agendum(self, agendum:Agendum) -> None:
+    def remove_agendum(self, agendum:AbstractAgendum) -> None:
         self.agenda.remove(agendum)
-        agendum.gamestate.unregister_agendum(agendum)
+        agendum.unregister()
 
 class AbstractEventManager:
     def e(self, event_id: enum.IntEnum) -> int:

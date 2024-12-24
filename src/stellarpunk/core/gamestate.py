@@ -18,7 +18,7 @@ from stellarpunk import util, task_schedule, narrative
 from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
-from .character import Character, Player, Agendum, Message, AbstractEventManager
+from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager
 
 DT_EPSILON = 1.0/120.0
 
@@ -134,7 +134,7 @@ class Gamestate(EntityRegistry):
         # global registry of all orders, effects, agenda
         self.orders: dict[uuid.UUID, AbstractOrder] = {}
         self.effects: dict[uuid.UUID, AbstractEffect] = {}
-        self.agenda: dict[uuid.UUID, Agendum] = {}
+        self.agenda: dict[uuid.UUID, AbstractAgendum] = {}
 
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
@@ -166,7 +166,7 @@ class Gamestate(EntityRegistry):
         self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
 
         # priority queue of agenda items in form (scheduled timestamp, agendum)
-        self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
+        self._agenda_schedule:task_schedule.TaskSchedule[AbstractAgendum] = task_schedule.TaskSchedule()
 
         self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
 
@@ -242,10 +242,10 @@ class Gamestate(EntityRegistry):
         for k, effect in self.effects.items():
             effect.sanity_check(k)
 
-    def register_agendum(self, agendum: Agendum) -> None:
+    def register_agendum(self, agendum: AbstractAgendum) -> None:
         self.agenda[agendum.agenda_id] = agendum
 
-    def unregister_agendum(self, agendum: Agendum) -> None:
+    def unregister_agendum(self, agendum: AbstractAgendum) -> None:
         del self.agenda[agendum.agenda_id]
 
     def sanity_check_agenda(self) -> None:
@@ -386,10 +386,10 @@ class Gamestate(EntityRegistry):
     def pop_current_effects(self) -> Sequence[AbstractEffect]:
         return self._effect_schedule.pop_current_tasks(self.timestamp)
 
-    def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
+    def schedule_agendum_immediate(self, agendum:AbstractAgendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + DT_EPSILON, agendum, jitter)
 
-    def schedule_agendum(self, timestamp:float, agendum:Agendum, jitter:float=0.) -> None:
+    def schedule_agendum(self, timestamp:float, agendum:AbstractAgendum, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
@@ -398,10 +398,10 @@ class Gamestate(EntityRegistry):
 
         self._agenda_schedule.push_task(timestamp, agendum)
 
-    def unschedule_agendum(self, agendum:Agendum) -> None:
+    def unschedule_agendum(self, agendum:AbstractAgendum) -> None:
         self._agenda_schedule.cancel_task(agendum)
 
-    def pop_current_agenda(self) -> Sequence[Agendum]:
+    def pop_current_agenda(self) -> Sequence[AbstractAgendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:

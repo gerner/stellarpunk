@@ -494,7 +494,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(core.Missile, s_sector_entity.MissileSaver(sg))
 
     #TODO: agenda
-    sg.register_saver(core.Agendum, save_game.DispatchSaver[core.Agendum](sg))
+    sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))
     sg.ignore_saver(agenda.StationManager)
     sg.ignore_saver(agenda.PlanetManager)
     sg.ignore_saver(agenda.CaptainAgendum)

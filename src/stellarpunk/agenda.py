@@ -4,6 +4,7 @@ from typing import Optional, List, Any, Iterable, Tuple, DefaultDict, Mapping
 import enum
 import collections
 import itertools
+import abc
 
 import numpy as np
 import numpy.typing as npt
@@ -12,6 +13,27 @@ from stellarpunk import core, econ, util
 import stellarpunk.orders.core as ocore
 from stellarpunk.core import combat
 from stellarpunk.orders import movement
+
+class Agendum(core.AbstractAgendum, abc.ABC):
+    def __init__(self, character:core.Character, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.gamestate = gamestate
+        self.character = character
+
+    def register(self) -> None:
+        self.gamestate.register_agendum(self)
+
+    def unregister(self) -> None:
+        self.gamestate.unregister_agendum(self)
+
+    def pause(self) -> None:
+        self._pause()
+        self.gamestate.unschedule_agendum(self)
+
+    def stop(self) -> None:
+        self._stop()
+        self.gamestate.unschedule_agendum(self)
+
 
 def possible_buys(
         gamestate:core.Gamestate,
@@ -179,8 +201,8 @@ def choose_station_to_sell_to(
 MINING_SLEEP_TIME = 60.
 TRADING_SLEEP_TIME = 60.
 
-class EntityOperatorAgendum(core.Agendum, core.SectorEntityObserver):
-    def __init__(self, craft: core.SectorEntity, *args: Any, **kwargs: Any) -> None:
+class EntityOperatorAgendum(Agendum, core.SectorEntityObserver):
+    def __init__(self, craft: core.CrewedSectorEntity, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.craft = craft
 

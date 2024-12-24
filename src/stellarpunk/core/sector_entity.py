@@ -10,19 +10,22 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import util
-from .base import Entity, Sprite
-from .character import Asset
-from . import sector
+from . import base, character, sector
 
-class Planet(sector.SectorEntity, Asset):
+class CrewedSectorEntity(sector.SectorEntity):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.captain: Optional["character.Character"] = None
+
+class Planet(CrewedSectorEntity, character.Asset):
     id_prefix = "HAB"
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-class Station(sector.SectorEntity, Asset):
+class Station(CrewedSectorEntity, character.Asset):
     id_prefix = "STA"
-    def __init__(self, sprite:Sprite, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sprite:base.Sprite, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource: int = -1
         self.next_batch_time = 0.

@@ -149,7 +149,7 @@ class BroadcastAction(ecore.Action):
 
         loc = character.location.loc
         nearby_characters = list(
-            x.captain for x in sector.spatial_point(loc, radius) if x.captain is not None and x.captain != character
+            x.captain for x in sector.spatial_point(loc, radius) if isinstance(x, core.CrewedSectorEntity) and x.captain is not None and x.captain != character
         )
 
         if len(nearby_characters) == 0:

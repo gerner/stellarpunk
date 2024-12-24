@@ -5,7 +5,7 @@ import logging
 import collections
 import uuid
 import weakref
-from typing import Any, Optional, Tuple, Deque, TYPE_CHECKING, Set, Type
+from typing import Any, Optional, Tuple, Deque, Set, Type
 
 import numpy as np
 

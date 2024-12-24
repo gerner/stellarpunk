@@ -11,6 +11,7 @@ import cymunk # type: ignore
 
 from . import base
 from .sector import SectorEntity, HistoryEntry
+from .sector_entity import CrewedSectorEntity
 from .character import Asset
 
 class PointDefenseSettings:
@@ -25,7 +26,7 @@ class PointDefenseSettings:
 
         self.heading:float = 0.
 
-class Ship(SectorEntity, Asset):
+class Ship(CrewedSectorEntity, Asset):
     DefaultOrderSig:TypeAlias = "Callable[[Ship], base.AbstractOrder]"
 
     id_prefix = "SHP"
