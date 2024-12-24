@@ -21,10 +21,10 @@ def resource_station_agendum(
 ) -> agenda.StationManager:
     station_character = generator.spawn_character(resource_station, balance=2e3)
     station_character.take_ownership(resource_station)
-    station_agendum = agenda.StationManager(
-        station=resource_station,
-        character=station_character,
-        gamestate=gamestate,
+    station_agendum = agenda.StationManager.create_station_manager(
+        resource_station,
+        station_character,
+        gamestate,
     )
     station_character.add_agendum(station_agendum)
 

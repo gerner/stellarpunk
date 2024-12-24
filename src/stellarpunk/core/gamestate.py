@@ -256,8 +256,10 @@ class Gamestate(EntityRegistry):
 
     def contains_entity(self, entity_id:uuid.UUID) -> bool:
         return entity_id in self.entities
-    def get_entity(self, entity_id:uuid.UUID) -> "Entity":
-        return self.entities[entity_id]
+    def get_entity[T](self, entity_id:uuid.UUID, klass:Type[T]) -> T:
+        entity = self.entities[entity_id]
+        assert(isinstance(entity, klass))
+        return entity
 
     def _pause(self, paused:Optional[bool]=None) -> None:
         self.game_runtime.time_acceleration(1.0, False)

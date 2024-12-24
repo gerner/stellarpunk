@@ -25,6 +25,7 @@ from stellarpunk.serialization import (
     sector_entity as s_sector_entity,
     order as s_order,
     sensors as s_sensors,
+    agenda as s_agenda,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -493,13 +494,13 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(sector_entity.Station, s_sector_entity.StationSaver(sg))
     sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
 
-    #TODO: agenda
+    # agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))
-    sg.ignore_saver(agenda.StationManager)
-    sg.ignore_saver(agenda.PlanetManager)
-    sg.ignore_saver(agenda.CaptainAgendum)
-    sg.ignore_saver(agenda.TradingAgendum)
-    sg.ignore_saver(agenda.MiningAgendum)
+    sg.register_saver(agenda.StationManager, s_agenda.StationManagerSaver(sg))
+    sg.register_saver(agenda.PlanetManager, s_agenda.PlanetManagerSaver(sg))
+    sg.register_saver(agenda.CaptainAgendum, s_agenda.CaptainAgendumSaver(sg))
+    sg.register_saver(agenda.TradingAgendum, s_agenda.TradingAgendumSaver(sg))
+    sg.register_saver(agenda.MiningAgendum, s_agenda.MiningAgendumSaver(sg))
 
     #TODO: orders
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))

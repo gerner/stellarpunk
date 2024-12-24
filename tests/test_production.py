@@ -9,7 +9,7 @@ def test_basic_produce(gamestate, generator, sector, simulator):
 
     producer_owner = generator.spawn_character(station)
     producer_owner.take_ownership(station)
-    producer_agendum = agenda.StationManager(station=station, character=producer_owner, gamestate=gamestate)
+    producer_agendum = agenda.StationManager.create_station_manager(station, producer_owner, gamestate)
     producer_owner.add_agendum(producer_agendum)
 
     resources_needed = gamestate.production_chain.adj_matrix[:,station.resource] * gamestate.production_chain.batch_sizes[station.resource]
@@ -43,7 +43,7 @@ def test_not_enough_resources(gamestate, generator, sector, simulator):
 
     producer_owner = generator.spawn_character(station)
     producer_owner.take_ownership(station)
-    producer_agendum = agenda.StationManager(station=station, character=producer_owner, gamestate=gamestate)
+    producer_agendum = agenda.StationManager.create_station_manager(station, producer_owner, gamestate)
     producer_owner.add_agendum(producer_agendum)
 
     gamestate.timestamp = 1.

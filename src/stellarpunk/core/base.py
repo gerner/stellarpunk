@@ -10,7 +10,7 @@ import uuid
 import itertools
 import logging
 import collections
-from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union
+from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -25,11 +25,10 @@ class EntityRegistry(abc.ABC):
 
     @abc.abstractmethod
     def unregister_entity(self, entity: "Entity") -> None: ...
-
     @abc.abstractmethod
     def contains_entity(self, entity_id:uuid.UUID) -> bool: ...
     @abc.abstractmethod
-    def get_entity(self, entity_id:uuid.UUID) -> "Entity": ...
+    def get_entity[T:"Entity"](self, entity_id:uuid.UUID, klass:Type[T]) -> "Entity": ...
 
 class Entity(abc.ABC):
     id_prefix = "ENT"

@@ -1,10 +1,10 @@
 """ Agenda items for characters, reflecting activites they are involved in. """
 
-from typing import Optional, List, Any, Iterable, Tuple, DefaultDict, Mapping
 import enum
 import collections
 import itertools
 import abc
+from typing import Optional, List, Any, Iterable, Tuple, DefaultDict, Mapping, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -15,10 +15,10 @@ from stellarpunk.core import combat, sector_entity
 from stellarpunk.orders import movement
 
 class Agendum(core.AbstractAgendum, abc.ABC):
-    def __init__(self, character:core.Character, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
+
+    def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.gamestate = gamestate
-        self.character = character
 
     def register(self) -> None:
         self.gamestate.register_agendum(self)
@@ -37,7 +37,7 @@ class Agendum(core.AbstractAgendum, abc.ABC):
 
 def possible_buys(
         gamestate:core.Gamestate,
-        ship:core.Ship,
+        ship:core.SectorEntity,
         ship_agent:core.EconAgent,
         allowed_resources:List[int],
         buy_from_stations:Optional[List[core.SectorEntity]],
@@ -72,7 +72,7 @@ def possible_buys(
 
 def possible_sales(
         gamestate:core.Gamestate,
-        ship:core.Ship,
+        ship:core.SectorEntity,
         ship_agent:core.EconAgent,
         allowed_resources:List[int],
         allowed_stations:Optional[List[core.SectorEntity]],
@@ -202,9 +202,15 @@ MINING_SLEEP_TIME = 60.
 TRADING_SLEEP_TIME = 60.
 
 class EntityOperatorAgendum(Agendum, core.SectorEntityObserver):
-    def __init__(self, craft: core.CrewedSectorEntity, *args: Any, **kwargs: Any) -> None:
+    @classmethod
+    def create_eoa[T:EntityOperatorAgendum](cls:Type[T], craft: core.CrewedSectorEntity, *args: Any, **kwargs: Any) -> T:
+        a = cls.create_agendum(*args, **kwargs)
+        a.craft=craft
+        return a
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.craft = craft
+        self.craft:core.CrewedSectorEntity = None # type: ignore
 
     def _start(self) -> None:
         if self.character.location is None:
@@ -225,8 +231,6 @@ class EntityOperatorAgendum(Agendum, core.SectorEntityObserver):
 class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
     def __init__(self, *args: Any, enable_threat_response:bool=True, start_transponder:bool=False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        assert isinstance(self.craft, core.Ship)
-        self.ship:core.Ship = self.craft
         self.enable_threat_response = enable_threat_response
         self.threat_response:Optional[combat.FleeOrder] = None
         self._start_transponder = start_transponder
@@ -287,11 +291,12 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
             threat_image = self.craft.sector.sensor_manager.target(threat, craft)
             self.threat_response.add_threat(threat_image)
             return
-        self.threat_response = combat.FleeOrder.create_flee_order(self.ship, self.gamestate)
+        assert(isinstance(self.craft, core.Ship))
+        self.threat_response = combat.FleeOrder.create_flee_order(self.craft, self.gamestate)
         self.threat_response.observe(self)
         threat_image = self.craft.sector.sensor_manager.target(threat, self.craft)
         self.threat_response.add_threat(threat_image)
-        self.ship.prepend_order(self.threat_response)
+        self.craft.prepend_order(self.threat_response)
 
 class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
     """ Managing a ship for mining.
@@ -299,31 +304,32 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
     Operates as a state machine as we mine asteroids and sell the resources to
     relevant stations. """
 
-    class State(enum.Enum):
+    class State(enum.IntEnum):
         IDLE = enum.auto()
         MINING = enum.auto()
         TRADING = enum.auto()
         COMPLETE = enum.auto()
 
+    @classmethod
+    def create_mining_agendum[T:MiningAgendum](cls:Type[T], *args:Any, allowed_stations:Optional[list[core.SectorEntity]]=None, **kwargs:Any) -> T:
+        a = cls.create_eoa(*args, **kwargs)
+        a.initialize_mining_agendum(allowed_stations)
+        return a
+
     def __init__(
         self,
-        ship:core.Ship,
         *args: Any,
-        allowed_resources: Optional[List[int]] = None,
-        allowed_stations: Optional[List[core.SectorEntity]] = None,
+        allowed_resources: Optional[list[int]] = None,
         **kwargs: Any
     ) -> None:
-        super().__init__(ship, *args, **kwargs)
-
-        self.ship = ship
-        self.agent = econ.ShipTraderAgent.create_ship_trader_agent(ship, self.character, self.gamestate)
-
+        super().__init__(*args, **kwargs)
+        self.agent:econ.ShipTraderAgent = None # type: ignore
         # resources we're allowed to mine
         if allowed_resources is None:
             allowed_resources = list(range(self.gamestate.production_chain.ranks[0]))
         self.allowed_resources = allowed_resources
 
-        self.allowed_stations:Optional[List[core.SectorEntity]] = allowed_stations
+        self.allowed_stations:Optional[list[core.SectorEntity]] = None
 
         # state machine to keep track of what we're doing
         self.state:MiningAgendum.State = MiningAgendum.State.IDLE
@@ -334,6 +340,11 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
 
         self.round_trips = 0
         self.max_trips = -1
+
+    def initialize_mining_agendum(self, allowed_stations:Optional[list[core.SectorEntity]] = None) -> None:
+        assert(isinstance(self.craft, core.Ship))
+        self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
+        self.allowed_stations = allowed_stations
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -369,14 +380,14 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         self.gamestate.schedule_agendum_immediate(self)
 
     def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
-        if self.ship.sector is None:
-            raise ValueError(f'{self.ship} in no sector')
+        if self.craft.sector is None:
+            raise ValueError(f'{self.craft} in no sector')
 
         nearest = None
         nearest_dist = np.inf
         distances = []
         candidates = []
-        for hit in self.ship.sector.spatial_point(self.ship.loc):
+        for hit in self.craft.sector.spatial_point(self.craft.loc):
             if not isinstance(hit, sector_entity.Asteroid):
                 continue
             if hit.resource not in self.allowed_resources:
@@ -384,7 +395,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
             if hit.cargo[hit.resource] <= 0:
                 continue
 
-            dist = util.distance(self.ship.loc, hit.loc)
+            dist = util.distance(self.craft.loc, hit.loc)
             distances.append(dist)
             candidates.append(hit)
 
@@ -432,21 +443,22 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
         return self.max_trips >= 0 and self.round_trips >= self.max_trips
 
     def act(self) -> None:
+        assert(isinstance(self.craft, core.Ship))
         assert self.state == MiningAgendum.State.IDLE
 
         if self.is_complete():
             self.state = MiningAgendum.State.COMPLETE
             return
 
-        if np.any(self.ship.cargo[self.allowed_resources] > 0.):
+        if np.any(self.craft.cargo[self.allowed_resources] > 0.):
             # if we've got resources to sell, find a station to sell to
 
             sell_station_ret = choose_station_to_sell_to(
-                    self.gamestate, self.ship, self.agent,
+                    self.gamestate, self.craft, self.agent,
                     self.allowed_resources, self.allowed_stations,
             )
             if sell_station_ret is None:
-                self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.ship.cargo[self.allowed_resources] > 0.)}). Sleeping...')
+                self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.craft.cargo[self.allowed_resources] > 0.)}). Sleeping...')
                 sleep_jitter = self.gamestate.random.uniform(high=MINING_SLEEP_TIME)
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME/2 + sleep_jitter, self)
                 return
@@ -461,30 +473,30 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
             self.state = MiningAgendum.State.TRADING
             self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                     station_agent, self.agent, floor_price,
-                    station, resource, self.ship.cargo[resource],
-                    self.ship, self.gamestate)
+                    station, resource, self.craft.cargo[resource],
+                    self.craft, self.gamestate)
             self.transfer_order.observe(self)
-            self.ship.prepend_order(self.transfer_order)
+            self.craft.prepend_order(self.transfer_order)
         else:
             # if we don't have any resources in cargo, go mine some
 
             target = self._choose_asteroid()
             if target is None:
                 #TODO: notify someone?
-                self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.ship.sector}, sleeping...')
+                self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.craft.sector}, sleeping...')
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
                 return
 
             #TODO: choose amount to harvest
             # push mining order
             self.state = MiningAgendum.State.MINING
-            self.mining_order = ocore.MineOrder.create_mine_order(target, 1e3, self.ship, self.gamestate)
+            self.mining_order = ocore.MineOrder.create_mine_order(target, 1e3, self.craft, self.gamestate)
             self.mining_order.observe(self)
-            self.ship.prepend_order(self.mining_order)
+            self.craft.prepend_order(self.mining_order)
 
 class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
 
-    class State(enum.Enum):
+    class State(enum.IntEnum):
         IDLE = enum.auto()
         BUYING = enum.auto()
         SELLING = enum.auto()
@@ -492,17 +504,25 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         SLEEP_NO_BUYS = enum.auto()
         SLEEP_NO_SALES = enum.auto()
 
+    @classmethod
+    def create_trading_agendum[T:TradingAgendum](
+            cls:Type[T],
+            *args:Any,
+            buy_from_stations: Optional[List[core.SectorEntity]] = None,
+            sell_to_stations: Optional[List[core.SectorEntity]] = None,
+            **kwargs:Any
+    ) -> T:
+        a = cls.create_eoa(*args, **kwargs)
+        a.initialize_trading_agendum(buy_from_stations, sell_to_stations)
+        return a
+
     def __init__(self,
-        ship: core.Ship,
         *args: Any,
         allowed_goods: Optional[List[int]] = None,
-        buy_from_stations: Optional[List[core.SectorEntity]] = None,
-        sell_to_stations: Optional[List[core.SectorEntity]] = None,
         **kwargs:Any
     ) -> None:
-        super().__init__(ship, *args, **kwargs)
-        self.ship = ship
-        self.agent = econ.ShipTraderAgent.create_ship_trader_agent(ship, self.character, self.gamestate)
+        super().__init__(*args, **kwargs)
+        self.agent:econ.ShipTraderAgent = None # type: ignore
         self.state = TradingAgendum.State.IDLE
 
         # goods we're allowed to trade
@@ -510,14 +530,24 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
             allowed_goods = list(range(self.gamestate.production_chain.ranks[0], self.gamestate.production_chain.ranks.cumsum()[-2]))
         self.allowed_goods = allowed_goods
 
-        self.buy_from_stations:Optional[List[core.SectorEntity]] = buy_from_stations
-        self.sell_to_stations:Optional[List[core.SectorEntity]] = sell_to_stations
+        self.buy_from_stations:Optional[List[core.SectorEntity]] = None
+        self.sell_to_stations:Optional[List[core.SectorEntity]] = None
 
         self.buy_order:Optional[ocore.TradeCargoFromStation] = None
         self.sell_order:Optional[ocore.TradeCargoToStation] = None
 
-        self.max_trips = -1
         self.trade_trips = 0
+        self.max_trips = -1
+
+    def initialize_trading_agendum(
+            self,
+            buy_from_stations: Optional[List[core.SectorEntity]] = None,
+            sell_to_stations: Optional[List[core.SectorEntity]] = None,
+    ) -> None:
+        assert(isinstance(self.craft, core.Ship))
+        self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
+        self.buy_from_stations = buy_from_stations
+        self.sell_to_stations = sell_to_stations
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -584,8 +614,9 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         return self.max_trips >= 0 and self.trade_trips >= self.max_trips
 
     def _buy_goods(self) -> None:
+        assert(isinstance(self.craft, core.Ship))
         buy_station_ret = choose_station_to_buy_from(
-                self.gamestate, self.ship, self.agent,
+                self.gamestate, self.craft, self.agent,
                 self.allowed_goods,
                 self.buy_from_stations, self.sell_to_stations)
         if buy_station_ret is None:
@@ -603,21 +634,22 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         #TODO: sensibly have a ceiling for buying the good
         # basically we pick a station and hope for the best
         ceiling_price = np.inf
-        amount = min(station.cargo[resource], self.ship.cargo_capacity - self.ship.cargo.sum())
+        amount = min(station.cargo[resource], self.craft.cargo_capacity - self.craft.cargo.sum())
 
         self.state = TradingAgendum.State.BUYING
         self.buy_order = ocore.TradeCargoFromStation.create_trade_cargo_from_station(
                 self.agent, station_agent, ceiling_price,
                 station, resource, amount,
-                self.ship, self.gamestate)
+                self.craft, self.gamestate)
         self.buy_order.observe(self)
-        self.ship.prepend_order(self.buy_order)
+        self.craft.prepend_order(self.buy_order)
 
     def _sell_goods(self) -> bool:
         # if we've got resources to sell, find a station to sell to
+        assert(isinstance(self.craft, core.Ship))
 
         sell_station_ret = choose_station_to_sell_to(
-                self.gamestate, self.ship, self.agent,
+                self.gamestate, self.craft, self.agent,
                 self.allowed_goods, self.sell_to_stations,
         )
         if sell_station_ret is None:
@@ -642,10 +674,10 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
         self.state = TradingAgendum.State.SELLING
         self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                 station_agent, self.agent, floor_price,
-                station, resource, self.ship.cargo[resource],
-                self.ship, self.gamestate)
+                station, resource, self.craft.cargo[resource],
+                self.craft, self.gamestate)
         self.sell_order.observe(self)
-        self.ship.prepend_order(self.sell_order)
+        self.craft.prepend_order(self.sell_order)
 
         return True
 
@@ -656,7 +688,7 @@ class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
             self.state = TradingAgendum.State.COMPLETE
             return
 
-        if np.any(self.ship.cargo[self.allowed_goods] > 0.):
+        if np.any(self.craft.cargo[self.allowed_goods] > 0.):
             if not self._sell_goods():
                 self._buy_goods()
         else:
@@ -669,23 +701,31 @@ class StationManager(EntityOperatorAgendum):
     trading, price setting, although it might delegate those reponsiblities.
     """
 
-    def __init__(self, station:sector_entity.Station, *args:Any, **kwargs:Any) -> None:
-        super().__init__(station, *args, **kwargs)
+    @classmethod
+    def create_station_manager[T:"StationManager"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        a = cls.create_eoa(*args, **kwargs)
+        a.initialize_station_manager()
+        return a
 
-        self.station = station
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.agent:econ.StationAgent = None # type: ignore
+        self.produced_batches = 0
+
+    def initialize_station_manager(self) -> None:
+        assert(isinstance(self.craft, sector_entity.Station))
         self.agent = econ.StationAgent.create_station_agent(
             self.character,
-            station,
+            self.craft,
             self.gamestate.production_chain,
             self.gamestate,
         )
-        self.produced_batches = 0
 
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
         self.craft.captain = self.character
         super()._start()
-        self.gamestate.representing_agent(self.station.entity_id, self.agent)
+        self.gamestate.representing_agent(self.craft.entity_id, self.agent)
         self.gamestate.schedule_agendum_immediate(self)
 
         #TODO; should managing the transponder live here?
@@ -694,7 +734,7 @@ class StationManager(EntityOperatorAgendum):
 
     def _stop(self) -> None:
         super()._stop()
-        self.gamestate.withdraw_agent(self.station.entity_id)
+        self.gamestate.withdraw_agent(self.craft.entity_id)
         self.craft.captain = None
 
     def _produce_at_station(self) -> float:
@@ -703,44 +743,46 @@ class StationManager(EntityOperatorAgendum):
         returns when we should next check for production.
         """
 
+        assert(isinstance(self.craft, sector_entity.Station))
+
         # waiting for production to finish case
-        if self.station.next_batch_time > 0:
+        if self.craft.next_batch_time > 0:
             # batch is ready case
-            if self.station.next_batch_time <= self.gamestate.timestamp:
+            if self.craft.next_batch_time <= self.gamestate.timestamp:
                 # add the batch to cargo
-                amount = self.gamestate.production_chain.batch_sizes[self.station.resource]
-                self.station.cargo[self.station.resource] += amount
+                amount = self.gamestate.production_chain.batch_sizes[self.craft.resource]
+                self.craft.cargo[self.craft.resource] += amount
                 #TODO: record the production somehow
                 #self.gamestate.production_chain.goods_produced[station.resource] += amount
-                self.station.next_batch_time = 0.
-                self.station.next_production_time = 0.
+                self.craft.next_batch_time = 0.
+                self.craft.next_production_time = 0.
                 self.produced_batches += 1
                 return self.gamestate.timestamp + 1.0
             # batch is not ready case
             else:
-                return self.station.next_batch_time
+                return self.craft.next_batch_time
         # waiting for enough cargo to produce case
-        elif self.station.next_production_time <= self.gamestate.timestamp:
+        elif self.craft.next_production_time <= self.gamestate.timestamp:
             # check if we have enough resource to start a batch
-            resources_needed = self.gamestate.production_chain.adj_matrix[:,self.station.resource] * self.gamestate.production_chain.batch_sizes[self.station.resource]
+            resources_needed = self.gamestate.production_chain.adj_matrix[:,self.craft.resource] * self.gamestate.production_chain.batch_sizes[self.craft.resource]
 
             # we have enough cargo to produce case
-            if np.all(self.station.cargo >= resources_needed):
-                self.station.cargo -= resources_needed
+            if np.all(self.craft.cargo >= resources_needed):
+                self.craft.cargo -= resources_needed
                 # TODO: float vs floating type issues with numpy (arg!)
-                self.station.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[self.station.resource] # type: ignore
-                return self.station.next_batch_time
+                self.craft.next_batch_time = self.gamestate.timestamp + self.gamestate.production_chain.production_times[self.craft.resource] # type: ignore
+                return self.craft.next_batch_time
             # we do not have enough cargo to produce
             else:
                 # wait a cooling off period to avoid needlesss expensive checks
-                self.station.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
-                return self.station.next_production_time
+                self.craft.next_production_time = self.gamestate.timestamp + self.gamestate.production_chain.production_coolingoff_time
+                return self.craft.next_production_time
         else:
-            return self.station.next_production_time
+            return self.craft.next_production_time
 
     def act(self) -> None:
         # we must always be the representing agent
-        assert self.gamestate.econ_agents[self.station.entity_id] == self.agent
+        assert self.gamestate.econ_agents[self.craft.entity_id] == self.agent
 
         # do production
         next_production_ts = self._produce_at_station()
@@ -751,13 +793,21 @@ class StationManager(EntityOperatorAgendum):
 class PlanetManager(EntityOperatorAgendum):
     """ Manage consumption and trading for planet/hab. """
 
-    def __init__(self, planet:sector_entity.Planet, *args:Any, **kwargs:Any) -> None:
-        super().__init__(planet, *args, **kwargs)
+    @classmethod
+    def create_planet_manager[T:"PlanetManager"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        a = cls.create_eoa(*args, **kwargs)
+        a.initialize_planet_manager()
+        return a
 
-        self.planet = planet
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.agent:econ.StationAgent = None # type: ignore
+
+    def initialize_planet_manager(self) -> None:
+        assert(isinstance(self.craft, sector_entity.Planet))
         self.agent = econ.StationAgent.create_planet_agent(
             self.character,
-            planet,
+            self.craft,
             self.gamestate.production_chain,
             self.gamestate
         )
@@ -766,15 +816,15 @@ class PlanetManager(EntityOperatorAgendum):
         # become captain before underlying start so we'll be captain by that point
         self.craft.captain = self.character
         super()._start()
-        self.gamestate.representing_agent(self.planet.entity_id, self.agent)
+        self.gamestate.representing_agent(self.craft.entity_id, self.agent)
         self.gamestate.schedule_agendum_immediate(self)
 
     def _stop(self) -> None:
         super()._stop()
-        self.gamestate.withdraw_agent(self.planet.entity_id)
+        self.gamestate.withdraw_agent(self.craft.entity_id)
         self.craft.captain = None
 
     def act(self) -> None:
-        assert self.gamestate.econ_agents[self.planet.entity_id] == self.agent
+        assert self.gamestate.econ_agents[self.craft.entity_id] == self.agent
         #TODO: price and budget setting stuff goes here and should run periodically
         pass

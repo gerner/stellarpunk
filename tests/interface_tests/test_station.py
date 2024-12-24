@@ -3,6 +3,7 @@
 import curses
 
 from stellarpunk import agenda
+from stellarpunk.core import sector_entity
 from stellarpunk.interface import station as v_station
 
 def test_force_pause(gamestate, generator, testui, sector, resource_station, resource_station_agendum):
@@ -27,7 +28,9 @@ def test_force_pause(gamestate, generator, testui, sector, resource_station, res
 
 
 def test_trade_menu_validator(gamestate, generator, testui, econ_logger, sector, resource_station, resource_station_agendum):
-    buy_resource = resource_station_agendum.station.resource
+    station = resource_station_agendum.craft
+    assert(isinstance(station, sector_entity.Station))
+    buy_resource = station.resource
     sell_resource = gamestate.production_chain.inputs_of(buy_resource)[0]
 
     # set up prices and cargo available for testing

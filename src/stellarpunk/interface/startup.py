@@ -32,7 +32,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
 
         self._generator = generator
         self._generator_thread:Optional[threading.Thread] = None
-        self._threaded_generation = True
+        self._threaded_generation = False
 
         self._game_saver = game_saver
 

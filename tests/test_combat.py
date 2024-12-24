@@ -104,7 +104,7 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
 
     defender_owner = generator.spawn_character(defender)
     defender_owner.take_ownership(defender)
-    defender_owner.add_agendum(agenda.CaptainAgendum(defender, defender_owner, gamestate))
+    defender_owner.add_agendum(agenda.CaptainAgendum.create_eoa(defender, defender_owner, gamestate))
 
     attack_order = combat.AttackOrder.create_attack_order(sector.sensor_manager.target(defender, attacker), attacker, gamestate, max_missiles=15)
     attacker.prepend_order(attack_order)

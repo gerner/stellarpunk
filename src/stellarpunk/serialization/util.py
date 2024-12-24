@@ -26,11 +26,11 @@ def float_to_f(value:float, f:io.IOBase) -> int:
 def float_from_f(f:io.IOBase) -> float:
     return struct.unpack(">f", f.read(4))[0]
 
-def int_to_f(x:int, f:io.IOBase, blen:int=4) -> int:
-    return f.write(x.to_bytes(blen, byteorder="big", signed=False))
+def int_to_f(x:int, f:io.IOBase, blen:int=4, signed:bool=False) -> int:
+    return f.write(x.to_bytes(blen, byteorder="big", signed=signed))
 
-def int_from_f(f:io.IOBase, blen:int=4) -> int:
-    return int.from_bytes(f.read(blen), byteorder="big", signed=False)
+def int_from_f(f:io.IOBase, blen:int=4, signed:bool=False) -> int:
+    return int.from_bytes(f.read(blen), byteorder="big", signed=signed)
 
 def to_len_pre_f(s:str, f:io.IOBase, blen:int=2) -> int:
     b = s.encode("utf8")
@@ -82,18 +82,18 @@ def primitive_from_f(f:io.IOBase, slen:int=2, ilen:int=4) -> Union[int,float,str
     else:
         raise ValueError(f'got unexpected type {type_code=}')
 
-def ints_to_f(seq:Collection[int], f:io.IOBase, blen:int=4) -> int:
+def ints_to_f(seq:Collection[int], f:io.IOBase, blen:int=4, signed:bool=False) -> int:
     bytes_written = 0
     bytes_written += size_to_f(len(seq), f)
     for x in seq:
-        bytes_written += int_to_f(x, f, blen=blen)
+        bytes_written += int_to_f(x, f, blen=blen, signed=signed)
     return bytes_written
 
-def ints_from_f(f:io.IOBase, blen:int=4) -> Collection[int]:
+def ints_from_f(f:io.IOBase, blen:int=4, signed:bool=False) -> list[int]:
     count = size_from_f(f)
     seq = []
     for i in range(count):
-        x = int_from_f(f, blen=blen)
+        x = int_from_f(f, blen=blen, signed=signed)
         seq.append(x)
     return seq
 

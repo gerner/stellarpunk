@@ -5,7 +5,7 @@ import logging
 import enum
 import uuid
 import weakref
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Type
 from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
@@ -36,15 +36,29 @@ class AbstractAgendum(abc.ABC):
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
 
-    def __init__(self, ) -> None:
-        self.agenda_id = uuid.uuid4()
+    @classmethod
+    def create_agendum[T:AbstractAgendum](cls:Type[T], character:"Character", *args:Any, **kwargs:Any) -> T:
+        kwargs.update({"_check_flag":True})
+        agendum = cls(*args, **kwargs)
+        agendum.initialize_agendum(character)
+        return agendum
+
+    def __init__(self, agenda_id:Optional[uuid.UUID]=None, _check_flag:bool=False) -> None:
+        assert(_check_flag is True)
+        if agenda_id:
+            assert(isinstance(agenda_id, uuid.UUID))
+            self.agenda_id = agenda_id
+        else:
+            self.agenda_id = uuid.uuid4()
         self.character:Character = None # type: ignore
+        self.logger:AgendumLoggerAdapter = None # type: ignore
+
+    def initialize_agendum(self, character:"Character") -> None:
+        self.character = character
         self.logger = AgendumLoggerAdapter(
                 self.character,
                 logging.getLogger(util.fullname(self)),
         )
-
-        logging.getLogger(util.fullname(self))
 
     def _start(self) -> None:
         pass

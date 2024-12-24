@@ -1013,45 +1013,45 @@ class UniverseGenerator(core.AbstractGenerator):
 
         if isinstance(asset, core.Ship):
             if asset in mining_ships:
-                character.add_agendum(agenda.CaptainAgendum(
-                    craft=asset,
-                    character=character,
-                    gamestate=self.gamestate
+                character.add_agendum(agenda.CaptainAgendum.create_eoa(
+                    asset,
+                    character,
+                    self.gamestate
                 ))
-                character.add_agendum(agenda.MiningAgendum(
-                    ship=asset,
-                    character=character,
-                    gamestate=self.gamestate
+                character.add_agendum(agenda.MiningAgendum.create_mining_agendum(
+                    asset,
+                    character,
+                    self.gamestate
                 ))
             elif asset in trading_ships:
-                character.add_agendum(agenda.CaptainAgendum(
-                    craft=asset,
-                    character=character,
-                    gamestate=self.gamestate
+                character.add_agendum(agenda.CaptainAgendum.create_eoa(
+                    asset,
+                    character,
+                    self.gamestate
                 ))
-                character.add_agendum(agenda.TradingAgendum(
-                    ship=asset,
-                    character=character,
-                    gamestate=self.gamestate
+                character.add_agendum(agenda.TradingAgendum.create_trading_agendum(
+                    asset,
+                    character,
+                    self.gamestate
                 ))
                 character.balance += 5e3
             else:
                 raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
         elif isinstance(asset, sector_entity.Station):
-            character.add_agendum(agenda.StationManager(
-                station=asset,
-                character=character,
-                gamestate=self.gamestate
+            character.add_agendum(agenda.StationManager.create_station_manager(
+                asset,
+                character,
+                self.gamestate
             ))
             # give enough money to buy several batches worth of goods
             resource_price:float = self.gamestate.production_chain.prices[asset.resource] # type: ignore
             batch_size:float = self.gamestate.production_chain.batch_sizes[asset.resource] # type: ignore
             character.balance += resource_price * batch_size * 5
         elif isinstance(asset, sector_entity.Planet):
-            character.add_agendum(agenda.PlanetManager(
-                planet=asset,
-                character=character,
-                gamestate=self.gamestate
+            character.add_agendum(agenda.PlanetManager.create_planet_manager(
+                asset,
+                character,
+                self.gamestate
             ))
             # give enough money to buy some of all the final goods
             character.balance += self.gamestate.production_chain.prices[-self.gamestate.production_chain.ranks[-1]:].max() * 5
@@ -1963,7 +1963,7 @@ class UniverseGenerator(core.AbstractGenerator):
         assert(self.gamestate.player.character)
         player_character = self.gamestate.player.character
 
-        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False))
+        player_character.add_agendum(agenda.CaptainAgendum.create_eoa(ship, player_character, self.gamestate, enable_threat_response=False))
 
         # set up tutorial flags
         assert refinery.captain
@@ -1998,7 +1998,7 @@ class UniverseGenerator(core.AbstractGenerator):
         player_character = self.gamestate.player.character
         assert(player_character)
 
-        player_character.add_agendum(agenda.CaptainAgendum(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
+        player_character.add_agendum(agenda.CaptainAgendum.create_eoa(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
 
         # spawn an NPC ship/character with orders to attack the player
         min_dist = 1e5
@@ -2007,7 +2007,7 @@ class UniverseGenerator(core.AbstractGenerator):
         threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
         character = self.spawn_character(threat)
         character.take_ownership(threat)
-        character.add_agendum(agenda.CaptainAgendum(threat, character, self.gamestate, enable_threat_response=False))
+        character.add_agendum(agenda.CaptainAgendum.create_eoa(threat, character, self.gamestate, enable_threat_response=False))
 
         order = combat.HuntOrder.create_hunt_order(ship.entity_id, threat, self.gamestate, start_loc=ship.loc)
         threat.clear_orders()
