@@ -269,3 +269,82 @@ def test_cancel_task():
 
     tasks = schedule.pop_current_tasks(8)
     assert tasks == []
+
+def test_get_set_navigator_parameters(generator, sector):
+    ship_a = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    ship_b = generator.spawn_ship(sector, 100, 100, v=(0,0), w=0, theta=0)
+    ship_c = generator.spawn_ship(sector, 1000, 1000, v=(0,0), w=0, theta=0)
+
+    neighbor_analyzer = collision.Navigator(
+            sector.space, ship_a.phys,
+            ship_a.radius,
+            ship_a.max_thrust, ship_a.max_torque, ship_a.max_speed(),
+            5e2, 1e4,
+    )
+    (
+            threat,
+            approach_time,
+            rel_pos,
+            rel_vel,
+            min_sep,
+            threat_count,
+            coalesced_threats,
+            non_coalesced_threats,
+            threat_radius,
+            threat_loc,
+            threat_velocity,
+            nearest_neighbor_idx,
+            nearest_neighbor_dist,
+            neighborhood_density,
+            num_neighbors,
+            prior_threat_count,
+    ) = neighbor_analyzer.analyze_neighbors(
+            0.,
+            1e4,
+    )
+
+    assert threat.data == ship_b
+    assert threat_count == 1
+    assert num_neighbors == 2
+    assert approach_time == 0
+    assert np.isclose(min_sep, np.linalg.norm(np.array((100,100))))
+    assert rel_pos == np.array((100,100))
+    assert rel_vel == np.array((0,0))
+
+    neighbor_analyzer2 = collision.Navigator(
+            sector.space, ship_a.phys,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    )
+
+    neighbor_analyzer2.set_navigator_parameters(neighbor_analyzer.get_navigator_parameters())
+
+    (
+            threat,
+            approach_time,
+            rel_pos,
+            rel_vel,
+            min_sep,
+            threat_count,
+            coalesced_threats,
+            non_coalesced_threats,
+            threat_radius,
+            threat_loc,
+            threat_velocity,
+            nearest_neighbor_idx,
+            nearest_neighbor_dist,
+            neighborhood_density,
+            num_neighbors,
+            prior_threat_count,
+    ) = neighbor_analyzer2.analyze_neighbors(
+            0.,
+            1e4,
+    )
+
+    assert threat.data == ship_b
+    assert threat_count == 1
+    assert num_neighbors == 2
+    assert approach_time == 0
+    assert np.isclose(min_sep, np.linalg.norm(np.array((100,100))))
+    assert rel_pos == np.array((100,100))
+    assert rel_vel == np.array((0,0))
+

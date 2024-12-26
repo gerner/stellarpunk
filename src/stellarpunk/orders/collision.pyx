@@ -176,6 +176,7 @@ cdef struct NeighborAnalysis:
     ccymunk.cpShape *nearest_neighbor_shape
     vector[CollisionThreat] collision_threats
     vector[ccymunk.cpShape *] coalesced_threats
+    size_t coalesced_threat_count
     set[ccymunk.cpHashValue] considered_shapes
 
     # coalesced threat
@@ -350,6 +351,8 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
     cdef CollisionThreat collision_threat
     cdef ccymunk.cpVect t_loc, t_velocity, t_rel_pos, c_rel
 
+    coalesced_threats = 0
+
     if analysis.threat_count > 0:
         circle_shape = <cpCircleShape *>analysis.threat_shape
         analysis.threat_radius = circle_shape.r
@@ -402,6 +405,7 @@ cdef void coalesce_threats(NeighborAnalysis *analysis):
         analysis.threat_loc = ZERO_VECTOR
         analysis.threat_velocity = ZERO_VECTOR
 
+    analysis.coalesced_threat_count = coalesced_threats
     return
 
 cdef ccymunk.cpVect _collision_dv(
@@ -744,6 +748,55 @@ cdef struct RelPosHistoryEntry:
     ccymunk.cpVect rel_pos
     ccymunk.cpVect velocity
 
+class NeighborAnalysisParameters:
+    """ carries analysis parameters for serialization. """
+    def __init__(self):
+        self.neighborhood_radius = 0.0
+        self.threat_count = 0
+        self.neighborhood_size = 0
+        self.nearest_neighborhood_dist = 0.0
+        self.cannot_avoid_collision = False
+        self.coalesced_threat_count = 0
+
+class NavigatorParameters:
+    """ carries navigator parameters for serialization. """
+    def __init__(self):
+        self.radius = 0.0
+        self.max_thrust = 0.0
+        self.max_torque = 0.0
+        self.max_acceleration = 0.0
+        self.max_angular_acceleration = 0.0
+        self.worst_case_rot_time = 0.0
+
+        self.base_neighborhood_radius = 0.0
+        self.neighborhood_radius = 0.0
+        self.full_neighborhood_radius_period = 0.0
+        self.full_neighborhood_radius_ts = 0.0
+
+        self.base_max_speed = 0.0
+        self.max_speed = 0.0
+
+        self.max_speed_cap = 0.0
+        self.max_speed_cap_ts = 0.0
+        self.max_speed_cap_alpha = 0.0
+        self.min_max_speed = 0.0
+        self.max_speed_cap_max_expiration = 0.0
+
+        self.base_margin = 0.0
+        self.margin = 0.0
+
+        self.target_location = tuple((0.0, 0.0))
+        self.arrival_radius = 0.0
+        self.min_radius = 0.0
+
+        self.last_threat_id = 0
+        self.collision_margin_histeresis = 0.0
+        self.cannot_avoid_collision_hold = False
+        self.collision_cbdr = False
+
+        self.analysis = NeighborAnalysisParameters()
+        self.prior_threats = []
+
 cdef class Navigator:
     cdef ccymunk.Space space
     cdef ccymunk.Body body
@@ -855,6 +908,116 @@ cdef class Navigator:
         self.cannot_avoid_collision_hold = False
         self.analysis.cannot_avoid_collision = False
         self.collision_cbdr = False
+
+    def get_navigator_parameters(self):
+        """ getting parameters out for serialization """
+        params = NavigatorParameters()
+
+        params.radius = self.radius
+        params.max_thrust = self.max_thrust
+        params.max_torque = self.max_torque
+        params.max_acceleration = self.max_acceleration
+        params.max_angular_acceleration = self.max_angular_acceleration
+        params.worst_case_rot_time = self.worst_case_rot_time
+
+        params.base_neighborhood_radius = self.base_neighborhood_radius
+        params.neighborhood_radius = self.neighborhood_radius
+        params.full_neighborhood_radius_period = self.full_neighborhood_radius_period
+        params.full_neighborhood_radius_ts = self.full_neighborhood_radius_ts
+
+        params.base_max_speed = self.base_max_speed
+        params.max_speed = self.max_speed
+
+        params.max_speed_cap = self.max_speed_cap
+        params.max_speed_cap_ts = self.max_speed_cap_ts
+        params.max_speed_cap_alpha = self.max_speed_cap_alpha
+        params.min_max_speed = self.min_max_speed
+        params.max_speed_cap_max_expiration = self.max_speed_cap_max_expiration
+
+        params.base_margin = self.base_margin
+        params.margin = self.margin
+
+        params.target_location = (self.target_location.x, self.target_location.y)
+        params.arrival_radius = self.arrival_radius
+        params.min_radius = self.min_radius
+
+        params.last_threat_id = self.last_threat_id
+        params.collision_margin_histeresis = self.collision_margin_histeresis
+        params.cannot_avoid_collision_hold = self.cannot_avoid_collision_hold
+        params.collision_cbdr = self.collision_cbdr
+
+        params.analysis = self.get_analysis_parameters()
+        params.prior_threats = []
+        for shape_id in self.prior_threat_ids:
+            shape = self.space._shapes.get(shape_id)
+            if shape is not None:
+                params.prior_threats.append(shape)
+
+        # we won't serialize this since it's only used for get_telemetry and
+        # that's just for debugging
+        #cdef list[RelPosHistoryEntry] rel_pos_history
+
+        return params
+
+    def set_navigator_parameters(self, params):
+        """ getting parameters in from deserialization """
+        self.radius = params.radius
+        self.max_thrust = params.max_thrust
+        self.max_torque = params.max_torque
+        self.max_acceleration = params.max_acceleration
+        self.max_angular_acceleration = params.max_angular_acceleration
+        self.worst_case_rot_time = params.worst_case_rot_time
+
+        self.base_neighborhood_radius = params.base_neighborhood_radius
+        self.neighborhood_radius = params.neighborhood_radius
+        self.full_neighborhood_radius_period = params.full_neighborhood_radius_period
+        self.full_neighborhood_radius_ts = params.full_neighborhood_radius_ts
+
+        self.base_max_speed = params.base_max_speed
+        self.max_speed = params.max_speed
+
+        self.max_speed_cap = params.max_speed_cap
+        self.max_speed_cap_ts = params.max_speed_cap_ts
+        self.max_speed_cap_alpha = params.max_speed_cap_alpha
+        self.min_max_speed = params.min_max_speed
+        self.max_speed_cap_max_expiration = params.max_speed_cap_max_expiration
+
+        self.base_margin = params.base_margin
+        self.margin = params.margin
+
+        self.target_location = ccymunk.cpVect(params.target_location[0], params.target_location[1])
+        self.arrival_radius = params.arrival_radius
+        self.min_radius = params.min_radius
+
+        self.last_threat_id = params.last_threat_id
+        self.collision_margin_histeresis = params.collision_margin_histeresis
+        self.cannot_avoid_collision_hold = params.cannot_avoid_collision_hold
+        self.collision_cbdr = params.collision_cbdr
+
+        self.set_analysis_parameters(params.analysis)
+        self.prior_threat_ids.clear()
+        for shape in params.prior_threats:
+            self.prior_threat_ids.push_back((<ccymunk.Shape?>shape)._shape.hashid_private)
+
+    def get_analysis_parameters(self):
+        # only need a few params that we expect to be set. others are reset
+        # for every analysis and won't be used until that happens
+        params = NeighborAnalysisParameters()
+        params.threat_count = self.analysis.threat_count
+        params.neighborhood_size = self.analysis.neighborhood_size
+        params.nearest_neighborhood_dist = self.analysis.nearest_neighbor_dist
+        params.cannot_avoid_collision = self.analysis.cannot_avoid_collision
+        params.coalesced_threat_count = self.analysis.coalesced_threat_count
+        return params
+
+    def set_analysis_parameters(self, params):
+        # only need a few params that we expect to be set. others are reset
+        # for every analysis and won't be used until that happens
+        self.analysis.threat_count = params.threat_count
+        self.analysis.neighborhood_size = params.neighborhood_size
+        self.analysis.nearest_neighbor_dist = params.nearest_neighborhood_dist
+        self.analysis.cannot_avoid_collision = params.cannot_avoid_collision
+        self.analysis.coalesced_threat_count = params.coalesced_threat_count
 
     cdef void log(self, message, eid_prefix=""):
         log(self.body, f'{self.analysis.timestamp}\t'+message, eid_prefix)
@@ -1108,7 +1271,7 @@ cdef class Navigator:
             nn_s_low, max_speed
         )
 
-        if self.analysis.threat_count <= self.analysis.coalesced_threats.size():
+        if self.analysis.threat_count <= self.analysis.coalesced_threat_count:
             ct_max_speed = max_speed
         else:
             ct_max_speed = self.min_max_speed

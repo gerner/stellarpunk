@@ -250,6 +250,10 @@ class GoToLocation(AbstractSteeringOrder):
         self._next_compute_ts = 0.
         self._nts = 0.
 
+    @property
+    def target_location(self) -> npt.NDArray[np.float64]:
+        return np.array(self._target_location)
+
     def set_target_location(self, target_location:cymunk.Vec2d) -> None:
         """ For testing support """
         self._target_location = target_location

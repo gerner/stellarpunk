@@ -63,12 +63,13 @@ class Missile(core.Ship):
 class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
     @staticmethod
     def ttl_order(order:core.Order, ttl:float) -> "TimedOrderTask":
-        tot = TimedOrderTask(order)
+        tot = TimedOrderTask()
+        tot.order = order
+        order.observe(tot)
         core.Gamestate.gamestate.schedule_task(core.Gamestate.gamestate.timestamp + ttl, tot)
         return tot
-    def __init__(self, order:core.Order) -> None:
-        self.order = order
-        order.observe(self)
+    def __init__(self) -> None:
+        self.order:core.Order = None # type: ignore
     def order_cancel(self, order:core.Order) -> None:
         core.Gamestate.gamestate.unschedule_task(self)
     def order_complete(self, order:core.Order) -> None:

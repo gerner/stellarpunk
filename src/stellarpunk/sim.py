@@ -26,6 +26,7 @@ from stellarpunk.serialization import (
     order as s_order,
     sensors as s_sensors,
     agenda as s_agenda,
+    combat as s_combat,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -521,6 +522,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
 
     #TODO: scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
+    sg.register_saver(combat.TimedOrderTask, s_combat.TimedOrderTaskSaver(sg))
     # sensor settings (live in SectorEntity)
     sg.register_saver(core.AbstractSensorSettings, s_sensors.SensorSettingsSaver(sg))
     sg.register_saver(sensors.SensorSettings, s_sensors.SensorSettingsSaver(sg))
