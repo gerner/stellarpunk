@@ -112,6 +112,12 @@ class AbstractGenerator:
     def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
 
 class ScheduledTask(abc.ABC):
+    def __init__(self, task_id:Optional[uuid.UUID]=None) -> None:
+        if task_id is not None:
+            self.task_id = task_id
+        else:
+            self.task_id = uuid.uuid4()
+
     @abc.abstractmethod
     def act(self) -> None: ...
 

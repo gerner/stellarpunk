@@ -97,7 +97,7 @@ def write_history_to_file(entity:Union["Sector", "SectorEntity"], f:Union[str, T
     if needs_close:
         fout.close()
 
-class SectorEntityObserver:
+class SectorEntityObserver(base.Observer):
     def entity_migrated(self, entity:"SectorEntity", from_sector:"Sector", to_sector:"Sector") -> None:
         pass
 
@@ -107,7 +107,7 @@ class SectorEntityObserver:
     def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
         pass
 
-class SectorEntity(base.Entity):
+class SectorEntity(base.Entity, base.Observable):
     """ An entity in space in a sector. """
 
     def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
@@ -132,16 +132,20 @@ class SectorEntity(base.Entity):
 
         self.history: collections.deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
-        self.observers:weakref.WeakSet[SectorEntityObserver] = weakref.WeakSet()
+        self._observers:weakref.WeakSet[SectorEntityObserver] = weakref.WeakSet()
 
         self.sensor_settings=sensor_settings
 
+    @property
+    def observers(self) -> Iterable[base.Observer]:
+        return self._observers
+
     def observe(self, observer:SectorEntityObserver) -> None:
-        self.observers.add(observer)
+        self._observers.add(observer)
 
     def unobserve(self, observer:SectorEntityObserver) -> None:
         try:
-            self.observers.remove(observer)
+            self._observers.remove(observer)
         except KeyError:
             pass
 
@@ -152,7 +156,7 @@ class SectorEntity(base.Entity):
         if self.sector is not None:
             self.sector.remove_entity(self)
         to_sector.add_entity(self)
-        for o in self.observers.copy():
+        for o in self._observers.copy():
             o.entity_migrated(self, from_sector, to_sector)
 
         self._migrate(to_sector)
@@ -161,9 +165,9 @@ class SectorEntity(base.Entity):
         pass
 
     def destroy(self) -> None:
-        for o in self.observers.copy():
+        for o in self._observers.copy():
             o.entity_destroyed(self)
-        self.observers.clear()
+        self._observers.clear()
 
         self._destroy()
         self.phys.data = None
@@ -173,7 +177,7 @@ class SectorEntity(base.Entity):
         pass
 
     def target(self, threat:"SectorEntity") -> None:
-        for o in self.observers.copy():
+        for o in self._observers.copy():
             o.entity_targeted(self, threat)
 
     @property

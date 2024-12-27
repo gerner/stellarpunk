@@ -32,6 +32,7 @@ TRANSLATE_DIRECTIONS = {
 class Settings:
     MAX_ANGULAR_VELOCITY = 2. # about 115 degrees per second
 
+
 class LambdaOrderObserver(core.OrderObserver):
     def __init__(
         self,
@@ -53,6 +54,10 @@ class LambdaOrderObserver(core.OrderObserver):
         # one event, we go away
         lifetime_collection.add(self)
         self.lifetime_collection = lifetime_collection
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
 
     def order_begin(self, order: core.Order) -> None:
         if self.begin:
@@ -509,6 +514,11 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
             self.presenter.selected_target = None
         else:
             self.presenter.selected_target = target.identity.entity_id
+
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         if entity != self.ship:

@@ -258,6 +258,8 @@ class PointDefenseEffectSaver(s_effect.EffectSaver[combat.PointDefenseEffect]):
         craft_id, current_target_id, has_pd_shape = context_data
 
         effect.craft = load_context.gamestate.get_entity(craft_id, core.SectorEntity)
+        if effect.started_at >= 0 and effect.completed_at < 0:
+            effect.craft.observe(effect)
 
         if current_target_id:
             effect.current_target = effect.craft.sensor_settings.get_image(current_target_id)

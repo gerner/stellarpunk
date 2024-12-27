@@ -311,6 +311,13 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for timestamp, agenda_id in agenda_ids:
             gamestate._agenda_schedule.push_task(timestamp, gamestate.agenda[agenda_id])
 
+    def sanity_check(self, gamestate:core.Gamestate, load_context:save_game.LoadContext, context:Any) -> None:
+        # sanity check things
+        gamestate.sanity_check_orders()
+        gamestate.sanity_check_effects()
+        gamestate.sanity_check_agenda()
+
+
 class StarfieldLayerSaver(save_game.Saver[core.StarfieldLayer]):
     def save(self, starfield:core.StarfieldLayer, f:io.IOBase) -> int:
         bytes_written = 0

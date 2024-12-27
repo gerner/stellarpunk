@@ -1,7 +1,7 @@
 """ Stellarpunk core data model """
 
 from .production_chain import ProductionChain
-from .base import AbstractEffect, AbstractOrder, Entity, Sprite, EconAgent, AbstractEconDataLogger, StarfieldLayer
+from .base import AbstractEffect, AbstractOrder, Entity, Sprite, EconAgent, AbstractEconDataLogger, StarfieldLayer, OBSERVER_ID_NULL
 from .sector import SectorEntityObserver, SectorEntity, Sector, CollisionObserver, AbstractSensorManager, AbstractSensorImage, AbstractSensorSettings, SensorIdentity, SensorImageInactiveReason, SectorWeatherRegion, SectorWeather, write_history_to_file, SECTOR_ENTITY_COLLISION_TYPE
 from .character import Asset, Character, Player, AbstractAgendum, Message, CharacterObserver, AbstractEventManager, CrewedSectorEntity
 from .gamestate import Gamestate, Counters, AbstractGameRuntime, AbstractGenerator, ScheduledTask

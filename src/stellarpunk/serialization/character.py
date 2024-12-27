@@ -1,8 +1,9 @@
 import uuid
 import io
+import collections
 from typing import Any, Optional
 
-from stellarpunk import core
+from stellarpunk import core, util
 
 from . import save_game, util as s_util, gamestate as s_gamestate
 
@@ -52,6 +53,7 @@ class PlayerSaver(s_gamestate.EntitySaver[core.Player]):
 class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
     def _save_entity(self, character:core.Character, f:io.IOBase) -> int:
         bytes_written = 0
+        bytes_written += s_util.debug_string_w("basic fields", f)
         if character.location is not None:
             bytes_written += s_util.int_to_f(1, f, blen=1)
             bytes_written += s_util.uuid_to_f(character.location.entity_id, f)
@@ -62,14 +64,19 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         bytes_written += s_util.uuids_to_f(list(x.entity_id for x in character.assets), f)
         bytes_written += s_util.uuid_to_f(character.home_sector_id, f)
 
+        bytes_written += s_util.debug_string_w("agenda", f)
         bytes_written += s_util.size_to_f(len(character.agenda), f)
         for agendum in character.agenda:
             bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
 
-        #TODO: observers
+        if self.save_game.debug:
+            bytes_written += s_util.debug_string_w("observers", f)
+            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in character.observers), f)
+
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Character:
+        s_util.debug_string_r("basic fields", f)
         has_location = s_util.int_from_f(f, blen=1)
         location_id:Optional[uuid.UUID] = None
         if has_location:
@@ -79,10 +86,16 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         asset_ids = s_util.uuids_from_f(f)
         home_sector_id = s_util.uuid_from_f(f)
 
+        s_util.debug_string_r("agenda", f)
         agenda_ids = []
         count = s_util.size_from_f(f)
         for i in range(count):
             agenda_ids.append(s_util.uuid_from_f(f))
+
+        observer_ids:list[tuple[str, uuid.UUID]] = []
+        if load_context.debug:
+            s_util.debug_string_r("observers", f)
+            observer_ids = s_util.str_uuids_from_f(f)
 
         character = core.Character(
             load_context.generator.sprite_store[sprite_id],
@@ -92,6 +105,10 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         )
         character.balance = balance
         load_context.register_post_load(character, (location_id, asset_ids, agenda_ids))
+
+        if load_context.debug:
+            load_context.register_sanity_check(character, observer_ids)
+
         return character
 
     def post_load(self, character:core.Character, load_context:save_game.LoadContext, context:Any) -> None:
@@ -112,6 +129,20 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for agenda_id in agenda_ids:
             agendum = load_context.gamestate.agenda[agenda_id]
             character.agenda.append(agendum)
+
+    def sanity_check(self, character:core.Character, load_context:save_game.LoadContext, context:Any) -> None:
+        observer_ids:list[tuple[str, uuid.UUID]] = context
+
+        # make sure all the observers we had when saving are back
+        saved_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for observer_id in observer_ids:
+            saved_observer_counts[observer_id] += 1
+        loaded_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for observer in character.observers:
+            loaded_observer_counts[(util.fullname(observer), observer.observer_id)] += 1
+        saved_observer_counts.subtract(loaded_observer_counts)
+        non_zero_observers = {observer_id: count for observer_id, count in saved_observer_counts.items() if count != 0}
+        assert(non_zero_observers == {})
 
 class MessageSaver(s_gamestate.EntitySaver[core.Message]):
     def _save_entity(self, message:core.Message, f:io.IOBase) -> int:

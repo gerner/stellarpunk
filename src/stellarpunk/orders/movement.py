@@ -402,7 +402,7 @@ class GoToLocation(AbstractSteeringOrder):
 
         return
 
-class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
+class EvadeOrder(AbstractSteeringOrder):
     @classmethod
     def create_evade_order[T:"EvadeOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args: Any, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> T:
         o = cls.create_abstract_steering_order(*args, escape_distance=escape_distance, **kwargs)
@@ -514,7 +514,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
         self.gamestate.schedule_order(next_ts, self)
 
-class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
+class PursueOrder(AbstractSteeringOrder):
     """ Steer toward a collision with the target """
     @classmethod
     def create_pursue_order[T:"PursueOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> T:

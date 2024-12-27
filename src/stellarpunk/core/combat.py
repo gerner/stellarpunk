@@ -62,14 +62,18 @@ class Missile(core.Ship):
 
 class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
     @staticmethod
-    def ttl_order(order:core.Order, ttl:float) -> "TimedOrderTask":
-        tot = TimedOrderTask()
+    def ttl_order(order:core.Order, ttl:float, *args:Any, **kwargs:Any) -> "TimedOrderTask":
+        tot = TimedOrderTask(*args, **kwargs)
         tot.order = order
         order.observe(tot)
         core.Gamestate.gamestate.schedule_task(core.Gamestate.gamestate.timestamp + ttl, tot)
         return tot
-    def __init__(self) -> None:
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.order:core.Order = None # type: ignore
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.task_id
     def order_cancel(self, order:core.Order) -> None:
         core.Gamestate.gamestate.unschedule_task(self)
     def order_complete(self, order:core.Order) -> None:
@@ -114,6 +118,11 @@ class ThreatTracker(core.SectorEntityObserver):
         self.logger.debug(f'adding threat {threat}')
         self.threats.add(threat)
         self.threat_ids.add(threat.identity.entity_id)
+
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.craft.entity_id
 
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
         assert craft == self.craft
@@ -548,6 +557,11 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
         else:
             self._pd_collisions[entity.entity_id].last_seen = core.Gamestate.gamestate.timestamp
 
+    # core.SectorEntityObeserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.effect_id
+
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if self.craft == entity:
             self.cancel_effect()
@@ -679,7 +693,7 @@ class HuntOrder(core.Order):
             # go there for a bit
             self._ttl_order(movement.GoToLocation.create_go_to_location(loc, self.ship, self.gamestate))
 
-class FleeOrder(core.Order, core.SectorEntityObserver):
+class FleeOrder(core.Order):
     """ Keeps track of threats and flees from them until "safe" """
     @classmethod
     def create_flee_order[T:"FleeOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:

@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional
 
 from stellarpunk.core.order import Order, OrderObserver
@@ -11,12 +12,18 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         self.target:Optional[SectorEntity] = target
         self.target.observe(self)
 
+    @property
+    def observer_id(self) -> uuid.UUID:
+        assert(self.order)
+        return self.order.order_id
+
     def order_complete(self, order:Order) -> None:
         if self.order is None:
             return
         assert order == self.order
         assert self.target
         self.target.unobserve(self)
+        self.order.unobserve(self)
         self.target = None
         self.order = None
 
@@ -26,6 +33,7 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         assert order == self.order
         assert self.target
         self.target.unobserve(self)
+        self.order.unobserve(self)
         self.target = None
         self.order = None
 
@@ -34,6 +42,8 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
             return
         assert entity == self.target
         assert self.order
+        self.target.unobserve(self)
+        self.order.unobserve(self)
         self.order.cancel_order()
         self.target = None
         self.order = None
@@ -45,6 +55,7 @@ class EntityOrderWatch(OrderObserver, SectorEntityObserver):
         assert self.order
         # TODO: do we always want to cancel on migrated? maybe optional?
         self.target.unobserve(self)
+        self.order.unobserve(self)
         self.order.cancel_order()
         self.target = None
         self.order = None

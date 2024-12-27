@@ -536,7 +536,6 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     #TODO: effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
     sg.ignore_saver(effects.TransferCargoEffect)
-    sg.ignore_saver(effects.TransferCargoEffect)
     sg.ignore_saver(effects.TradeTransferEffect)
     sg.ignore_saver(effects.MiningEffect)
     sg.ignore_saver(effects.WarpOutEffect)

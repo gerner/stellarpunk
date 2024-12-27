@@ -182,13 +182,10 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         has_target, target_id, detector_id, sector_id = context_data
 
         if has_target:
-            target = load_context.gamestate.entities[target_id]
-            assert(isinstance(target, core.SectorEntity))
-            sensor_image._target = target
-        detector = load_context.gamestate.entities[detector_id]
-        assert(isinstance(detector, core.SectorEntity))
-        sensor_image._ship = detector
+            sensor_image._target = load_context.gamestate.get_entity(target_id, core.SectorEntity)
+            sensor_image._target.observe(sensor_image)
+        sensor_image._ship = load_context.gamestate.get_entity(detector_id, core.SectorEntity)
+        sensor_image._ship.observe(sensor_image)
 
-        sector = load_context.gamestate.entities[sector_id]
-        assert(isinstance(sector, core.Sector))
+        sector = load_context.gamestate.get_entity(sector_id, core.Sector)
         sensor_image._sensor_manager = sector.sensor_manager

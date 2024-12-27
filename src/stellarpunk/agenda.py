@@ -4,6 +4,7 @@ import enum
 import collections
 import itertools
 import abc
+import uuid
 from typing import Optional, List, Any, Iterable, Tuple, DefaultDict, Mapping, Type
 
 import numpy as np
@@ -19,6 +20,8 @@ class Agendum(core.AbstractAgendum, abc.ABC):
     def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.gamestate = gamestate
+        self.started_at = -1.0
+        self.stopped_at = -1.0
 
     def register(self) -> None:
         self.gamestate.register_agendum(self)
@@ -26,12 +29,18 @@ class Agendum(core.AbstractAgendum, abc.ABC):
     def unregister(self) -> None:
         self.gamestate.unregister_agendum(self)
 
+    def start(self) -> None:
+        self.stopped_at = -1.0
+        self.started_at = self.gamestate.timestamp
+        self._start()
+
     def pause(self) -> None:
         self._pause()
         self.gamestate.unschedule_agendum(self)
 
     def stop(self) -> None:
         self._stop()
+        self.stopped_at = self.gamestate.timestamp
         self.gamestate.unschedule_agendum(self)
 
 
@@ -223,6 +232,10 @@ class EntityOperatorAgendum(Agendum, core.SectorEntityObserver):
 
     def _stop(self) -> None:
         self.craft.unobserve(self)
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.agenda_id
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self.craft:

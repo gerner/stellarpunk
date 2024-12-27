@@ -289,6 +289,10 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         gamestate.player.character.observe(self)
 
     # core.CharacterObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
     def character_destroyed(self, character:core.Character) -> None:
         if character == self.interface.player.character:
             self.gamestate.force_pause(self)

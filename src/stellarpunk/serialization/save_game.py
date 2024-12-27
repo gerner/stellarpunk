@@ -24,12 +24,14 @@ class LoadContext:
     """ State for one load cycle. """
 
     def __init__(self, sg:"GameSaver") -> None:
+        self.logger = logging.getLogger(util.fullname(self))
         self.save_game = sg
         self.debug = False
         self.generator:generate.UniverseGenerator = sg.generator
         self.gamestate:core.Gamestate = None # type: ignore
         self.references:set[Any] = set()
         self._post_loads:list[tuple[Any, Any]] = []
+        self._sanity_checks:list[tuple[Any, Any]] = []
 
     def reference(self, obj:Any) -> None:
         """ hang on to a reference to an object.
@@ -42,9 +44,17 @@ class LoadContext:
     def register_post_load(self, obj:Any, context:Any) -> None:
         self._post_loads.append((obj, context))
 
+    def register_sanity_check(self, obj:Any, context:Any) -> None:
+        self._sanity_checks.append((obj, context))
+
     def load_complete(self) -> None:
+        self.logger.info("post loading...")
         for obj, context in self._post_loads:
             self.save_game.post_load_object(obj, self, context)
+
+        self.logger.info("sanity checking...")
+        for obj, context in self._sanity_checks:
+            self.save_game.sanity_check_object(obj, self, context)
 
 class SaverObserver:
     def load_tick(self, saver:"Saver") -> None:
@@ -61,6 +71,9 @@ class Saver[T](abc.ABC):
     def load(self, f:io.IOBase, load_context:LoadContext) -> T: ...
 
     def post_load(self, obj:T, load_context:LoadContext, context:Any) -> None:
+        pass
+
+    def sanity_check(self, obj:T, load_context:LoadContext, context:Any) -> None:
         pass
 
     def estimate_ticks(self, obj:T) -> int:
@@ -239,6 +252,9 @@ class GameSaver(SaverObserver):
     def post_load_object(self, obj:Any, load_context:LoadContext, context:Any) -> None:
         self._save_register[type(obj)].post_load(obj, load_context, context)
 
+    def sanity_check_object(self, obj:Any, load_context:LoadContext, context:Any) -> None:
+        self._save_register[type(obj)].sanity_check(obj, load_context, context)
+
     def autosave(self, gamestate:core.Gamestate) -> str:
         #TODO: should we keep old autosaves?
         save_filename = "autosave.stpnk"
@@ -306,39 +322,44 @@ class GameSaver(SaverObserver):
         return save_games
 
     def load(self, save_filename:str, save_file:Optional[io.IOBase]=None) -> core.Gamestate:
+        self.logger.info(f'loading {save_filename}')
         load_context = LoadContext(self)
         with contextlib.ExitStack() as context_stack:
             if save_file is None:
                 save_file = context_stack.enter_context(open(save_filename, "rb"))
+            self.logger.debug("loading metadata")
             save_game = self._load_metadata(save_file)
             load_context.debug = save_game.debug_flag
 
             # load the class -> key registration
+            self.logger.debug("loading class registry")
             s_util.debug_string_r("class registry", save_file)
             self._load_registry(save_file)
 
+            self.logger.debug("loading event state")
             s_util.debug_string_r("event state", save_file)
             event_state = self.load_object(events.EventState, save_file, load_context)
+            self.logger.debug("loading gamestate")
             s_util.debug_string_r("gamestate", save_file)
             gamestate = self.load_object(core.Gamestate, save_file, load_context)
             gamestate.event_manager = self.event_manager
 
             # final set up
+            self.logger.debug("first pass load complete")
             load_context.load_complete()
 
             # we created the gamestate so it's our responsibility to set its
             # event manager and post_initialize it
+            self.logger.debug("initializing event manager")
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
 
-            gamestate.sanity_check_orders()
-            gamestate.sanity_check_effects()
-            gamestate.sanity_check_agenda()
-
+            self.logger.debug("loading gamestate into generator")
             self.generator.load_universe(gamestate)
 
             for observer in self._observers:
                 observer.load_complete(load_context, self)
 
+            self.logger.info("load complete")
             return gamestate
 
 class DispatchSaver[T](Saver[T]):

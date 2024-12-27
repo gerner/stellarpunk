@@ -115,6 +115,11 @@ class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorE
         if focus:
             self.focus_target()
 
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self.selected_entity:
             self.interface.log_message(f'target destroyed')

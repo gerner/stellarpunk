@@ -10,6 +10,7 @@ import uuid
 import itertools
 import logging
 import collections
+from collections.abc import Iterable
 from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, Type
 
 import numpy as np
@@ -18,6 +19,17 @@ import numpy.typing as npt
 from stellarpunk import narrative, util
 
 logger = logging.getLogger(__name__)
+
+OBSERVER_ID_NULL = uuid.UUID(hex="deadbeefdeadbeefdeadbeefdeadbeef")
+class Observer(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def observer_id(self) -> uuid.UUID: ...
+
+class Observable(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def observers(self) -> Iterable[Observer]: ...
 
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod

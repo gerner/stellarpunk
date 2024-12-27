@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import uuid
 from typing import Optional, Any, Type
 
 import numpy as np
@@ -55,6 +56,10 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         if self.mining_effect:
             self.mining_effect.cancel_effect()
             self.mining_effect.cancel_effect()
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
 
     def effect_complete(self, effect:core.Effect) -> None:
         assert effect == self.mining_effect
@@ -134,6 +139,10 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
     def _cancel(self) -> None:
         if self.transfer_effect:
             self.transfer_effect.cancel_effect()
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
 
     def effect_complete(self, effect:core.Effect) -> None:
         assert effect == self.transfer_effect
@@ -295,6 +304,10 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
                 + GoToLocation.compute_eta(self.ship, self.embark_to.loc)
         )
 
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
+
     def order_complete(self, order:core.Order) -> None:
         assert order == self.embark_order
         self.gamestate.schedule_order_immediate(self)
@@ -381,6 +394,11 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         # get into position and then some time of acceleration "out of system"
         self.init_eta = GoToLocation.compute_eta(self.ship, self.target_gate.loc) + 5
 
+    # core.EffectObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
+
     def effect_complete(self, effect:core.Effect) -> None:
         if self.phase == self.PHASE_TRAVEL_OUT_OF_SECTOR:
             assert effect == self.warp_out
@@ -399,11 +417,13 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             assert False
         self.gamestate.schedule_order_immediate(self)
 
+    # core.OrderObserver
     def order_complete(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)
+
 
     def _act_travel_to_gate(self, dt:float) -> None:
         """ Handles action during travel to gate phase.
@@ -585,6 +605,10 @@ class DockingOrder(core.OrderObserver, core.Order):
         #        self.target,
         #        self.ship,
         #    )
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
 
     def order_complete(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)

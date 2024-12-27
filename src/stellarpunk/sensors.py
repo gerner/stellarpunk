@@ -63,7 +63,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     def __hash__(self) -> int:
         return hash((self._identity.entity_id, self._detector_id))
 
-    # SectorEntityObjserver
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self._detector_id
+
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self._target:
             # might be risky checking if detected on logically destroyed entity

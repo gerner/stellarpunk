@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+import uuid
+from typing import Any, Tuple, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -13,15 +14,28 @@ AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 1.0
 
 class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
-    def __init__(
-            self,
+    @classmethod
+    def create_transfer_cargo_effect[T:TransferCargoEffect](
+            cls:Type[T],
             resource:int, amount:float,
             source:core.SectorEntity,
             destination:core.SectorEntity,
             *args: Any,
+            **kwargs: Any) -> T:
+        effect = cls(*args, resource, amount, *kwargs)
+        effect.source.observe(effect)
+        effect.destination.observe(effect)
+        return effect
+
+    def __init__(
+            self,
+            resource:int, amount:float,
+            *args: Any,
             transfer_rate:float=1e2, max_distance:float=2.5e3,
             **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self.source:core.SectorEntity = None # type: ignore
+        self.destination:core.SectorEntity = None # type: ignore
         self.resource = resource
         self.amount = amount
         self.sofar = 0.
@@ -30,10 +44,10 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
 
         self._completed_transfer = False
 
-        self.source = source
-        self.source.observe(self)
-        self.destination = destination
-        self.destination.observe(self)
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         self.cancel_effect()

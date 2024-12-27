@@ -5,6 +5,7 @@ import logging
 import collections
 import uuid
 import weakref
+from collections.abc import Iterable
 from typing import Any, Optional, Tuple, Deque, Set, Type
 
 import numpy as np
@@ -15,7 +16,7 @@ from .gamestate import Gamestate
 from .sector import Sector
 from .ship import Ship
 
-class EffectObserver:
+class EffectObserver(base.Observer):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -29,20 +30,21 @@ class EffectObserver:
         pass
 
 
-class Effect(base.AbstractEffect):
+class Effect(base.AbstractEffect, base.Observable):
     @classmethod
     def create_effect[T:"Effect"](cls:Type[T], sector:"Sector", gamestate:Gamestate, *args:Any, **kwargs:Any) -> T:
-        effect = cls(*args, gamestate, **kwargs)
+        effect = cls(*args, gamestate, _check_flag=True, **kwargs)
         effect.sector = sector
         return effect
 
-    def __init__(self, gamestate:"Gamestate", *args:Any, observer:Optional[EffectObserver]=None, **kwargs:Any) -> None:
+    def __init__(self, gamestate:"Gamestate", *args:Any, observer:Optional[EffectObserver]=None, _check_flag:bool=False, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        assert(_check_flag)
         self.sector:Sector = None # type: ignore
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
-        self.observers:weakref.WeakSet[EffectObserver] = weakref.WeakSet()
+        self._observers:weakref.WeakSet[EffectObserver] = weakref.WeakSet()
 
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -55,12 +57,16 @@ class Effect(base.AbstractEffect):
     def unregister(self) -> None:
         self.gamestate.unregister_effect(self)
 
+    @property
+    def observers(self) -> Iterable[base.Observer]:
+        return self._observers
+
     def observe(self, observer:EffectObserver) -> None:
-        self.observers.add(observer)
+        self._observers.add(observer)
 
     def unobserve(self, observer:EffectObserver) -> None:
         try:
-            self.observers.remove(observer)
+            self._observers.remove(observer)
         except KeyError:
             pass
 
@@ -99,7 +105,7 @@ class Effect(base.AbstractEffect):
         self.started_at = self.gamestate.timestamp
         self._begin()
 
-        for observer in self.observers:
+        for observer in self._observers:
             observer.effect_begin(self)
 
     def complete_effect(self) -> None:
@@ -118,9 +124,9 @@ class Effect(base.AbstractEffect):
 
         self.logger.debug(f'effect {self} in {self.sector.short_id()} complete in {self.gamestate.timestamp - self.started_at:.2f}')
 
-        for observer in self.observers:
+        for observer in self._observers:
             observer.effect_complete(self)
-        self.observers.clear()
+        self._observers.clear()
 
         #TODO: do we need to wrap this is a try/catch the way we do with orders?
         self.sector.remove_effect(self)
@@ -146,9 +152,9 @@ class Effect(base.AbstractEffect):
 
         self._cancel()
 
-        for observer in self.observers:
+        for observer in self._observers:
             observer.effect_cancel(self)
-        self.observers.clear()
+        self._observers.clear()
 
     def act(self, dt:float) -> None:
         # by default we'll just complete the effect if it's done
@@ -172,7 +178,7 @@ class OrderLoggerAdapter(logging.LoggerAdapter):
             return f'{self.ship.short_id()}@{self.ship.sector.short_id()} {msg}', kwargs
 
 
-class OrderObserver:
+class OrderObserver(base.Observer):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
@@ -186,7 +192,7 @@ class OrderObserver:
         pass
 
 
-class Order(base.AbstractOrder):
+class Order(base.AbstractOrder, base.Observable):
     @classmethod
     def create_order[T: "Order"](cls:Type[T], ship:"Ship", gamestate:"Gamestate", *args:Any, **kwargs:Any) -> T:
         """ creates an order and initializes it for use.
@@ -228,7 +234,7 @@ class Order(base.AbstractOrder):
         self.completed_at = -1.
         self.init_eta = np.inf
 
-        self.observers:weakref.WeakSet[OrderObserver] = weakref.WeakSet()
+        self._observers:weakref.WeakSet[OrderObserver] = weakref.WeakSet()
         if observer is not None:
             self.observe(observer)
 
@@ -248,12 +254,16 @@ class Order(base.AbstractOrder):
         else:
             return self.init_eta
 
+    @property
+    def observers(self) -> Iterable[base.Observer]:
+        return self._observers
+
     def observe(self, observer:OrderObserver) -> None:
-        self.observers.add(observer)
+        self._observers.add(observer)
 
     def unobserve(self, observer:OrderObserver) -> None:
         try:
-            self.observers.remove(observer)
+            self._observers.remove(observer)
         except KeyError:
             pass
 
@@ -289,7 +299,7 @@ class Order(base.AbstractOrder):
         self.started_at = self.gamestate.timestamp
         self._begin()
 
-        for observer in self.observers:
+        for observer in self._observers:
             observer.order_begin(self)
 
         self.gamestate.schedule_order_immediate(self)
@@ -320,9 +330,9 @@ class Order(base.AbstractOrder):
             self.parent_order.child_orders.remove(self)
 
         self._complete()
-        for observer in self.observers:
+        for observer in self._observers:
             observer.order_complete(self)
-        self.observers.clear()
+        self._observers.clear()
         self.gamestate.unschedule_order(self)
 
     def cancel_order(self) -> None:
@@ -352,9 +362,9 @@ class Order(base.AbstractOrder):
             self.parent_order.child_orders.remove(self)
 
         self._cancel()
-        for observer in self.observers:
+        for observer in self._observers:
             observer.order_cancel(self)
-        self.observers.clear()
+        self._observers.clear()
         self.gamestate.unschedule_order(self)
 
     def base_act(self, dt:float) -> None:

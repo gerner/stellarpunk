@@ -17,9 +17,11 @@ class AgendumSaver[T:agenda.Agendum](save_game.Saver[T], abc.ABC):
 
     def save(self, obj:T, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written ++ s_util.debug_string_w("basic fields", f)
+        bytes_written += s_util.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(obj.agenda_id, f)
         bytes_written += s_util.uuid_to_f(obj.character.entity_id, f)
+        bytes_written += s_util.float_to_f(obj.started_at, f)
+        bytes_written += s_util.float_to_f(obj.stopped_at, f)
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_agendum(obj, f)
         return bytes_written
@@ -28,8 +30,12 @@ class AgendumSaver[T:agenda.Agendum](save_game.Saver[T], abc.ABC):
         s_util.debug_string_r("basic fields", f)
         agenda_id = s_util.uuid_from_f(f)
         character_id = s_util.uuid_from_f(f)
+        started_at = s_util.float_from_f(f)
+        stopped_at = s_util.float_from_f(f)
         s_util.debug_string_r("type specific", f)
         (agendum, extra_context) = self._load_agendum(f, load_context, agenda_id)
+        agendum.started_at = started_at
+        agendum.stopped_at = stopped_at
         load_context.gamestate.register_agendum(agendum)
 
         load_context.register_post_load(agendum, (character_id, extra_context))
@@ -75,6 +81,9 @@ class CaptainAgendumSaver(AgendumSaver[agenda.CaptainAgendum]):
         craft = load_context.gamestate.entities[ship_id]
         assert(isinstance(craft, core.Ship))
         obj.craft = craft
+
+        if obj.started_at >= 0 and obj.stopped_at < 0:
+            obj.craft.observe(obj)
 
 class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
     def _save_agendum(self, obj:agenda.MiningAgendum, f:io.IOBase) -> int:
@@ -138,6 +147,10 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         context_data:tuple[uuid.UUID, uuid.UUID, Optional[list[uuid.UUID]], Optional[uuid.UUID], Optional[uuid.UUID]] = context
         ship_id, agent_id, allowed_station_ids, mining_order_id, transfer_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
+
+        if obj.started_at >= 0 and obj.stopped_at < 0:
+            obj.craft.observe(obj)
+
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
 
         if allowed_station_ids:
@@ -227,6 +240,10 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         context_data:tuple[uuid.UUID, uuid.UUID, Optional[list[uuid.UUID]], Optional[list[uuid.UUID]], Optional[uuid.UUID], Optional[uuid.UUID]] = context
         ship_id, agent_id, buy_from_station_ids, sell_to_station_ids, buy_order_id, sell_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
+
+        if obj.started_at >= 0 and obj.stopped_at < 0:
+            obj.craft.observe(obj)
+
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
 
         if buy_from_station_ids:
@@ -267,6 +284,10 @@ class StationManagerSaver(AgendumSaver[agenda.StationManager]):
         context_data:tuple[uuid.UUID, uuid.UUID] = context
         ship_id, agent_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, sector_entity.Station)
+
+        if obj.started_at >= 0 and obj.stopped_at < 0:
+            obj.craft.observe(obj)
+
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.StationAgent)
 
 class PlanetManagerSaver(AgendumSaver[agenda.PlanetManager]):
@@ -286,4 +307,8 @@ class PlanetManagerSaver(AgendumSaver[agenda.PlanetManager]):
         context_data:tuple[uuid.UUID, uuid.UUID] = context
         ship_id, agent_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, sector_entity.Planet)
+
+        if obj.started_at >= 0 and obj.stopped_at < 0:
+            obj.craft.observe(obj)
+
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.StationAgent)

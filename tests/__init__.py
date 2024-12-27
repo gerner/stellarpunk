@@ -225,6 +225,10 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
 
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
     def order_cancel(self, order:core.Order) -> None:
         self.order_complete(order)
 

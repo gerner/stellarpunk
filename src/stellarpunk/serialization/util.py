@@ -146,6 +146,23 @@ def uuids_from_f(f:io.IOBase) -> list[uuid.UUID]:
         seq.append(x)
     return seq
 
+def str_uuids_to_f(items:Collection[tuple[str, uuid.UUID]], f:io.IOBase) -> int:
+    bytes_written = 0
+    bytes_written += size_to_f(len(items), f)
+    for s,u in items:
+        bytes_written += to_len_pre_f(s, f)
+        bytes_written += uuid_to_f(u, f)
+    return bytes_written
+
+def str_uuids_from_f(f:io.IOBase) -> list[tuple[str, uuid.UUID]]:
+    count = size_from_f(f)
+    seq = []
+    for i in range(count):
+        s = from_len_pre_f(f)
+        u = uuid_from_f(f)
+        seq.append((s,u))
+    return seq
+
 def debug_string_w(s:str, f:io.IOBase) -> int:
     #TODO: flag to turn this off
     i = to_len_pre_f(s, f)
