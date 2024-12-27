@@ -78,10 +78,16 @@ class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
         self.order.cancel_order()
 
 class ThreatTracker(core.SectorEntityObserver):
-    def __init__(self, craft:core.SectorEntity, threat_ttl:float=120.) -> None:
+    @classmethod
+    def create_threat_tracker[T:"ThreatTracker"](cls:Type[T], craft:core.SectorEntity, threat_ttl:float=120.) -> "ThreatTracker":
+        t = cls(threat_ttl)
+        t.craft = craft
+        return t
+
+    def __init__(self, threat_ttl:float=120.) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.craft:core.SectorEntity = craft
-        self.threats:Set[core.AbstractSensorImage] = set()
+        self.craft:core.SectorEntity = None # type: ignore
+        self.threats:set[core.AbstractSensorImage] = set()
         self.threat_ids:Set[uuid.UUID] = set()
         self.last_target_ts = -np.inf
         self.closest_threat:Optional[core.AbstractSensorImage] = None
@@ -172,7 +178,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
         super().__init__(*args, **kwargs)
         self.avoid_collisions=False
 
-        self.ttl = 240
+        self.ttl = 240.
         self.expiration_time = self.gamestate.timestamp + self.ttl
 
     def _begin(self) -> None:
@@ -214,7 +220,7 @@ class MissileOrder(movement.PursueOrder, core.CollisionObserver):
 class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
 
-    class State(enum.Enum):
+    class State(enum.IntEnum):
         APPROACH = enum.auto()
         WITHDRAW = enum.auto()
         SHADOW = enum.auto()
@@ -225,13 +231,13 @@ class AttackOrder(movement.AbstractSteeringOrder):
         GIVEUP = enum.auto()
 
     @classmethod
-    def create_attack_order[T:"AttackOrder"](cls:Type[T], target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:Optional[int]=None, **kwargs:Any) -> T:
+    def create_attack_order[T:"AttackOrder"](cls:Type[T], target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:int=0, **kwargs:Any) -> T:
         o = cls.create_abstract_steering_order(*args, distance_min=distance_min, distance_max=distance_max, max_active_age=max_active_age, max_passive_age=max_passive_age, search_distance=search_distance, max_fire_rel_bearing=max_fire_rel_bearing, max_missiles=max_missiles, **kwargs)
         assert o.ship.sector
         o.target = target
         return o
 
-    def __init__(self, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:Optional[int]=None, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:int=0, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.target:core.AbstractSensorImage = None # type: ignore
@@ -365,7 +371,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         # only fire a missile if we're vaguely pointed toward the target
         if self.target.age < self.max_fire_age and self.gamestate.timestamp - self.last_fire_ts > self.fire_period:
             #TODO: temporary hack to limit attacking
-            if self.max_missiles is not None and self.missiles_fired >= self.max_missiles:
+            if self.max_missiles > 0 and self.missiles_fired >= self.max_missiles:
                 return AttackOrder.State.GIVEUP
             if abs(util.normalize_angle(util.bearing(self.ship.loc, self.target.loc) - self.ship.angle, shortest=True)) < self.max_fire_rel_bearing and self.target.profile / self.ship.sensor_settings.max_threshold > self.min_profile_to_threshold:
                 return AttackOrder.State.FIRE
@@ -431,19 +437,21 @@ class PDTarget:
 #   perhaps a better choice would be to create a cone shaped area to monitor
 #   inside that space we can abstractly model point defense working
 class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
-    class State(enum.Enum):
+    class State(enum.IntEnum):
         IDLE = enum.auto()
         ACTIVE = enum.auto()
 
-    def __init__(self, craft:core.SectorEntity, *args:Any, threat_tracker:Optional[ThreatTracker]=None, **kwargs:Any) -> None:
+    @classmethod
+    def create_point_defense_effect[T:"PointDefenseEffect"](cls:Type[T], craft:core.SectorEntity, *args:Any, **kwargs:Any) -> T:
+        pde = cls(*args, **kwargs)
+        pde.craft = craft
+        pde.threat_tracker = ThreatTracker.create_threat_tracker(craft)
+        return pde
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.craft = craft
-        if threat_tracker is None:
-            self.threat_tracker = ThreatTracker(craft)
-            self.own_tracker = True
-        else:
-            self.threat_tracker = threat_tracker
-            self.own_tracker = False
+        self.craft:core.SectorEntity = None # type: ignore
+        self.threat_tracker:ThreatTracker = None # type: ignore
         self.state = PointDefenseEffect.State.IDLE
         self.current_target:Optional[core.AbstractSensorImage] = None
         self.targets_destroyed = 0
@@ -469,8 +477,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
         self._collided = False
 
     def _begin(self) -> None:
-        if self.own_tracker:
-            self.threat_tracker.start_tracking()
+        self.threat_tracker.start_tracking()
         self.state = PointDefenseEffect.State.IDLE
         self.craft.observe(self)
         self.gamestate.schedule_effect_immediate(self, jitter=0.1)
@@ -478,8 +485,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
     def _complete(self) -> None:
         if self.state == PointDefenseEffect.State.ACTIVE:
             self._deactivate()
-        if self.own_tracker:
-            self.threat_tracker.stop_tracking()
+        self.threat_tracker.stop_tracking()
         self.craft.unobserve(self)
 
     def _cancel(self) -> None:
@@ -489,6 +495,10 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
         """ IDLE -> ACTIVE transition logic """
         self.logger.info("activate")
         self.state = PointDefenseEffect.State.ACTIVE
+
+        self._setup_shape()
+
+    def _setup_shape(self) -> None:
 
         # create a cone centered on us that moves with us, but stays pointed in
         # a set direction. we'll aim the cone separately.
@@ -561,8 +571,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
             self.cancel_effect()
             return
 
-        if self.own_tracker:
-            self.threat_tracker.update_threats()
+        self.threat_tracker.update_threats()
         target = self.threat_tracker.closest_threat
         if target is None:
             if self.state == PointDefenseEffect.State.ACTIVE:
@@ -676,8 +685,8 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
     def create_flee_order[T:"FleeOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
         o = cls.create_order(*args, **kwargs)
         assert o.ship.sector
-        o.threat_tracker = ThreatTracker(o.ship)
-        o.point_defense = PointDefenseEffect(o.ship, o.ship.sector, o.gamestate, threat_tracker=o.threat_tracker)
+        o.threat_tracker = ThreatTracker.create_threat_tracker(o.ship)
+        o.point_defense = PointDefenseEffect.create_point_defense_effect(o.ship, o.ship.sector, o.gamestate)
         o.max_thrust = o.ship.max_thrust
         return o
 
@@ -762,3 +771,4 @@ class FleeOrder(core.Order, core.SectorEntityObserver):
 
         self.max_thrust = self._choose_thrust()
         self._ttl_order(movement.EvadeOrder.create_evade_order(self.threat_tracker.closest_threat, self.ship, self.gamestate, max_thrust=self.max_thrust))
+

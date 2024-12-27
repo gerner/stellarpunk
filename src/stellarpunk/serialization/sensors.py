@@ -75,6 +75,8 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
         for i in range(count):
             sensor_image = self.save_game.load_object(sensors.SensorImage, f, load_context)
             sensor_settings.register_image(sensor_image)
+            # load_context will hold a strong reference to sensor_image because
+            # otherwise the only reference is a weak one in sensor_settings
             load_context.reference(sensor_image)
 
         return sensor_settings

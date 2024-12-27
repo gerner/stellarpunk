@@ -456,7 +456,7 @@ class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEn
         def toggle_point_defense(args:Sequence[str]) -> None:
             assert self.ship.sector
             if self.point_defense is None:
-                self.point_defense = combat.PointDefenseEffect(self.ship, self.ship.sector, self.gamestate)
+                self.point_defense = combat.PointDefenseEffect.create_point_defense_effect(self.ship, self.ship.sector, self.gamestate)
                 self.ship.sector.add_effect(self.point_defense)
             else:
                 self.point_defense.cancel_effect()

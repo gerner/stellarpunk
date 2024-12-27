@@ -527,11 +527,11 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(orders.movement.PursueOrder, s_movement.PursueOrderSaver(sg))
     sg.register_saver(orders.movement.WaitOrder, s_movement.WaitOrderSaver(sg))
 
-    #TODO: combat orders
-    sg.register_saver(combat.MissileOrder, s_order.NullOrderSaver(sg))
-    sg.register_saver(combat.HuntOrder, s_order.NullOrderSaver(sg))
-    sg.register_saver(combat.AttackOrder, s_order.NullOrderSaver(sg))
-    sg.register_saver(combat.FleeOrder, s_order.NullOrderSaver(sg))
+    # combat orders
+    sg.register_saver(combat.MissileOrder, s_combat.MissileOrderSaver(sg))
+    sg.register_saver(combat.HuntOrder, s_combat.HuntOrderSaver(sg))
+    sg.register_saver(combat.AttackOrder, s_combat.AttackOrderSaver(sg))
+    sg.register_saver(combat.FleeOrder, s_combat.FleeOrderSaver(sg))
 
     #TODO: effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
@@ -541,7 +541,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(effects.MiningEffect)
     sg.ignore_saver(effects.WarpOutEffect)
     sg.ignore_saver(effects.WarpInEffect)
-    sg.ignore_saver(combat.PointDefenseEffect)
+    sg.register_saver(combat.PointDefenseEffect, s_combat.PointDefenseEffectSaver(sg))
 
     # scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
@@ -556,7 +556,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(sensors.SensorImage, s_sensors.SensorImageSaver(sg))
 
     # other stuff
-    sg.ignore_saver(combat.ThreatTracker)
+    sg.register_saver(combat.ThreatTracker, s_combat.ThreatTrackerSaver(sg))
 
     return sg
 

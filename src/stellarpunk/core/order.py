@@ -30,9 +30,15 @@ class EffectObserver:
 
 
 class Effect(base.AbstractEffect):
-    def __init__(self, sector:"Sector", gamestate:"Gamestate", *args:Any, observer:Optional[EffectObserver]=None, **kwargs:Any) -> None:
+    @classmethod
+    def create_effect[T:"Effect"](cls:Type[T], sector:"Sector", gamestate:Gamestate, *args:Any, **kwargs:Any) -> T:
+        effect = cls(*args, gamestate, **kwargs)
+        effect.sector = sector
+        return effect
+
+    def __init__(self, gamestate:"Gamestate", *args:Any, observer:Optional[EffectObserver]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.sector = sector
+        self.sector:Sector = None # type: ignore
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
