@@ -100,7 +100,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         elif not self.mining_effect:
             assert self.ship.phys.torque == 0.
             assert self.ship.sector is not None
-            self.mining_effect = effects.MiningEffect(
+            self.mining_effect = effects.MiningEffect.create_transfer_cargo_effect(
                     self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
             self.ship.sector.add_effect(self.mining_effect)
 
@@ -180,7 +180,7 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
-        return effects.TransferCargoEffect(
+        return effects.TransferCargoEffect.create_transfer_cargo_effect(
                 self.resource, self.amount, self.ship, self.target,
                 self.ship.sector, self.gamestate,
                 transfer_rate=self.transfer_rate())
@@ -204,7 +204,7 @@ class TradeCargoToStation(TransferCargo):
         assert self.buyer == self.gamestate.econ_agents[self.target.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
         # anymore (might have happened since we started the order)
-        return effects.TradeTransferEffect(
+        return effects.TradeTransferEffect.create_trade_transfer_effect(
                 self.buyer, self.seller, econ.buyer_price,
                 self.resource, self.amount, self.ship, self.target,
                 self.ship.sector, self.gamestate,
@@ -236,7 +236,7 @@ class TradeCargoFromStation(TransferCargo):
         assert self.seller == self.gamestate.econ_agents[self.target.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
         # anymore (might have happened since we started the order)
-        return effects.TradeTransferEffect(
+        return effects.TradeTransferEffect.create_trade_transfer_effect(
                 self.buyer, self.seller, econ.seller_price,
                 self.resource, self.amount, self.target, self.ship,
                 self.ship.sector, self.gamestate,
@@ -444,7 +444,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             expected_theta = self.target_gate.direction
 
             expected_loc = self.ship.loc + util.polar_to_cartesian(expected_r, expected_theta)
-            self.warp_out = effects.WarpOutEffect(
+            self.warp_out = effects.WarpOutEffect.create_warp_out_effect(
                     expected_loc, self.ship.sector, self.gamestate,
                     ttl=self.travel_time,
                     observer=self)
@@ -510,7 +510,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             self.warp_velocity = np.copy(self.ship.velocity)
             self.ship.set_velocity((0., 0.))
 
-            self.warp_in = effects.WarpInEffect(
+            self.warp_in = effects.WarpInEffect.create_warp_in_effect(
                     np.copy(self.ship.loc), self.ship.sector, self.gamestate,
                     observer=self)
             self.ship.sector.add_effect(self.warp_in)

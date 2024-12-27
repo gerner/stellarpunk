@@ -30,7 +30,7 @@ class EffectObserver(base.Observer):
         pass
 
 
-class Effect(base.AbstractEffect, base.Observable):
+class Effect(base.Observable[EffectObserver], base.AbstractEffect):
     @classmethod
     def create_effect[T:"Effect"](cls:Type[T], sector:"Sector", gamestate:Gamestate, *args:Any, **kwargs:Any) -> T:
         effect = cls(*args, gamestate, _check_flag=True, **kwargs)
@@ -38,13 +38,12 @@ class Effect(base.AbstractEffect, base.Observable):
         return effect
 
     def __init__(self, gamestate:"Gamestate", *args:Any, observer:Optional[EffectObserver]=None, _check_flag:bool=False, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
         assert(_check_flag)
+        super().__init__(*args, **kwargs)
         self.sector:Sector = None # type: ignore
         self.gamestate = gamestate
         self.started_at = -1.
         self.completed_at = -1.
-        self._observers:weakref.WeakSet[EffectObserver] = weakref.WeakSet()
 
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -56,19 +55,6 @@ class Effect(base.AbstractEffect, base.Observable):
 
     def unregister(self) -> None:
         self.gamestate.unregister_effect(self)
-
-    @property
-    def observers(self) -> Iterable[base.Observer]:
-        return self._observers
-
-    def observe(self, observer:EffectObserver) -> None:
-        self._observers.add(observer)
-
-    def unobserve(self, observer:EffectObserver) -> None:
-        try:
-            self._observers.remove(observer)
-        except KeyError:
-            pass
 
     def _begin(self) -> None:
         """ Called when the effect starts.
@@ -192,7 +178,7 @@ class OrderObserver(base.Observer):
         pass
 
 
-class Order(base.AbstractOrder, base.Observable):
+class Order(base.Observable[OrderObserver], base.AbstractOrder):
     @classmethod
     def create_order[T: "Order"](cls:Type[T], ship:"Ship", gamestate:"Gamestate", *args:Any, **kwargs:Any) -> T:
         """ creates an order and initializes it for use.
@@ -234,7 +220,6 @@ class Order(base.AbstractOrder, base.Observable):
         self.completed_at = -1.
         self.init_eta = np.inf
 
-        self._observers:weakref.WeakSet[OrderObserver] = weakref.WeakSet()
         if observer is not None:
             self.observe(observer)
 
@@ -253,19 +238,6 @@ class Order(base.AbstractOrder, base.Observable):
             return self.init_eta - (self.gamestate.timestamp - self.started_at)
         else:
             return self.init_eta
-
-    @property
-    def observers(self) -> Iterable[base.Observer]:
-        return self._observers
-
-    def observe(self, observer:OrderObserver) -> None:
-        self._observers.add(observer)
-
-    def unobserve(self, observer:OrderObserver) -> None:
-        try:
-            self._observers.remove(observer)
-        except KeyError:
-            pass
 
     def _add_child(self, order:"Order", begin:bool=True) -> None:
         order.parent_order = self
@@ -330,7 +302,7 @@ class Order(base.AbstractOrder, base.Observable):
             self.parent_order.child_orders.remove(self)
 
         self._complete()
-        for observer in self._observers:
+        for observer in self._observers.copy():
             observer.order_complete(self)
         self._observers.clear()
         self.gamestate.unschedule_order(self)

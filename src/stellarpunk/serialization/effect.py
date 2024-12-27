@@ -79,12 +79,14 @@ class TransferCargoEffectSaver[T:effects.TransferCargoEffect](EffectSaver[T]):
     def _save_transfer_cargo_effect(self, effect:T, f:io.IOBase) -> int:
         return 0
     def _load_transfer_cargo_effect(self, f:io.IOBase, load_context:save_game.LoadContext, resource:int, amount:float, transfer_rate:float, max_distance:float, effect_id:uuid.UUID) -> tuple[T, Any]:
-        return effects.TransferCargoEffect(resource, amount, load_context.gamestate, transfer_rate=transfer_rate, max_distance=max_distance), None # type: ignore
+        #TODO: is this correct?
+        return effects.TransferCargoEffect(resource, amount, load_context.gamestate, transfer_rate=transfer_rate, max_distance=max_distance, _check_flag=True, effect_id=effect_id), None # type: ignore
     def _post_load_transfer_cargo_effect(self, effect:T, load_context:save_game.LoadContext, context:Any) -> None:
         pass
 
     def _save_effect(self, effect:T, f:io.IOBase) -> int:
         bytes_written = 0
+        #TODO: lots of stuff
         return bytes_written
     def _load_effect(self, f:io.IOBase, load_context:save_game.LoadContext, effect_id:uuid.UUID) -> tuple[T, Any]:
         source_id = s_util.uuid_from_f(f)

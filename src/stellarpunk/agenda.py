@@ -30,6 +30,7 @@ class Agendum(core.AbstractAgendum, abc.ABC):
         self.gamestate.unregister_agendum(self)
 
     def start(self) -> None:
+        assert(self.started_at < 0.0)
         self.stopped_at = -1.0
         self.started_at = self.gamestate.timestamp
         self._start()
@@ -39,6 +40,8 @@ class Agendum(core.AbstractAgendum, abc.ABC):
         self.gamestate.unschedule_agendum(self)
 
     def stop(self) -> None:
+        assert(self.started_at >= 0.0)
+        assert(self.stopped_at < 0.0)
         self._stop()
         self.stopped_at = self.gamestate.timestamp
         self.gamestate.unschedule_agendum(self)

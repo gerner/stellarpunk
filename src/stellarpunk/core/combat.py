@@ -452,7 +452,7 @@ class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
 
     @classmethod
     def create_point_defense_effect[T:"PointDefenseEffect"](cls:Type[T], craft:core.SectorEntity, *args:Any, **kwargs:Any) -> T:
-        pde = cls(*args, **kwargs)
+        pde = cls.create_effect(*args, **kwargs)
         pde.craft = craft
         pde.threat_tracker = ThreatTracker.create_threat_tracker(craft)
         return pde

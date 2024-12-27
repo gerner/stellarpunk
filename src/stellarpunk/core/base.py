@@ -10,6 +10,7 @@ import uuid
 import itertools
 import logging
 import collections
+import weakref
 from collections.abc import Iterable
 from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, Type
 
@@ -26,10 +27,20 @@ class Observer(abc.ABC):
     @abc.abstractmethod
     def observer_id(self) -> uuid.UUID: ...
 
-class Observable(abc.ABC):
+class Observable[T:Observer](abc.ABC):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._observers:weakref.WeakSet[T] = weakref.WeakSet()
+
     @property
-    @abc.abstractmethod
-    def observers(self) -> Iterable[Observer]: ...
+    def observers(self) -> Iterable[T]:
+        return self._observers
+
+    def observe(self, observer:T) -> None:
+        self._observers.add(observer)
+
+    def unobserve(self, observer:T) -> None:
+        self._observers.remove(observer)
 
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod

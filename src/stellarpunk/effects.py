@@ -22,7 +22,9 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
             destination:core.SectorEntity,
             *args: Any,
             **kwargs: Any) -> T:
-        effect = cls(*args, resource, amount, *kwargs)
+        effect = cls.create_effect(*args, resource, amount, **kwargs)
+        effect.source = source
+        effect.destination = destination
         effect.source.observe(effect)
         effect.destination.observe(effect)
         return effect
@@ -133,11 +135,17 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
         self.destination.cargo[self.resource] += amount
 
 class TradeTransferEffect(TransferCargoEffect):
-    #TODO: do we want to log trading somewhere?
-    def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, current_price:econ.PriceFn, *args:Any, floor_price:float=0., ceiling_price:float=np.inf, **kwargs:Any) -> None:
+    @classmethod
+    def create_trade_transfer_effect[T:"TradeTransferEffect"](cls:Type[T], buyer:core.EconAgent, seller:core.EconAgent, current_price:econ.PriceFn, *args:Any, **kwargs:Any) -> T:
+        effect = cls.create_transfer_cargo_effect(*args, current_price, **kwargs)
+        effect.buyer = buyer
+        effect.seller = seller
+        return effect
+
+    def __init__(self, current_price:econ.PriceFn, *args:Any, floor_price:float=0., ceiling_price:float=np.inf, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.buyer = buyer
-        self.seller = seller
+        self.buyer:core.EconAgent = None # type: ignore
+        self.seller:core.EconAgent = None # type: ignore
         self.floor_price = floor_price
         self.ceiling_price = ceiling_price
         self.current_price = current_price
@@ -197,6 +205,9 @@ class MiningEffect(TransferCargoEffect):
 
 
 class WarpOutEffect(core.Effect):
+    @classmethod
+    def create_warp_out_effect[T:"WarpOutEffect"](cls:Type[T], loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> T:
+        return cls.create_effect(*args, loc, **kwargs)
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.loc = loc
@@ -217,6 +228,9 @@ class WarpOutEffect(core.Effect):
         return self.gamestate.timestamp >= self.expiration_time
 
 class WarpInEffect(core.Effect):
+    @classmethod
+    def create_warp_in_effect[T:"WarpInEffect"](cls:Type[T], loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> T:
+        return cls.create_effect(*args, loc, **kwargs)
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.loc = loc

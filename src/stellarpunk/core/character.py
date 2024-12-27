@@ -28,10 +28,6 @@ class AgendumLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
         return f'{self.character.address_str()} {msg}', kwargs
 
-class CharacterObserver(base.Observer, abc.ABC):
-    def character_destroyed(self, character: "Character") -> None:
-        pass
-
 class AbstractAgendum(abc.ABC):
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
@@ -97,7 +93,11 @@ class AbstractAgendum(abc.ABC):
         """ Lets the character interact. Called when scheduled. """
         pass
 
-class Character(base.Entity, base.Observable):
+class CharacterObserver(base.Observer, abc.ABC):
+    def character_destroyed(self, character: "Character") -> None:
+        pass
+
+class Character(base.Observable[CharacterObserver], base.Entity):
     id_prefix = "CHR"
     def __init__(self, sprite:base.Sprite, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -117,8 +117,6 @@ class Character(base.Entity, base.Observable):
         # activites this character is enaged in (how they interact)
         self.agenda:list[AbstractAgendum] = []
 
-        self._observers:weakref.WeakSet[CharacterObserver] = weakref.WeakSet()
-
         self.home_sector_id = home_sector_id
 
     def destroy(self) -> None:
@@ -129,19 +127,6 @@ class Character(base.Entity, base.Observable):
         for agendum in self.agenda:
             agendum.stop()
         self.location = None
-
-    @property
-    def observers(self) -> Iterable[base.Observer]:
-        return self._observers
-
-    def observe(self, observer:CharacterObserver) -> None:
-        self._observers.add(observer)
-
-    def unobserve(self, observer:CharacterObserver) -> None:
-        try:
-            self._observers.remove(observer)
-        except KeyError:
-            pass
 
     def address_str(self) -> str:
         if self.location is None:

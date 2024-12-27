@@ -12,6 +12,7 @@ import curses
 import re
 import collections
 import uuid
+import types
 from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection
 
 import numpy as np
@@ -30,7 +31,7 @@ def fullname(o:Any) -> str:
     # Alas, the module name is explicitly excluded from __qualname__
     # in Python 3.
 
-    if isinstance(o, type):
+    if isinstance(o, type) or isinstance(o, types.FunctionType):
         klass = o
     else:
         klass = o.__class__

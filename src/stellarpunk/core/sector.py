@@ -107,7 +107,7 @@ class SectorEntityObserver(base.Observer):
     def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
         pass
 
-class SectorEntity(base.Entity, base.Observable):
+class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
     """ An entity in space in a sector. """
 
     def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
@@ -132,22 +132,7 @@ class SectorEntity(base.Entity, base.Observable):
 
         self.history: collections.deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
-        self._observers:weakref.WeakSet[SectorEntityObserver] = weakref.WeakSet()
-
         self.sensor_settings=sensor_settings
-
-    @property
-    def observers(self) -> Iterable[base.Observer]:
-        return self._observers
-
-    def observe(self, observer:SectorEntityObserver) -> None:
-        self._observers.add(observer)
-
-    def unobserve(self, observer:SectorEntityObserver) -> None:
-        try:
-            self._observers.remove(observer)
-        except KeyError:
-            pass
 
     def migrate(self, to_sector:"Sector") -> None:
         if self.sector is None:
