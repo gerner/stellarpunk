@@ -256,10 +256,20 @@ class Gamestate(EntityRegistry):
 
     def contains_entity(self, entity_id:uuid.UUID) -> bool:
         return entity_id in self.entities
-    def get_entity[T](self, entity_id:uuid.UUID, klass:Type[T]) -> T:
+    def get_entity[T:Entity](self, entity_id:uuid.UUID, klass:Type[T]) -> T:
         entity = self.entities[entity_id]
         assert(isinstance(entity, klass))
         return entity
+
+    def get_effect[T:AbstractEffect](self, effect_id:uuid.UUID, klass:Type[T]) -> T:
+        effect = self.effects[effect_id]
+        assert(isinstance(effect, klass))
+        return effect
+
+    def get_order[T:AbstractOrder](self, order_id:uuid.UUID, klass:Type[T]) -> T:
+        order = self.effects[order_id]
+        assert(isinstance(order, klass))
+        return order
 
     def _pause(self, paused:Optional[bool]=None) -> None:
         self.game_runtime.time_acceleration(1.0, False)

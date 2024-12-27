@@ -3,7 +3,7 @@ import json
 import uuid
 import struct
 from collections.abc import Collection
-from typing import Union, Callable
+from typing import Union, Callable, Optional
 
 import numpy as np
 import numpy.typing as npt
@@ -181,6 +181,21 @@ def uuid_to_f(eid:uuid.UUID, f:io.IOBase) -> int:
 
 def uuid_from_f(f:io.IOBase) -> uuid.UUID:
     return uuid.UUID(bytes=f.read(16))
+
+def optional_uuid_to_f(eid:Optional[uuid.UUID], f:io.IOBase) -> int:
+    bytes_written = 0
+    if eid:
+        bytes_written += bool_to_f(True, f)
+        bytes_written += uuid_to_f(eid, f)
+    else:
+        bytes_written += bool_to_f(False, f)
+    return bytes_written
+
+def optional_uuid_from_f(f:io.IOBase) -> Optional[uuid.UUID]:
+    if bool_from_f(f):
+        return uuid_from_f(f)
+    else:
+        return None
 
 def matrix_to_f(matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]], f:io.IOBase) -> int:
     ret = msgpack.packb(matrix, default = serialize_econ_sim.encode_matrix)

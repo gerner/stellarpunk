@@ -27,6 +27,8 @@ from stellarpunk.serialization import (
     sensors as s_sensors,
     agenda as s_agenda,
     combat as s_combat,
+    order_core as s_order_core,
+    movement as s_movement,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -503,13 +505,33 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(agenda.TradingAgendum, s_agenda.TradingAgendumSaver(sg))
     sg.register_saver(agenda.MiningAgendum, s_agenda.MiningAgendumSaver(sg))
 
-    #TODO: orders
+    # orders
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
     sg.register_saver(core.NullOrder, s_order.NullOrderSaver(sg))
-    sg.register_saver(orders.movement.WaitOrder, s_order.NullOrderSaver(sg))
+
+    # core orders
+    sg.register_saver(orders.core.MineOrder, s_order_core.MineOrderSaver(sg))
+    sg.register_saver(orders.core.TransferCargo, s_order_core.TransferCargoSaver[orders.core.TransferCargo](sg))
+    sg.register_saver(orders.core.TradeCargoToStation, s_order_core.TradeCargoToStationSaver(sg))
+    sg.register_saver(orders.core.TradeCargoFromStation, s_order_core.TradeCargoFromStationSaver(sg))
+    sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
+    sg.register_saver(orders.core.TravelThroughGate, s_order_core.TravelThroughGateSaver(sg))
+    sg.register_saver(orders.core.DockingOrder, s_order_core.DockingOrderSaver(sg))
+
+    # steering orders
+    sg.register_saver(orders.movement.KillRotationOrder, s_movement.KillRotationOrderSaver(sg))
+    sg.register_saver(orders.movement.RotateOrder, s_movement.RotateOrderSaver(sg))
+    sg.register_saver(orders.movement.KillVelocityOrder, s_movement.KillVelocityOrderSaver(sg))
+    sg.register_saver(orders.movement.GoToLocation, s_movement.GoToLocationSaver(sg))
+    sg.register_saver(orders.movement.EvadeOrder, s_movement.EvadeOrderSaver(sg))
+    sg.register_saver(orders.movement.PursueOrder, s_movement.PursueOrderSaver(sg))
+    sg.register_saver(orders.movement.WaitOrder, s_movement.WaitOrderSaver(sg))
+
+    #TODO: combat orders
+    sg.register_saver(combat.MissileOrder, s_order.NullOrderSaver(sg))
     sg.register_saver(combat.HuntOrder, s_order.NullOrderSaver(sg))
-    #sg.register_saver(core.NullOrder, s_order.NullOrderSaver[core.NullOrder](sg))
-    #TODO: different sorts of orders...
+    sg.register_saver(combat.AttackOrder, s_order.NullOrderSaver(sg))
+    sg.register_saver(combat.FleeOrder, s_order.NullOrderSaver(sg))
 
     #TODO: effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
@@ -519,10 +541,12 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.ignore_saver(effects.MiningEffect)
     sg.ignore_saver(effects.WarpOutEffect)
     sg.ignore_saver(effects.WarpInEffect)
+    sg.ignore_saver(combat.PointDefenseEffect)
 
-    #TODO: scheduled tasks (live in Gamestate)
+    # scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
     sg.register_saver(combat.TimedOrderTask, s_combat.TimedOrderTaskSaver(sg))
+
     # sensor settings (live in SectorEntity)
     sg.register_saver(core.AbstractSensorSettings, s_sensors.SensorSettingsSaver(sg))
     sg.register_saver(sensors.SensorSettings, s_sensors.SensorSettingsSaver(sg))
@@ -530,6 +554,9 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     # sensor images (live in SensorSettings)
     sg.register_saver(core.AbstractSensorImage, s_sensors.SensorImageSaver(sg))
     sg.register_saver(sensors.SensorImage, s_sensors.SensorImageSaver(sg))
+
+    # other stuff
+    sg.ignore_saver(combat.ThreatTracker)
 
     return sg
 

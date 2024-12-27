@@ -169,7 +169,7 @@ class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
             self.ship.sector.add_effect(self.transfer_effect)
         # else wait for the transfer effect
 
-    def _initialize_transfer(self) -> core.Effect:
+    def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
         return effects.TransferCargoEffect(
                 self.resource, self.amount, self.ship, self.target,
@@ -190,7 +190,7 @@ class TradeCargoToStation(TransferCargo):
         self.seller:core.EconAgent = None # type: ignore
         self.floor_price = floor_price
 
-    def _initialize_transfer(self) -> core.Effect:
+    def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
         assert self.buyer == self.gamestate.econ_agents[self.target.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
@@ -222,7 +222,7 @@ class TradeCargoFromStation(TransferCargo):
         self.seller:core.EconAgent = None # type: ignore
         self.ceiling_price = ceiling_price
 
-    def _initialize_transfer(self) -> core.Effect:
+    def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
         assert self.seller == self.gamestate.econ_agents[self.target.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
@@ -345,10 +345,10 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
         return o
 
-    def __init__(self, target_gate: sector_entity.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.target_gate:core.TravelGate = None # type: ignore
+        self.target_gate:sector_entity.TravelGate = None # type: ignore
         self.eow:core.EntityOrderWatch = None # type: ignore
         self.position_margin = position_margin
         self.travel_time = travel_time
