@@ -259,6 +259,11 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
 
         self._enter_mode(Mode.MAIN_MENU)
 
+    def focus(self) -> None:
+        super().focus()
+        self.interface.reinitialize_screen(name="Stellarpunk")
+        self.active=True
+
     def terminate(self) -> None:
         if self.interface.gamestate:
             self.interface.gamestate.force_unpause(self)

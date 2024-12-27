@@ -303,7 +303,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.generator.observe(self)
 
         startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
-        self.interface.open_view(startup_view)
+        self.interface.open_view(startup_view, deactivate_views=True)
 
     def register_events(self, event_manager:events.EventManager) -> None:
         event_manager.register_action(ui_events.DialogAction(self.interface), "dialog")
@@ -604,7 +604,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
         def menu(args:Sequence[str]) -> None:
             startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
-            self.interface.open_view(startup_view)
+            self.interface.open_view(startup_view, deactivate_views=True)
 
 
         command_list = [
