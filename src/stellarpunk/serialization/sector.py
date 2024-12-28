@@ -38,6 +38,8 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
 
         # collision observers for sanity checking
         if self.save_game.debug:
+            bytes_written += s_util.str_uuids_to_f(list((util.fullname(v), k) for k,v in sector.entities.items()), f)
+            bytes_written += s_util.str_uuids_to_f(list((util.fullname(v), v.effect_id) for v in sector._effects), f)
             observer_info:list[tuple[str, uuid.UUID]] = []
             for u, observers in sector.collision_observers.items():
                 for observer in observers:
@@ -61,13 +63,10 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         sector = core.Sector(loc, radius, cymunk.Space(), load_context.gamestate, entity_id=entity_id, culture=culture)
 
         # entities. we'll reconstruct these in post load
-        entities:list[uuid.UUID] = list(s_util.uuids_from_f(f))
+        entities:list[uuid.UUID] = s_util.uuids_from_f(f)
 
         # effects
-        effect_ids:list[uuid.UUID] = []
-        count = s_util.size_from_f(f)
-        for _ in range(count):
-            effect_ids.append(s_util.uuid_from_f(f))
+        effect_ids:list[uuid.UUID] = s_util.uuids_from_f(f)
 
         # weather
         count = s_util.size_from_f(f)
@@ -76,8 +75,10 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
 
         # collision observers for sanity checking
         if load_context.debug:
+            entity_info = s_util.str_uuids_from_f(f)
+            effect_info = s_util.str_uuids_from_f(f)
             observer_info = s_util.str_uuids_from_f(f)
-            load_context.register_sanity_check(sector, observer_info)
+            load_context.register_sanity_check(sector, (entity_info, effect_info, observer_info))
 
         sector.sensor_manager = sensors.SensorManager(sector)
 
@@ -88,18 +89,23 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         context_data:tuple[list[uuid.UUID], list[uuid.UUID]] = context
         entities, effect_ids = context_data
         for entity_id in entities:
-            entity = load_context.gamestate.entities[entity_id]
-            assert(isinstance(entity, core.SectorEntity))
+            entity = load_context.gamestate.get_entity(entity_id, core.SectorEntity)
             sector.add_entity(entity)
         for effect_id in effect_ids:
-            effect = load_context.gamestate.effects[effect_id]
-            assert(isinstance(effect, core.Effect))
+            effect = load_context.gamestate.get_effect(effect_id, core.Effect) # type: ignore
             # can't use add_effect because it calls begin effect
             sector._effects.append(effect)
 
     def sanity_check(self, sector:core.Sector, load_context:save_game.LoadContext, context:Any) -> None:
-        observer_info:list[tuple[str, uuid.UUID]] = context
+        context_data:tuple[list[tuple[str, uuid.UUID]], list[tuple[str, uuid.UUID]], list[tuple[str, uuid.UUID]]] = context
+        entity_info, effect_info, observer_info = context_data
         saved_observers:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for klass, u in entity_info:
+            assert(util.fullname(sector.entities[u]) == klass)
+        for klass, u in effect_info:
+            effect = next(x for x in sector._effects if x.effect_id == u)
+            assert(util.fullname(effect) == klass)
+
         for klass, u in observer_info:
             saved_observers[(klass, u)] += 1
         loaded_observers:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()

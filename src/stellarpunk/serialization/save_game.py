@@ -83,7 +83,8 @@ class Saver[T](abc.ABC):
         bytes_written = 0
         if self.save_game.debug:
             bytes_written += s_util.debug_string_w("observers", f)
-            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in obj.observers), f)
+            # skip ephemeral observers with sentinel observer id
+            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in obj.observers if x.observer_id != core.OBSERVER_ID_NULL), f)
         return bytes_written
 
     def load_observers(self, obj:core.Observable, f:io.IOBase, load_context:LoadContext) -> list[tuple[str, uuid.UUID]]:
