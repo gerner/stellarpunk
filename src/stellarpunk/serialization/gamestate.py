@@ -88,6 +88,10 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             bytes_written += s_util.uuid_to_f(entity_id, f)
             bytes_written += s_util.uuid_to_f(agent.entity_id, f)
 
+        # characters
+        bytes_written += s_util.debug_string_w("characters", f)
+        bytes_written += s_util.uuids_to_f(gamestate.characters.keys(), f)
+
         # task lists
 
         # order schedule (orders stored in order registry)
@@ -230,6 +234,10 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             assert(isinstance(agent, core.EconAgent))
             gamestate.representing_agent(entity_id, agent)
 
+        # characters
+        s_util.debug_string_r("characters", f)
+        character_ids = s_util.uuids_from_f(f)
+
         # task lists
         s_util.debug_string_r("order schedule", f)
         scheduled_order_ids:list[tuple[float, uuid.UUID]] = []
@@ -292,7 +300,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             last_colliders.add(s_util.from_len_pre_f(f))
         gamestate.last_colliders = last_colliders
 
-        load_context.register_post_load(gamestate, (scheduled_order_ids, scheduled_effect_ids, scheduled_agenda_ids))
+        load_context.register_post_load(gamestate, (character_ids, scheduled_order_ids, scheduled_effect_ids, scheduled_agenda_ids))
 
         self.load_tick()
 
@@ -301,8 +309,11 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         return gamestate
 
     def post_load(self, gamestate:core.Gamestate, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[list[tuple[float, uuid.UUID]], list[tuple[float, uuid.UUID]], list[tuple[float, uuid.UUID]]] = context
-        order_ids, effect_ids, agenda_ids = context_data
+        context_data:tuple[list[uuid.UUID], list[tuple[float, uuid.UUID]], list[tuple[float, uuid.UUID]], list[tuple[float, uuid.UUID]]] = context
+        character_ids, order_ids, effect_ids, agenda_ids = context_data
+
+        for character_id in character_ids:
+            gamestate.add_character(gamestate.get_entity(character_id, core.Character))
 
         for timestamp, order_id in order_ids:
             gamestate._order_schedule.push_task(timestamp, gamestate.orders[order_id])

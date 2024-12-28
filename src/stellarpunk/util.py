@@ -232,6 +232,15 @@ def isclose(a:float, b:float) -> bool:
     return abs(a-b) <= (1e-08 + 1e-05 * abs(b))
 
 @jit(cache=True, nopython=True, fastmath=True)
+def inf_nan_isclose(a:float, b:float) -> bool:
+    if math.isnan(a):
+        return math.isnan(b)
+    if math.isinf(a):
+        return math.isinf(b) and a == b
+    else:
+        return isclose(a, b)
+
+@jit(cache=True, nopython=True, fastmath=True)
 def isclose_flex(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     # numba gets confused with default parameters sometimes, so we have this
     # "overload"

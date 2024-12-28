@@ -535,7 +535,10 @@ class Sector(base.Entity):
                 yield v
 
     def add_entity(self, entity:SectorEntity) -> None:
-        #TODO: worry about collisions at location?
+
+        collision_entity = next(self.spatial_point(entity.loc, entity.radius), None)
+        if collision_entity:
+            raise ValueError(f'tried to place {entity} on top of {collision_entity}')
 
         if entity.phys.is_static:
             self.space.add(entity.phys_shape)

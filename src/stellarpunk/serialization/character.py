@@ -104,9 +104,7 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         location_id, asset_ids, agenda_ids = context
 
         if location_id is not None:
-            location = load_context.gamestate.entities[location_id]
-            assert(isinstance(location, core.SectorEntity))
-            character.location = location
+            character.location = load_context.gamestate.get_entity(location_id, core.SectorEntity)
 
         for asset_id in asset_ids:
             asset = load_context.gamestate.get_entity(asset_id, core.Asset)

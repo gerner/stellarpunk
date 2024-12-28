@@ -380,10 +380,12 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
             assert(isinstance(self.parent_order, Order))
             assert(self.parent_order.ship == self.ship)
             assert(self.parent_order.order_id in self.gamestate.orders)
+            assert(self in self.parent_order.child_orders)
         for child_order in self.child_orders:
             assert(isinstance(child_order, Order))
             assert(child_order.ship == self.ship)
             assert(child_order.order_id in self.gamestate.orders)
+            assert(child_order.parent_order == self)
 
     def pause(self) -> None:
         if self.gamestate.is_order_scheduled(self):

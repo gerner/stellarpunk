@@ -50,6 +50,8 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written += s_util.float_to_f(sector_entity.velocity[1], f)
         bytes_written += s_util.float_to_f(sector_entity.angle, f)
         bytes_written += s_util.float_to_f(sector_entity.angular_velocity, f)
+        bytes_written += s_util.float_pair_to_f(np.array(sector_entity.phys.force), f)
+        bytes_written += s_util.float_to_f(sector_entity.phys.torque, f)
 
         # other fields
         bytes_written += s_util.debug_string_w("others", f)
@@ -82,6 +84,8 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         velocity_y = s_util.float_from_f(f)
         angle = s_util.float_from_f(f)
         angular_velocity = s_util.float_from_f(f)
+        force = s_util.float_pair_from_f(f)
+        torque = s_util.float_from_f(f)
 
         # other fields
         s_util.debug_string_r("others", f)
@@ -100,6 +104,8 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         phys_body.velocity = (velocity_x, velocity_y)
         phys_body.angle = angle
         phys_body.angular_velocity = angular_velocity
+        phys_body.force = cymunk.Vec2d(force)
+        phys_body.torque = torque
         assert(phys_body.moment == moment or (math.isinf(phys_body.mass) and math.isinf(phys_body.moment)))
 
         s_util.debug_string_r("type specific", f)

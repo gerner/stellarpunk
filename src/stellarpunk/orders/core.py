@@ -490,9 +490,6 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector}')
         # go fast! until we're "out of sector"
         if self.gamestate.timestamp - self.travel_start_time > self.travel_time:
-            # move from current sector to destination sector
-            self.ship.migrate(self.target_gate.destination)
-
             # set position with enough runway to come to a full stop
             min_r = self.target_gate.destination.radius * 2
             max_r = self.target_gate.destination.radius * 2.5
@@ -509,6 +506,9 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             self.ship.set_loc(loc)
             self.warp_velocity = np.copy(self.ship.velocity)
             self.ship.set_velocity((0., 0.))
+
+            # move from current sector to destination sector
+            self.ship.migrate(self.target_gate.destination)
 
             self.warp_in = effects.WarpInEffect.create_warp_in_effect(
                     np.copy(self.ship.loc), self.ship.sector, self.gamestate,

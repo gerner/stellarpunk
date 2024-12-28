@@ -35,6 +35,7 @@ class LoadContext:
         self._sanity_checks:list[tuple[Any, Any]] = []
         self._observer_sanity_checks:list[tuple[core.Observable, list[tuple[str, uuid.UUID]]]] = []
         self._custom_post_loads:list[tuple[Callable[[Any, LoadContext, Any], None], Any, Any]] = []
+        self._custom_sanity_checks:list[tuple[Callable[[Any, LoadContext, Any], None], Any, Any]] = []
 
     def reference(self, obj:Any) -> None:
         """ hang on to a reference to an object.
@@ -53,6 +54,9 @@ class LoadContext:
     def register_sanity_check(self, obj:Any, context:Any) -> None:
         self._sanity_checks.append((obj, context))
 
+    def register_custom_sanity_check(self, fn:Callable[[Any, "LoadContext", Any], None], obj:Any, context:Any) -> None:
+        self._custom_sanity_checks.append((fn, obj, context))
+
     def register_sanity_check_observers(self, obj:core.Observable, observer_ids:list[tuple[str, uuid.UUID]]) -> None:
         self._observer_sanity_checks.append((obj, observer_ids))
 
@@ -67,6 +71,9 @@ class LoadContext:
         self.logger.info("sanity checking...")
         for obj, context in self._sanity_checks:
             self.save_game.sanity_check_object(obj, self, context)
+
+        for fn, obj, context in self._custom_sanity_checks:
+            fn(obj, self, context)
 
         self.logger.info("sanity checking observers...")
         for obj, context in self._observer_sanity_checks:

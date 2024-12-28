@@ -27,7 +27,7 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
 
         if order.parent_order:
             bytes_written += s_util.int_to_f(1, f, blen=1)
-            bytes_written += s_util.uuid_to_f(order.order_id, f)
+            bytes_written += s_util.uuid_to_f(order.parent_order.order_id, f)
         else:
             bytes_written += s_util.int_to_f(0, f, blen=1)
 
@@ -66,6 +66,9 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         order.completed_at = completed_at
         order.init_eta = init_eta
 
+        if load_context.debug:
+            load_context.register_custom_sanity_check(self.sanity_check_child_parent, order, (parent_id, child_ids))
+
         load_context.gamestate.register_order(order)
         load_context.register_post_load(order, (ship_id, parent_id, child_ids, extra_context))
 
@@ -82,29 +85,25 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         assert(isinstance(ship, core.Ship))
         order.initialize_order(ship)
         if parent_id:
-            parent_order = load_context.gamestate.orders[parent_id]
-            assert(isinstance(parent_order, core.Order))
-            order.parent_order = parent_order
+            order.parent_order = load_context.gamestate.get_order(parent_id, core.Order) # type: ignore
         for child_id in child_ids:
-            child_order = load_context.gamestate.orders[child_id]
-            assert(isinstance(child_order, core.Order))
-            order.child_orders.append(child_order)
+            order.child_orders.append(load_context.gamestate.get_order(child_id, core.Order)) # type: ignore
 
         self._post_load_order(order, load_context, extra_context)
 
-    def sanity_check(self, order:Order, load_context:save_game.LoadContext, context:Any) -> None:
-        observer_ids:list[tuple[str, uuid.UUID]] = context
+    def sanity_check_child_parent(self, order:Order, load_context:save_game.LoadContext, context:Any) -> None:
+        context_data:tuple[Optional[uuid.UUID], list[uuid.UUID]] = context
+        parent_id, child_ids = context_data
 
-        # make sure all the observers we had when saving are back
-        saved_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer_id in observer_ids:
-            saved_observer_counts[observer_id] += 1
-        loaded_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer in order.observers:
-            loaded_observer_counts[(util.fullname(observer), observer.observer_id)] += 1
-        saved_observer_counts.subtract(loaded_observer_counts)
-        non_zero_observers = {observer_id: count for observer_id, count in saved_observer_counts.items() if count != 0}
-        assert(non_zero_observers == {})
+        if parent_id:
+            # make sure we're in the parent's child orders
+            parent_order = load_context.gamestate.get_order(parent_id, core.Order) # type: ignore
+            assert(order in parent_order.child_orders)
+
+        # make sure all our children have us as a parent
+        for child_id in child_ids:
+            child_order = load_context.gamestate.get_order(child_id, core.Order) # type: ignore
+            assert(order == child_order.parent_order)
 
 class NullOrderSaver(OrderSaver[core.NullOrder]):
     def _save_order(self, order:core.NullOrder, f:io.IOBase) -> int:

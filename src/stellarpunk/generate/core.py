@@ -569,6 +569,8 @@ class UniverseGenerator(core.AbstractGenerator):
         return body
 
     def phys_shape(self, body:cymunk.Body, entity:core.SectorEntity, radius:float) -> cymunk.Shape:
+        assert(not np.isnan(entity.loc[0]))
+        assert(not np.isnan(entity.loc[1]))
         shape = cymunk.Circle(body, radius)
         shape.friction=0.1
         shape.collision_type = core.SECTOR_ENTITY_COLLISION_TYPE
