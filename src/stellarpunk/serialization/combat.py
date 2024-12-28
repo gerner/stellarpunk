@@ -77,6 +77,11 @@ class MissileOrderSaver(s_movement.PursueOrderSaver[combat.MissileOrder]):
         order.expiration_time = expiration_time
         return order, None
 
+    def _post_load_pursue_order(self, order:combat.MissileOrder, load_context:save_game.LoadContext, context:Any) -> None:
+        if order.started_at >= 0. and order.completed_at < 0.:
+            assert(order.ship.sector)
+            order.ship.sector.register_collision_observer(order.ship.entity_id, order)
+
 class AttackOrderSaver(s_movement.AbstractSteeringOrderSaver[combat.AttackOrder]):
 
     def _save_steering_order(self, obj:combat.AttackOrder, f:io.IOBase) -> int:
@@ -123,7 +128,7 @@ class AttackOrderSaver(s_movement.AbstractSteeringOrderSaver[combat.AttackOrder]
         fire_period = s_util.float_from_f(f)
         missiles_fired = s_util.int_from_f(f)
 
-        order = combat.AttackOrder(load_context.gamestate, distance_min=distance_min, distance_max=distance_max, max_active_age=max_active_age, max_passive_age=max_passive_age, search_distance=search_distance, max_fire_rel_bearing=max_fire_rel_bearing, max_missiles=max_missiles)
+        order = combat.AttackOrder(load_context.gamestate, distance_min=distance_min, distance_max=distance_max, max_active_age=max_active_age, max_passive_age=max_passive_age, search_distance=search_distance, max_fire_rel_bearing=max_fire_rel_bearing, max_missiles=max_missiles, _check_flag=True, order_id=order_id)
         order.max_fire_age = max_fire_age
         order.min_profile_to_threshold = min_profile_to_threshold
         order.fire_backoff_time = fire_backoff_time

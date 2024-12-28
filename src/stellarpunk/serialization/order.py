@@ -64,6 +64,10 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
 
         s_util.debug_string_r("type specific", f)
         order, extra_context = self._load_order(f, load_context, order_id)
+        order.started_at = started_at
+        order.completed_at = completed_at
+        order.init_eta = init_eta
+
         load_context.gamestate.register_order(order)
         load_context.register_post_load(order, (ship_id, parent_id, child_ids, extra_context))
 

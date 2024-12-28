@@ -40,6 +40,9 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
 
         s_util.debug_string_r("type specific", f)
         effect, extra_context = self._load_effect(f, load_context, effect_id)
+        effect.started_at = started_at
+        effect.completed_at = completed_at
+
         load_context.gamestate.register_effect(effect)
         load_context.register_post_load(effect, (sector_id, extra_context))
 

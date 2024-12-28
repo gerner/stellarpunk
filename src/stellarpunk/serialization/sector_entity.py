@@ -112,6 +112,8 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
 
         if has_captain or extra_context is not None:
             load_context.register_post_load(sector_entity, (captain_id, extra_context))
+        load_context.register_sanity_check(sector_entity, None)
+
         return sector_entity
 
     def post_load(self, sector_entity:SectorEntity, load_context:save_game.LoadContext, context:Any) -> None:
@@ -125,6 +127,13 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
             sector_entity.captain = captain
 
         self._post_load_sector_entity(sector_entity, load_context, extra_context)
+
+    def sanity_check(self, sector_entity:SectorEntity, load_context:save_game.LoadContext, context:Any) -> None:
+
+        assert(not np.isnan(sector_entity.loc[0]))
+        assert(not np.isnan(sector_entity.loc[1]))
+        assert(not np.isnan(sector_entity.velocity[0]))
+        assert(not np.isnan(sector_entity.velocity[1]))
 
 class ShipSaver(SectorEntitySaver[core.Ship]):
     def _save_sector_entity(self, ship:core.Ship, f:io.IOBase) -> int:
@@ -234,7 +243,7 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
 
         #TODO: default_order_fn
 
-        return (ship, firer_id)
+        return ship, (firer_id, order_ids)
 
     def _phys_body(self, mass:float, radius:float) -> cymunk.Body:
         # ship is a non-static body so we override the default implementation

@@ -273,7 +273,7 @@ class Gamestate(EntityRegistry):
         return effect
 
     def get_order[T:AbstractOrder](self, order_id:uuid.UUID, klass:Type[T]) -> T:
-        order = self.effects[order_id]
+        order = self.orders[order_id]
         assert(isinstance(order, klass))
         return order
 

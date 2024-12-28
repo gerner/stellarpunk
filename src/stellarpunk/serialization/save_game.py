@@ -61,6 +61,10 @@ class LoadContext:
         for obj, context in self._sanity_checks:
             self.save_game.sanity_check_object(obj, self, context)
 
+        self.logger.info("sanity checking observers...")
+        for obj, context in self._observer_sanity_checks:
+            self.save_game.sanity_check_observers(obj, self, context)
+
 class SaverObserver:
     def load_tick(self, saver:"Saver") -> None:
         pass
@@ -286,6 +290,9 @@ class GameSaver(SaverObserver):
 
     def sanity_check_object(self, obj:Any, load_context:LoadContext, context:Any) -> None:
         self._save_register[type(obj)].sanity_check(obj, load_context, context)
+
+    def sanity_check_observers(self, obj:Any, load_context:LoadContext, context:Any) -> None:
+        self._save_register[type(obj)].sanity_check_observers(obj, load_context, context)
 
     def autosave(self, gamestate:core.Gamestate) -> str:
         #TODO: should we keep old autosaves?
