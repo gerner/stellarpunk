@@ -162,7 +162,7 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
     ) -> None:
         pass
 
-class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
+class MonitoringUI(core.OrderObserver, interface.AbstractInterface):
     def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))

@@ -31,6 +31,12 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
 
     # EntitySaver
     def _save_entity(self, sector_entity:SectorEntity, f:io.IOBase) -> int:
+
+        assert(not np.isnan(sector_entity.loc[0]))
+        assert(not np.isnan(sector_entity.loc[1]))
+        assert(not np.isnan(sector_entity.velocity[0]))
+        assert(not np.isnan(sector_entity.velocity[1]))
+
         bytes_written = 0
 
         # all the physical properties needed for the phys body/shape
@@ -61,8 +67,6 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
 
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_sector_entity(sector_entity, f)
-
-        bytes_written += self.save_observers(sector_entity, f)
 
         return bytes_written
 
@@ -101,14 +105,17 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         s_util.debug_string_r("type specific", f)
         sector_entity, extra_context = self._load_sector_entity(f, load_context, entity_id, np.array((loc_x, loc_y)), phys_body, sensor_settings)
 
-        self.load_observers(sector_entity, f, load_context)
-
         # phys_shape sets the shape and radius on the sector entity
         self.save_game.generator.phys_shape(phys_body, sector_entity, radius)
         sector_entity.mass = mass
         sector_entity.moment = moment
         sector_entity.cargo_capacity = cargo_capacity
         sector_entity.cargo = cargo
+
+        assert(not np.isnan(sector_entity.loc[0]))
+        assert(not np.isnan(sector_entity.loc[1]))
+        assert(not np.isnan(sector_entity.velocity[0]))
+        assert(not np.isnan(sector_entity.velocity[1]))
 
         if has_captain or extra_context is not None:
             load_context.register_post_load(sector_entity, (captain_id, extra_context))

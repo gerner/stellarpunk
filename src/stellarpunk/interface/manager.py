@@ -249,7 +249,9 @@ class PolygonDemo(interface.View):
 
 
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
-    def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger(util.fullname(self))
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(sg, generator, self.mixer)
         self.gamestate:core.Gamestate = None # type: ignore
@@ -282,10 +284,12 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         player.character.observe(self)
 
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
+        self.logger.info("universe loaded")
         self.gamestate = gamestate
         self.interface.gamestate = gamestate
         assert(gamestate.player)
         assert(gamestate.player.character)
+        assert(gamestate.player == self.interface.player)
         gamestate.player.character.observe(self)
 
     # core.CharacterObserver
@@ -295,6 +299,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
 
     def character_destroyed(self, character:core.Character) -> None:
         if character == self.interface.player.character:
+            self.logger.info("player killed")
             self.gamestate.force_pause(self)
             self.interface.log_message("you've been killed")
             # TODO: what should we do when the player's character dies?

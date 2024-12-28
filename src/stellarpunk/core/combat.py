@@ -60,7 +60,7 @@ class Missile(core.Ship):
         # missiles don't run transponders
         self.firer:Optional[core.SectorEntity] = None
 
-class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
+class TimedOrderTask(core.OrderObserver, core.ScheduledTask):
     @staticmethod
     def ttl_order(order:core.Order, ttl:float, *args:Any, **kwargs:Any) -> "TimedOrderTask":
         tot = TimedOrderTask(*args, **kwargs)
@@ -71,6 +71,7 @@ class TimedOrderTask(core.ScheduledTask, core.OrderObserver):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.order:core.Order = None # type: ignore
+
     @property
     def observer_id(self) -> uuid.UUID:
         return self.task_id
@@ -88,7 +89,8 @@ class ThreatTracker(core.SectorEntityObserver):
         t.craft = craft
         return t
 
-    def __init__(self, threat_ttl:float=120.) -> None:
+    def __init__(self, *args:Any, threat_ttl:float=120., **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
         self.craft:core.SectorEntity = None # type: ignore
         self.threats:set[core.AbstractSensorImage] = set()
@@ -160,7 +162,7 @@ class ThreatTracker(core.SectorEntityObserver):
 
         return self.closest_threat
 
-class MissileOrder(movement.PursueOrder, core.CollisionObserver):
+class MissileOrder(core.CollisionObserver, movement.PursueOrder):
     """ Steer toward a collision with the target """
 
     @staticmethod
@@ -445,7 +447,7 @@ class PDTarget:
 # TODO: should point defense really be creating all these sector entities?
 #   perhaps a better choice would be to create a cone shaped area to monitor
 #   inside that space we can abstractly model point defense working
-class PointDefenseEffect(core.Effect, core.SectorEntityObserver):
+class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
     class State(enum.IntEnum):
         IDLE = enum.auto()
         ACTIVE = enum.auto()

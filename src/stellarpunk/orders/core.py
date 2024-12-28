@@ -106,7 +106,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
 
         # else wait for the mining effect
 
-class TransferCargo(core.Order, core.OrderObserver, core.EffectObserver):
+class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
     @classmethod
     def transfer_rate(cls) -> float:
         return 1e2

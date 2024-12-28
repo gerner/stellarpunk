@@ -2,7 +2,7 @@ import uuid
 import io
 import datetime
 import abc
-from typing import Any
+from typing import Any, Type
 
 import numpy as np
 
@@ -411,6 +411,9 @@ class EntitySaver[EntityType: core.Entity](save_game.Saver[EntityType], abc.ABC)
             entity.context.set_flag(k, v)
 
         return entity
+
+    def fetch(self, klass:Type[EntityType], object_id:uuid.UUID, load_context:save_game.LoadContext) -> EntityType:
+        return load_context.gamestate.get_entity(object_id, klass)
 
 class NoneEntitySaver(EntitySaver[core.Entity]):
     def _save_entity(self, entity:core.Entity, f:io.IOBase) -> int:

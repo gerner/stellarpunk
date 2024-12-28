@@ -183,9 +183,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
 
         if has_target:
             sensor_image._target = load_context.gamestate.get_entity(target_id, core.SectorEntity)
-            sensor_image._target.observe(sensor_image)
         sensor_image._ship = load_context.gamestate.get_entity(detector_id, core.SectorEntity)
-        sensor_image._ship.observe(sensor_image)
 
         sector = load_context.gamestate.get_entity(sector_id, core.Sector)
         sensor_image._sensor_manager = sector.sensor_manager

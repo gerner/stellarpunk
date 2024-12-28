@@ -119,6 +119,12 @@ class Character(base.Observable[CharacterObserver], base.Entity):
 
         self.home_sector_id = home_sector_id
 
+    # base.Observable
+    @property
+    def observable_id(self) -> uuid.UUID:
+        return self.entity_id
+
+
     def destroy(self) -> None:
         super().destroy()
         for observer in self._observers.copy():

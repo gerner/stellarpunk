@@ -124,6 +124,9 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
 
         self.cargo:npt.NDArray[np.float64] = np.zeros((num_products,))
 
+        assert(not np.isnan(loc[0]))
+        assert(not np.isnan(loc[1]))
+
         phys.position = (loc[0], loc[1])
 
         # physics simulation entity (we don't manage this, just have a pointer to it)
@@ -133,6 +136,12 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         self.history: collections.deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         self.sensor_settings=sensor_settings
+
+    # base.Observable
+    @property
+    def observable_id(self) -> uuid.UUID:
+        return self.entity_id
+
 
     def migrate(self, to_sector:"Sector") -> None:
         if self.sector is None:

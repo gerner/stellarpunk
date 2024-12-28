@@ -37,10 +37,13 @@ class LambdaOrderObserver(core.OrderObserver):
     def __init__(
         self,
         lifetime_collection:Set,
+        *args:Any,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
         cancel: Optional[Callable[[core.Order], None]] = None,
+        **kwargs:Any
     ):
+        super().__init__(*args, **kwargs)
         # we must handle at least one event
         assert begin or complete or cancel
 
@@ -245,7 +248,7 @@ class MouseState(enum.Enum):
     EMPTY = enum.auto()
     GOTO = enum.auto()
 
-class PilotView(interface.GameView, interface.PerspectiveObserver, core.SectorEntityObserver):
+class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interface.GameView):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:

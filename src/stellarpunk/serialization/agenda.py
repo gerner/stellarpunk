@@ -4,7 +4,7 @@ import uuid
 from typing import Any, Optional
 
 from stellarpunk import core, agenda, econ
-from stellarpunk.core import sector_entity
+from stellarpunk.core import sector_entity, combat
 from stellarpunk.orders import core as ocore
 from stellarpunk.serialization import save_game, util as s_util
 
@@ -67,23 +67,24 @@ class CaptainAgendumSaver(AgendumSaver[agenda.CaptainAgendum]):
         ship_id = s_util.uuid_from_f(f)
         enable_threat_response = s_util.bool_from_f(f)
         has_threat_response = s_util.bool_from_f(f)
-        order_id:Optional[uuid.UUID] = None
+        threat_response_id:Optional[uuid.UUID] = None
         if has_threat_response:
-            order_id = s_util.uuid_from_f(f)
+            threat_response_id = s_util.uuid_from_f(f)
         start_transponder = s_util.bool_from_f(f)
 
         captain_agendum = agenda.CaptainAgendum(load_context.gamestate, enable_threat_response=enable_threat_response, start_transponder=start_transponder, agenda_id=agenda_id, _check_flag=True)
 
-        return captain_agendum, ship_id
+        return captain_agendum, (ship_id, threat_response_id)
 
     def _post_load_agendum(self, obj:agenda.CaptainAgendum, load_context:save_game.LoadContext, context:Any) -> None:
-        ship_id:uuid.UUID = context
+        context_data:tuple[uuid.UUID, Optional[uuid.UUID]] = context
+        ship_id, threat_response_id = context_data
         craft = load_context.gamestate.entities[ship_id]
         assert(isinstance(craft, core.Ship))
         obj.craft = craft
 
-        if obj.started_at >= 0 and obj.stopped_at < 0:
-            obj.craft.observe(obj)
+        if threat_response_id:
+            obj.threat_response = load_context.gamestate.get_order(threat_response_id, combat.FleeOrder)
 
 class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
     def _save_agendum(self, obj:agenda.MiningAgendum, f:io.IOBase) -> int:
@@ -148,9 +149,6 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         ship_id, agent_id, allowed_station_ids, mining_order_id, transfer_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
 
-        if obj.started_at >= 0 and obj.stopped_at < 0:
-            obj.craft.observe(obj)
-
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
 
         if allowed_station_ids:
@@ -166,7 +164,6 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
             transfer_order = load_context.gamestate.orders[transfer_order_id]
             assert(isinstance(transfer_order, ocore.TradeCargoToStation))
             obj.transfer_order = transfer_order
-
 
 class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
     def _save_agendum(self, obj:agenda.TradingAgendum, f:io.IOBase) -> int:
@@ -241,9 +238,6 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         ship_id, agent_id, buy_from_station_ids, sell_to_station_ids, buy_order_id, sell_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
 
-        if obj.started_at >= 0 and obj.stopped_at < 0:
-            obj.craft.observe(obj)
-
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
 
         if buy_from_station_ids:
@@ -285,9 +279,6 @@ class StationManagerSaver(AgendumSaver[agenda.StationManager]):
         ship_id, agent_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, sector_entity.Station)
 
-        if obj.started_at >= 0 and obj.stopped_at < 0:
-            obj.craft.observe(obj)
-
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.StationAgent)
 
 class PlanetManagerSaver(AgendumSaver[agenda.PlanetManager]):
@@ -307,8 +298,5 @@ class PlanetManagerSaver(AgendumSaver[agenda.PlanetManager]):
         context_data:tuple[uuid.UUID, uuid.UUID] = context
         ship_id, agent_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, sector_entity.Planet)
-
-        if obj.started_at >= 0 and obj.stopped_at < 0:
-            obj.craft.observe(obj)
 
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.StationAgent)

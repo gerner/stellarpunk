@@ -29,14 +29,16 @@ from stellarpunk.serialization import (
     combat as s_combat,
     order_core as s_order_core,
     movement as s_movement,
+    effect as s_effect,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
 ECONOMY_LOG_PERIOD_SEC = 30.0
 ZERO_ONE = (0,1)
 
-class Simulator(core.AbstractGameRuntime, generate.UniverseGeneratorObserver):
-    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, game_saver:Optional[save_game.GameSaver]=None, context_stack:Optional[contextlib.ExitStack]=None) -> None:
+class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
+    def __init__(self, generator:generate.UniverseGenerator, ui:interface.AbstractInterface, *args:Any, max_dt:Optional[float]=None, economy_log:Optional[TextIO]=None, ticks_per_hist_sample:int=TICKS_PER_HIST_SAMPLE, game_saver:Optional[save_game.GameSaver]=None, context_stack:Optional[contextlib.ExitStack]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
         self.context_stack=context_stack
         self.generator = generator
@@ -535,11 +537,11 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
 
     #TODO: effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
-    sg.ignore_saver(effects.TransferCargoEffect)
-    sg.ignore_saver(effects.TradeTransferEffect)
-    sg.ignore_saver(effects.MiningEffect)
-    sg.ignore_saver(effects.WarpOutEffect)
-    sg.ignore_saver(effects.WarpInEffect)
+    sg.register_saver(effects.TransferCargoEffect, s_effect.TransferCargoEffectSaver[effects.TransferCargoEffect](sg))
+    sg.register_saver(effects.TradeTransferEffect, s_effect.TradeTransferEffectSaver(sg))
+    sg.register_saver(effects.MiningEffect, s_effect.MiningEffectSaver(sg))
+    sg.register_saver(effects.WarpOutEffect, s_effect.WarpOutEffectSaver(sg))
+    sg.register_saver(effects.WarpInEffect, s_effect.WarpInEffectSaver(sg))
     sg.register_saver(combat.PointDefenseEffect, s_combat.PointDefenseEffectSaver(sg))
 
     # scheduled tasks (live in Gamestate)

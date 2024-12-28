@@ -69,8 +69,6 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for agendum in character.agenda:
             bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
 
-        bytes_written += self.save_observers(character, f)
-
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Character:
@@ -98,8 +96,6 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         )
         character.balance = balance
         load_context.register_post_load(character, (location_id, asset_ids, agenda_ids))
-
-        self.load_observers(character, f, load_context)
 
         return character
 

@@ -1,12 +1,13 @@
 import uuid
-from typing import Optional
+from typing import Optional, Any
 
 from stellarpunk.core.order import Order, OrderObserver
 from stellarpunk.core.sector import Sector, SectorEntity, SectorEntityObserver
 
 class EntityOrderWatch(OrderObserver, SectorEntityObserver):
     """ Watches a SectorEntity, cancels an order on destroy/migrate """
-    def __init__(self, order:Order, target:SectorEntity) -> None:
+    def __init__(self, order:Order, target:SectorEntity, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.order:Optional[Order] = order
         self.order.observe(self)
         self.target:Optional[SectorEntity] = target

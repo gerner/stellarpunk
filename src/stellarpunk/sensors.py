@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
-class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
+class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     @classmethod
     def create_sensor_image(cls, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:core.AbstractSensorManager, identity:Optional[core.SensorIdentity]=None) -> "SensorImage":
         if identity is None:
@@ -34,7 +34,8 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         ship.observe(image)
         return image
 
-    def __init__(self, identity:core.SensorIdentity) -> None:
+    def __init__(self, identity:core.SensorIdentity, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self._identity = identity
         self._sensor_manager:core.AbstractSensorManager = None # type: ignore
         self._ship:core.SectorEntity = None # type: ignore

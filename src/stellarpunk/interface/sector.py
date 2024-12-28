@@ -18,7 +18,7 @@ from stellarpunk import util, core, interface, orders, effects, config
 from stellarpunk.core import sector_entity
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
-class SectorView(interface.GameView, interface.PerspectiveObserver, core.SectorEntityObserver):
+class SectorView(interface.PerspectiveObserver, core.SectorEntityObserver, interface.GameView):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.

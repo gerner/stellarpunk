@@ -20,7 +20,7 @@ class Mode(enum.Enum):
     EXIT_GAME = enum.auto()
     EXIT = enum.auto()
 
-class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.GameSaverObserver):
+class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserver, interface.View):
     """ Startup screen for giving player loading feedback.
 
     Watches universe generation and gives player info about progress.
@@ -32,7 +32,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
 
         self._generator = generator
         self._generator_thread:Optional[threading.Thread] = None
-        self._threaded_generation = False
+        self._generator_exception:Optional[Exception] = None
+        self._threaded_generation = True
 
         self._game_saver = game_saver
 
@@ -68,9 +69,6 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         self._generation_ticks += 1
         self.logger.debug(f'load tick: {self._generation_ticks}/{self._estimated_generation_ticks}')
 
-    def universe_generated(self, gamestate:core.Gamestate) -> None:
-        self._universe_loaded = True
-
     def _generate_universe(self) -> None:
         self.interface.log_message("generating a universe...")
         gamestate = self._generator.generate_universe()
@@ -78,6 +76,13 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         gamestate.force_pause(self)
         # the gamestate will get sent to people via an event on universe
         # generator
+        self._universe_loaded = True
+
+    def _generate_universe_threaded(self) -> None:
+        try:
+            self._generate_universe()
+        except Exception as e:
+            self._generator_exception = e
 
     def _load_game(self) -> None:
         assert(self._save_game)
@@ -91,6 +96,12 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         end_time = time.perf_counter()
         self.interface.log_message(f'game loaded in {end_time-start_time:.2f}s.')
         self._universe_loaded = True
+
+    def _load_game_threaded(self) -> None:
+        try:
+            self._load_game()
+        except Exception as e:
+            self._generator_exception = e
 
     def _enter_main_menu(self) -> None:
         self.viewscreen.erase()
@@ -123,7 +134,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         self._estimated_generation_ticks = 100
         self._generator.observe(self)
         if self._threaded_generation:
-            self._generator_thread = threading.Thread(target=self._generate_universe)
+            self._generator_thread = threading.Thread(target=self._generate_universe_threaded)
             self._generator_thread.start()
         else:
             self._generate_universe()
@@ -180,7 +191,7 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         self._game_saver.observe(self)
 
         if self._threaded_generation:
-            self._generator_thread = threading.Thread(target=self._load_game)
+            self._generator_thread = threading.Thread(target=self._load_game_threaded)
             self._generator_thread.start()
         else:
             self._load_game()
@@ -284,6 +295,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         if self._universe_loaded:
             self.viewscreen.addstr(18, 15, f'universe generated.')
             self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
+        elif self._generator_exception:
+            raise self._generator_exception
 
     def _draw_load_game(self) -> None:
         # menu to choose which save game to load
@@ -307,6 +320,8 @@ class StartupView(interface.View, generate.UniverseGeneratorObserver, save_game.
         if self._universe_loaded:
             self.viewscreen.addstr(18, 15, f'game loaded.')
             self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
+        elif self._generator_exception:
+            raise self._generator_exception
 
     def update_display(self) -> None:
         # TODO: have some clever graphic for the main menu

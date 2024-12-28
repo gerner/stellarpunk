@@ -50,6 +50,12 @@ class Effect(base.Observable[EffectObserver], base.AbstractEffect):
         if observer is not None:
             self.observe(observer)
 
+    # base.Observable
+    @property
+    def observable_id(self) -> uuid.UUID:
+        return self.effect_id
+
+
     def register(self) -> None:
         self.gamestate.register_effect(self)
 
@@ -222,6 +228,12 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
 
         if observer is not None:
             self.observe(observer)
+
+    # base.Observable
+    @property
+    def observable_id(self) -> uuid.UUID:
+        return self.order_id
+
 
     def initialize_order(self, ship:"Ship") -> None:
         self.ship = ship

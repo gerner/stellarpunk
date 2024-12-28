@@ -13,7 +13,7 @@ from stellarpunk import core, econ, util, events
 AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 1.0
 
-class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
+class TransferCargoEffect(core.SectorEntityObserver, core.Effect):
     @classmethod
     def create_transfer_cargo_effect[T:TransferCargoEffect](
             cls:Type[T],
@@ -49,7 +49,7 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
     # core.SectorEntityObserver
     @property
     def observer_id(self) -> uuid.UUID:
-        return core.OBSERVER_ID_NULL
+        return self.effect_id
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         self.cancel_effect()

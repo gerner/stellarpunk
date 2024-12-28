@@ -12,7 +12,7 @@ import tempfile
 import itertools
 import weakref
 import collections
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union, Type, Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -34,6 +34,7 @@ class LoadContext:
         self._post_loads:list[tuple[Any, Any]] = []
         self._sanity_checks:list[tuple[Any, Any]] = []
         self._observer_sanity_checks:list[tuple[core.Observable, list[tuple[str, uuid.UUID]]]] = []
+        self._custom_post_loads:list[tuple[Callable[[Any, LoadContext, Any], None], Any, Any]] = []
 
     def reference(self, obj:Any) -> None:
         """ hang on to a reference to an object.
@@ -46,6 +47,9 @@ class LoadContext:
     def register_post_load(self, obj:Any, context:Any) -> None:
         self._post_loads.append((obj, context))
 
+    def register_custom_post_load(self, fn:Callable[[Any, "LoadContext", Any], None], obj:Any, context:Any) -> None:
+        self._custom_post_loads.append((fn, obj, context))
+
     def register_sanity_check(self, obj:Any, context:Any) -> None:
         self._sanity_checks.append((obj, context))
 
@@ -56,6 +60,9 @@ class LoadContext:
         self.logger.info("post loading...")
         for obj, context in self._post_loads:
             self.save_game.post_load_object(obj, self, context)
+
+        for fn, obj, context in self._custom_post_loads:
+            fn(obj, self, context)
 
         self.logger.info("sanity checking...")
         for obj, context in self._sanity_checks:
@@ -78,6 +85,25 @@ class Saver[T](abc.ABC):
     def save(self, obj:T, f:io.IOBase) -> int: ...
     @abc.abstractmethod
     def load(self, f:io.IOBase, load_context:LoadContext) -> T: ...
+    def fetch(self, klass:Type[T], object_id:uuid.UUID, load_context:LoadContext) -> T:
+        raise NotImplementedError()
+
+    def save_object(self, obj:T, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written = self.save(obj, f)
+        if isinstance(obj, core.Observer):
+            bytes_written += self.save_observing(obj, f)
+        if isinstance(obj, core.Observable):
+            bytes_written += self.save_observers(obj, f)
+        return bytes_written
+
+    def load_object(self, f:io.IOBase, load_context:LoadContext) -> T:
+        obj = self.load(f, load_context)
+        if isinstance(obj, core.Observer):
+            self.load_observing(obj, f, load_context)
+        if isinstance(obj, core.Observable):
+            self.load_observers(obj, f, load_context)
+        return obj
 
     def save_observers(self, obj:core.Observable, f:io.IOBase) -> int:
         bytes_written = 0
@@ -94,6 +120,33 @@ class Saver[T](abc.ABC):
             observer_ids = s_util.str_uuids_from_f(f)
             load_context.register_sanity_check_observers(obj, observer_ids)
         return observer_ids
+
+    def save_observing(self, obj:core.Observer, f:io.IOBase) -> int:
+        """ Saves Observable instances this obj is observing. """
+        bytes_written = 0
+        bytes_written += s_util.debug_string_w("observing", f)
+        bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observable_id) for x in obj.observings), f)
+        return bytes_written
+
+    def load_observing(self, obj:core.Observer, f:io.IOBase, load_context:LoadContext) -> list[tuple[type, uuid.UUID]]:
+        """ Restores info about Observable instances this obj is observing. """
+        s_util.debug_string_r("observing", f)
+        raw_observing_info = s_util.str_uuids_from_f(f)
+        observing_info:list[tuple[type, uuid.UUID]] = []
+        for klassname, object_id in raw_observing_info:
+            klass = pydoc.locate(klassname)
+            assert(isinstance(klass, type))
+            assert(issubclass(klass, core.Observable))
+            observing_info.append((klass, object_id))
+        load_context.register_custom_post_load(self.post_load_observing, obj, observing_info)
+        return observing_info
+
+    def post_load_observing(self, observer:core.Observer, load_context:LoadContext, observing:list[tuple[type, uuid.UUID]]) -> None:
+        """ Actually sets up obj observing Observables it observed at save. """
+        for klass, object_id in observing:
+            observable:core.Observable = self.save_game.fetch_object(klass, object_id, load_context)
+            assert(isinstance(observable, core.Observable))
+            observable.observe(observer)
 
     def post_load(self, obj:T, load_context:LoadContext, context:Any) -> None:
         pass
@@ -154,7 +207,8 @@ class GameSaver(SaverObserver):
 
     Organizes configuration and dispatches to various sorts of save logic. """
 
-    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
 
         self.debug = True
@@ -276,7 +330,7 @@ class GameSaver(SaverObserver):
         if self.debug:
             bytes_written = s_util.to_len_pre_f(f'__so:{util.fullname(klass)}', f)
             bytes_written = s_util.to_len_pre_f(f'__so:{util.fullname(obj)}', f)
-        return bytes_written+self._save_register[klass].save(obj, f)
+        return bytes_written+self._save_register[klass].save_object(obj, f)
 
     def load_object(self, klass:type, f:io.IOBase, load_context:LoadContext) -> Any:
         if load_context.debug:
@@ -284,7 +338,10 @@ class GameSaver(SaverObserver):
             fullname = s_util.from_len_pre_f(f)
             if klassname != f'__so:{util.fullname(klass)}':
                 raise ValueError(f'{klassname} not __so:{util.fullname(klass)} at {f.tell()}')
-        return self._save_register[klass].load(f, load_context)
+        return self._save_register[klass].load_object(f, load_context)
+
+    def fetch_object[T](self, klass:Type[T], object_id:uuid.UUID, load_context:LoadContext) -> T:
+        return self._save_register[klass].fetch(klass, object_id, load_context)
 
     def post_load_object(self, obj:Any, load_context:LoadContext, context:Any) -> None:
         self._save_register[type(obj)].post_load(obj, load_context, context)

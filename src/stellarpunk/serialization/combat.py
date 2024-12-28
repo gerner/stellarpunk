@@ -8,10 +8,14 @@ from stellarpunk.serialization import save_game, util as s_util, movement as s_m
 
 class TimedOrderTaskSaver(save_game.Saver[combat.TimedOrderTask]):
     def save(self, obj:combat.TimedOrderTask, f:io.IOBase) -> int:
-        return s_util.uuid_to_f(obj.order.order_id, f)
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(obj.task_id, f)
+        bytes_written += s_util.uuid_to_f(obj.order.order_id, f)
+        return bytes_written
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> combat.TimedOrderTask:
+        task_id = s_util.uuid_from_f(f)
         order_id = s_util.uuid_from_f(f)
-        tot = combat.TimedOrderTask()
+        tot = combat.TimedOrderTask(task_id=task_id)
         load_context.register_post_load(tot, order_id)
         return tot
     def post_load(self, obj:combat.TimedOrderTask, load_context:save_game.LoadContext, context:Any) -> None:
@@ -19,7 +23,6 @@ class TimedOrderTaskSaver(save_game.Saver[combat.TimedOrderTask]):
         order = load_context.gamestate.orders[order_id]
         assert(isinstance(order, core.Order))
         obj.order = order
-        order.observe(obj)
 
 class ThreatTrackerSaver(save_game.Saver[combat.ThreatTracker]):
     def save(self, obj:combat.ThreatTracker, f:io.IOBase) -> int:
@@ -261,10 +264,7 @@ class PointDefenseEffectSaver(s_effect.EffectSaver[combat.PointDefenseEffect]):
     def _post_load_effect(self, effect:combat.PointDefenseEffect, load_context:save_game.LoadContext, context:Any) -> None:
         context_data:tuple[uuid.UUID, Optional[uuid.UUID], bool] = context
         craft_id, current_target_id, has_pd_shape = context_data
-
         effect.craft = load_context.gamestate.get_entity(craft_id, core.SectorEntity)
-        if effect.started_at >= 0 and effect.completed_at < 0:
-            effect.craft.observe(effect)
 
         if current_target_id:
             effect.current_target = effect.craft.sensor_settings.get_image(current_target_id)

@@ -2,7 +2,7 @@ import io
 import abc
 import uuid
 import collections
-from typing import Any, Optional
+from typing import Any, Optional, Type
 
 from stellarpunk import core, util
 
@@ -39,8 +39,6 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_order(order, f)
 
-        bytes_written += self.save_observers(order, f)
-
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> Order:
@@ -71,9 +69,10 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         load_context.gamestate.register_order(order)
         load_context.register_post_load(order, (ship_id, parent_id, child_ids, extra_context))
 
-        self.load_observers(order, f, load_context)
-
         return order
+
+    def fetch(self, klass:Type[Order], order_id:uuid.UUID, load_context:save_game.LoadContext) -> Order:
+        return load_context.gamestate.get_order(order_id, klass)
 
     def post_load(self, order:Order, load_context:save_game.LoadContext, context:Any) -> None:
         context_data:tuple[uuid.UUID, Optional[uuid.UUID], list[uuid.UUID], Any] = context

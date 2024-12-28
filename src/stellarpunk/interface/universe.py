@@ -11,7 +11,7 @@ import drawille # type: ignore
 from stellarpunk import interface, util, core, config
 from stellarpunk.interface import command_input, starfield, sector as sector_interface
 
-class UniverseView(interface.View, interface.PerspectiveObserver):
+class UniverseView(interface.PerspectiveObserver, interface.View):
     def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
 

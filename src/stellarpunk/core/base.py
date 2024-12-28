@@ -23,9 +23,23 @@ logger = logging.getLogger(__name__)
 
 OBSERVER_ID_NULL = uuid.UUID(hex="deadbeefdeadbeefdeadbeefdeadbeef")
 class Observer(abc.ABC):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._observings:weakref.WeakSet[Observable] = weakref.WeakSet()
+
     @property
     @abc.abstractmethod
     def observer_id(self) -> uuid.UUID: ...
+
+    @property
+    def observings(self) -> Iterable["Observable"]:
+        return self._observings
+
+    def mark_observing(self, observed:"Observable") -> None:
+        self._observings.add(observed)
+
+    def unmark_observing(self, observed:"Observable") -> None:
+        self._observings.remove(observed)
 
 class Observable[T:Observer](abc.ABC):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -33,14 +47,24 @@ class Observable[T:Observer](abc.ABC):
         self._observers:weakref.WeakSet[T] = weakref.WeakSet()
 
     @property
+    @abc.abstractmethod
+    def observable_id(self) -> uuid.UUID: ...
+
+    @property
     def observers(self) -> Iterable[T]:
         return self._observers
 
     def observe(self, observer:T) -> None:
         self._observers.add(observer)
+        observer.mark_observing(self)
 
     def unobserve(self, observer:T) -> None:
-        self._observers.remove(observer)
+        # allow double unobserve calls. this might happen because, e.g.
+        # Entity.destroy removes observers and the caller might then have
+        # further cleanup that removes the observer
+        if observer in self._observers:
+            self._observers.remove(observer)
+            observer.unmark_observing(self)
 
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod

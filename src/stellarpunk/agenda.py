@@ -41,7 +41,7 @@ class Agendum(core.AbstractAgendum, abc.ABC):
 
     def stop(self) -> None:
         assert(self.started_at >= 0.0)
-        assert(self.stopped_at < 0.0)
+        assert(self.stopped_at < 0.0 or self.stopped_at == self.gamestate.timestamp)
         self._stop()
         self.stopped_at = self.gamestate.timestamp
         self.gamestate.unschedule_agendum(self)
@@ -213,7 +213,7 @@ def choose_station_to_sell_to(
 MINING_SLEEP_TIME = 60.
 TRADING_SLEEP_TIME = 60.
 
-class EntityOperatorAgendum(Agendum, core.SectorEntityObserver):
+class EntityOperatorAgendum(core.SectorEntityObserver, Agendum):
     @classmethod
     def create_eoa[T:EntityOperatorAgendum](cls:Type[T], craft: core.CrewedSectorEntity, *args: Any, **kwargs: Any) -> T:
         a = cls.create_agendum(*args, **kwargs)
@@ -244,7 +244,7 @@ class EntityOperatorAgendum(Agendum, core.SectorEntityObserver):
         if entity == self.craft:
             self.stop()
 
-class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
+class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
     def __init__(self, *args: Any, enable_threat_response:bool=True, start_transponder:bool=False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.enable_threat_response = enable_threat_response
@@ -314,7 +314,7 @@ class CaptainAgendum(EntityOperatorAgendum, core.OrderObserver):
         self.threat_response.add_threat(threat_image)
         self.craft.prepend_order(self.threat_response)
 
-class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
+class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
     """ Managing a ship for mining.
 
     Operates as a state machine as we mine asteroids and sell the resources to
@@ -510,7 +510,7 @@ class MiningAgendum(EntityOperatorAgendum, core.OrderObserver):
             self.mining_order.observe(self)
             self.craft.prepend_order(self.mining_order)
 
-class TradingAgendum(EntityOperatorAgendum, core.OrderObserver):
+class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
 
     class State(enum.IntEnum):
         IDLE = enum.auto()

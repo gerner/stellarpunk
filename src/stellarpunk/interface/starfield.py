@@ -1,7 +1,7 @@
 """ Tools for generating and drawing a starfield. """
 
 import curses
-from typing import Sequence, Tuple, Mapping, Dict, List
+from typing import Sequence, Tuple, Mapping, Dict, List, Any
 import bisect
 import logging
 import math
@@ -12,7 +12,8 @@ import numpy as np
 from stellarpunk import util, interface, core
 
 class Starfield(interface.PerspectiveObserver):
-    def __init__(self, starfields:Sequence[core.StarfieldLayer], perspective:interface.Perspective, zoom_step:float=1.4) -> None:
+    def __init__(self, starfields:Sequence[core.StarfieldLayer], perspective:interface.Perspective, *args:Any, zoom_step:float=1.4, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
         # a set of layers corresponding to different zoom levels
         self.starfields = starfields
