@@ -69,9 +69,7 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for agendum in character.agenda:
             bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
 
-        if self.save_game.debug:
-            bytes_written += s_util.debug_string_w("observers", f)
-            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in character.observers), f)
+        bytes_written += self.save_observers(character, f)
 
         return bytes_written
 
@@ -92,11 +90,6 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for i in range(count):
             agenda_ids.append(s_util.uuid_from_f(f))
 
-        observer_ids:list[tuple[str, uuid.UUID]] = []
-        if load_context.debug:
-            s_util.debug_string_r("observers", f)
-            observer_ids = s_util.str_uuids_from_f(f)
-
         character = core.Character(
             load_context.generator.sprite_store[sprite_id],
             load_context.gamestate,
@@ -106,8 +99,7 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         character.balance = balance
         load_context.register_post_load(character, (location_id, asset_ids, agenda_ids))
 
-        if load_context.debug:
-            load_context.register_sanity_check(character, observer_ids)
+        self.load_observers(character, f, load_context)
 
         return character
 
@@ -129,20 +121,6 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for agenda_id in agenda_ids:
             agendum = load_context.gamestate.agenda[agenda_id]
             character.agenda.append(agendum)
-
-    def sanity_check(self, character:core.Character, load_context:save_game.LoadContext, context:Any) -> None:
-        observer_ids:list[tuple[str, uuid.UUID]] = context
-
-        # make sure all the observers we had when saving are back
-        saved_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer_id in observer_ids:
-            saved_observer_counts[observer_id] += 1
-        loaded_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer in character.observers:
-            loaded_observer_counts[(util.fullname(observer), observer.observer_id)] += 1
-        saved_observer_counts.subtract(loaded_observer_counts)
-        non_zero_observers = {observer_id: count for observer_id, count in saved_observer_counts.items() if count != 0}
-        assert(non_zero_observers == {})
 
 class MessageSaver(s_gamestate.EntitySaver[core.Message]):
     def _save_entity(self, message:core.Message, f:io.IOBase) -> int:

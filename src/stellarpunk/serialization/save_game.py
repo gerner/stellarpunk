@@ -11,6 +11,7 @@ import contextlib
 import tempfile
 import itertools
 import weakref
+import collections
 from typing import Any, Optional, TypeVar, Union
 
 import numpy as np
@@ -32,6 +33,7 @@ class LoadContext:
         self.references:set[Any] = set()
         self._post_loads:list[tuple[Any, Any]] = []
         self._sanity_checks:list[tuple[Any, Any]] = []
+        self._observer_sanity_checks:list[tuple[core.Observable, list[tuple[str, uuid.UUID]]]] = []
 
     def reference(self, obj:Any) -> None:
         """ hang on to a reference to an object.
@@ -46,6 +48,9 @@ class LoadContext:
 
     def register_sanity_check(self, obj:Any, context:Any) -> None:
         self._sanity_checks.append((obj, context))
+
+    def register_sanity_check_observers(self, obj:core.Observable, observer_ids:list[tuple[str, uuid.UUID]]) -> None:
+        self._observer_sanity_checks.append((obj, observer_ids))
 
     def load_complete(self) -> None:
         self.logger.info("post loading...")
@@ -70,8 +75,35 @@ class Saver[T](abc.ABC):
     @abc.abstractmethod
     def load(self, f:io.IOBase, load_context:LoadContext) -> T: ...
 
+    def save_observers(self, obj:core.Observable, f:io.IOBase) -> int:
+        bytes_written = 0
+        if self.save_game.debug:
+            bytes_written += s_util.debug_string_w("observers", f)
+            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in obj.observers), f)
+        return bytes_written
+
+    def load_observers(self, obj:core.Observable, f:io.IOBase, load_context:LoadContext) -> list[tuple[str, uuid.UUID]]:
+        observer_ids:list[tuple[str, uuid.UUID]] = []
+        if load_context.debug:
+            s_util.debug_string_r("observers", f)
+            observer_ids = s_util.str_uuids_from_f(f)
+            load_context.register_sanity_check_observers(obj, observer_ids)
+        return observer_ids
+
     def post_load(self, obj:T, load_context:LoadContext, context:Any) -> None:
         pass
+
+    def sanity_check_observers(self, obj:core.Observable, load_context:LoadContext, observer_ids:list[tuple[str, uuid.UUID]]) -> None:
+        # make sure all the observers we had when saving are back
+        saved_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for observer_id in observer_ids:
+            saved_observer_counts[observer_id] += 1
+        loaded_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for observer in obj.observers:
+            loaded_observer_counts[(util.fullname(observer), observer.observer_id)] += 1
+        saved_observer_counts.subtract(loaded_observer_counts)
+        non_zero_observers = {observer_id: count for observer_id, count in saved_observer_counts.items() if count != 0}
+        assert(non_zero_observers == {})
 
     def sanity_check(self, obj:T, load_context:LoadContext, context:Any) -> None:
         pass

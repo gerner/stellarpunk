@@ -24,12 +24,10 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
         bytes_written += s_util.float_to_f(effect.started_at, f)
         bytes_written += s_util.float_to_f(effect.completed_at, f)
 
-        if self.save_game.debug:
-            bytes_written += s_util.debug_string_w("observers", f)
-            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in effect.observers), f)
-
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_effect(effect, f)
+
+        bytes_written += self.save_observers(effect, f)
 
         return bytes_written
 
@@ -40,18 +38,12 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
         started_at = s_util.float_from_f(f)
         completed_at = s_util.float_from_f(f)
 
-        observer_ids:list[tuple[str, uuid.UUID]] = []
-        if load_context.debug:
-            s_util.debug_string_r("observers", f)
-            observer_ids = s_util.str_uuids_from_f(f)
-
         s_util.debug_string_r("type specific", f)
         effect, extra_context = self._load_effect(f, load_context, effect_id)
         load_context.gamestate.register_effect(effect)
         load_context.register_post_load(effect, (sector_id, extra_context))
 
-        if load_context.debug:
-            load_context.register_sanity_check(effect, observer_ids)
+        self.load_observers(effect, f, load_context)
 
         return effect
 
@@ -60,20 +52,6 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
         sector_id, extra_context = context
         effect.sector = load_context.gamestate.get_entity(sector_id, core.Sector)
         self._post_load_effect(effect, load_context, extra_context)
-
-    def sanity_check(self, effect:Effect, load_context:save_game.LoadContext, context:Any) -> None:
-        observer_ids:list[tuple[str, uuid.UUID]] = context
-
-        # make sure all the observers we had when saving are back
-        saved_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer_id in observer_ids:
-            saved_observer_counts[observer_id] += 1
-        loaded_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer in effect.observers:
-            loaded_observer_counts[(util.fullname(observer), observer.observer_id)] += 1
-        saved_observer_counts.subtract(loaded_observer_counts)
-        non_zero_observers = {observer_id: count for observer_id, count in saved_observer_counts.items() if count != 0}
-        assert(non_zero_observers == {})
 
 class TransferCargoEffectSaver[T:effects.TransferCargoEffect](EffectSaver[T]):
     def _save_transfer_cargo_effect(self, effect:T, f:io.IOBase) -> int:

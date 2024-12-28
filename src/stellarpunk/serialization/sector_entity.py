@@ -59,12 +59,10 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written += s_util.debug_string_w("sensor settings", f)
         bytes_written += self.save_game.save_object(sector_entity.sensor_settings, f, klass=core.AbstractSensorSettings)
 
-        if self.save_game.debug:
-            bytes_written += s_util.debug_string_w("observers", f)
-            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in sector_entity.observers), f)
-
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_sector_entity(sector_entity, f)
+
+        bytes_written += self.save_observers(sector_entity, f)
 
         return bytes_written
 
@@ -100,13 +98,10 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         phys_body.angular_velocity = angular_velocity
         assert(phys_body.moment == moment or (math.isinf(phys_body.mass) and math.isinf(phys_body.moment)))
 
-        observer_ids:list[tuple[str, uuid.UUID]] = []
-        if load_context.debug:
-            s_util.debug_string_r("observers", f)
-            observer_ids = s_util.str_uuids_from_f(f)
-
         s_util.debug_string_r("type specific", f)
         sector_entity, extra_context = self._load_sector_entity(f, load_context, entity_id, np.array((loc_x, loc_y)), phys_body, sensor_settings)
+
+        self.load_observers(sector_entity, f, load_context)
 
         # phys_shape sets the shape and radius on the sector entity
         self.save_game.generator.phys_shape(phys_body, sector_entity, radius)
@@ -117,10 +112,6 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
 
         if has_captain or extra_context is not None:
             load_context.register_post_load(sector_entity, (captain_id, extra_context))
-
-        if load_context.debug:
-            load_context.register_sanity_check(sector_entity, observer_ids)
-
         return sector_entity
 
     def post_load(self, sector_entity:SectorEntity, load_context:save_game.LoadContext, context:Any) -> None:
@@ -134,20 +125,6 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
             sector_entity.captain = captain
 
         self._post_load_sector_entity(sector_entity, load_context, extra_context)
-
-    def sanity_check(self, effect:SectorEntity, load_context:save_game.LoadContext, context:Any) -> None:
-        observer_ids:list[tuple[str, uuid.UUID]] = context
-
-        # make sure all the observers we had when saving are back
-        saved_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer_id in observer_ids:
-            saved_observer_counts[observer_id] += 1
-        loaded_observer_counts:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
-        for observer in effect.observers:
-            loaded_observer_counts[(util.fullname(observer), observer.observer_id)] += 1
-        saved_observer_counts.subtract(loaded_observer_counts)
-        non_zero_observers = {observer_id: count for observer_id, count in saved_observer_counts.items() if count != 0}
-        assert(non_zero_observers == {})
 
 class ShipSaver(SectorEntitySaver[core.Ship]):
     def _save_sector_entity(self, ship:core.Ship, f:io.IOBase) -> int:

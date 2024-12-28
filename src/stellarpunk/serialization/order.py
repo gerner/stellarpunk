@@ -36,12 +36,10 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         for child in order.child_orders:
             bytes_written += s_util.uuid_to_f(child.order_id, f)
 
-        if self.save_game.debug:
-            bytes_written += s_util.debug_string_w("observers", f)
-            bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in order.observers), f)
-
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_order(order, f)
+
+        bytes_written += self.save_observers(order, f)
 
         return bytes_written
 
@@ -64,18 +62,12 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
             child_id = s_util.uuid_from_f(f)
             child_ids.append(child_id)
 
-        observer_ids:list[tuple[str, uuid.UUID]] = []
-        if load_context.debug:
-            s_util.debug_string_r("observers", f)
-            observer_ids = s_util.str_uuids_from_f(f)
-
         s_util.debug_string_r("type specific", f)
         order, extra_context = self._load_order(f, load_context, order_id)
         load_context.gamestate.register_order(order)
         load_context.register_post_load(order, (ship_id, parent_id, child_ids, extra_context))
 
-        if load_context.debug:
-            load_context.register_sanity_check(order, observer_ids)
+        self.load_observers(order, f, load_context)
 
         return order
 

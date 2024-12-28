@@ -1,10 +1,11 @@
 import io
 import uuid
+import collections
 from typing import Any
 
 import cymunk # type: ignore
 
-from stellarpunk import core, sensors
+from stellarpunk import core, sensors, util
 from . import save_game, util as s_util, gamestate as s_gamestate
 
 class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
@@ -35,6 +36,14 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         for weather in sector._weathers.values():
             bytes_written += self.save_game.save_object(weather, f)
 
+        # collision observers for sanity checking
+        if self.save_game.debug:
+            observer_info:list[tuple[str, uuid.UUID]] = []
+            for u, observers in sector.collision_observers.items():
+                for observer in observers:
+                    observer_info.append((util.fullname(observer), u))
+            bytes_written += s_util.str_uuids_to_f(observer_info, f)
+
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Sector:
@@ -60,12 +69,15 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         for _ in range(count):
             effect_ids.append(s_util.uuid_from_f(f))
 
-        #TODO: collision observers
-
         # weather
         count = s_util.size_from_f(f)
         for _ in range(count):
             sector.add_region(self.save_game.load_object(core.SectorWeatherRegion, f, load_context))
+
+        # collision observers for sanity checking
+        if load_context.debug:
+            observer_info = s_util.str_uuids_from_f(f)
+            load_context.register_sanity_check(sector, observer_info)
 
         sector.sensor_manager = sensors.SensorManager(sector)
 
@@ -84,6 +96,20 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
             assert(isinstance(effect, core.Effect))
             # can't use add_effect because it calls begin effect
             sector._effects.append(effect)
+
+    def sanity_check(self, sector:core.Sector, load_context:save_game.LoadContext, context:Any) -> None:
+        observer_info:list[tuple[str, uuid.UUID]] = context
+        saved_observers:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for klass, u in observer_info:
+            saved_observers[(klass, u)] += 1
+        loaded_observers:collections.Counter[tuple[str, uuid.UUID]] = collections.Counter()
+        for u, observers in sector.collision_observers.items():
+            for observer in observers:
+                loaded_observers[(util.fullname(observer), u)] += 1
+
+        saved_observers.subtract(loaded_observers)
+        non_zero_observers = {observer_id: count for observer_id, count in saved_observers.items() if count != 0}
+        assert(non_zero_observers == {})
 
 class SectorWeatherRegionSaver(save_game.Saver[core.SectorWeatherRegion]):
     def save(self, weather:core.SectorWeatherRegion, f:io.IOBase) -> int:
