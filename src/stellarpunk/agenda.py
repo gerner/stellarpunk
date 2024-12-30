@@ -324,6 +324,7 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.threat_response.observe(self)
         threat_image = self.craft.sector.sensor_manager.target(threat, self.craft)
         self.threat_response.add_threat(threat_image)
+        assert(not self.threat_response.is_complete())
         self.craft.prepend_order(self.threat_response)
 
 class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):

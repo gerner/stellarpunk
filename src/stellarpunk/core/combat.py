@@ -109,7 +109,6 @@ class ThreatTracker(core.SectorEntityObserver):
 
     def start_tracking(self) -> None:
         self.craft.observe(self)
-        self.last_target_ts = -np.inf
 
     def stop_tracking(self) -> None:
         self.craft.unobserve(self)
@@ -120,6 +119,7 @@ class ThreatTracker(core.SectorEntityObserver):
         self.logger.debug(f'adding threat {threat}')
         self.threats.add(threat)
         self.threat_ids.add(threat.identity.entity_id)
+        self.last_target_ts = core.Gamestate.gamestate.timestamp
 
     # core.SectorEntityObserver
     @property
@@ -774,7 +774,6 @@ class FleeOrder(core.Order):
             return self.ship.max_thrust
 
     def act(self, dt:float) -> None:
-        self.logger.debug(f'act at {self.gamestate.timestamp}')
         self.threat_tracker.update_threats()
         if self.threat_tracker.closest_threat is None:
             self.logger.debug(f'no more threats, completing flee order')

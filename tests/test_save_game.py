@@ -38,7 +38,8 @@ def test_save_load_registry(event_manager, generator):
 def test_trivial_gamestate(event_manager, gamestate, generator, player):
     assert player == gamestate.player
     game_saver = sim.initialize_save_game(generator, event_manager, debug=True)
-    filename = game_saver.save(gamestate)
+    save_filename = "/tmp/stellarpunk_testfile.stpnk"
+    filename = game_saver.save(gamestate, save_filename)
     g2 = game_saver.load(filename)
     #this won't work!
     #assert g2 == gamestate
@@ -447,8 +448,8 @@ def test_saving_during_attack(player, gamestate, generator, sector, testui, simu
 
     assert attacker not in set(functools.reduce(lambda x, y: x + [y[0], y[1]], testui.collisions, list()))
 
-    # sometimes we get two flee orders
-    assert len(testui.orders) in (2, 3)
+    # should only have the attack order and a flee order
+    assert len(testui.orders) == 2
     flee_order = testui.orders[1]
     assert isinstance(flee_order, combat.FleeOrder)
 
