@@ -2,8 +2,11 @@ import time
 import threading
 import enum
 import curses.ascii
+import datetime
 from collections.abc import Collection
 from typing import Any, Optional
+
+import hashime # type: ignore
 
 from stellarpunk import core, interface, generate
 from stellarpunk.interface import pilot, ui_util
@@ -47,6 +50,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
         self._main_menu = ui_util.Menu("null", [])
         self._load_menu = ui_util.Menu("null", [])
+        self._saves:list[save_game.SaveGame] = []
 
         self._save_game:Optional[save_game.SaveGame] = None
         self._loaded_gamestate:Optional[core.Gamestate] = None
@@ -172,7 +176,9 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
         # get savegame options
         load_options = []
+        self._saves.clear()
         for s in self._game_saver.list_save_games():
+            self._saves.append(s)
             load_options.append(ui_util.TextMenuItem(
                 s.filename,
                 lambda s=s: load_game(s) # type: ignore
@@ -299,12 +305,27 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             raise self._generator_exception
 
     def _draw_load_game(self) -> None:
+        self.viewscreen.erase()
         # menu to choose which save game to load
         # selecting one loads that game and then transitions 
         y = 15
         x = 15
         if len(self._load_menu.options) > 0:
             self._load_menu.draw(self.viewscreen, y, x)
+
+            # draw some info about the saved game
+            selected_save = self._saves[self._load_menu.selected_option]
+
+            randomart = hashime.DrunkenBishop(selected_save.game_fingerprint).to_art()
+            i = 15
+            for line in randomart.split("\n"):
+                self.viewscreen.addstr(i, x+64, line)
+                i += 1
+
+            self.viewscreen.addstr(16, x+64+20, selected_save.pc_name)
+            self.viewscreen.addstr(17, x+64+20, selected_save.pc_sector_name)
+            self.viewscreen.addstr(18, x+64+20, f'{datetime.datetime.fromtimestamp(selected_save.game_base_date.timestamp() + selected_save.game_timestamp)}')
+
         else:
             self.viewscreen.addstr(18, 15, f'no save games to load.')
             self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
