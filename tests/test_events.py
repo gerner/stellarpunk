@@ -7,6 +7,7 @@ import pytest
 from stellarpunk import core, events, dialog, predicates
 
 """
+old style events, should probably nuke this suite
 class EventMock(events.Event):
     message_entity_id = uuid.UUID('6b34e2b3-f6c0-4ee4-aaf1-d4e4cec9d1a6')
 

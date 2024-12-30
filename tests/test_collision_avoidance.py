@@ -539,7 +539,8 @@ def test_dense_neighborhood(gamestate, generator, sector, testui, simulator):
 
     testui.eta = eta*4
     testui.orders = [goto_order]
-    testui.cannot_avoid_collision_orders = [goto_order]
+    # order might indicate it cannot avoid a collision, but as long as it doesn't, that's ok
+    #testui.cannot_avoid_collision_orders = [goto_order]
     testui.cannot_stop_orders = [goto_order]
     testui.margin_neighbors = [ship_driver]
 

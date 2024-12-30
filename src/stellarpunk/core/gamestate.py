@@ -157,7 +157,8 @@ class Gamestate(EntityRegistry):
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
-        self.keep_running = True
+        self.startup_running = True
+        self.keep_running = False
 
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
@@ -427,12 +428,12 @@ class Gamestate(EntityRegistry):
         self.sectors[sector.entity_id] = sector
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
 
-    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray) -> None:
+    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:
         self.sector_edges = sector_edges
         self.sector_ids = sector_ids
         self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
         self.max_edge_length = max(
-            util.distance(self.sectors[a].loc, self.sectors[b].loc) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
+            util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
         )
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
@@ -447,7 +448,14 @@ class Gamestate(EntityRegistry):
         # increment the ticks even though we don't process them?
         return self.timestamp_to_datetime(self.timestamp)
 
+    def exit_startup(self) -> None:
+        self.startup_running = False
+
+    def start_game(self) -> None:
+        self.keep_running = True
+
     def quit(self) -> None:
+        self.startup_running = False
         self.keep_running = False
 
     def send_message(self, recipient: Character, message: Message) -> None:

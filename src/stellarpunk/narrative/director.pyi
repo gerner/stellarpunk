@@ -55,6 +55,8 @@ class Rule:
         actions: List[ActionTemplate] = [],
     ) -> None: ...
 
+    def get_priority(self) -> int: ...
+
 
 class Event:
     event_type: int

@@ -84,6 +84,8 @@ cdef extern from "director.hpp":
             vector[cActionTemplate] a
         )
 
+        uint64_t get_priority()
+
     cdef cppclass cDirector:
         cDirector()
         cDirector(unordered_map[uint64_t, vector[unique_ptr[cRule]]] &r)
@@ -243,6 +245,9 @@ cdef class Rule:
         for action in self.actions:
             print(f'self.c_rule.actions[i] {sys.getrefcount(action)}')
             action.check_refcounts()
+
+    def get_priority(self):
+        return dereference(self.c_rule).get_priority();
 
 
 cdef class Event:

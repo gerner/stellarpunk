@@ -83,7 +83,7 @@ class Agendum(CharacterObserver):
 
 class Character(Entity):
     id_prefix = "CHR"
-    def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.portrait:Sprite = sprite
@@ -102,6 +102,8 @@ class Character(Entity):
         self.agenda:MutableSequence[Agendum] = []
 
         self.observers:weakref.WeakSet[CharacterObserver] = weakref.WeakSet()
+
+        self.home_sector_id = home_sector_id
 
     def destroy(self) -> None:
         super().destroy()

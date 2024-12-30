@@ -16,7 +16,7 @@ def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
 @pytest.fixture
 def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(gamestate, seed=0)
-    ug.initialize(starfield_composite=False)
+    ug.initialize(starfield_composite=False, empty_name_model_culture="test")
     gamestate.random = ug.r
     gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
@@ -33,7 +33,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
     sector_name = "Sector"
 
-    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name)
+    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name, culture="test")
     sector.sensor_manager = sensors.SensorManager(sector)
     gamestate.sectors[sector.entity_id] = sector
 
@@ -64,5 +64,6 @@ def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
     #testui.min_ui_timeout = -np.inf
 
     simulation.initialize()
+    gamestate.start_game()
 
     return simulation

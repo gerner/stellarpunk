@@ -4,7 +4,7 @@ import sys
 import re
 import collections
 import logging
-from typing import Dict, Mapping, List, Union, Any, Callable, Tuple
+from typing import Dict, Mapping, List, Union, Any, Callable, Tuple, MutableMapping
 
 import toml # type: ignore
 
@@ -268,5 +268,10 @@ def loadd(
         # create a rule record
         rules[event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
 
+    # make sure the rules are in priority order
+    sorted_rules:MutableMapping[int, list[director.Rule]] = {}
+    for event_type_id, rule_values in rules.items():
+        sorted_rules[event_type_id] = sorted(rule_values, key=lambda x: x.get_priority())
+
     # create and return an event director
-    return director.Director(rules)
+    return director.Director(sorted_rules)

@@ -155,3 +155,4 @@ cython_debug/
 production_chain
 production_chain.pdf
 .vimrc
+/data/

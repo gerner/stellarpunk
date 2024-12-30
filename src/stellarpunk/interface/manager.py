@@ -11,7 +11,7 @@ from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, L
 import numpy as np
 
 from stellarpunk import core, interface, generate, util, config, events, narrative
-from stellarpunk.interface import audio, universe, sector, pilot, command_input, character, comms, station, ui_events
+from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events
 
 
 KEY_DISPLAY = {
@@ -245,7 +245,7 @@ class PolygonDemo(interface.View):
         return True
 
 
-class InterfaceManager(core.CharacterObserver):
+class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
     def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, event_manager:events.EventManager) -> None:
         self.mixer = audio.Mixer()
         self.interface = interface.Interface(gamestate, generator, self.mixer)
@@ -267,18 +267,28 @@ class InterfaceManager(core.CharacterObserver):
         self.interface.__exit__(*args)
         self.mixer.__exit__(*args)
 
+    def player_spawned(self, player:core.Player) -> None:
+        #TODO: should probably check some state to avoid errors here
+        # e.g. player already exists and didn't die
+        player.character.observe(self)
+
     def initialize(self) -> None:
         self.interface.initialize()
-        self.gamestate.player.character.observe(self)
-        assert isinstance(self.gamestate.player.character.location, core.Ship)
-        pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
-        self.interface.open_view(pilot_view)
+        if self.gamestate.player is not None:
+            self.gamestate.player.character.observe(self)
+        self.generator.observe(self)
+
+        #assert isinstance(self.gamestate.player.character.location, core.Ship)
+        #pilot_view = pilot.PilotView(self.gamestate.player.character.location, self.interface)
+        #self.interface.open_view(pilot_view)
+        startup_view = startup.StartupView(self.generator, self.interface)
+        self.interface.open_view(startup_view)
 
     def register_events(self) -> None:
-        events.register_action(ui_events.DialogAction(self.interface, self.event_manager))
-        events.register_action(ui_events.PlayerNotification(self.interface))
-        events.register_action(ui_events.PlayerReceiveBroadcast(self.interface))
-        events.register_action(ui_events.PlayerReceiveMessage(self.interface))
+        events.register_action(ui_events.DialogAction(self.interface, self.event_manager), "dialog")
+        events.register_action(ui_events.PlayerNotification(self.interface), "player_notification")
+        events.register_action(ui_events.PlayerReceiveBroadcast(self.interface), "player_receive_broadcast")
+        events.register_action(ui_events.PlayerReceiveMessage(self.interface), "player_receive_message")
 
     def focused_view(self) -> Optional[interface.View]:
         """ Get the topmost view that's not the topmost CommandInput """
@@ -559,12 +569,9 @@ class InterfaceManager(core.CharacterObserver):
             )
             sector_view.select_target(ship.entity_id, ship, focus=True)
 
-        in_location = self.gamestate.player.character.location is not None and self.gamestate.player.character.location.sector is not None
 
-        return [
+        command_list = [
             self.bind_command("pause", lambda x: self.gamestate.pause()),
-            self.bind_command("t_accel", lambda x: self.time_accel()),
-            self.bind_command("t_decel", lambda x: self.time_decel()),
             self.bind_command("fps", fps),
             self.bind_command("quit", quit),
             self.bind_command("raise", raise_exception),
@@ -575,18 +582,27 @@ class InterfaceManager(core.CharacterObserver):
             self.bind_command("circledemo", circledemo),
             self.bind_command("polygondemo", polygondemo),
             self.bind_command("profile", profile),
-            self.bind_command("fast", fast),
             self.bind_command("decrease_fps", decrease_fps),
             self.bind_command("increase_fps", increase_fps),
             self.bind_command("help", lambda x: self.help()),
             self.bind_command("keys", lambda x: self.keys()),
-            self.bind_command("pilot", open_pilot),
-            self.bind_command("sector", open_sector),
-            self.bind_command("universe", open_universe),
-            self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
-            self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
-            self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations) if in_location else None),
-            self.bind_command("toggle_mouse", toggle_mouse),
-            self.bind_command("debug_collision", debug_collision),
         ]
+
+        if self.gamestate.keep_running:
+            # additional commands always available while the game is running
+            in_location = self.gamestate.player.character.location is not None and self.gamestate.player.character.location.sector is not None
+            command_list.extend([
+                self.bind_command("t_accel", lambda x: self.time_accel()),
+                self.bind_command("t_decel", lambda x: self.time_decel()),
+                self.bind_command("fast", fast),
+                self.bind_command("pilot", open_pilot),
+                self.bind_command("sector", open_sector),
+                self.bind_command("universe", open_universe),
+                self.bind_command("character", open_character, util.tab_completer(map(str, self.gamestate.characters.keys()))),
+                self.bind_command("comms", open_comms, util.tab_completer(map(str, self.interface.gamestate.player.messages.keys()))),
+                self.bind_command("station", open_station, util.tab_completer(str(x.entity_id) for x in self.gamestate.player.character.location.sector.stations) if in_location else None),
+                self.bind_command("toggle_mouse", toggle_mouse),
+                self.bind_command("debug_collision", debug_collision),
+            ])
+        return command_list
 

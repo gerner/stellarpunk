@@ -52,8 +52,6 @@ class Ship(SectorEntity, Asset):
         self._orders: Deque[Order] = collections.deque()
         self.default_order_fn:Ship.DefaultOrderSig = lambda ship, gamestate: Order(ship, gamestate)
 
-        self.collision_threat: Optional[SectorEntity] = None
-
         self.transponder_on = False#True
 
     def _destroy(self) -> None:

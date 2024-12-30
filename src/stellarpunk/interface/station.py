@@ -10,6 +10,7 @@ import time
 import math
 
 import numpy as np
+import dtmf # type: ignore
 
 from stellarpunk import interface, core, config, util, events
 from stellarpunk.interface import ui_util, starfield
@@ -502,7 +503,7 @@ class StationView(interface.View):
         self.mode = Mode.PEOPLE
 
         def make_contact(character: core.Character) -> Callable[[], Any]:
-            def handle_contact(c: core.Character) -> None:
+            def handle_contact() -> None:
                 event_args: Dict[str, Any] = {}
                 self.gamestate.trigger_event_immediate(
                     [character],
@@ -512,19 +513,8 @@ class StationView(interface.View):
                     },
                     event_args
                 )
-                if "dialog" not in event_args:
-                    self.interface.log_message("no answer.")
 
-            def contact() -> None:
-                self.logger.debug(f'contacting {character.short_id()}')
-                number_str = "".join(list(f'{oct(x)[2:]:0>4}' for x in character.entity_id.bytes[0:4]))
-                s = number_str
-                self.interface.log_message(f'dialing {s[0:8]}-{s[8:16]}...')
-                self.interface.mixer.play_sample(
-                    ui_util.dtmf_sample(number_str, self.interface.mixer.sample_rate),
-                    lambda: handle_contact(character)
-                )
-            return contact
+            return handle_contact
         self.people_menu = ui_util.Menu(
             "Station Directory",
             [

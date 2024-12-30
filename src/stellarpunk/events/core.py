@@ -118,11 +118,11 @@ def register_context_keys(context_keys: enum.EnumMeta) -> None:
     RegisteredContextSpaces[context_keys] = -1
 
 
-def register_action(action: Action, name: Optional[str] = None) -> None:
-    if name is None:
-        name = util.camel_to_snake(action.__class__.__name__)
-        if name.endswith("_action"):
-            name = name[:-len("_action")]
+def register_action(action: Action, name:str) -> None:
+    #if name is None:
+    #    name = util.camel_to_snake(action.__class__.__name__)
+    #    if name.endswith("_action"):
+    #        name = name[:-len("_action")]
     RegisteredActions[action] = name
 
 
@@ -238,7 +238,8 @@ class EventManager(AbstractEventManager):
     def _do_event(self, event: narrative.Event, candidates:Iterable[narrative.CharacterCandidate]) -> int:
         actions_processed = 0
         self.logger.debug(f'evaluating event {event.event_type} for {list(x.data.short_id() for x in candidates)}')
-        for action in self.director.evaluate(event, candidates):
+        actions = self.director.evaluate(event, candidates)
+        for action in actions:
             self.logger.debug(f'triggered action {action.action_id} for {action.character_candidate.data.short_id()}')
 
             if "_delay" in action.args:

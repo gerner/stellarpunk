@@ -66,7 +66,7 @@ recipient = "_ref:tutorial_target_player"
 # check this first
 [tutorial_traded_resource]
 type = "sold"
-priority = 2
+priority = 0
 criteria = ["tutorial_started", "!tutorial_delivered", "resource = tutorial_resource", "tutorial_amount_to_trade <= amount"]
 [[tutorial_traded_resource.actions]]
 _action = "inc"
@@ -110,6 +110,14 @@ priority = 0
 criteria = ["is_player"]
 [[player_receive_message.actions]]
 _action = "player_receive_message"
+
+[player_contact]
+type = "contact"
+priority = 2
+criteria = ["$contacter.is_player"]
+[[player_contact.actions]]
+_action = "dialog"
+# should trigger no-dialog UX
 
 #[player_open_dialog]
 #type = "dialog"

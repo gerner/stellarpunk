@@ -6,7 +6,8 @@ import uuid
 import abc
 import enum
 import functools
-from typing import List, Any, Dict, Deque, Tuple, Iterator, Union, Optional, MutableMapping, Set
+from typing import Optional, Union, Any
+from collections.abc import Iterable, Iterator, MutableMapping
 
 import numpy as np
 import numpy.typing as npt
@@ -24,7 +25,7 @@ class CollisionObserver:
         super().__init__(*args, **kwargs)
 
     @abc.abstractmethod
-    def collision(self, entity:SectorEntity, other:SectorEntity, impulse:Tuple[float, float], ke:float) -> None: ...
+    def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
     def __init__(self, entity:SectorEntity):
@@ -160,17 +161,17 @@ class AbstractSensorManager:
         return True
 
     @abc.abstractmethod
-    def spatial_query(self, detector:SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
+    def spatial_query(self, detector:SectorEntity, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
 
     @abc.abstractmethod
-    def spatial_point(self, detector:SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
+    def spatial_point(self, detector:SectorEntity, point:Union[tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
 
     @abc.abstractmethod
     def target(self, target:SectorEntity, detector:SectorEntity, notify_target:bool=True) -> AbstractSensorImage: ...
     @abc.abstractmethod
-    def sensor_ranges(self, ship:SectorEntity) -> Tuple[float, float, float]: ...
+    def sensor_ranges(self, ship:SectorEntity) -> tuple[float, float, float]: ...
     @abc.abstractmethod
-    def profile_ranges(self, ship:SectorEntity) -> Tuple[float, float]: ...
+    def profile_ranges(self, ship:SectorEntity) -> tuple[float, float]: ...
 
     @abc.abstractmethod
     def compute_thrust_for_profile(self, ship:SectorEntity, distance_sq:float, profile:float) -> float: ...
@@ -194,7 +195,7 @@ class SectorWeatherRegion:
         self.sensor_factor = sensor_factor
 
     @property
-    def bbox(self) -> Tuple[float, float, float, float]:
+    def bbox(self) -> tuple[float, float, float, float]:
         return (self.loc[0]-self.radius, self.loc[1]-self.radius, self.loc[0]+self.radius, self.loc[1]+self.radius)
 
 class SectorWeather:
@@ -211,7 +212,7 @@ class Sector(Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, culture:str, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
 
         self.logger = logging.getLogger(util.fullname(self))
@@ -222,35 +223,38 @@ class Sector(Entity):
         # one standard deviation
         self.radius = radius
 
-        self.planets:List[Planet] = []
-        self.stations:List[Station] = []
-        self.ships:List[Ship] = []
-        self.asteroids:Dict[int, List[Asteroid]] = collections.defaultdict(list)
+        self.planets:list[Planet] = []
+        self.stations:list[Station] = []
+        self.ships:list[Ship] = []
+        self.asteroids:dict[int, list[Asteroid]] = collections.defaultdict(list)
 
         # id -> entity for all entities in the sector
-        self.entities:Dict[uuid.UUID, SectorEntity] = {}
+        self.entities:dict[uuid.UUID, SectorEntity] = {}
 
         # physics space for this sector
         # we don't manage this, just have a pointer to it
         # we do rely on this to provide a spatial index of the sector
         self.space:cymunk.Space = space
 
-        self._effects: Deque[Effect] = collections.deque()
+        self._effects: collections.deque[Effect] = collections.deque()
 
-        self.collision_observers: MutableMapping[uuid.UUID, Set[CollisionObserver]] = collections.defaultdict(set)
+        self.collision_observers: MutableMapping[uuid.UUID, set[CollisionObserver]] = collections.defaultdict(set)
 
         self._weather_index = rtree.index.Index()
         self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
 
-    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorEntity]:
+        # a "culture" for the sector which helps with consistent naming
+        self.culture = culture
+
+    def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):
             if hit.collision_type != SECTOR_ENTITY_COLLISION_TYPE:
                 continue
             yield hit.body.data
 
-    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
+    def spatial_point(self, point:Union[tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]:
         #TODO: honor mask
         if not max_dist:
             max_dist = np.inf
@@ -262,7 +266,7 @@ class Sector(Entity):
     def is_occupied(self, x:float, y:float, eps:float=1e1) -> bool:
         return any(True for _ in self.spatial_query((x-eps, y-eps, x+eps, y+eps)))
 
-    def region_query(self, bbox:Tuple[float, float, float, float]) -> Iterator[SectorWeatherRegion]:
+    def region_query(self, bbox:tuple[float, float, float, float]) -> Iterator[SectorWeatherRegion]:
         for hit in self._weather_index.intersection(bbox):
             yield self._weathers[hit]
 
@@ -273,7 +277,7 @@ class Sector(Entity):
         return region.idx
 
     @functools.lru_cache(maxsize=4096)
-    def _weather_cached(self, loc:Tuple[float, float]) -> SectorWeather:
+    def _weather_cached(self, loc:tuple[float, float]) -> SectorWeather:
         """ Caching computation of weather
 
         This computation is expensive and doesn't change (assuming weather is
@@ -285,7 +289,7 @@ class Sector(Entity):
                 weather.add(self._weathers[idx])
         return weather
 
-    def weather(self, loc:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
+    def weather(self, loc:Union[tuple[float, float], npt.NDArray[np.float64]]) -> SectorWeather:
         # quantize loc so we can cache it
         quantized_loc = (loc[0] // 100.0 * 100.0, loc[1] // 100.0 * 100.0)
         return self._weather_cached(quantized_loc)
@@ -307,6 +311,9 @@ class Sector(Entity):
 
     def remove_effect(self, effect:Effect) -> None:
         self._effects.remove(effect)
+
+    def current_effects(self) -> Iterable[Effect]:
+        return self._effects
 
     def add_entity(self, entity:SectorEntity) -> None:
         #TODO: worry about collisions at location?

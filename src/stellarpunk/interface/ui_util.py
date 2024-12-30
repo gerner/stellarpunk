@@ -4,7 +4,7 @@ import abc
 import logging
 import curses
 import math
-from typing import List, Callable, Any, Collection, Optional, Sequence, Dict, Tuple
+from typing import List, Callable, Any, Collection, Optional, Sequence, Dict, Tuple, Union
 from dataclasses import dataclass
 
 import drawille # type: ignore
@@ -14,6 +14,11 @@ import numpy.typing as npt
 
 from stellarpunk import core, interface, config, util
 
+def initialize() -> None:
+    dtmf._info._freq_map["dial"] = [350.0, 440.0]
+    dtmf._info._freq_map["busy"] = [480.0, 620.0]
+    dtmf._info._freq_map["ringing"] = [440.0, 480.0]
+    dtmf._info._freq_map["zip"] = [440.0]
 
 def composite_sprites(sprites:Sequence[core.Sprite]) -> core.Sprite:
     if len(sprites) == 0:
@@ -189,11 +194,15 @@ class Menu(UIComponent):
             self.select_option(self.selected_option - 1)
         return self.selected_option
 
-    def activate_item(self) -> Any:
+    def activate_item(self) -> None:
         if not (0 <= self.selected_option < len(self.options)):
             return
         self.logger.debug(f'activating menu item {self.selected_option} {self.options[self.selected_option]}')
         self.options[self.selected_option].action()
+
+    def select_and_activate_option(self, selected_option:int) -> Any:
+        self.select_option(selected_option)
+        self.activate_item()
 
     def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
         min_y = y
@@ -217,7 +226,8 @@ class Menu(UIComponent):
     def key_list(self) -> Collection[interface.KeyBinding]:
         nav_help = config.key_help(self, "j")
         act_help = config.key_help(self, "\r")
-        return [
+        select_and_act_help = config.key_help(self, "1")
+        key_options = [
             interface.KeyBinding(ord("j"), self.select_next, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("k"), self.select_prev, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("s"), self.select_next, nav_help, help_key="menu_nav"),
@@ -226,7 +236,15 @@ class Menu(UIComponent):
             interface.KeyBinding(curses.KEY_UP, self.select_prev, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("\r"), self.activate_item, act_help, help_key="menu_act"),
         ]
-
+        key_options.extend(
+            interface.KeyBinding(
+                ord(str(x+1)),
+                (lambda x=x: self.select_and_activate_option(x)), # type: ignore
+                select_and_act_help,
+                help_key="menu_select_and_act")
+            for x in range(min(len(self.options), 9))
+        )
+        return key_options
 
 class MeterItem:
     def __init__(
@@ -417,6 +435,13 @@ class MeterMenu(UIComponent):
                 f' {option.pool - (option.setting-option.value):>{self.right_number_width}}'
             )
 
-def dtmf_sample(number_str: str, sample_rate: int) -> npt.NDArray[np.float64]:
-    gp = dtmf._generator.GenerationParams(mark_duration=0.03, space_duration=0.03, level=-6)
-    return np.array(list(dtmf.generate(dtmf.parse(number_str), params=gp, sample_rate=sample_rate)))
+def dtmf_sample(number_str: Union[str, dtmf.model.String], sample_rate:int, mark_duration:float=0.03, space_duration:float=0.03, level:float=-6.0, pause_duration:float=0.03) -> npt.NDArray[np.float64]:
+    gp = dtmf._generator.GenerationParams(mark_duration=mark_duration, space_duration=space_duration, level=level, pause_duration=pause_duration)
+    if isinstance(number_str, str):
+        dtmf_string = dtmf.parse(number_str)
+    elif isinstance(number_str, dtmf.model.String):
+        dtmf_string = number_str
+    else:
+        raise ValueError(f'number_str only supports str and dtmf.String, not {number_str.__class__}')
+
+    return np.array(list(dtmf.generate(dtmf_string, params=gp, sample_rate=sample_rate)))

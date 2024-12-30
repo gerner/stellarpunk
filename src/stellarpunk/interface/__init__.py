@@ -161,6 +161,8 @@ class Icons:
     COLOR_STAR_SMALL = 203#245
     COLOR_STAR_LARGE = 249
 
+    COLOR_CULTURES = [94, 102, 110, 118, 126, 134, 142, 150, 158, 166, 174, 182, 190, 198, 206, 214, 222]
+
     @staticmethod
     def angle_to_ship(angle:float) -> str:
         """ Returns ship icon pointing in angle (radians) direction. """
@@ -230,6 +232,10 @@ class Icons:
             return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
         else:
             return 0
+
+    @staticmethod
+    def culture_attr(culture:str) -> int:
+        return curses.color_pair(Icons.COLOR_CULTURES[config.Settings.generate.Universe.CULTURES.index(culture) % len(Icons.COLOR_CULTURES)])
 
 class BasicCanvas:
     def __init__(self, height:int, width:int, y:int, x:int, aspect_ratio:float) -> None:
@@ -503,10 +509,13 @@ class AbstractMixer:
     def sample_rate(self) -> int:
         return 44100
 
-    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None) -> None:
+    def play_sample(self, sample: npt.NDArray[np.float64], callback: Optional[Callable[[], Any]] = None, loops:int=0) -> int:
         """ Plays an audio sample encoded in an np array of floats from -1 to 1
 
         We assume the sample is at our sampel rate. """
+        return -1
+
+    def halt_channel(self, channel:int) -> None:
         pass
 
 class AbstractInterface(abc.ABC):
@@ -745,9 +754,6 @@ class Interface(AbstractInterface):
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
-
-    def notification_received(self, player:core.Player, notification:str) -> None:
-        self.log_message(notification)
 
     def decrease_fps(self) -> bool:
         """ Drops the fps if possible.
@@ -1053,7 +1059,8 @@ class Interface(AbstractInterface):
                 if view.active:
                     view.update_display()
             self.show_date()
-            self.show_cash()
+            if self.player:
+                self.show_cash()
             self.show_diagnostics()
             self.stdscr.noutrefresh()
 

@@ -31,6 +31,19 @@ here." And then someone else responds, "I heard you can find good deals in
 sector XYZ" or something. Maybe this is real info, but it doesn't have to be to
 create a sense of life.
 
+# Crew
+
+Every ship has multiple characters, beyond just the captain. Each has a job on
+the ship which affects the ship's performance (mining, trading, sensors,
+weapons, etc.) Their relationships with each other are very important because
+it adds content and affects their ability to do their jobs.
+
+Player sees dialog between characters, even if it's just flavor. But maybe
+these are also interactions that affect relationships, give missions or
+bonsues.
+
+Player could be a crew member and not just the captain!
+
 # Characters can do Quests and AI Planning
 
 Consider the tutorial event chain:
@@ -153,4 +166,10 @@ There's probably some weirdness about the  parameter binding I'm doing above.
 
 ### AI-driven Dynamic Dialog through Fuzzy Pattern Matching
 * GDC talk on key-value fact querying rule database for dialog
-* [video](https://www.youtube.com/watch?v=tAbBID3N64A]
+* [video](https://www.youtube.com/watch?v=tAbBID3N64A)
+
+### Ship Names
+* https://www.dco.uscg.mil/Our-Organization/Assistant-Commandant-for-Prevention-Policy-CG-5P/Inspections-Compliance-CG-5PC-/Office-of-Investigations-Casualty-Analysis/Merchant-Vessels-of-the-United-States/
+
+### geonames
+* https://geonames.org/

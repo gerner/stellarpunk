@@ -2,13 +2,17 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
+from typing import Optional, List, Dict, MutableMapping, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
 import importlib.resources
 import itertools
 import enum
 import collections
 import heapq
 import time
+import gzip
+import os
+import weakref
+import abc
 
 import numpy as np
 import numpy.typing as npt
@@ -19,12 +23,20 @@ import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
 from stellarpunk.core import combat
+from . import markov
 
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
 
 def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
+    """ given adjacency weight matrix, start index, end index, compute
+    distances from start to every node up to end.
+
+    returns tuple:
+        path encoded as node -> parent node mapping
+        distances node -> shortest distance to start
+    """
     # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
     d = {start: 0}
     parent = {start: start}
@@ -171,6 +183,34 @@ def order_fn_disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestat
     station = gamestate.random.choice(np.array(ship.sector.stations))
     return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
 
+class GenerationStep(enum.Enum):
+    NONE = enum.auto()
+    PRODUCTION_CHAIN = enum.auto()
+    STARFIELDS = enum.auto()
+    CULTURES = enum.auto()
+    INHABITED_SECTORS = enum.auto()
+    UNINHABITED_SECTORS = enum.auto()
+    PLAYER = enum.auto()
+
+class UniverseGeneratorObserver(abc.ABC):
+    def estimated_generation_ticks(self, ticks:int) -> None:
+        """ provides an estimate of the number of ticks during generation. """
+        pass
+
+    def generation_tick(self) -> None:
+        """ indicates progress during generation. """
+        pass
+
+    def generation_step(self, step:GenerationStep) -> None:
+        """ indicates a generation step has begun. """
+        pass
+
+    def player_spawned(self, player:core.Player) -> None:
+        pass
+
+    def universe_generation_complete(self) -> None:
+        pass
+
 class UniverseGenerator(core.AbstractGenerator):
     @staticmethod
     def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
@@ -194,6 +234,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # random generator
         self.r = np.random.default_rng(seed)
 
+        self.production_chain_max_tries = config.Settings.generate.ProductionChain.max_tries
+
         self.parallel_max_edges_tries = 10000
 
         self.portraits:List[core.Sprite] = []
@@ -204,6 +246,27 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.habitable_sectors:List[core.Sector] = []
         self.non_habitable_sectors:List[core.Sector] = []
+
+        self._sector_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._station_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._first_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._last_name_models:MutableMapping[str, markov.MarkovModel] = {}
+        self._ship_name_model:markov.MarkovModel = markov.MarkovModel(roman_numerals=True)
+
+        self._cultures = config.Settings.generate.Universe.CULTURES
+        self._culture_map:Mapping[uuid.UUID, str]
+
+        self._observers:weakref.WeakSet[UniverseGeneratorObserver] = weakref.WeakSet()
+        self._production_chain_ticks:set[int] = set()
+
+    def observe(self, observer:UniverseGeneratorObserver) -> None:
+        self._observers.add(observer)
+
+    def unobserve(self, observer:UniverseGeneratorObserver) -> None:
+        try:
+            self._observers.remove(observer)
+        except KeyError:
+            pass
 
     def _random_bipartite_graph(
             self,
@@ -323,25 +386,74 @@ class UniverseGenerator(core.AbstractGenerator):
             index = self.r.integers(self.num_projectile_spawn_locs-1)
         return self.projectile_spawn_pattern[index%self.num_projectile_spawn_locs] + center, (index+1) % self.num_projectile_spawn_locs
 
-    def _gen_sector_name(self) -> str:
-        return "Some Sector"
+    def _gen_sector_culture(self, x:float, y:float, sector_id:uuid.UUID) -> str:
+        return self._culture_map[sector_id]
+        coords = np.array((x,y))
+        # look for a nearby sector and adopt their culture
+        nearest_sector_id:Optional[uuid.UUID] = next((x.object for x in self.gamestate.sector_spatial.nearest((coords[0], coords[1], coords[0], coords[1]), 1, True)), None)
+        nearest_sector:Optional[core.Sector] = None
+        if nearest_sector_id is not None:
+            nearest_sector = self.gamestate.sectors[nearest_sector_id]
+        if nearest_sector and util.distance(coords, nearest_sector.loc) < config.Settings.generate.Universe.SHARED_CULTURE_RADIUS:
+            return nearest_sector.culture
+        else:
+            # try to choose a new culture if any left
+            if len(self._cultures) == 0:
+                self._cultures = config.Settings.generate.Universe.CULTURES
+            culture = self.r.choice(self._cultures)
+            self._cultures.remove(culture)
+            return culture
 
-    def _gen_planet_name(self) -> str:
-        return "Magusan"
+    def _gen_sector_name(self, culture:str) -> str:
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_SECTOR_NAME_WORDS) and tries < max_tries:
+            name = self._sector_name_models[culture].generate(self.r)
+            assert(culture == "test" or name != "")
+            tries+=1
+        return name
 
-    def _gen_station_name(self) -> str:
-        return "Some Station"
+    def _gen_planet_name(self, culture:str) -> str:
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
+            name = self._station_name_models[culture].generate(self.r)
+            assert(culture == "test" or name != "")
+            tries+=1
+        return name
 
-    def _gen_ship_name(self) -> str:
-        return "Some Ship"
+    def _gen_station_name(self, culture:str) -> str:
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
+            name = self._station_name_models[culture].generate(self.r)
+            assert(culture == "test" or name != "")
+            tries+=1
+        return name
 
-    def _gen_character_name(self) -> str:
-        return "Bob Dole"
+    def _gen_ship_name(self, culture:str) -> str:
+        name = ""
+        tries = 0
+        max_tries = 10
+        while (not name or len(name.split()) > config.Settings.generate.names.MAX_SHIP_NAME_WORDS) and tries < max_tries:
+            name = self._ship_name_model.generate(self.r)
+            assert(culture == "test" or name != "")
+            tries+=1
+        return name
 
-    def _gen_asteroid_name(self) -> str:
-        return "Asteroid X"
+    def _gen_character_name(self, culture:str) -> str:
+        first = self._first_name_models[culture].generate(self.r)
+        last = self._last_name_models[culture].generate(self.r)
+        return f'{first} {last}'
 
-    def _gen_gate_name(self, destination:core.Sector) -> str:
+    def _gen_asteroid_name(self, culture:str) -> str:
+        #TODO: sector name?
+        return self._sector_name_models[culture].generate(self.r)
+
+    def _gen_gate_name(self, destination:core.Sector, culture:str) -> str:
         return f"Gate to {destination.short_id()}"
 
     def _assign_names(self, adj_matrix:npt.NDArray[np.float64], allowed_options:List[List[int]]) -> List[int]:
@@ -515,10 +627,45 @@ class UniverseGenerator(core.AbstractGenerator):
                 loc:npt.NDArray[np.float64] = (util.peaked_bounded_random(self.r, 0.5, 0.15, 2) * 2 - 1) * radius # type: ignore
             self.projectile_spawn_pattern.append(loc)
 
-    def initialize(self, starfield_composite:bool=True) -> None:
+    def _load_name_models(self, culture_filter:Optional[List[str]]=None) -> None:
+        self.logger.info(f'loading name model for ships')
+        self._ship_name_model.load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"))
+
+        self.logger.info(f'loading name models')
+
+        loaded_cultures = 0
+        for culture in culture_filter if culture_filter is not None else config.Settings.generate.Universe.CULTURES:
+            self.logger.info(f'loading name models for culture {culture}')
+            self._sector_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
+            self._station_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
+            self._first_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
+            self._last_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
+            for observer in self._observers:
+                observer.generation_tick()
+            loaded_cultures += 1
+
+        for _ in range(loaded_cultures, config.Settings.generate.Universe.NUM_CULTURES[1]):
+            for observer in self._observers:
+                observer.generation_tick()
+
+    def _load_empty_name_models(self, culture:str) -> None:
+        self._ship_name_model = markov.MarkovModel(romanize=False)
+        self._sector_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._station_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._first_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._last_name_models[culture] = markov.MarkovModel(romanize=False)
+
+
+    def initialize(self, starfield_composite:bool=True, empty_name_model_culture:Optional[str]=None) -> None:
         self.gamestate.generator = self
         self._prepare_sprites(starfield_composite=starfield_composite)
         self._prepare_projectile_spawn_pattern()
+
+        if empty_name_model_culture:
+            self._load_empty_name_models(empty_name_model_culture)
+            self._cultures = {}
+        #else:
+        #    self._load_name_models()
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> core.Station:
         if resource is None:
@@ -538,7 +685,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_station_name(),
+            self._gen_station_name(sector.culture),
             entity_id=entity_id,
             description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
         )
@@ -565,7 +712,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_planet_name(),
+            self._gen_planet_name(sector.culture),
             entity_id=entity_id
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
@@ -593,7 +740,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(),
+            self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -641,7 +788,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(),
+            self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -686,7 +833,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(),
+            self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -750,7 +897,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_gate_name(destination),
+            self._gen_gate_name(destination, sector.culture),
             entity_id=entity_id
         )
 
@@ -775,7 +922,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_asteroid_name(),
+            self._gen_asteroid_name(sector.culture),
             entity_id=entity_id
         )
 
@@ -835,11 +982,13 @@ class UniverseGenerator(core.AbstractGenerator):
         return asteroids
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
+        assert location.sector
         character = core.Character(
             self._choose_portrait(),
             location,
             self.gamestate,
-            name=self._gen_character_name()
+            name=self._gen_character_name(location.sector.culture),
+            home_sector_id=location.sector.entity_id,
         )
         character.balance = balance
         self.gamestate.add_character(character)
@@ -851,6 +1000,9 @@ class UniverseGenerator(core.AbstractGenerator):
         player = core.Player(self.gamestate)
         player.character = player_character
         player.agent = econ.PlayerAgent(player, self.gamestate)
+
+        for observer in self._observers:
+            observer.player_spawned(player)
 
         return player
 
@@ -903,6 +1055,9 @@ class UniverseGenerator(core.AbstractGenerator):
             raise ValueError(f'got an asset of unknown type {asset}')
 
     def spawn_habitable_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+
+        culture = self._gen_sector_culture(x, y, entity_id)
+
         pchain = self.gamestate.production_chain
 
         # compute how many raw resources are needed, transitively via
@@ -917,8 +1072,9 @@ class UniverseGenerator(core.AbstractGenerator):
             radius,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(),
-            entity_id=entity_id
+            self._gen_sector_name(culture),
+            entity_id=entity_id,
+            culture=culture,
         )
         sector.sensor_manager = sensors.SensorManager(sector)
         self.logger.info(f'generating habitable sector {sector.name} at ({x}, {y})')
@@ -1072,13 +1228,16 @@ class UniverseGenerator(core.AbstractGenerator):
         return sector
 
     def spawn_uninhabited_sector(self, x:float, y:float, entity_id:uuid.UUID, radius:float, sector_idx:int) -> core.Sector:
+
+        culture = self._gen_sector_culture(x, y, entity_id)
         sector = core.Sector(
             np.array([x, y]),
             radius,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(),
-            entity_id=entity_id
+            self._gen_sector_name(culture),
+            entity_id=entity_id,
+            culture=culture
         )
         sector.sensor_manager = sensors.SensorManager(sector)
 
@@ -1231,7 +1390,7 @@ class UniverseGenerator(core.AbstractGenerator):
         if max_fraction_single_output is None:
             max_fraction_single_output = config.Settings.generate.ProductionChain.max_fraction_single_output
         if max_tries is None:
-            max_tries = config.Settings.generate.ProductionChain.max_tries
+            max_tries = self.production_chain_max_tries
 
         production_chain:Optional[core.ProductionChain] = None
         tries = 0
@@ -1257,9 +1416,20 @@ class UniverseGenerator(core.AbstractGenerator):
                 generation_error_cases[e.case] += 1
                 pass
             tries += 1
-        self.logger.debug(f'took {tries} tries to generate a production chain {generation_error_cases}')
+            if tries in self._production_chain_ticks:
+                for observer in self._observers:
+                    observer.generation_tick()
+        self.logger.info(f'took {tries} tries to generate a production chain {generation_error_cases}')
         if not production_chain:
             raise GenerationError(GenerationErrorCase.NO_CHAIN)
+
+        # spit out all remaining ticks on production chain generation
+        while tries <= max_tries:
+            if tries in self._production_chain_ticks:
+                for observer in self._observers:
+                    observer.generation_tick()
+            tries += 1
+        self.logger.info(f'{tries=} {max_tries=} {self._production_chain_ticks}')
 
         return production_chain
 
@@ -1486,33 +1656,88 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return chain
 
-    def generate_sectors(self,
+    def generate_sector_cultures(self,
+            sector_ids:npt.NDArray,
+            sector_coords:npt.NDArray[np.float64],
+            sector_edges:npt.NDArray[np.float64],
+            edge_distances:npt.NDArray[np.float64],
+            num_cultures:int,
+    ) -> Mapping[uuid.UUID, str]:
+        # choose some seed sectors
+
+        cultures = list(self._cultures)
+        culture_map:MutableMapping[int, str] = {}
+        # distances from seed
+        distances:MutableMapping[int, Mapping[int, float]] = {}
+        mean_distances = np.zeros(len(sector_ids))
+        for i in range(len(sector_ids)):
+            _, d = dijkstra(edge_distances, i, -1)
+            for dist in d.values():
+                mean_distances[i] += dist
+        mean_distances /= len(sector_ids)
+        # first sector is randomly chosen
+        #TODO: perhaps we should choose the most remote culture in some sense?
+        #i = self.r.integers(len(sector_coords))
+        i = int(mean_distances.argmax())
+        min_dists = np.ones(len(sector_coords))*np.inf
+        for _ in range(num_cultures):
+            #TODO: what if we run out of cultures?
+            assert(len(cultures) > 0)
+            # assign a culture to next choice
+            culture = self.r.choice(cultures)
+            culture_map[i] = culture
+            cultures.remove(culture)
+            _, d = dijkstra(edge_distances, i, -1)
+            distances[i] = d
+            # we assume the graph is fully connected, so every entry will be
+            # overwritten with a non-inf value
+            for k, dist in d.items():
+                if min_dists[k] > dist:
+                    min_dists[k] = dist
+            # choose most remote sector from any current seed sector
+            i = int(min_dists.argmax())
+            # seed sectors should appear with dist 0
+            assert(i not in culture_map)
+
+        uncultured_sectors = set(i for i in range(len(sector_coords)) if i not in culture_map)
+
+        # "grow" culture from the seed sectors along edges
+        # always choose the next closest uncultured sector via total distance
+        # to seed sector
+        while len(uncultured_sectors) > 0:
+            min_dist = np.inf
+            min_dist_seed = -1
+            min_dist_sector = -1
+            for s in uncultured_sectors:
+                for i,d in distances.items():
+                    if d[s] < min_dist:
+                        min_dist = d[s]
+                        min_dist_seed = i
+                        min_dist_sector = s
+            assert(min_dist_seed >= 0)
+            assert(min_dist_sector >= 0)
+            culture_map[min_dist_sector] = culture_map[min_dist_seed]
+            uncultured_sectors.remove(min_dist_sector)
+
+        return dict(((sector_ids[k], v) for k,v in culture_map.items()))
+
+    def generate_sector_topology(self,
             universe_radius:float,
             num_sectors:int,
             sector_radius:float,
             sector_radius_std:float,
+            sector_ids:npt.NDArray,
             max_sector_edge_length:float,
-            n_habitable_sectors:int,
-            mean_habitable_resources:float,
-            mean_uninhabitable_resources:float) -> None:
-        # set up pre-expansion sectors, resources
-
-        # compute the raw resource needs for each product sink
-        pchain = self.gamestate.production_chain
-        slices = [np.s_[pchain.ranks[0:i].sum():pchain.ranks[0:i+1].sum()] for i in range(len(pchain.ranks))]
-        raw_needs = pchain.adj_matrix[slices[0], slices[0+1]]
-        for i in range(1, len(slices)-1):
-            raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
-
-        self.logger.info(f'raw needs {raw_needs}')
-
+    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         # generate locations for all sectors
         sector_coords = self.r.uniform(-universe_radius, universe_radius, (num_sectors, 2))
+        sector_coords_by_id = dict(zip(sector_ids, sector_coords))
         sector_k = sector_radius**2/sector_radius_std**2
         sector_theta = sector_radius_std**2/sector_radius
         sector_radii = self.r.gamma(sector_k, sector_theta, num_sectors)
 
         sector_loc_index = rtree.index.Index()
+
         # clean up any overlapping sectors
         for idx, (coords, radius) in enumerate(zip(sector_coords, sector_radii)):
             reject = True
@@ -1526,6 +1751,7 @@ class UniverseGenerator(core.AbstractGenerator):
                 if reject:
                     coords = self.r.uniform(-universe_radius, universe_radius, 2)
                     radius = self.r.gamma(sector_k, sector_theta)
+
             sector_coords[idx] = coords
             sector_radii[idx] = radius
             sector_loc_index.insert(
@@ -1537,25 +1763,6 @@ class UniverseGenerator(core.AbstractGenerator):
                     (coords, radius)
             )
 
-        sector_ids = np.array([uuid.uuid4() for _ in range(len(sector_coords))])
-        habitable_mask = np.zeros(len(sector_coords), bool)
-        habitable_mask[self.r.choice(len(sector_coords), n_habitable_sectors, replace=False)] = 1
-
-        # choose habitable sectors
-        # each of these will have more resources
-        # implies a more robust and complete production chain
-        # implies a bigger population
-        for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
-            # mypy thinks idx is an int
-            sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
-            self.habitable_sectors.append(sector)
-
-        # set up non-habitable sectors
-        for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
-            # mypy thinks idx is an int
-            sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
-            self.non_habitable_sectors.append(sector)
-
         # set up connectivity between sectors
         distances = distance.squareform(distance.pdist(sector_coords))
         sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
@@ -1565,8 +1772,8 @@ class UniverseGenerator(core.AbstractGenerator):
         edge_index = rtree.index.Index()
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if sector_edges[i,j] == 1:
-                a = self.gamestate.sectors[source_id].loc
-                b = self.gamestate.sectors[dest_id].loc
+                a = sector_coords[i]#self.gamestate.sectors[source_id].loc
+                b = sector_coords[j]#self.gamestate.sectors[dest_id].loc
                 bbox = (
                     min(a[0],b[0]), min(a[1],b[1]),
                     max(a[0],b[0]), max(a[1],b[1]),
@@ -1585,13 +1792,13 @@ class UniverseGenerator(core.AbstractGenerator):
             if sector_edges[i,j] == 1:
                 continue
 
-            dist = util.distance(self.gamestate.sectors[source_id].loc, self.gamestate.sectors[dest_id].loc)
+            dist = util.distance(sector_coords_by_id[source_id], sector_coords_by_id[dest_id])
             if dist > max_sector_edge_length:
                 continue
 
             # do not add crossing edges
-            a = self.gamestate.sectors[source_id].loc
-            b = self.gamestate.sectors[dest_id].loc
+            a = sector_coords_by_id[source_id]
+            b = sector_coords_by_id[dest_id]
             bbox = (
                 min(a[0],b[0]), min(a[1],b[1]),
                 max(a[0],b[0]), max(a[1],b[1]),
@@ -1624,7 +1831,80 @@ class UniverseGenerator(core.AbstractGenerator):
             edge_index.insert(edge_id, bbox, ((*a, *b), (source_id, dest_id)))
             edge_id += 1
 
-        self.gamestate.update_edges(sector_edges, sector_ids)
+        self.gamestate.update_edges(sector_edges, sector_ids, sector_coords)
+
+        return sector_coords, sector_edges, sector_radii, edge_distances
+
+    def generate_sectors(self,
+            universe_radius:float,
+            num_sectors:int,
+            sector_radius:float,
+            sector_radius_std:float,
+            max_sector_edge_length:float,
+            n_habitable_sectors:int,
+            mean_habitable_resources:float,
+            mean_uninhabitable_resources:float,
+            num_cultures:int,
+    ) -> None:
+        # set up pre-expansion sectors, resources
+
+        # compute the raw resource needs for each product sink
+        pchain = self.gamestate.production_chain
+        slices = [np.s_[pchain.ranks[0:i].sum():pchain.ranks[0:i+1].sum()] for i in range(len(pchain.ranks))]
+        raw_needs = pchain.adj_matrix[slices[0], slices[0+1]]
+        for i in range(1, len(slices)-1):
+            raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
+
+        self.logger.info(f'raw needs {raw_needs}')
+
+        # generate sector ids and choose which are inhabited
+        sector_ids = np.array([uuid.uuid4() for _ in range(num_sectors)])
+        habitable_mask = np.zeros(num_sectors, bool)
+        habitable_mask[self.r.choice(num_sectors, n_habitable_sectors, replace=False)] = 1
+
+        sector_coords, sector_edges, sector_radii, edge_distances = self.generate_sector_topology(
+            universe_radius,
+            num_sectors,
+            sector_radius,
+            sector_radius_std,
+            sector_ids,
+            max_sector_edge_length,
+        )
+
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.CULTURES)
+        self._culture_map = self.generate_sector_cultures(
+            sector_ids,
+            sector_coords,
+            sector_edges,
+            edge_distances,
+            num_cultures
+        )
+
+        self._load_name_models(culture_filter=list(set(self._culture_map.values())))
+
+        # choose habitable sectors
+        # each of these will have more resources
+        # implies a more robust and complete production chain
+        # implies a bigger population
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.INHABITED_SECTORS)
+        for idx, entity_id, (x,y), radius in zip(np.argwhere(habitable_mask), sector_ids[habitable_mask], sector_coords[habitable_mask], sector_radii[habitable_mask]):
+            # mypy thinks idx is an int
+            sector = self.spawn_habitable_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            self.habitable_sectors.append(sector)
+            for observer in self._observers:
+                observer.generation_tick()
+
+        # set up non-habitable sectors
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.UNINHABITED_SECTORS)
+        for idx, entity_id, (x,y), radius in zip(np.argwhere(~habitable_mask), sector_ids[~habitable_mask], sector_coords[~habitable_mask], sector_radii[~habitable_mask]):
+            # mypy thinks idx is an int
+            sector = self.spawn_uninhabited_sector(x, y, entity_id, radius, idx[0]) # type: ignore
+            self.non_habitable_sectors.append(sector)
+            for observer in self._observers:
+                observer.generation_tick()
 
         # add gates for the travel lanes
         #TODO: there's probably a clever way to get these indicies
@@ -1756,13 +2036,36 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
+    def estimate_generation_ticks(self) -> int:
+        # 10 ticks for production chains
+        # 1 tick for starfields
+        # each culture model + up to max cultures
+        # each sector
+        # 1 tick for player
+        self._production_chain_ticks = set(np.linspace(1, self.production_chain_max_tries, num=10, dtype=int))
+        return len(self._production_chain_ticks) + 1 + config.Settings.generate.Universe.NUM_CULTURES[1] + config.Settings.generate.Universe.NUM_SECTORS + 1
+
     def generate_universe(self) -> core.Gamestate:
         self.logger.info(f'generating a universe...')
         generation_start = time.perf_counter()
         self.gamestate.random = self.r
+        num_cultures = int(self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True)) # type: ignore
+
+        #TODO: janky!
+        estimated_ticks = self.estimate_generation_ticks()
+        for observer in self._observers:
+            observer.estimated_generation_ticks(estimated_ticks)
 
         # generate a production chain
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.PRODUCTION_CHAIN)
         self.gamestate.production_chain = self.generate_chain()
+
+        # generate pretty starfields for the background
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.STARFIELDS)
+            observer.generation_tick()
+        self.generate_starfields()
 
         # generate sectors
         self.generate_sectors(
@@ -1774,14 +2077,15 @@ class UniverseGenerator(core.AbstractGenerator):
             n_habitable_sectors=config.Settings.generate.Universe.NUM_HABITABLE_SECTORS,
             mean_habitable_resources=config.Settings.generate.Universe.MEAN_HABITABLE_RESOURCES,
             mean_uninhabitable_resources=config.Settings.generate.Universe.MEAN_UNINHABITABLE_RESOURCES,
+            num_cultures=num_cultures,
         )
 
         # generate the player
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.PLAYER)
+            observer.generation_tick()
         self.generate_player()
         #self.generate_player_for_combat_test()
-
-        # generate pretty starfields for the background
-        self.generate_starfields()
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
         self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
@@ -1793,6 +2097,16 @@ class UniverseGenerator(core.AbstractGenerator):
 
         generation_stop = time.perf_counter()
         logging.info(f'took {generation_stop - generation_start:.3f}s to generate universe')
+
+        for observer in self._observers:
+            observer.universe_generation_complete()
+
+        # trigger the start of game event
+        self.gamestate.trigger_event(
+            self.gamestate.characters.values(),
+            events.e(events.Events.START_GAME),
+            {},
+        )
 
         return self.gamestate
 
