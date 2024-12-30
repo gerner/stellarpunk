@@ -2,6 +2,10 @@ import io
 import uuid
 from typing import Any, Optional
 
+import numpy as np
+import numpy.typing as npt
+import cymunk # type: ignore
+
 from stellarpunk import core
 from stellarpunk.core import combat
 from stellarpunk.serialization import save_game, util as s_util, movement as s_movement, order as s_order, effect as s_effect
@@ -41,7 +45,7 @@ class ThreatTrackerSaver(save_game.Saver[combat.ThreatTracker]):
         closest_threat_id = s_util.optional_uuid_from_f(f)
         threat_ttl = s_util.float_from_f(f)
 
-        threat_tracker = combat.ThreatTracker(threat_ttl)
+        threat_tracker = combat.ThreatTracker(threat_ttl=threat_ttl)
         threat_tracker.threat_ids = threat_ids
         threat_tracker.last_target_ts = last_target_ts
         threat_tracker.threat_ttl = threat_ttl
@@ -220,7 +224,12 @@ class PointDefenseEffectSaver(s_effect.EffectSaver[combat.PointDefenseEffect]):
         bytes_written += s_util.float_to_f(effect.projectile_ttl, f)
         bytes_written += s_util.float_to_f(effect.cone_half_angle, f)
 
-        bytes_written += s_util.bool_to_f(effect._pd_shape is not None, f)
+        if effect._pd_shape:
+            bytes_written += s_util.bool_to_f(True, f)
+            bytes_written += s_util.float_to_f(effect._pd_shape.body.angle, f)
+            bytes_written += s_util.float_pair_to_f(np.array(effect._pd_shape.body.velocity), f)
+        else:
+            bytes_written += s_util.bool_to_f(False, f)
 
         bytes_written += s_util.bool_to_f(effect._collided, f)
 
@@ -243,9 +252,15 @@ class PointDefenseEffectSaver(s_effect.EffectSaver[combat.PointDefenseEffect]):
         cone_half_angle = s_util.float_from_f(f)
 
         has_pd_shape = s_util.bool_from_f(f)
+        if has_pd_shape:
+            pd_angle = s_util.float_from_f(f)
+            pd_velocity = s_util.float_pair_from_f(f)
+            pd_shape_params = (pd_angle, pd_velocity)
+        else:
+            pd_shape_params = None
         collided = s_util.bool_from_f(f)
 
-        effect = combat.PointDefenseEffect(load_context.gamestate, effect_id=effect_id)
+        effect = combat.PointDefenseEffect(load_context.gamestate, _check_flag=True, effect_id=effect_id)
         effect.threat_tracker = threat_tracker
         effect.targets_destroyed = targets_destroyed
 
@@ -259,16 +274,19 @@ class PointDefenseEffectSaver(s_effect.EffectSaver[combat.PointDefenseEffect]):
 
         effect._collided = collided
 
-        return effect, (craft_id, current_target_id, has_pd_shape)
+        return effect, (craft_id, current_target_id, pd_shape_params)
 
     def _post_load_effect(self, effect:combat.PointDefenseEffect, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, Optional[uuid.UUID], bool] = context
-        craft_id, current_target_id, has_pd_shape = context_data
+        context_data:tuple[uuid.UUID, Optional[uuid.UUID], Optional[tuple[float, npt.NDArray[np.float64]]]] = context
+        craft_id, current_target_id, pd_shape_params = context_data
         effect.craft = load_context.gamestate.get_entity(craft_id, core.SectorEntity)
 
         if current_target_id:
             effect.current_target = effect.craft.sensor_settings.get_image(current_target_id)
 
-        if has_pd_shape:
-            effect._setup_shape()
+        if pd_shape_params:
+            pd_angle, pd_velocity = pd_shape_params
+            shape = effect._setup_shape()
+            shape.body.angle = pd_angle
+            shape.body.velocity = cymunk.Vec2d(pd_velocity)
 

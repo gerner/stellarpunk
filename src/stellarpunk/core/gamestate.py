@@ -15,7 +15,7 @@ import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule, narrative
-from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder
+from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
 from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager
@@ -203,7 +203,7 @@ class Gamestate(EntityRegistry):
         self.last_colliders:set[str] = set()
 
         if Gamestate.gamestate is not None:
-            self.logger.info(f'replacing existing gamestate with running for {Gamestate.gamestate.ticks} ticks and {Gamestate.gamestate.timestamp} game secs with {len(Gamestate.gamestate.entities)} entities')
+            self.logger.info(f'replacing existing gamestate current: {Gamestate.gamestate.ticks} ticks and {Gamestate.gamestate.timestamp} game secs with {len(Gamestate.gamestate.entities)} entities')
         #    raise ValueError()
         #import traceback
         #Gamestate.bt = traceback.format_stack()
@@ -235,8 +235,13 @@ class Gamestate(EntityRegistry):
         del self.orders[order.order_id]
 
     def sanity_check_orders(self) -> None:
+        for ts, order in self._order_schedule:
+            assert order.order_id in self.orders
         for k, order in self.orders.items():
             order.sanity_check(k)
+            if isinstance(order, Observable):
+                for observer in order.observers:
+                    assert order in observer.observings
 
     def register_effect(self, effect: AbstractEffect) -> None:
         self.effects[effect.effect_id] = effect
@@ -245,8 +250,13 @@ class Gamestate(EntityRegistry):
         del self.effects[effect.effect_id]
 
     def sanity_check_effects(self) -> None:
+        for ts, effect in self._effect_schedule:
+            assert effect.effect_id in self.effects
         for k, effect in self.effects.items():
             effect.sanity_check(k)
+            if isinstance(effect, Observable):
+                for observer in effect.observers:
+                    assert effect in observer.observings
 
     def register_agendum(self, agendum: AbstractAgendum) -> None:
         self.agenda[agendum.agenda_id] = agendum
@@ -255,17 +265,47 @@ class Gamestate(EntityRegistry):
         del self.agenda[agendum.agenda_id]
 
     def sanity_check_agenda(self) -> None:
+        for ts, agenda in self._agenda_schedule:
+            assert agenda.agenda_id in self.agenda
         for k, agendum in self.agenda.items():
             assert(k == agendum.agenda_id)
-            assert(agendum in agendum.character.agenda)
-            assert(agendum.character.entity_id in self.entities)
+            agendum.sanity_check()
+            if isinstance(agendum, Observable):
+                for observer in agendum.observers:
+                    assert agendum in observer.observings
 
     def contains_entity(self, entity_id:uuid.UUID) -> bool:
         return entity_id in self.entities
+
     def get_entity[T:Entity](self, entity_id:uuid.UUID, klass:Type[T]) -> T:
         entity = self.entities[entity_id]
         assert(isinstance(entity, klass))
         return entity
+
+    def sanity_check_entities(self) -> None:
+        for k, entity in self.entities.items():
+            assert(k == entity.entity_id)
+            if isinstance(entity, Observable):
+                for observer in entity.observers:
+                    assert entity in observer.observings
+
+    def recover_objects[T:tuple](self, objects:T) -> T:
+        ret = []
+        for o in objects:
+            if isinstance(o, Entity):
+                o = self.get_entity(o.entity_id, type(o))
+            elif isinstance(o, AbstractOrder):
+                o = self.get_order(o.order_id, type(o))
+            elif isinstance(o, AbstractEffect):
+                o = self.get_effect(o.effect_id, type(o))
+            elif isinstance(o, AbstractAgendum):
+                o = self.get_agendum(o.agenda_id, type(o))
+            ret.append(o)
+
+        # mypy isn't quite powerful enough to understand what's going on
+        # we want the return type of this method to preserve all the types for
+        # the caller
+        return tuple(ret) # type: ignore
 
     def get_effect[T:AbstractEffect](self, effect_id:uuid.UUID, klass:Type[T]) -> T:
         effect = self.effects[effect_id]
@@ -276,6 +316,11 @@ class Gamestate(EntityRegistry):
         order = self.orders[order_id]
         assert(isinstance(order, klass))
         return order
+
+    def get_agendum[T:AbstractAgendum](self, agenda_id:uuid.UUID, klass:Type[T]) -> T:
+        agendum = self.agenda[agenda_id]
+        assert(isinstance(agendum, klass))
+        return agendum
 
     def _pause(self, paused:Optional[bool]=None) -> None:
         self.game_runtime.time_acceleration(1.0, False)
@@ -500,6 +545,13 @@ class Gamestate(EntityRegistry):
         self.sector_idx[sector.entity_id] = idx
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
 
+        # we'll do this here for consistency, but really this should happen in
+        # update_edges
+        sector_ids = list(self.sector_ids)
+        if sector.entity_id not in sector_ids:
+            sector_ids.append(sector.entity_id)
+            self.sector_ids = np.array(sector_ids)
+
     def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:
         self.sector_edges = sector_edges
         self.sector_ids = sector_ids
@@ -508,10 +560,28 @@ class Gamestate(EntityRegistry):
             self.max_edge_length = max(
                 util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
             )
+        else:
+            # or should it be inf?
+            self.max_edge_length = 0.0
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits # type: ignore
+
+    def sanity_check_sectors(self) -> None:
+        assert set(self.sector_ids) == set(self.sectors.keys())
+        for sector_id in self.sector_ids:
+            assert sector_id in self.entities
+            assert self.sectors[sector_id] == self.entities[sector_id]
+            assert sector_id in self.sector_idx
+        assert len(self.sector_ids) == len(self.sector_idx)
+
+    def sanity_check(self) -> None:
+        self.sanity_check_entities()
+        self.sanity_check_orders()
+        self.sanity_check_effects()
+        self.sanity_check_agenda()
+        self.sanity_check_sectors()
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)

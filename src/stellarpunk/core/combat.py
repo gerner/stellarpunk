@@ -85,7 +85,7 @@ class TimedOrderTask(core.OrderObserver, core.ScheduledTask):
 class ThreatTracker(core.SectorEntityObserver):
     @classmethod
     def create_threat_tracker[T:"ThreatTracker"](cls:Type[T], craft:core.SectorEntity, threat_ttl:float=120.) -> "ThreatTracker":
-        t = cls(threat_ttl)
+        t = cls(threat_ttl=threat_ttl)
         t.craft = craft
         return t
 
@@ -509,7 +509,7 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
         self._setup_shape()
 
-    def _setup_shape(self) -> None:
+    def _setup_shape(self) -> cymunk.Shape:
 
         # create a cone centered on us that moves with us, but stays pointed in
         # a set direction. we'll aim the cone separately.
@@ -538,6 +538,7 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
         body.angle = self.craft.angle
         self._pd_shape_constraint = cymunk.PivotJoint(self.craft.phys, self._pd_shape.body, self.craft.phys.position)
         self.sector.space.add(self._pd_shape_constraint)
+        return self._pd_shape
 
     def _deactivate(self) -> None:
         """ ACTIVE -> IDLE transition logic """
@@ -736,9 +737,7 @@ class FleeOrder(core.Order):
         self.threat_tracker.stop_tracking()
 
     def _cancel(self) -> None:
-        self.ship.sensor_settings.set_sensors(1.0)
-        self.ship.sensor_settings.set_transponder(True)
-        self.threat_tracker.stop_tracking()
+        self._complete()
 
     def _is_complete(self) -> bool:
         if len(self.threat_tracker) == 0:

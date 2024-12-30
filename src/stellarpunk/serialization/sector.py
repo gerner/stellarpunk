@@ -1,5 +1,6 @@
 import io
 import uuid
+import pydoc
 import collections
 from typing import Any
 
@@ -10,11 +11,17 @@ import numpy.typing as npt
 from stellarpunk import core, sensors, util
 from . import save_game, util as s_util, gamestate as s_gamestate
 
+PHYS_ID_NULL = uuid.UUID(hex="deadbeefdeadbeefdeadbeefdeadbeef")
 class BodyParams:
     @classmethod
     def from_phys(cls, phys:cymunk.Body) -> "BodyParams":
+        if isinstance(phys.data, core.Entity):
+            entity_id = phys.data.entity_id
+        else:
+            entity_id = PHYS_ID_NULL
         return BodyParams(
-                phys.data.entity_id,
+                entity_id,
+                type(phys.data),
                 phys.mass,
                 phys.moment,
                 phys.angle,
@@ -26,8 +33,9 @@ class BodyParams:
                 phys.is_static,
         )
 
-    def __init__(self, entity_id:uuid.UUID, mass:float, moment:float, angle:float, angular_velocity:float, position:npt.NDArray[np.float64], velocity:npt.NDArray[np.float64], force:npt.NDArray[np.float64], torque:float, is_static:int) -> None:
+    def __init__(self, entity_id:uuid.UUID, klass:type, mass:float, moment:float, angle:float, angular_velocity:float, position:npt.NDArray[np.float64], velocity:npt.NDArray[np.float64], force:npt.NDArray[np.float64], torque:float, is_static:int) -> None:
         self.entity_id = entity_id
+        self.klass = klass
         self.mass = mass
         self.moment = moment
         self.angle = angle
@@ -43,6 +51,8 @@ class BodyParams:
             return False
         if self.entity_id != other.entity_id:
             return False
+        if self.klass != other.klass:
+            return False
         if not util.inf_nan_isclose(self.mass, other.mass):
             return False
         if not util.inf_nan_isclose(self.moment, other.moment):
@@ -51,11 +61,11 @@ class BodyParams:
             return False
         if not util.inf_nan_isclose(self.angular_velocity, other.angular_velocity):
             return False
-        if not util.both_almost_zero(self.position - other.position):
+        if not util.both_isclose(self.position, other.position):
             return False
-        if not util.both_almost_zero(self.velocity - other.velocity):
+        if not util.both_isclose(self.velocity, other.velocity):
             return False
-        if not util.both_almost_zero(self.force - other.force):
+        if not util.both_isclose(self.force, other.force):
             return False
         if not util.inf_nan_isclose(self.torque, other.torque):
             return False
@@ -108,7 +118,12 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
             bodies = sector.space.bodies
             bytes_written += s_util.size_to_f(len(bodies), f)
             for body in bodies:
-                bytes_written += s_util.uuid_to_f(body.data.entity_id, f)
+                if isinstance(body.data, core.Entity):
+                    entity_id = body.data.entity_id
+                else:
+                    entity_id = PHYS_ID_NULL
+                bytes_written += s_util.uuid_to_f(entity_id, f)
+                bytes_written += s_util.to_len_pre_f(util.fullname(body.data), f)
                 bytes_written += s_util.float_to_f(body.mass, f)
                 bytes_written += s_util.float_to_f(body.moment, f)
                 bytes_written += s_util.float_to_f(body.angle, f)
@@ -162,6 +177,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
             body_params:dict[uuid.UUID, BodyParams] = {}
             for i in range(body_count):
                 entity_id = s_util.uuid_from_f(f)
+                klass:type = pydoc.locate(s_util.from_len_pre_f(f)) # type: ignore
                 mass = s_util.float_from_f(f)
                 moment = s_util.float_from_f(f)
                 angle = s_util.float_from_f(f)
@@ -173,7 +189,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
                 is_static = s_util.int_from_f(f)
 
                 assert(entity_id not in body_params)
-                body_params[entity_id] = BodyParams(entity_id, mass, moment, angle, angular_velocity, position, velocity, force, torque, is_static)
+                body_params[entity_id] = BodyParams(entity_id, klass, mass, moment, angle, angular_velocity, position, velocity, force, torque, is_static)
 
             load_context.register_sanity_check(sector, (entity_info, effect_info, observer_info, body_params))
 
@@ -221,7 +237,6 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
             if body_params.entity_id in saved_bodies and saved_bodies[body_params.entity_id] == body_params:
                 del saved_bodies[body_params.entity_id]
             else:
-                raise Exception()
                 extra_loaded_bodies[body_params.entity_id] = body_params
 
         assert(saved_bodies == {})

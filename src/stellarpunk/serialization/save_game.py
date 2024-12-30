@@ -115,6 +115,9 @@ class Saver[T](abc.ABC):
     def save_observers(self, obj:core.Observable, f:io.IOBase) -> int:
         bytes_written = 0
         if self.save_game.debug:
+            for observer in obj.observers:
+                assert(obj in observer.observings)
+
             bytes_written += s_util.debug_string_w("observers", f)
             # skip ephemeral observers with sentinel observer id
             bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in obj.observers if x.observer_id != core.OBSERVER_ID_NULL), f)
@@ -130,6 +133,11 @@ class Saver[T](abc.ABC):
 
     def save_observing(self, obj:core.Observer, f:io.IOBase) -> int:
         """ Saves Observable instances this obj is observing. """
+
+        if self.save_game.debug:
+            for observable in obj.observings:
+                assert(obj in observable.observers)
+
         bytes_written = 0
         bytes_written += s_util.debug_string_w("observing", f)
         bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observable_id) for x in obj.observings), f)
@@ -214,11 +222,11 @@ class GameSaver(SaverObserver):
 
     Organizes configuration and dispatches to various sorts of save logic. """
 
-    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, *args:Any, debug:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
 
-        self.debug = True
+        self.debug = debug
         self._save_path:str = "/tmp/stellarpunk_saves"
         self._save_file_glob = "save_*.stpnk"
         #TODO: multiple autosaves?
@@ -366,12 +374,12 @@ class GameSaver(SaverObserver):
         return self.save(gamestate, save_filename)
 
     def save(self, gamestate:core.Gamestate, save_filename:Optional[str]=None) -> str:
-        self.logger.info("saving...")
+        self.logger.info(f'saving gamestate at {gamestate.timestamp} with {gamestate.ticks} ticks...')
         start_time = time.perf_counter()
 
-        gamestate.sanity_check_orders()
-        gamestate.sanity_check_effects()
-        gamestate.sanity_check_agenda()
+        self.logger.debug("sanity checking gamestate")
+        gamestate.sanity_check()
+        self.logger.debug("sanity check complete")
 
         if save_filename is None:
             save_filename = self._gen_save_filename()
@@ -408,7 +416,7 @@ class GameSaver(SaverObserver):
             # move the temp file into final home, so we only end up with good files
             os.rename(temp_save_file.name, save_filename)
 
-        self.logger.info(f'saved {bytes_written}bytes to {save_filename} in {time.perf_counter()-start_time}s')
+        self.logger.info(f'saved {bytes_written} bytes to {save_filename} in {time.perf_counter()-start_time}s')
 
         return save_filename
 
@@ -456,6 +464,10 @@ class GameSaver(SaverObserver):
             # event manager and post_initialize it
             self.logger.debug("initializing event manager")
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
+
+            self.logger.debug("sanity checking loaded gamestate")
+
+            gamestate.sanity_check()
 
             self.logger.debug("loading gamestate into generator")
             self.generator.load_universe(gamestate)

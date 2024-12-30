@@ -250,6 +250,11 @@ def isclose_flex(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
 def both_almost_zero(v:npt.NDArray[np.float64]) -> bool:
     return isclose(v[0], 0.) and isclose(v[1], 0.)
 
+@jit(cache=True, nopython=True, fastmath=True)
+def both_isclose(a:npt.NDArray[np.float64], b:npt.NDArray[np.float64]) -> bool:
+    return isclose(a[0], b[0]) and isclose(a[1], b[1])
+
+
 def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
 

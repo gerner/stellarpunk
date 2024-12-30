@@ -56,6 +56,9 @@ class AbstractAgendum(abc.ABC):
                 logging.getLogger(util.fullname(self)),
         )
 
+    def sanity_check(self) -> None:
+        assert(self in self.character.agenda)
+
     def _start(self) -> None:
         pass
 
@@ -129,7 +132,7 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         super().destroy()
         for observer in self._observers.copy():
             observer.character_destroyed(self)
-        self._observers.clear()
+        self.clear_observers()
         for agendum in self.agenda:
             agendum.stop()
         self.location = None

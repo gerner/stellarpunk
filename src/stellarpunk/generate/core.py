@@ -268,6 +268,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self._cultures = config.Settings.generate.Universe.CULTURES
         self._culture_map:Mapping[uuid.UUID, str]
+        self._empty_name_model_culture = "_ignore_culture_"
 
         self._observers:weakref.WeakSet[UniverseGeneratorObserver] = weakref.WeakSet()
         self._production_chain_ticks:set[int] = set()
@@ -400,6 +401,7 @@ class UniverseGenerator(core.AbstractGenerator):
         return self.projectile_spawn_pattern[index%self.num_projectile_spawn_locs] + center, (index+1) % self.num_projectile_spawn_locs
 
     def _gen_sector_culture(self, x:float, y:float, sector_id:uuid.UUID) -> str:
+        #TODO: this means we can't generate sectors on the fly!
         return self._culture_map[sector_id]
 
     def _gen_sector_name(self, culture:str) -> str:
@@ -617,6 +619,9 @@ class UniverseGenerator(core.AbstractGenerator):
 
         loaded_cultures = 0
         for culture in culture_filter if culture_filter is not None else config.Settings.generate.Universe.CULTURES:
+            if culture == self._empty_name_model_culture:
+                continue
+            assert(culture in config.Settings.generate.Universe.CULTURES)
             self.logger.info(f'loading name models for culture {culture}')
             self._sector_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
             self._station_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
@@ -644,6 +649,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self._prepare_projectile_spawn_pattern()
 
         if empty_name_model_culture:
+            self._empty_name_model_culture = empty_name_model_culture
             self._load_empty_name_models(empty_name_model_culture)
             self._cultures = {}
         #else: load culture models during universe generation
@@ -2156,7 +2162,8 @@ class UniverseGenerator(core.AbstractGenerator):
         self.r = self.gamestate.random
 
         self._culture_map = dict((sector_id, sector.culture) for sector_id, sector in gamestate.sectors.items())
-        self._load_name_models(culture_filter=list(set(self._culture_map.values())))
+        if any(x != self._empty_name_model_culture for x in self._culture_map.values()):
+            self._load_name_models(culture_filter=list(set(self._culture_map.values())))
 
         #TODO: event manager needs to be created and initialized by this point
 

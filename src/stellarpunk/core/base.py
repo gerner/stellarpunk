@@ -66,6 +66,10 @@ class Observable[T:Observer](abc.ABC):
             self._observers.remove(observer)
             observer.unmark_observing(self)
 
+    def clear_observers(self) -> None:
+        for observer in self._observers.copy():
+            self.unobserve(observer)
+
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod
     def register_entity(self, entity: "Entity") -> narrative.EventContext: ...

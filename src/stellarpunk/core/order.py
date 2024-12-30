@@ -118,7 +118,7 @@ class Effect(base.Observable[EffectObserver], base.AbstractEffect):
 
         for observer in self._observers:
             observer.effect_complete(self)
-        self._observers.clear()
+        self.clear_observers()
 
         #TODO: do we need to wrap this is a try/catch the way we do with orders?
         self.sector.remove_effect(self)
@@ -146,7 +146,7 @@ class Effect(base.Observable[EffectObserver], base.AbstractEffect):
 
         for observer in self._observers:
             observer.effect_cancel(self)
-        self._observers.clear()
+        self.clear_observers()
 
     def act(self, dt:float) -> None:
         # by default we'll just complete the effect if it's done
@@ -316,7 +316,7 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
         self._complete()
         for observer in self._observers.copy():
             observer.order_complete(self)
-        self._observers.clear()
+        self.clear_observers()
         self.gamestate.unschedule_order(self)
 
     def cancel_order(self) -> None:
@@ -348,7 +348,7 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
         self._cancel()
         for observer in self._observers:
             observer.order_cancel(self)
-        self._observers.clear()
+        self.clear_observers()
         self.gamestate.unschedule_order(self)
 
     def base_act(self, dt:float) -> None:

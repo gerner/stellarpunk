@@ -20,16 +20,21 @@ def write_history(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         sector = kwargs["sector"]
-        gamestate = kwargs["gamestate"]
+        #gamestate = kwargs["gamestate"]
+        sector_id = sector.entity_id
         wrote=False
         try:
             return func(*args, **kwargs)
         except Exception as e:
+            gamestate = core.Gamestate.gamestate
+            sector = gamestate.get_entity(sector_id, core.Sector)
             core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz', now=gamestate.timestamp)
             wrote=True
             raise
         finally:
             if not wrote and os.environ.get("WRITE_HIST"):
+                gamestate = core.Gamestate.gamestate
+                sector = gamestate.get_entity(sector_id, core.Sector)
                 core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz', now=gamestate.timestamp)
     return wrapper
 
@@ -162,7 +167,7 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
     ) -> None:
         pass
 
-class MonitoringUI(core.OrderObserver, interface.AbstractInterface):
+class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, interface.AbstractInterface):
     def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
@@ -192,6 +197,66 @@ class MonitoringUI(core.OrderObserver, interface.AbstractInterface):
         self.last_status_message = ""
 
         self.tick_callback:Optional[Callable[[], None]] = None
+
+        self.generator.observe(self)
+
+    def universe_loaded(self, gamestate:core.Gamestate) -> None:
+        self.logger.info("universe loaded")
+        gamestate.econ_logger = self.gamestate.econ_logger
+        self.gamestate = gamestate
+        assert(gamestate.player)
+        assert(gamestate.player.character)
+        assert(gamestate.player == self.player)
+
+        self.sector = gamestate.get_entity(self.sector.entity_id, core.Sector)
+
+        old_agenda = self.agenda.copy()
+        self.agenda.clear()
+        for agendum in old_agenda:
+            self.agenda.append(gamestate.agenda[agendum.agenda_id])
+        old_orders = self.orders.copy()
+        self.orders.clear()
+        for order in old_orders:
+            if order.is_complete() and order.order_id not in gamestate.orders:
+                self.orders.append(order)
+            else:
+                new_order = gamestate.get_order(order.order_id, core.Order) # type: ignore
+                self.orders.append(new_order)
+                new_order.observe(self)
+
+        old_cannot_stop_orders = self.cannot_stop_orders.copy()
+        self.cannot_stop_orders.clear()
+        for gtl_order in old_cannot_stop_orders:
+            if gtl_order.is_complete() and gtl_order.order_id not in gamestate.orders:
+                self.cannot_stop_orders.append(gtl_order)
+            else:
+                self.cannot_stop_orders.append(gamestate.get_order(gtl_order.order_id, orders.GoToLocation))
+        old_cannot_avoid_collision_orders = self.cannot_avoid_collision_orders.copy()
+        self.cannot_avoid_collision_orders.clear()
+        for as_order in old_cannot_avoid_collision_orders:
+            if as_order.is_complete() and as_order.order_id not in gamestate.orders:
+                self.cannot_avoid_collision_orders.append(as_order)
+            else:
+                self.cannot_avoid_collision_orders.append(gamestate.get_order(gtl_order.order_id, steering.AbstractSteeringOrder)) # type: ignore
+        old_margin_neighbors = self.margin_neighbors.copy()
+        self.margin_neighbors.clear()
+        for sector_entity in old_margin_neighbors:
+            self.margin_neighbors.append(gamestate.get_entity(sector_entity.entity_id, core.SectorEntity))
+
+        old_collisions = self.collisions.copy()
+        self.collisions.clear()
+        for old_se_a, old_se_b, x, y in old_collisions:
+            se_a = gamestate.get_entity(old_se_a.entity_id, core.SectorEntity)
+            se_b = gamestate.get_entity(old_se_b.entity_id, core.SectorEntity)
+            self.collisions.append((se_a, se_b, x, y))
+
+        old_complete_orders = self.complete_orders.copy()
+        self.complete_orders.clear()
+        for order in old_complete_orders:
+            if order.is_complete() and order.order_id not in gamestate.orders:
+                self.complete_orders.append(order)
+            else:
+                self.complete_orders.append(gamestate.get_order(order.order_id, core.Order)) # type: ignore
 
     @property
     def player(self) -> core.Player:

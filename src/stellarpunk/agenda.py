@@ -23,6 +23,10 @@ class Agendum(core.AbstractAgendum, abc.ABC):
         self.started_at = -1.0
         self.stopped_at = -1.0
 
+    def sanity_check(self) -> None:
+        super().sanity_check()
+        assert(self.character.entity_id in self.gamestate.entities)
+
     def register(self) -> None:
         self.gamestate.register_agendum(self)
 
@@ -266,19 +270,27 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.craft.captain = None
         #TODO: kill other EOAs?
 
-    def order_completed(self, order:core.Order) -> None:
-        if order == self.threat_response:
-            self.threat_response = None
-        for a in self.character.agenda:
-            if isinstance(a, EntityOperatorAgendum):
-                a.unpause()
+    def sanity_check(self) -> None:
+        super().sanity_check()
+        if self.threat_response:
+            assert self.threat_response.order_id in self.gamestate.orders
+            assert not self.threat_response.is_complete()
 
-    def order_cancelled(self, order:core.Order) -> None:
+    # core.OrderObserver
+
+    def order_complete(self, order:core.Order) -> None:
         if order == self.threat_response:
             self.threat_response = None
-        for a in self.character.agenda:
-            if isinstance(a, EntityOperatorAgendum):
-                a.unpause()
+            for a in self.character.agenda:
+                if isinstance(a, EntityOperatorAgendum):
+                    a.unpause()
+
+    def order_cancel(self, order:core.Order) -> None:
+        if order == self.threat_response:
+            self.threat_response = None
+            for a in self.character.agenda:
+                if isinstance(a, EntityOperatorAgendum):
+                    a.unpause()
 
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
         assert craft == self.craft

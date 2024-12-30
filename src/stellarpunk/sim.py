@@ -472,8 +472,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             ticktime = now - starttime
             self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
-def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager) -> save_game.GameSaver:
-    sg = save_game.GameSaver(generator, event_manager)
+def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, debug:bool=True) -> save_game.GameSaver:
+    sg = save_game.GameSaver(generator, event_manager, debug=debug)
 
     # top level stuff
     sg.register_saver(events.EventState, s_events.EventStateSaver(sg))

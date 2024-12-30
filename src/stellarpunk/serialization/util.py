@@ -3,7 +3,7 @@ import json
 import uuid
 import struct
 from collections.abc import Collection
-from typing import Union, Callable, Optional
+from typing import Union, Callable, Optional, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -112,7 +112,7 @@ def floats_from_f(f:io.IOBase) -> Collection[float]:
         seq.append(x)
     return seq
 
-def float_pair_to_f(a:npt.NDArray[np.float64], f:io.IOBase) -> int:
+def float_pair_to_f(a:Union[tuple[float, float], npt.NDArray[np.float64]], f:io.IOBase) -> int:
     bytes_written = 0
     bytes_written += float_to_f(a[0], f)
     bytes_written += float_to_f(a[1], f)
@@ -222,4 +222,7 @@ def matrix_to_f(matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]], f:
 def matrix_from_f(f:io.IOBase) -> npt.NDArray:
     count = size_from_f(f)
     matrix_bytes = f.read(count)
-    return msgpack.unpackb(matrix_bytes, object_hook=serialize_econ_sim.decode_matrix)
+    #TODO: we have to copy here because this decode path makes an ndarray with
+    # some weird flags set, including WRITEABLE=False. I just haven't taken the
+    # time to investigate this too much and loading is fast enough
+    return msgpack.unpackb(matrix_bytes, object_hook=serialize_econ_sim.decode_matrix).copy()

@@ -53,7 +53,7 @@ class HistoryEntry:
         self.force = force
         self.torque = torque
 
-    def to_json(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "p": self.prefix,
             "eid": str(self.entity_id),
@@ -67,6 +67,34 @@ class HistoryEntry:
             "t": self.torque,
             "o": self.order_hist,
         }
+
+    @classmethod
+    def from_dict(cls, hentry:dict[str, Any]) -> "HistoryEntry":
+        prefix:str = hentry["p"]
+        entity_id:uuid.UUID = uuid.UUID(hentry["eid"])
+        ts:float = hentry["ts"]
+        loc:tuple = tuple(hentry["loc"])
+        radius:float = hentry["r"]
+        angle:float = hentry["a"]
+        velocity:tuple = tuple(hentry["v"])
+        angular_velocity:float = hentry["av"]
+        force:tuple = tuple(hentry["f"])
+        torque:float = hentry["t"]
+        order_hist:Optional[dict] = hentry["o"] if "o" in hentry else None
+
+        return HistoryEntry(
+            prefix,
+            entity_id,
+            ts,
+            loc,
+            radius,
+            angle,
+            velocity,
+            angular_velocity,
+            force,
+            torque,
+            order_hist,
+        )
 
 def write_history_to_file(entity:Union["Sector", "SectorEntity"], f:Union[str, TextIO], mode:str="w", now:float=-np.inf) -> None:
     fout:TextIO
@@ -89,10 +117,10 @@ def write_history_to_file(entity:Union["Sector", "SectorEntity"], f:Union[str, T
     for ent in entities:
         history = ent.get_history()
         for entry in history:
-            fout.write(json.dumps(entry.to_json()))
+            fout.write(json.dumps(entry.to_dict()))
             fout.write("\n")
         if len(history) == 0 or history[-1].ts < now:
-            fout.write(json.dumps(ent.to_history(now).to_json()))
+            fout.write(json.dumps(ent.to_history(now).to_dict()))
             fout.write("\n")
     if needs_close:
         fout.close()
@@ -161,7 +189,7 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
     def destroy(self) -> None:
         for o in self._observers.copy():
             o.entity_destroyed(self)
-        self._observers.clear()
+        self.clear_observers()
 
         self._destroy()
         self.phys.data = None
@@ -203,6 +231,10 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
                 (0.,0.), 0,
         ),)
         return self.history
+
+    def set_history(self, hist:Sequence[HistoryEntry]) -> None:
+        # by default we don't actually keep a history
+        pass
 
     def to_history(self, timestamp:float) -> HistoryEntry:
         return HistoryEntry(

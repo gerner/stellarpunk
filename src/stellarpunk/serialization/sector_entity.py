@@ -2,6 +2,7 @@ import io
 import uuid
 import abc
 import math
+import json
 import collections
 from typing import Any, Optional
 
@@ -67,6 +68,11 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written += s_util.debug_string_w("sensor settings", f)
         bytes_written += self.save_game.save_object(sector_entity.sensor_settings, f, klass=core.AbstractSensorSettings)
 
+        if self.save_game.debug:
+            bytes_written += s_util.debug_string_w("history", f)
+            history_json = json.dumps(list(x.to_dict() for x in sector_entity.get_history()))
+            bytes_written += s_util.to_len_pre_f(history_json, f, blen=4)
+
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_sector_entity(sector_entity, f)
 
@@ -108,8 +114,18 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         phys_body.torque = torque
         assert(phys_body.moment == moment or (math.isinf(phys_body.mass) and math.isinf(phys_body.moment)))
 
+        if self.save_game.debug:
+            s_util.debug_string_r("history", f)
+            history_json = s_util.from_len_pre_f(f, blen=4)
+            history_list = json.loads(history_json)
+            history = list(core.HistoryEntry.from_dict(h) for h in history_list)
+
+
         s_util.debug_string_r("type specific", f)
         sector_entity, extra_context = self._load_sector_entity(f, load_context, entity_id, np.array((loc_x, loc_y)), phys_body, sensor_settings)
+
+        if self.save_game.debug:
+            sector_entity.set_history(history)
 
         # phys_shape sets the shape and radius on the sector entity
         self.save_game.generator.phys_shape(phys_body, sector_entity, radius)

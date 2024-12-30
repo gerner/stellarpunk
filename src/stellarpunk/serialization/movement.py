@@ -22,39 +22,116 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
 
     def _save_navigator_params(self, params:collision.NavigatorParameters, f:io.IOBase) -> int:
         bytes_written = 0
+        bytes_written += s_util.debug_string_w("navigator basic params", f)
+
+        bytes_written += s_util.float_to_f(params.radius, f)
+        bytes_written += s_util.float_to_f(params.max_thrust, f)
+        bytes_written += s_util.float_to_f(params.max_torque, f)
+        bytes_written += s_util.float_to_f(params.max_acceleration, f)
+        bytes_written += s_util.float_to_f(params.max_angular_acceleration, f)
+        bytes_written += s_util.float_to_f(params.worst_case_rot_time, f)
+
+        bytes_written += s_util.float_to_f(params.base_neighborhood_radius, f)
+        bytes_written += s_util.float_to_f(params.neighborhood_radius, f)
+        bytes_written += s_util.float_to_f(params.full_neighborhood_radius_period, f)
+        bytes_written += s_util.float_to_f(params.full_neighborhood_radius_ts, f)
+
+        bytes_written += s_util.float_to_f(params.base_max_speed, f)
+        bytes_written += s_util.float_to_f(params.max_speed, f)
+
+        bytes_written += s_util.float_to_f(params.max_speed_cap, f)
+        bytes_written += s_util.float_to_f(params.max_speed_cap_ts, f)
+        bytes_written += s_util.float_to_f(params.max_speed_cap_alpha, f)
+        bytes_written += s_util.float_to_f(params.min_max_speed, f)
+        bytes_written += s_util.float_to_f(params.max_speed_cap_max_expiration, f)
+
+        bytes_written += s_util.float_to_f(params.base_margin, f)
+        bytes_written += s_util.float_to_f(params.margin, f)
+
+        bytes_written += s_util.float_pair_to_f(params.target_location, f)
+        bytes_written += s_util.float_to_f(params.arrival_radius, f)
+        bytes_written += s_util.float_to_f(params.min_radius, f)
+
+        bytes_written += s_util.float_to_f(params.last_threat_id, f)
+        bytes_written += s_util.float_to_f(params.collision_margin_histeresis, f)
+        bytes_written += s_util.bool_to_f(params.cannot_avoid_collision_hold, f)
+        bytes_written += s_util.bool_to_f(params.collision_cbdr, f)
+
+        # analysis params
+        bytes_written += s_util.debug_string_w("navigator analysis params", f)
+        bytes_written += s_util.float_to_f(params.analysis.neighborhood_radius, f)
+        bytes_written += s_util.int_to_f(params.analysis.threat_count, f)
+        bytes_written += s_util.int_to_f(params.analysis.neighborhood_size, f)
+        bytes_written += s_util.float_to_f(params.analysis.nearest_neighborhood_dist, f)
+        bytes_written += s_util.bool_to_f(params.analysis.cannot_avoid_collision, f)
+        bytes_written += s_util.int_to_f(params.analysis.coalesced_threat_count, f)
+
+        # prior threats
+        bytes_written += s_util.debug_string_w("navigator prior threats", f)
+        bytes_written += s_util.uuids_to_f(list(x.body.data.entity_id for x in params.prior_threats), f)
+
         return bytes_written
 
-    def _load_navigator_params(self, f:io.IOBase) -> collision.NavigatorParameters:
+    def _load_navigator_params(self, f:io.IOBase, order:T, load_context:save_game.LoadContext) -> tuple[collision.NavigatorParameters, Any]:
         params = collision.NavigatorParameters()
-        return params
 
-    def _save_order(self, obj:T, f:io.IOBase) -> int:
-        bytes_written = 0
-        bytes_written += s_util.float_to_f(obj.safety_factor, f)
-        bytes_written += s_util.float_to_f(obj.collision_dv[0], f)
-        bytes_written += s_util.float_to_f(obj.collision_dv[1], f)
-        bytes_written += self._save_navigator_params(obj.neighbor_analyzer.get_navigator_parameters(), f)
-        bytes_written += self._save_steering_order(obj, f)
-        return bytes_written
+        s_util.debug_string_r("navigator basic params", f)
 
-    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[T, Any]:
-        safety_factor = s_util.float_from_f(f)
-        cdv_x = s_util.float_from_f(f)
-        cdv_y = s_util.float_from_f(f)
-        params = self._load_navigator_params(f)
+        params.radius = s_util.float_from_f(f)
+        params.max_thrust = s_util.float_from_f(f)
+        params.max_torque = s_util.float_from_f(f)
+        params.max_acceleration = s_util.float_from_f(f)
+        params.max_angular_acceleration = s_util.float_from_f(f)
+        params.worst_case_rot_time = s_util.float_from_f(f)
 
-        steering_order, extra_context = self._load_steering_order(f, load_context, order_id)
-        steering_order.safety_factor = safety_factor
-        if util.isclose(cdv_x, 0.) and util.isclose(cdv_y, 0.):
-            steering_order.collision_dv = steering.ZERO_VECTOR
-        else:
-            steering_order.collision_dv = np.array((cdv_x, cdv_y))
+        params.base_neighborhood_radius = s_util.float_from_f(f)
+        params.neighborhood_radius = s_util.float_from_f(f)
+        params.full_neighborhood_radius_period = s_util.float_from_f(f)
+        params.full_neighborhood_radius_ts = s_util.float_from_f(f)
 
-        return steering_order, (params, extra_context)
+        params.base_max_speed = s_util.float_from_f(f)
+        params.max_speed = s_util.float_from_f(f)
 
-    def _post_load_order(self, order:T, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[collision.NavigatorParameters, Any] = context
-        params, extra_context = context_data
+        params.max_speed_cap = s_util.float_from_f(f)
+        params.max_speed_cap_ts = s_util.float_from_f(f)
+        params.max_speed_cap_alpha = s_util.float_from_f(f)
+        params.min_max_speed = s_util.float_from_f(f)
+        params.max_speed_cap_max_expiration = s_util.float_from_f(f)
+
+        params.base_margin = s_util.float_from_f(f)
+        params.margin = s_util.float_from_f(f)
+
+        target_location = s_util.float_pair_from_f(f)
+        params.target_location = (float(target_location[0]), float(target_location[1]))
+        params.arrival_radius = s_util.float_from_f(f)
+        params.min_radius = s_util.float_from_f(f)
+
+        params.last_threat_id = s_util.int_from_f(f)
+        params.collision_margin_histeresis = s_util.float_from_f(f)
+        params.cannot_avoid_collision_hold = s_util.bool_from_f(f)
+        params.collision_cbdr = s_util.bool_from_f(f)
+
+        # analysis params
+        s_util.debug_string_r("navigator analysis params", f)
+        params.analysis.neighborhood_radius = s_util.float_from_f(f)
+        params.analysis.threat_count = s_util.int_from_f(f)
+        params.analysis.neighborhood_size = s_util.int_from_f(f)
+        params.analysis.nearest_neighborhood_dist = s_util.float_from_f(f)
+        params.analysis.cannot_avoid_collision = s_util.bool_from_f(f)
+        params.analysis.coalesced_threat_count = s_util.int_from_f(f)
+
+        # prior threats, we'll fully set this up in post load
+        s_util.debug_string_r("navigator prior threats", f)
+        prior_threat_ids = s_util.uuids_from_f(f)
+
+        load_context.register_custom_post_load(self._post_load_navigator_params, order, (params, prior_threat_ids))
+
+        return params, prior_threat_ids
+
+    def _post_load_navigator_params(self, order:T, load_context:save_game.LoadContext, context:Any) -> None:
+        context_data:tuple[collision.NavigatorParameters, list[uuid.UUID]] = context
+
+        params, prior_threat_ids = context_data
 
         # we assume that the sector has been completely post loaded by the time
         # we are. this should happen because orders are loaded after entities.
@@ -62,8 +139,41 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         space = order.ship.sector.space
         body = order.ship.phys
 
+        for prior_threat_id in prior_threat_ids:
+            sector_entity = load_context.gamestate.get_entity(prior_threat_id, core.SectorEntity)
+            params.prior_threats.append(sector_entity.phys_shape)
+
         order.neighbor_analyzer = collision.Navigator(space, body, params.radius, params.max_thrust, params.max_torque, params.max_speed, params.base_margin, params.base_neighborhood_radius)
         order.neighbor_analyzer.set_navigator_parameters(params)
+
+    def _save_order(self, obj:T, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.float_to_f(obj.safety_factor, f)
+        bytes_written += s_util.float_to_f(obj.collision_dv[0], f)
+        bytes_written += s_util.float_to_f(obj.collision_dv[1], f)
+        bytes_written += self._save_steering_order(obj, f)
+        bytes_written += self._save_navigator_params(obj.neighbor_analyzer.get_navigator_parameters(), f)
+        return bytes_written
+
+    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[T, Any]:
+        safety_factor = s_util.float_from_f(f)
+        cdv_x = s_util.float_from_f(f)
+        cdv_y = s_util.float_from_f(f)
+
+        steering_order, extra_context = self._load_steering_order(f, load_context, order_id)
+        self._load_navigator_params(f, steering_order, load_context)
+        steering_order.safety_factor = safety_factor
+        if util.isclose(cdv_x, 0.) and util.isclose(cdv_y, 0.):
+            steering_order.collision_dv = steering.ZERO_VECTOR
+        else:
+            steering_order.collision_dv = np.array((cdv_x, cdv_y))
+
+        return steering_order, extra_context
+
+    def _post_load_order(self, order:T, load_context:save_game.LoadContext, context:Any) -> None:
+        context_data:tuple[collision.NavigatorParameters, Any] = context
+        extra_context = context_data
+
         self._post_load_steering_order(order, load_context, extra_context)
 
 class KillRotationOrderSaver(s_order.OrderSaver[movement.KillRotationOrder]):

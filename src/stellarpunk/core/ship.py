@@ -40,6 +40,11 @@ class Ship(character.CrewedSectorEntity, character.Asset):
     def get_history(self) -> Sequence[sector.HistoryEntry]:
         return self.history
 
+    def set_history(self, hist:Sequence[sector.HistoryEntry]) -> None:
+        self.history.clear()
+        for h in hist:
+            self.history.append(h)
+
     def to_history(self, timestamp:float) -> sector.HistoryEntry:
         order_hist = self._orders[0].to_history() if self._orders else None
         return sector.HistoryEntry(

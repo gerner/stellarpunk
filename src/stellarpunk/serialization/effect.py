@@ -124,7 +124,7 @@ class TradeTransferEffectSaver(TransferCargoEffectSaver[effects.TradeTransferEff
         return effect, (buyer_id, seller_id)
 
     def _post_load_transfer_cargo_effect(self, effect:effects.TradeTransferEffect, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID]
+        context_data:tuple[uuid.UUID, uuid.UUID] = context
         buyer_id, seller_id = context_data
         effect.buyer = load_context.gamestate.get_entity(buyer_id, core.EconAgent) # type: ignore
         effect.seller = load_context.gamestate.get_entity(seller_id, core.EconAgent) # type: ignore

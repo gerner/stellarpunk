@@ -48,7 +48,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
 
     sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name, culture="test")
     sector.sensor_manager = sensors.SensorManager(sector)
-    gamestate.sectors[sector.entity_id] = sector
+    gamestate.add_sector(sector, 0)
 
     return sector
 
