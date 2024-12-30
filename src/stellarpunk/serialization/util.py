@@ -32,6 +32,18 @@ def int_to_f(x:int, f:io.IOBase, blen:int=4, signed:bool=False) -> int:
 def int_from_f(f:io.IOBase, blen:int=4, signed:bool=False) -> int:
     return int.from_bytes(f.read(blen), byteorder="big", signed=signed)
 
+def bytes_to_f(b:bytes, f:io.IOBase, blen:int=4) -> int:
+    prefix = len(b).to_bytes(blen)
+    i = f.write(prefix)
+    i += f.write(b)
+    return i
+
+def bytes_from_f(f:io.IOBase, blen:int=4) -> bytes:
+    prefix = f.read(blen)
+    l = int.from_bytes(prefix)
+    b = f.read(l)
+    return b
+
 def to_len_pre_f(s:str, f:io.IOBase, blen:int=2) -> int:
     b = s.encode("utf8")
     prefix = len(b).to_bytes(blen)

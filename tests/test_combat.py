@@ -180,6 +180,7 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
 
     assert attacker not in set(functools.reduce(lambda x, y: x + [y[0], y[1]], testui.collisions, list()))
 
+    # sometimes we get two flee orders
     assert len(testui.orders) in (2, 3)
     flee_order = testui.orders[1]
     assert isinstance(flee_order, combat.FleeOrder)

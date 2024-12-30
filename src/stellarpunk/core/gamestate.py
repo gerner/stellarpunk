@@ -15,7 +15,7 @@ import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule, narrative
-from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable
+from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable, stellarpunk_version
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
 from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager
@@ -125,6 +125,13 @@ class Gamestate(EntityRegistry):
     gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
         self.logger = logging.getLogger(util.fullname(self))
+
+        # a fingerprint for this game, set at universe generation and constant
+        # for this game
+        self.fingerprint:bytes = b''
+        self.game_version:str = stellarpunk_version()
+        self.game_start_version:str = stellarpunk_version()
+        self.save_count:int = 0
 
         self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()

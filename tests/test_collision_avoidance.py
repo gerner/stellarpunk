@@ -1102,52 +1102,56 @@ def test_more_busy_lane(gamestate, generator, sector, testui, simulator):
     simulator.run()
     assert goto_a.is_complete()
 
-@write_history
-def test_target_behind_asteroid(gamestate, generator, sector, testui, simulator):
-    """ Tests a ship going to a location behind an asteroid, in an asteroid
-    field. """
+# this test places two asteroids on top of each other which is an old bug that
+# was fixed on 2024-12-30. this test might still be valuable though.
+#@write_history
+#def test_target_behind_asteroid(gamestate, generator, sector, testui, simulator):
+#    """ Tests a ship going to a location behind an asteroid, in an asteroid
+#    field. """
+#
+#    entities = history_from_file(os.path.join(TESTDIR, "data/target_behind_asteroid.history"), generator, sector, gamestate)
+#
+#    ship_a = entities["a4c71ae5-f3cd-47ff-a266-5a8ed4facef5"]
+#    logging.debug(f'{ship_a.entity_id}')
+#    goto_a = ship_a.current_order()
+#
+#    eta = goto_a.estimate_eta()
+#
+#    testui.eta = eta
+#    testui.orders = [goto_a]
+#    #testui.cannot_avoid_collision_orders = [goto_a]
+#    testui.cannot_stop_orders = [goto_a]
+#    #testui.margin_neighbors = [ship_a]
+#
+#    simulator.run()
+#    assert goto_a.is_complete()
 
-    entities = history_from_file(os.path.join(TESTDIR, "data/target_behind_asteroid.history"), generator, sector, gamestate)
-
-    ship_a = entities["a4c71ae5-f3cd-47ff-a266-5a8ed4facef5"]
-    logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.current_order()
-
-    eta = goto_a.estimate_eta()
-
-    testui.eta = eta
-    testui.orders = [goto_a]
-    #testui.cannot_avoid_collision_orders = [goto_a]
-    testui.cannot_stop_orders = [goto_a]
-    #testui.margin_neighbors = [ship_a]
-
-    simulator.run()
-    assert goto_a.is_complete()
-
-@write_history
-def test_more_asteroid_nav(gamestate, generator, sector, testui, simulator):
-    """ Tests a ship going to a location behind an asteroid, in an asteroid
-    field. """
-
-    entities = history_from_file(os.path.join(TESTDIR, "data/more_asteroid_nav.history"), generator, sector, gamestate)
-
-    ship_a = entities["28ce5698-a1bf-43df-89f6-0f0b07ee957e"]
-    logging.debug(f'{ship_a.entity_id}')
-    goto_a = ship_a.current_order()
-
-    eta = goto_a.estimate_eta()
-
-    testui.eta = eta
-    testui.orders = [goto_a]
-    #testui.cannot_avoid_collision_orders = [goto_a]
-    testui.cannot_stop_orders = [goto_a]
-    #testui.margin_neighbors = [ship_a]
-    testui.max_timestamp = 30
-
-    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
-    simulator.run()
-    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
-    #assert goto_a.is_complete()
+# this test places two asteroids on top of each other which is an old bug that
+# was fixed on 2024-12-30. this test might still be valuable though.
+#@write_history
+#def test_more_asteroid_nav(gamestate, generator, sector, testui, simulator):
+#    """ Tests a ship going to a location behind an asteroid, in an asteroid
+#    field. """
+#
+#    entities = history_from_file(os.path.join(TESTDIR, "data/more_asteroid_nav.history"), generator, sector, gamestate)
+#
+#    ship_a = entities["28ce5698-a1bf-43df-89f6-0f0b07ee957e"]
+#    logging.debug(f'{ship_a.entity_id}')
+#    goto_a = ship_a.current_order()
+#
+#    eta = goto_a.estimate_eta()
+#
+#    testui.eta = eta
+#    testui.orders = [goto_a]
+#    #testui.cannot_avoid_collision_orders = [goto_a]
+#    testui.cannot_stop_orders = [goto_a]
+#    #testui.margin_neighbors = [ship_a]
+#    testui.max_timestamp = 30
+#
+#    starting_distance = ship_a.phys.position.get_distance(goto_a._target_location)
+#    simulator.run()
+#    assert starting_distance - ship_a.phys.position.get_distance(goto_a._target_location) > 1.5e4
+#    #assert goto_a.is_complete()
 
 @write_history
 def test_headon_asteroid_field(gamestate, generator, sector, testui, simulator):

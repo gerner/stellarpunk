@@ -2,7 +2,6 @@ import logging
 import itertools
 import uuid
 import math
-from typing import Optional, List, Dict, MutableMapping, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
 import importlib.resources
 import itertools
 import enum
@@ -12,7 +11,9 @@ import time
 import gzip
 import os
 import weakref
+import hashlib
 import abc
+from typing import Optional, List, Dict, MutableMapping, Mapping, Tuple, Sequence, Union, overload, Any, Collection, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -969,6 +970,8 @@ class UniverseGenerator(core.AbstractGenerator):
         asteroids = []
         while total_amount > 0:
             loc = self.r.normal(0, radius, 2) + field_center
+            if sector.is_occupied(loc[0], loc[1], eps=config.Settings.generate.SectorEntities.asteroid.RADIUS):
+                continue
             amount = self.r.normal(mean_per_asteroid, variance_per_asteroid)
             if amount > total_amount:
                 amount = total_amount
@@ -2151,6 +2154,9 @@ class UniverseGenerator(core.AbstractGenerator):
             {},
         )
 
+        # set a fingerprint to identify this game across gameply and saves
+        #TODO: should the fingerprint be related to the universe we just generated?
+        self.gamestate.fingerprint = hashlib.sha256(self.r.bytes(1024)).digest()
 
         return self.gamestate
 

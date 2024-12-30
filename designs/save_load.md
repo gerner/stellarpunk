@@ -113,6 +113,18 @@ Saving and Loading Games
     * InterfaceManager: nothing really...
     * Interface: nothing really...
 
+# Metadata
+
+* save file format version
+* code version of the game that was saved
+* code version of the game at start
+* if the save file has debug info
+* date of save
+* estimated ticks (how many ticks during load for progress meter)
+* timestamp of the game
+* how many times we've saved this game
+* how many times we've loaded this game
+
 # Serialization Architecture
 
 Could have every object responsible for serializing itself. e.g.

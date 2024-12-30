@@ -292,6 +292,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         assert(gamestate.player == self.interface.player)
         gamestate.player.character.observe(self)
 
+        # wait for a full autosave period before saving again
+        self.interface.set_next_autosave_ts()
+
     # core.CharacterObserver
     @property
     def observer_id(self) -> uuid.UUID:

@@ -1100,7 +1100,10 @@ class Interface(AbstractInterface):
             self.game_saver.autosave(self.gamestate)
             end_time = time.perf_counter()
             self.log_message(f'game saved in {end_time-start_time:.2f}s.')
-            self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
+            self.set_next_autosave_ts()
+
+    def set_next_autosave_ts(self) -> None:
+        self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()

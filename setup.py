@@ -6,7 +6,9 @@ import setuptools # type: ignore
 from Cython.Build import cythonize #type: ignore
 from setuptools import Extension
 
-with open(os.path.join(os.path.dirname(__file__), "README.md"), "r") as fh:
+root_path = os.path.dirname(__file__)
+
+with open(os.path.join(root_path, "README.md"), "r") as fh:
     long_description = fh.read()
 
 os.environ['CXX'] = 'clang++'
@@ -48,11 +50,13 @@ extensions = cythonize(
         build_dir="build",
         annotate=True,
         language_level="3",
+        force=False,
 )
 
 setuptools.setup(
     name="stellarpunk",
-    version="0.0.1rc1",
+    # we do versioning with setuptools_scm (see pyproject.toml)
+    #version="0.0.2rc1",
     author="Nick Gerner",
     author_email="nick.gerner@gmail.com",
     description="Stellar Punk: A space sim of exploration, trading, stealth naval combat and interplanetary economic development.",
@@ -69,6 +73,8 @@ setuptools.setup(
         'stellarpunk.orders': ['py.typed'],
         'stellarpunk.data': ['*'],
     },
+    include_package_data=True,
+    zip_safe=False,
     ext_modules=extensions,
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -90,6 +96,7 @@ setuptools.setup(
         "pysdl2",
         "dtmf",
         "uroman",
+        "hashime",
     ],
     python_requires='>=3.8',
     entry_points={

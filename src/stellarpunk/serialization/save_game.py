@@ -21,6 +21,8 @@ import cymunk # type: ignore
 from stellarpunk import util, sim, core, narrative, generate, econ, events
 from stellarpunk.serialization import util as s_util
 
+SAVE_FORMAT_VERSION = "0.1.0"
+
 class LoadContext:
     """ State for one load cycle. """
 
@@ -201,11 +203,19 @@ class NoneSaver(Saver[None]):
         return None
 
 class SaveGame:
-    def __init__(self, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, filename:str=""):
+    def __init__(self, save_format_version:str, game_version:str, game_start_version:str, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, game_fingerprint:bytes, game_timestamp:float, game_save_count:int, filename:str=""):
         self.filename = filename
+        self.save_format_version = SAVE_FORMAT_VERSION
+        self.game_version = game_version
+        self.game_start_version = game_start_version
         self.debug_flag = debug_flag
         self.save_date = save_date
         self.estimated_ticks = estimated_ticks
+
+        self.game_fingerprint = game_fingerprint
+        self.game_timestamp = game_timestamp
+        self.game_save_count = game_save_count
+
 
 class GameSaverObserver:
     def load_start(self, estimated_ticks:int, game_saver:"GameSaver") -> None:
@@ -225,6 +235,9 @@ class GameSaver(SaverObserver):
     def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, *args:Any, debug:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
+
+        #TODO: how do we want to handle the save file format? increment when we change the format? always tag with code version?
+        self.save_format_version = core.stellarpunk_version()
 
         self.debug = debug
         self._save_path:str = "/tmp/stellarpunk_saves"
@@ -288,24 +301,39 @@ class GameSaver(SaverObserver):
 
     def _save_metadata(self, gamestate:core.Gamestate, save_file:io.IOBase) -> int:
         bytes_written = 0
-        if self.debug:
-            bytes_written += s_util.int_to_f(1, save_file, blen=1)
-        else:
-            bytes_written += s_util.int_to_f(0, save_file, blen=1)
+
+        bytes_written += s_util.to_len_pre_f(self.save_format_version, save_file)
+        bytes_written += s_util.to_len_pre_f(gamestate.game_version, save_file)
+        bytes_written += s_util.to_len_pre_f(gamestate.game_start_version, save_file)
+
+        bytes_written += s_util.bool_to_f(self.debug, save_file)
 
         bytes_written += s_util.to_len_pre_f(datetime.datetime.now().isoformat(), save_file)
         estimated_ticks = self.estimate_ticks(gamestate)
         bytes_written += s_util.int_to_f(estimated_ticks, save_file)
+
+        bytes_written += s_util.bytes_to_f(gamestate.fingerprint, save_file)
+        bytes_written += s_util.float_to_f(gamestate.timestamp, save_file)
+        bytes_written += s_util.int_to_f(gamestate.save_count, save_file)
+
         return bytes_written
 
     def _load_metadata(self, save_file:io.IOBase) -> SaveGame:
-        debug_flag = s_util.int_from_f(save_file, blen=1)
+        save_format_version = s_util.from_len_pre_f(save_file)
+        game_version = s_util.from_len_pre_f(save_file)
+        game_start_version = s_util.from_len_pre_f(save_file)
+
+        debug_flag = s_util.bool_from_f(save_file)
         save_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(save_file))
         estimated_ticks = s_util.int_from_f(save_file)
         for observer in self._observers:
             observer.load_start(estimated_ticks, self)
 
-        return SaveGame(debug_flag==1, save_date, estimated_ticks)
+        fingerprint = s_util.bytes_from_f(save_file)
+        timestamp = s_util.float_from_f(save_file)
+        save_count = s_util.int_from_f(save_file)
+
+        return SaveGame(save_format_version, game_version, game_start_version, debug_flag, save_date, estimated_ticks, fingerprint, timestamp, save_count)
 
     def key_from_class(self, klass:type) -> int:
         return self._class_key_lookup[klass]
@@ -426,10 +454,13 @@ class GameSaver(SaverObserver):
             glob.glob(os.path.join(self._save_path, self._save_file_glob)),
             glob.glob(os.path.join(self._save_path, self._autosave_glob))
         )):
-            with open(x, "rb") as f:
-                save_game = self._load_metadata(f)
-                save_game.filename = x
-                save_games.append(save_game)
+            try:
+                with open(x, "rb") as f:
+                    save_game = self._load_metadata(f)
+                    save_game.filename = x
+                    save_games.append(save_game)
+            except Exception as e:
+                self.logger.error('ignoring bad save file: {x}')
         save_games.sort(key=lambda x: x.save_date, reverse=True)
         return save_games
 
@@ -454,6 +485,11 @@ class GameSaver(SaverObserver):
             self.logger.debug("loading gamestate")
             s_util.debug_string_r("gamestate", save_file)
             gamestate = self.load_object(core.Gamestate, save_file, load_context)
+            gamestate.fingerprint = save_game.game_fingerprint
+            # do not reset game_version, the game is now running under that
+            # version and it got set in Gamestate constructor
+            gamestate.game_start_version = save_game.game_start_version
+            gamestate.save_count = save_game.game_save_count
             gamestate.event_manager = self.event_manager
 
             # final set up

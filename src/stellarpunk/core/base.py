@@ -17,9 +17,12 @@ from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import narrative, util
+from stellarpunk import narrative, util, _version
 
 logger = logging.getLogger(__name__)
+
+def stellarpunk_version() -> str:
+    return _version.version
 
 OBSERVER_ID_NULL = uuid.UUID(hex="deadbeefdeadbeefdeadbeefdeadbeef")
 class Observer(abc.ABC):
