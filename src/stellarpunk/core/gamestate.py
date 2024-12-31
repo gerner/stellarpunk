@@ -8,20 +8,19 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, List, Type, Set
+from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, Type
 
 import numpy as np
 import numpy.typing as npt
 import rtree.index # type: ignore
 
 from stellarpunk import util, task_schedule, narrative
-from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer
+from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable, stellarpunk_version
 from .production_chain import ProductionChain
-from .sector import Sector
-from .sector_entity import SectorEntity
-from .order import Order, Effect
-from .character import Character, Player, Agendum, Message
+from .sector import Sector, SectorEntity
+from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager
 
+DT_EPSILON = 1.0/120.0
 
 class Counters(enum.IntEnum):
     def _generate_next_value_(name, start, count, last_values): # type: ignore
@@ -63,6 +62,12 @@ class Counters(enum.IntEnum):
 class AbstractGameRuntime:
     """ The game runtime that actually runs the simulation. """
 
+    def get_missed_ticks(self) -> int:
+        return 0
+
+    def get_ticktime(self) -> float:
+        return 0.
+
     def get_time_acceleration(self) -> Tuple[float, bool]:
         """ Get time acceleration parameters. """
         return (1.0, False)
@@ -71,30 +76,32 @@ class AbstractGameRuntime:
         """ Request time acceleration. """
         pass
 
-    def send_message(
-        self,
-        recipient: Character,
-        message: Message,
-    ) -> None:
+    def exit_startup(self) -> None:
         pass
 
-    def trigger_event(
-        self,
-        characters: Iterable[Character],
-        event_type: int,
-        context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
-    ) -> None:
+    def start_game(self) -> None:
         pass
 
-    def trigger_event_immediate(
-        self,
-        characters: Iterable[Character],
-        event_type: int,
-        context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
-    ) -> None:
+    def game_running(self) -> bool:
+        return False
+
+    def quit(self) -> None:
         pass
+
+    def get_desired_dt(self) -> float:
+        return 0.0
+
+    def get_dt(self) -> float:
+        return 0.0
+
+    def raise_exception(self) -> None:
+        pass
+
+    def raise_breakpoint(self) -> None:
+        pass
+
+    def should_breakpoint(self) -> bool:
+        return False
 
 class AbstractGenerator:
     @abc.abstractmethod
@@ -104,23 +111,43 @@ class AbstractGenerator:
     @abc.abstractmethod
     def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
 
-class ScheduledTask:
+class ScheduledTask(abc.ABC):
+    def __init__(self, task_id:Optional[uuid.UUID]=None) -> None:
+        if task_id is not None:
+            self.task_id = task_id
+        else:
+            self.task_id = uuid.uuid4()
+
     @abc.abstractmethod
     def act(self) -> None: ...
 
 class Gamestate(EntityRegistry):
     gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
-        Gamestate.gamestate = self
         self.logger = logging.getLogger(util.fullname(self))
+
+        # a fingerprint for this game, set at universe generation and constant
+        # for this game
+        self.fingerprint:bytes = b''
+        self.game_version:str = stellarpunk_version()
+        self.game_start_version:str = stellarpunk_version()
+        self.save_count:int = 0
+
         self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()
+        self.event_manager:AbstractEventManager = AbstractEventManager()#DeferredEventManager()
 
+        # this will get replaced by the generator's random generator
         self.random = np.random.default_rng()
 
         self.entities: Dict[uuid.UUID, Entity] = {}
         self.entities_short: Dict[int, Entity] = {}
         self.entity_context_store = narrative.EntityStore()
+
+        # global registry of all orders, effects, agenda
+        self.orders: dict[uuid.UUID, AbstractOrder] = {}
+        self.effects: dict[uuid.UUID, AbstractEffect] = {}
+        self.agenda: dict[uuid.UUID, AbstractAgendum] = {}
 
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
@@ -128,8 +155,9 @@ class Gamestate(EntityRegistry):
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:Dict[uuid.UUID, Sector] = {}
         self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
-        self.sector_idx:Mapping[uuid.UUID, int] = {} #inverse of sector_ids
+        self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
         self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
+        self.max_edge_length:float = 0.0
 
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
@@ -145,51 +173,50 @@ class Gamestate(EntityRegistry):
         self.characters:Dict[uuid.UUID, Character] = {}
 
         # priority queue of order items in form (scheduled timestamp, agendum)
-        self._order_schedule:task_schedule.TaskSchedule[Order] = task_schedule.TaskSchedule()
+        self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
 
         # priority queue of effects
-        self._effect_schedule:task_schedule.TaskSchedule[Effect] = task_schedule.TaskSchedule()
+        self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
 
         # priority queue of agenda items in form (scheduled timestamp, agendum)
-        self._agenda_schedule:task_schedule.TaskSchedule[Agendum] = task_schedule.TaskSchedule()
+        self._agenda_schedule:task_schedule.TaskSchedule[AbstractAgendum] = task_schedule.TaskSchedule()
 
         self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
 
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
-        self.startup_running = True
-        self.keep_running = False
-
         self.base_date = datetime.datetime(2234, 4, 3)
         self.timestamp = 0.
 
-        self.desired_dt = 1/60
-        self.dt = self.desired_dt
-        self.min_tick_sleep = self.desired_dt/5
         self.ticks = 0
-        self.ticktime = 0.
-        self.timeout = 0.
-        self.missed_ticks = 0
 
         self.one_tick = False
         self.paused = False
-        self.force_pause_holder:Optional[object] = None
-        self.should_raise= False
-        self.should_raise_breakpoint = False
+        self.force_pause_holders:set[object] = set()
 
         self.player:Player = None # type: ignore[assignment]
 
         self.counters = [0.] * len(Counters)
 
-        self.starfield:Sequence[StarfieldLayer] = []
-        self.sector_starfield:Sequence[StarfieldLayer] = []
-        self.portrait_starfield:Sequence[StarfieldLayer] = []
+        self.starfield:list[StarfieldLayer] = []
+        self.sector_starfield:list[StarfieldLayer] = []
+        self.portrait_starfield:list[StarfieldLayer] = []
 
         # list for in iterator appends
         # set for destroying exactly once
-        self.entity_destroy_list:List[Entity] = []
-        self.entity_destroy_set:Set[Entity] = set()
+        self.entity_destroy_list:list[Entity] = []
+        self.entity_destroy_set:set[Entity] = set()
 
+        self.last_colliders:set[str] = set()
+
+        if Gamestate.gamestate is not None:
+            self.logger.info(f'replacing existing gamestate current: {Gamestate.gamestate.ticks} ticks and {Gamestate.gamestate.timestamp} game secs with {len(Gamestate.gamestate.entities)} entities')
+        #    raise ValueError()
+        #import traceback
+        #Gamestate.bt = traceback.format_stack()
+        Gamestate.gamestate = self
+
+    # base.EntityRegistry
     def register_entity(self, entity: Entity) -> narrative.EventContext:
         self.logger.debug(f'registering {entity}')
         if entity.entity_id in self.entities:
@@ -208,41 +235,138 @@ class Gamestate(EntityRegistry):
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
 
-    def get_time_acceleration(self) -> Tuple[float, bool]:
-        return self.game_runtime.get_time_acceleration()
+    def register_order(self, order: AbstractOrder) -> None:
+        self.orders[order.order_id] = order
 
-    def time_acceleration(self, accel_rate:float, fast_mode:bool) -> None:
-        self.game_runtime.time_acceleration(accel_rate, fast_mode)
+    def unregister_order(self, order: AbstractOrder) -> None:
+        del self.orders[order.order_id]
+
+    def sanity_check_orders(self) -> None:
+        for ts, order in self._order_schedule:
+            assert order.order_id in self.orders
+        for k, order in self.orders.items():
+            order.sanity_check(k)
+            if isinstance(order, Observable):
+                for observer in order.observers:
+                    assert order in observer.observings
+
+    def register_effect(self, effect: AbstractEffect) -> None:
+        self.effects[effect.effect_id] = effect
+
+    def unregister_effect(self, effect: AbstractEffect) -> None:
+        del self.effects[effect.effect_id]
+
+    def sanity_check_effects(self) -> None:
+        for ts, effect in self._effect_schedule:
+            assert effect.effect_id in self.effects
+        for k, effect in self.effects.items():
+            effect.sanity_check(k)
+            if isinstance(effect, Observable):
+                for observer in effect.observers:
+                    assert effect in observer.observings
+
+    def register_agendum(self, agendum: AbstractAgendum) -> None:
+        self.agenda[agendum.agenda_id] = agendum
+
+    def unregister_agendum(self, agendum: AbstractAgendum) -> None:
+        del self.agenda[agendum.agenda_id]
+
+    def sanity_check_agenda(self) -> None:
+        for ts, agenda in self._agenda_schedule:
+            assert agenda.agenda_id in self.agenda
+        for k, agendum in self.agenda.items():
+            assert(k == agendum.agenda_id)
+            agendum.sanity_check()
+            if isinstance(agendum, Observable):
+                for observer in agendum.observers:
+                    assert agendum in observer.observings
+
+    def contains_entity(self, entity_id:uuid.UUID) -> bool:
+        return entity_id in self.entities
+
+    def get_entity[T:Entity](self, entity_id:uuid.UUID, klass:Type[T]) -> T:
+        entity = self.entities[entity_id]
+        assert(isinstance(entity, klass))
+        return entity
+
+    def sanity_check_entities(self) -> None:
+        for k, entity in self.entities.items():
+            assert(k == entity.entity_id)
+            if isinstance(entity, Observable):
+                for observer in entity.observers:
+                    assert entity in observer.observings
+
+    def recover_objects[T:tuple](self, objects:T) -> T:
+        ret = []
+        for o in objects:
+            if isinstance(o, Entity):
+                o = self.get_entity(o.entity_id, type(o))
+            elif isinstance(o, AbstractOrder):
+                o = self.get_order(o.order_id, type(o))
+            elif isinstance(o, AbstractEffect):
+                o = self.get_effect(o.effect_id, type(o))
+            elif isinstance(o, AbstractAgendum):
+                o = self.get_agendum(o.agenda_id, type(o))
+            ret.append(o)
+
+        # mypy isn't quite powerful enough to understand what's going on
+        # we want the return type of this method to preserve all the types for
+        # the caller
+        return tuple(ret) # type: ignore
+
+    def get_effect[T:AbstractEffect](self, effect_id:uuid.UUID, klass:Type[T]) -> T:
+        effect = self.effects[effect_id]
+        assert(isinstance(effect, klass))
+        return effect
+
+    def get_order[T:AbstractOrder](self, order_id:uuid.UUID, klass:Type[T]) -> T:
+        order = self.orders[order_id]
+        assert(isinstance(order, klass))
+        return order
+
+    def get_agendum[T:AbstractAgendum](self, agenda_id:uuid.UUID, klass:Type[T]) -> T:
+        agendum = self.agenda[agenda_id]
+        assert(isinstance(agendum, klass))
+        return agendum
 
     def _pause(self, paused:Optional[bool]=None) -> None:
-        self.time_acceleration(1.0, False)
+        self.game_runtime.time_acceleration(1.0, False)
         if paused is None:
             self.paused = not self.paused
         else:
             self.paused = paused
 
     def pause(self, paused:Optional[bool]=None) -> None:
-        if self.force_pause_holder is not None:
+        if len(self.force_pause_holders) > 0:
+            assert(self.paused)
             return
         self._pause(paused)
 
     def force_pause(self, requesting_object:object) -> None:
-        if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
-            raise ValueError(f'already paused by {self.force_pause}')
+        #if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
+        #    raise ValueError(f'already paused by {self.force_pause}')
+        self._pause(True)
+        self.force_pause_holders.add(requesting_object)
+
+    def is_force_paused(self, requesting_object:Optional[object]=None) -> bool:
+        if requesting_object is None:
+            return len(self.force_pause_holders) > 0
         else:
-            self._pause(True)
-            self.force_pause_holder = requesting_object
+            return requesting_object in self.force_pause_holders
 
     def force_unpause(self, requesting_object:object) -> None:
-        if self.force_pause_holder != requesting_object:
+        if requesting_object not in self.force_pause_holders:
             raise ValueError(f'pause requested by {self.force_pause}')
         else:
-            self.force_pause_holder = None
-            self._pause(False)
+            self.force_pause_holders.remove(requesting_object)
+            if len(self.force_pause_holders) == 0:
+                self._pause(False)
+            else:
+                assert(self.paused)
 
     def breakpoint(self) -> None:
-        if self.should_raise_breakpoint:
-            raise Exception("debug breakpoint")
+        if self.game_runtime.should_breakpoint():
+            raise Exception("debug breakpoint immediate")
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
@@ -266,7 +390,13 @@ class Gamestate(EntityRegistry):
         self.characters_by_location[location.entity_id].append(character)
         character.location = location
 
-    def handle_destroy(self, entity:Entity) -> None:
+    def handle_destroy_entities(self) -> None:
+        for entity in self.gamestate.entity_destroy_list:
+            self._handle_destroy(entity)
+        self.entity_destroy_list.clear()
+        self.entity_destroy_set.clear()
+
+    def _handle_destroy(self, entity:Entity) -> None:
         self.logger.debug(f'destroying {entity}')
         if isinstance(entity, SectorEntity):
             for character in self.characters_by_location[entity.entity_id]:
@@ -277,29 +407,22 @@ class Gamestate(EntityRegistry):
         else:
             entity.destroy()
 
+        if entity.entity_id in self.econ_agents:
+            raise ValueError(f'{entity} still represented by econ agent {self.econ_agents[entity.entity_id]} after entity destroyed!')
+
     def destroy_entity(self, entity:Entity) -> None:
         if entity not in self.entity_destroy_set:
             self.entity_destroy_list.append(entity)
             self.entity_destroy_set.add(entity)
 
-    #def destroy_character(self, character:Character) -> None:
-    #    character.destroy()
-
-    #def destroy_sector_entity(self, entity:SectorEntity) -> None:
-    #    for character in self.characters_by_location[entity.entity_id]:
-    #        self.destroy_character(character)
-    #    if entity.sector is not None:
-    #        entity.sector.remove_entity(entity)
-    #    entity.destroy()
-
-    def is_order_scheduled(self, order:Order) -> bool:
+    def is_order_scheduled(self, order:AbstractOrder) -> bool:
         return self._order_schedule.is_task_scheduled(order)
 
-    def schedule_order_immediate(self, order:Order, jitter:float=0.) -> None:
+    def schedule_order_immediate(self, order:AbstractOrder, jitter:float=0.) -> None:
         self.counters[Counters.ORDER_SCHEDULE_IMMEDIATE] += 1
-        self.schedule_order(self.timestamp + self.desired_dt, order, jitter)
+        self.schedule_order(self.timestamp + DT_EPSILON, order, jitter)
 
-    def schedule_order(self, timestamp:float, order:Order, jitter:float=0.) -> None:
+    def schedule_order(self, timestamp:float, order:AbstractOrder, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
@@ -309,16 +432,16 @@ class Gamestate(EntityRegistry):
         self._order_schedule.push_task(timestamp, order)
         self.counters[Counters.ORDER_SCHEDULE_DELAY] += timestamp - self.timestamp
 
-    def unschedule_order(self, order:Order) -> None:
+    def unschedule_order(self, order:AbstractOrder) -> None:
         self._order_schedule.cancel_task(order)
 
-    def pop_current_orders(self) -> Sequence[Order]:
+    def pop_current_orders(self) -> Sequence[AbstractOrder]:
         return self._order_schedule.pop_current_tasks(self.timestamp)
 
-    def schedule_effect_immediate(self, effect:Effect, jitter:float=0.) -> None:
-        self.schedule_effect(self.timestamp + self.desired_dt, effect, jitter)
+    def schedule_effect_immediate(self, effect:AbstractEffect, jitter:float=0.) -> None:
+        self.schedule_effect(self.timestamp + DT_EPSILON, effect, jitter)
 
-    def schedule_effect(self, timestamp: float, effect:Effect, jitter:float=0.) -> None:
+    def schedule_effect(self, timestamp: float, effect:AbstractEffect, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
@@ -327,16 +450,16 @@ class Gamestate(EntityRegistry):
 
         self._effect_schedule.push_task(timestamp, effect)
 
-    def unschedule_effect(self, effect:Effect) -> None:
+    def unschedule_effect(self, effect:AbstractEffect) -> None:
         self._effect_schedule.cancel_task(effect)
 
-    def pop_current_effects(self) -> Sequence[Effect]:
+    def pop_current_effects(self) -> Sequence[AbstractEffect]:
         return self._effect_schedule.pop_current_tasks(self.timestamp)
 
-    def schedule_agendum_immediate(self, agendum:Agendum, jitter:float=0.) -> None:
-        self.schedule_agendum(self.timestamp + self.desired_dt, agendum, jitter)
+    def schedule_agendum_immediate(self, agendum:AbstractAgendum, jitter:float=0.) -> None:
+        self.schedule_agendum(self.timestamp + DT_EPSILON, agendum, jitter)
 
-    def schedule_agendum(self, timestamp:float, agendum:Agendum, jitter:float=0.) -> None:
+    def schedule_agendum(self, timestamp:float, agendum:AbstractAgendum, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
         assert timestamp < np.inf
 
@@ -345,14 +468,14 @@ class Gamestate(EntityRegistry):
 
         self._agenda_schedule.push_task(timestamp, agendum)
 
-    def unschedule_agendum(self, agendum:Agendum) -> None:
+    def unschedule_agendum(self, agendum:AbstractAgendum) -> None:
         self._agenda_schedule.cancel_task(agendum)
 
-    def pop_current_agenda(self) -> Sequence[Agendum]:
+    def pop_current_agenda(self) -> Sequence[AbstractAgendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
     def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:
-        self.schedule_task(self.timestamp + self.desired_dt, task, jitter)
+        self.schedule_task(self.timestamp + DT_EPSILON, task, jitter)
 
     def schedule_task(self, timestamp:float, task:ScheduledTask, jitter:float=0.) -> None:
         assert timestamp > self.timestamp
@@ -426,19 +549,46 @@ class Gamestate(EntityRegistry):
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
+        self.sector_idx[sector.entity_id] = idx
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
+
+        # we'll do this here for consistency, but really this should happen in
+        # update_edges
+        sector_ids = list(self.sector_ids)
+        if sector.entity_id not in sector_ids:
+            sector_ids.append(sector.entity_id)
+            self.sector_ids = np.array(sector_ids)
 
     def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:
         self.sector_edges = sector_edges
         self.sector_ids = sector_ids
         self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
-        self.max_edge_length = max(
-            util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
-        )
+        if len(sector_ids) >= 2:
+            self.max_edge_length = max(
+                util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
+            )
+        else:
+            # or should it be inf?
+            self.max_edge_length = 0.0
 
     def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits # type: ignore
+
+    def sanity_check_sectors(self) -> None:
+        assert set(self.sector_ids) == set(self.sectors.keys())
+        for sector_id in self.sector_ids:
+            assert sector_id in self.entities
+            assert self.sectors[sector_id] == self.entities[sector_id]
+            assert sector_id in self.sector_idx
+        assert len(self.sector_ids) == len(self.sector_idx)
+
+    def sanity_check(self) -> None:
+        self.sanity_check_entities()
+        self.sanity_check_orders()
+        self.sanity_check_effects()
+        self.sanity_check_agenda()
+        self.sanity_check_sectors()
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)
@@ -448,34 +598,30 @@ class Gamestate(EntityRegistry):
         # increment the ticks even though we don't process them?
         return self.timestamp_to_datetime(self.timestamp)
 
-    def exit_startup(self) -> None:
-        self.startup_running = False
+    #def exit_startup(self) -> None:
+    #    self.startup_running = False
 
-    def start_game(self) -> None:
-        self.keep_running = True
+    #def start_game(self) -> None:
+    #    self.keep_running = True
 
-    def quit(self) -> None:
-        self.startup_running = False
-        self.keep_running = False
-
-    def send_message(self, recipient: Character, message: Message) -> None:
-        recipient.send_message(message)
-        self.game_runtime.send_message(recipient, message)
+    #def quit(self) -> None:
+    #    self.startup_running = False
+    #    self.keep_running = False
 
     def trigger_event(
         self,
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
+        event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
-        self.game_runtime.trigger_event(characters, event_type, context, event_args)
+        self.event_manager.trigger_event(characters, event_type, context, event_args)
 
     def trigger_event_immediate(
         self,
         characters: Iterable[Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any] = {},
+        event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
-        self.game_runtime.trigger_event_immediate(characters, event_type, context, event_args)
+        self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)

@@ -12,44 +12,21 @@ import enum
 import logging
 import collections
 import numbers
-from typing import Iterable, Any, Sequence, Mapping, MutableMapping, Dict, Tuple, Optional, Union, Deque, Callable
+from typing import Any, Optional, Union, Callable
+from collections.abc import Iterable, Sequence, Mapping, MutableMapping
 
 from stellarpunk import core, util, dialog, narrative, task_schedule
-
-
-class AbstractEventManager:
-    def trigger_event(
-        self,
-        characters: Iterable[core.Character],
-        event_type: int,
-        context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
-    ) -> None:
-        pass
-
-    def trigger_event_immediate(
-        self,
-        characters: Iterable[core.Character],
-        event_type: int,
-        context: Mapping[int,int],
-        event_args: MutableMapping[str, Any],
-    ) -> None:
-        pass
-
-    def tick(self) -> None:
-        pass
-
 
 class Action:
     def __init__(self) -> None:
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
 
-    def _required_keys(self, key_types: Sequence[Tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
+    def _required_keys(self, key_types: Sequence[tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
         return all(
             k in action_args and isinstance(action_args[k], t) for k,t in key_types
         )
 
-    def _optional_keys(self, key_types: Sequence[Tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
+    def _optional_keys(self, key_types: Sequence[tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
         return all(
             k not in action_args or isinstance(action_args[k], t) for k,t in key_types
         )
@@ -77,54 +54,10 @@ class Action:
         character: core.Character,
         event_type: int,
         event_context: Mapping[int, int],
-        event_args: MutableMapping[str, Any],
-        action_args: Mapping[str, Any]
+        event_args: MutableMapping[str, Union[int,float,str,bool]],
+        action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
         pass
-
-
-RegisteredEventSpaces: Dict[enum.EnumMeta, int] = {}
-RegisteredContextSpaces: Dict[enum.EnumMeta, int] = {}
-RegisteredActions: Dict[Action, str] = {}
-
-
-def e(event_id: enum.IntEnum) -> int:
-    return event_id + RegisteredEventSpaces[event_id.__class__]
-
-
-def ck(context_key: enum.IntEnum) -> int:
-    return context_key + RegisteredContextSpaces[context_key.__class__]
-
-
-def register_events(events: enum.EnumMeta) -> None:
-    if len(events) > 0:
-        if not all(isinstance(x, int) for x in events): # type: ignore[var-annotated]
-            raise ValueError("members of events must all be int-like")
-        if min(events) not in [0, 1]:
-            raise ValueError("events must start at 0 or 1")
-        if max(events) > len(events):
-            raise ValueError("events must be continuous")
-    RegisteredEventSpaces[events] = -1
-
-
-def register_context_keys(context_keys: enum.EnumMeta) -> None:
-    if len(context_keys) > 0:
-        if not all(isinstance(x, int) for x in context_keys): # type: ignore[var-annotated]
-            raise ValueError("members of context keys must all be int-like")
-        if min(context_keys) not in [0, 1]:
-            raise ValueError("context keys must start at 0 or 1")
-        if max(context_keys) > len(context_keys):
-            raise ValueError("context keys must be continuous")
-    RegisteredContextSpaces[context_keys] = -1
-
-
-def register_action(action: Action, name:str) -> None:
-    #if name is None:
-    #    name = util.camel_to_snake(action.__class__.__name__)
-    #    if name.endswith("_action"):
-    #        name = name[:-len("_action")]
-    RegisteredActions[action] = name
-
 
 """
 events.register_events(MyEvents)
@@ -135,64 +68,140 @@ events.register_action(A()) for A in [Action1, Action2, Action3]
 trigger_event([dude], events.e(MyEvents.coolio), narrative.context({events.ck(MyContextKeys.foo): 27}), bob, billy, stuff="yes", other_stuff=42)
 """
 
-class EventManager(AbstractEventManager):
+class EventState:
+    def __init__(self) -> None:
+        self.event_queue:collections.deque[tuple[narrative.Event, Iterable["narrative.CharacterCandidate[core.Character]"]]] = collections.deque()
+        self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, "narrative.Action[core.Character]"]] = task_schedule.TaskSchedule()
+
+
+class EventManager(core.AbstractEventManager):
     def __init__(
         self,
     ) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.gamestate: core.Gamestate = None # type: ignore[assignment]
-        self.director: narrative.Director = None # type: ignore[assignment]
-        self.event_queue: Deque[Tuple[narrative.Event, Iterable[narrative.CharacterCandidate]]] = collections.deque()
-        self.actions: Dict[int, Action] = {}
-        self.event_types: Dict[str, int] = {}
-        self.context_keys: Dict[str, int] = {}
-        self.action_ids: Dict[str, int] = {}
+        self.gamestate:core.Gamestate = None # type: ignore[assignment]
+        self.director:narrative.Director = None # type: ignore[assignment]
 
-        self.action_schedule: task_schedule.TaskSchedule[Tuple[narrative.Event, narrative.Action]] = task_schedule.TaskSchedule()
+        # this is mapping to/from code specific logic and EventManager logic
+        self._event_offset = 0
+        self.RegisteredEventSpaces:dict[enum.EnumMeta, int] = {}
+        self._context_key_offset = 0
+        self.RegisteredContextSpaces:dict[enum.EnumMeta, int] = {}
+        self.RegisteredActions:dict[Action, str] = {}
 
-    def initialize(self, gamestate: core.Gamestate, events: Mapping[str, Any]) -> None:
-        self.gamestate = gamestate
+        # this is mapping to/from EventContext id space and EventManager logic
+        self.actions:dict[int, Action] = {}
+        self.event_types:dict[str, int] = {}
+        self.event_type_lookup:dict[int, str] = {}
+        self.context_keys:dict[str, int] = {}
+        self.context_key_lookup:dict[int, str] = {}
+        self.action_ids:dict[str, int] = {}
+        self.action_id_lookup:dict[int, str] = {}
 
+        # this is actual dynamic state
+        self.event_state = EventState()
+
+    # logic helping code interact with the event system
+    def e(self, event_id: enum.IntEnum) -> int:
+        """ map code specific event id to the global EventContext event id """
+        return event_id + self.RegisteredEventSpaces[event_id.__class__]
+
+    def ck(self, context_key: enum.IntEnum) -> int:
+        """ map code specific context key to the global EventContext key """
+        return context_key + self.RegisteredContextSpaces[context_key.__class__]
+
+    def f(self, flag:str) -> int:
+        """ map global flag string name to EventContext key """
+        return self.context_keys[flag]
+
+    def register_events(self, events: enum.EnumMeta) -> None:
+        """ Registers a set of events code might trigger later
+
+        Code keeps its own notion of events and this registration maps into a
+        global event space. The names of the enum items
+
+        events: is an enum specific code will use to identify the events later
+
+        """
+        if len(events) > 0:
+            if not all(isinstance(x, int) for x in events): # type: ignore[var-annotated]
+                raise ValueError("members of events must all be int-like")
+            if min(events) not in [0, 1]:
+                raise ValueError("events must start at 0 or 1")
+            if max(events) > len(events):
+                raise ValueError("events must be continuous")
+        self.RegisteredEventSpaces[events] = self._event_offset
+        self._event_offset += max(events)+1
+
+    def register_context_keys(self, context_keys: enum.EnumMeta) -> None:
+        if len(context_keys) > 0:
+            if not all(isinstance(x, int) for x in context_keys): # type: ignore[var-annotated]
+                raise ValueError("members of context keys must all be int-like")
+            if min(context_keys) not in [0, 1]:
+                raise ValueError("context keys must start at 0 or 1")
+            if max(context_keys) > len(context_keys):
+                raise ValueError("context keys must be continuous")
+        self.RegisteredContextSpaces[context_keys] = self._context_key_offset
+        self._context_key_offset += max(context_keys)+1
+
+    def register_action(self, action: Action, name:str) -> None:
+        #if name is None:
+        #    name = util.camel_to_snake(action.__class__.__name__)
+        #    if name.endswith("_action"):
+        #        name = name[:-len("_action")]
+        self.RegisteredActions[action] = name
+
+    def pre_initialize(self, events: Mapping[str, Any]) -> None:
+        """ pre-gamestate creation/loading initialization. """
         # assign integer ids for events, contexts, actions
-        action_validators: Dict[int, Callable[[Mapping], bool]] = {}
+        action_validators:dict[int, Callable[[Mapping], bool]] = {}
 
-        event_offset = 0
-        for event_enum in RegisteredEventSpaces:
-            RegisteredEventSpaces[event_enum] = event_offset
+        for event_enum in self.RegisteredEventSpaces:
             for event_key in event_enum: # type: ignore[var-annotated]
-                self.event_types[util.camel_to_snake(event_key.name)] = event_key + event_offset
-            event_offset += max(event_enum)+1
+                self.event_types[util.camel_to_snake(event_key.name)] = event_key + self.RegisteredEventSpaces[event_enum]
 
-        context_key_offset = 0
-        for context_enum in RegisteredContextSpaces:
-            RegisteredContextSpaces[context_enum] = context_key_offset
+        for context_enum in self.RegisteredContextSpaces:
             for context_key in context_enum: # type: ignore[var-annotated]
-                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + context_key_offset
-            context_key_offset += max(context_enum)+1
+                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + self.RegisteredContextSpaces[context_enum]
 
         action_count = 0
-        for action, action_name in RegisteredActions.items():
-            action.initialize(self.gamestate)
+        for action, action_name in self.RegisteredActions.items():
             self.action_ids[action_name] = action_count
             self.actions[action_count] = action
             action_validators[action_count] = action.validate
             action_count += 1
+
+        self.event_type_lookup = dict((v,k) for k,v in self.event_types.items())
+        self.context_key_lookup = dict((v,k) for k,v in self.context_keys.items())
+        self.action_id_lookup = dict((v,k) for k,v in self.action_ids.items())
 
         self.logger.info(f'known events {self.event_types.keys()}')
         self.logger.info(f'known context keys {self.context_keys.keys()}')
         self.logger.info(f'known actions {self.action_ids.keys()}')
         self.director = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
 
+        self.logger.info(f'event manager initialized')
+
+    def initialize_gamestate(self, event_state:EventState, gamestate:core.Gamestate) -> None:
+        """ post gamestate creation/loading initialization. """
+        self.event_state = event_state
+        self.gamestate = gamestate
+        self.gamestate.event_manager = self
+
+        for action in self.actions.values():
+            action.initialize(self.gamestate)
+
     def trigger_event(
         self,
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any],
+        event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
-        self.event_queue.append((
+        self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
+        self.event_state.event_queue.append((
             narrative.Event(
-                int(event_type),
+                event_type,
                 context,
                 self.gamestate.entity_context_store,
                 event_args,
@@ -205,7 +214,7 @@ class EventManager(AbstractEventManager):
         characters: Iterable[core.Character],
         event_type: int,
         context: Mapping[int, int],
-        event_args: MutableMapping[str, Any],
+        event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         actions_processed = self._do_event(
             narrative.Event(
@@ -223,29 +232,30 @@ class EventManager(AbstractEventManager):
         # check for relevant events and process them
         events_processed = 0
         actions_processed = 0
-        while len(self.event_queue) > 0:
-            event, candidates = self.event_queue.popleft()
+        while len(self.event_state.event_queue) > 0:
+            event, candidates = self.event_state.event_queue.popleft()
             actions_processed += self._do_event(event, candidates)
             events_processed += 1
 
-        for event, action in self.action_schedule.pop_current_tasks(self.gamestate.timestamp):
+        for event, action in self.event_state.action_schedule.pop_current_tasks(self.gamestate.timestamp):
             self._do_action(event, action)
             actions_processed += 1
 
         self.gamestate.counters[core.Counters.EVENTS_PROCESSED] += events_processed
         self.gamestate.counters[core.Counters.EVENT_ACTIONS_PROCESSED] += actions_processed
 
-    def _do_event(self, event: narrative.Event, candidates:Iterable[narrative.CharacterCandidate]) -> int:
+    def _do_event(self, event: narrative.Event, candidates:Iterable["narrative.CharacterCandidate[core.Character]"]) -> int:
         actions_processed = 0
-        self.logger.debug(f'evaluating event {event.event_type} for {list(x.data.short_id() for x in candidates)}')
+        self.logger.debug(f'evaluating event {self.event_type_lookup[event.event_type]} ({event.event_type}) for {list(x.data.short_id() for x in candidates)}')
         actions = self.director.evaluate(event, candidates)
         for action in actions:
-            self.logger.debug(f'triggered action {action.action_id} for {action.character_candidate.data.short_id()}')
+            self.logger.debug(f'triggered action {self.action_id_lookup[action.action_id]} ({action.action_id}) for {action.character_candidate.data.short_id()}')
 
             if "_delay" in action.args:
                 delay = action.args["_delay"]
-                self.logger.debug(f'delaying action {action.action_id} by {delay}')
-                self.action_schedule.push_task(
+                assert(isinstance(delay, int) or isinstance(delay, float))
+                self.logger.debug(f'delaying action {self.action_id_lookup[action.action_id]} {action.action_id} by {delay}')
+                self.event_state.action_schedule.push_task(
                     self.gamestate.timestamp+delay,
                     (event, action)
                 )
@@ -269,11 +279,10 @@ class EventManager(AbstractEventManager):
 
 
 class DialogManager:
-    def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, event_manager:EventManager, character: core.Character, speaker: core.Character) -> None:
+    def __init__(self, dialog:dialog.DialogGraph, gamestate:core.Gamestate, character: core.Character, speaker: core.Character) -> None:
         self.dialog = dialog
         self.current_id = dialog.root_id
         self.gamestate = gamestate
-        self.event_manager = event_manager
         self.character = character
         self.speaker = speaker
 
@@ -287,16 +296,16 @@ class DialogManager:
 
     def do_node(self) -> None:
         for flag in self.dialog.nodes[self.current_id].flags:
-            self.character.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.character.context.set_flag(self.gamestate.event_manager.f(flag), 1)
         for flag in self.dialog.nodes[self.current_id].speaker_flags:
-            self.speaker.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.speaker.context.set_flag(self.gamestate.event_manager.f(flag), 1)
 
     def choose(self, choice:dialog.DialogChoice) -> None:
         if choice not in self.choices:
             raise ValueError(f'given choice is not current node {self.current_id} choices')
 
         for flag in choice.flags:
-            self.character.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.character.context.set_flag(self.gamestate.event_manager.f(flag), 1)
         for flag in choice.speaker_flags:
-            self.speaker.context.set_flag(self.event_manager.context_keys[flag], 1)
+            self.speaker.context.set_flag(self.gamestate.event_manager.f(flag), 1)
         self.current_id = choice.node_id

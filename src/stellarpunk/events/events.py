@@ -2,10 +2,10 @@
 
 import enum
 import numbers
-from typing import TYPE_CHECKING, Mapping, Any, Tuple
+from typing import Mapping, Any, Tuple
 
 from . import core as ecore
-from stellarpunk import narrative, core, dialog
+from stellarpunk import narrative, core, dialog, util
 
 
 POS_INF = (1<<64)-1
@@ -46,6 +46,17 @@ class ContextKeys(enum.IntEnum):
     TUTORIAL_MINED = enum.auto()
     TUTORIAL_DELIVERED = enum.auto()
     TUTORIAL_ASTEROID = enum.auto()
+
+def send_message(gamestate:core.Gamestate, recipient:core.Character, message:core.Message) -> None:
+        gamestate.trigger_event(
+            [recipient],
+            gamestate.event_manager.e(Events.MESSAGE),
+            {
+                gamestate.event_manager.ck(ContextKeys.MESSAGE_SENDER): util.uuid_to_u64(message.reply_to),
+                gamestate.event_manager.ck(ContextKeys.MESSAGE_ID): message.message_id,
+                gamestate.event_manager.ck(ContextKeys.MESSAGE): message.short_id_int(),
+            },
+        )
 
 
 class IncAction(ecore.Action):
@@ -138,7 +149,7 @@ class BroadcastAction(ecore.Action):
 
         loc = character.location.loc
         nearby_characters = list(
-            x.captain for x in sector.spatial_point(loc, radius) if x.captain is not None and x.captain != character
+            x.captain for x in sector.spatial_point(loc, radius) if isinstance(x, core.CrewedSectorEntity) and x.captain is not None and x.captain != character
         )
 
         if len(nearby_characters) == 0:
@@ -146,11 +157,11 @@ class BroadcastAction(ecore.Action):
 
         self.gamestate.trigger_event(
             nearby_characters,
-            ecore.e(Events.BROADCAST),
+            self.gamestate.event_manager.e(Events.BROADCAST),
             {
-                ecore.ck(ContextKeys.MESSAGE_SENDER): character.short_id_int(),
-                ecore.ck(ContextKeys.MESSAGE_ID): message_id,
-                ecore.ck(ContextKeys.SHIP): character.location.short_id_int(),
+                self.gamestate.event_manager.ck(ContextKeys.MESSAGE_SENDER): character.short_id_int(),
+                self.gamestate.event_manager.ck(ContextKeys.MESSAGE_ID): message_id,
+                self.gamestate.event_manager.ck(ContextKeys.SHIP): character.location.short_id_int(),
             },
             {"message": message},
         )
@@ -204,27 +215,19 @@ class MessageAction(ecore.Action):
         subject_str = action_args["subject"].format(**format_args)
         message_str = action_args["message"].format(**format_args)
 
-        if "dialog" in action_args:
-            reply_dialog = dialog.load_dialog(action_args["dialog"])
-        else:
-            reply_dialog = None
-
         recipient_id = event_context[action_args["recipient"]] if action_args["recipient"] in event_context else sender.context.get_flag(action_args["recipient"])
         recipient = self.gamestate.entities_short[recipient_id]
         assert isinstance(recipient, core.Character)
 
-        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender, self.gamestate, reply_dialog=reply_dialog)
+        message = core.Message(message_id, subject_str, message_str, self.gamestate.timestamp, sender.entity_id, self.gamestate)
 
-        self.gamestate.send_message(recipient, message)
+        send_message(self.gamestate, recipient, message)
 
 
-def register_events() -> None:
-    ecore.register_events(Events)
-    ecore.register_context_keys(ContextKeys)
-    ecore.register_action(IncAction(), "inc")
-    ecore.register_action(DecAction(), "dec")
-    ecore.register_action(BroadcastAction(), "broadcast")
-    ecore.register_action(MessageAction(), "message")
-
-# TODO: should we not eagerly do this?
-register_events()
+def register_events(event_manager:ecore.EventManager) -> None:
+    event_manager.register_events(Events)
+    event_manager.register_context_keys(ContextKeys)
+    event_manager.register_action(IncAction(), "inc")
+    event_manager.register_action(DecAction(), "dec")
+    event_manager.register_action(BroadcastAction(), "broadcast")
+    event_manager.register_action(MessageAction(), "message")

@@ -24,7 +24,8 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import util, core, config, generate
-from stellarpunk.core import combat
+from stellarpunk.serialization import save_game
+from stellarpunk.core import combat, sector_entity
 
 class Layout(enum.Enum):
     LEFT_RIGHT = enum.auto()
@@ -184,18 +185,22 @@ class Icons:
         return icons[round(util.normalize_angle(angle)/(2*math.pi)*len(icons))%len(icons)]
 
     @staticmethod
-    def sensor_image_icon(entity:core.SensorIdentity) -> str:
-        if entity.object_type in (core.ObjectType.SHIP, core.ObjectType.MISSILE):
-            icon = Icons.angle_to_ship(entity.angle)
-        elif entity.object_type == core.ObjectType.STATION:
+    def sensor_image_icon(image:core.AbstractSensorImage) -> str:
+        if not image.identified:
+            return Icons.UNKNOWN
+
+        identity = image.identity
+        if issubclass(identity.object_type, core.Ship):
+            icon = Icons.angle_to_ship(identity.angle)
+        elif issubclass(identity.object_type, sector_entity.Station):
             icon = Icons.STATION
-        elif entity.object_type == core.ObjectType.PLANET:
+        elif issubclass(identity.object_type, sector_entity.Planet):
             icon = Icons.PLANET
-        elif entity.object_type == core.ObjectType.ASTEROID:
+        elif issubclass(identity.object_type, sector_entity.Asteroid):
             icon = Icons.ASTEROID
-        elif entity.object_type == core.ObjectType.TRAVEL_GATE:
+        elif issubclass(identity.object_type, sector_entity.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif entity.object_type == core.ObjectType.PROJECTILE:
+        elif issubclass(identity.object_type, sector_entity.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = Icons.UNKNOWN
@@ -203,22 +208,35 @@ class Icons:
 
 
     @staticmethod
-    def sensor_image_attr(image:core.SensorIdentity) -> int:
-        return 0
+    def sensor_image_attr(image:core.AbstractSensorImage) -> int:
+        if not image.identified:
+            return 0
+
+        identity = image.identity
+        if issubclass(identity.object_type, sector_entity.Asteroid):
+            #TODO: how do we want to handle learning about these kinds of
+            # specific properties of sensor images?
+            entity = core.Gamestate.gamestate.entities[identity.entity_id]
+            assert(isinstance(entity, sector_entity.Asteroid))
+            return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
+        elif issubclass(identity.object_type, sector_entity.TravelGate):
+            return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
+        else:
+            return 0
 
     @staticmethod
     def sector_entity_icon(entity:core.SectorEntity, angle:Optional[float]=None) -> str:
-        if isinstance(entity, core.Ship) or isinstance(entity, core.Missile):
+        if isinstance(entity, core.Ship) or isinstance(entity, combat.Missile):
             icon = Icons.angle_to_ship(angle if angle is not None else entity.angle)
-        elif isinstance(entity, core.Station):
+        elif isinstance(entity, sector_entity.Station):
             icon = Icons.STATION
-        elif isinstance(entity, core.Planet):
+        elif isinstance(entity, sector_entity.Planet):
             icon = Icons.PLANET
-        elif isinstance(entity, core.Asteroid):
+        elif isinstance(entity, sector_entity.Asteroid):
             icon = Icons.ASTEROID
-        elif isinstance(entity, core.TravelGate):
+        elif isinstance(entity, sector_entity.TravelGate):
             icon = Icons.TRAVEL_GATE
-        elif isinstance(entity, core.Projectile):
+        elif isinstance(entity, sector_entity.Projectile):
             icon = Icons.PROJECTILE
         else:
             icon = Icons.UNKNOWN
@@ -226,9 +244,9 @@ class Icons:
 
     @staticmethod
     def sector_entity_attr(entity:core.SectorEntity) -> int:
-        if isinstance(entity, core.Asteroid):
+        if isinstance(entity, sector_entity.Asteroid):
             return curses.color_pair(Icons.RESOURCE_COLORS[entity.resource]) if entity.resource < len(Icons.RESOURCE_COLORS) else 0
-        elif isinstance(entity, core.TravelGate):
+        elif isinstance(entity, sector_entity.TravelGate):
             return curses.color_pair(Icons.COLOR_TRAVEL_GATE)
         else:
             return 0
@@ -439,7 +457,6 @@ class View(abc.ABC):
         self.active = True
         self.fast_render = False
         self.interface = interface
-        self.gamestate = interface.gamestate
 
     @property
     def viewscreen(self) -> BasicCanvas:
@@ -504,6 +521,11 @@ class View(abc.ABC):
     def key_list(self) -> Collection[KeyBinding]:
         return []
 
+class GameView(View):
+    def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.gamestate = gamestate
+
 class AbstractMixer:
     @property
     def sample_rate(self) -> int:
@@ -519,9 +541,10 @@ class AbstractMixer:
         pass
 
 class AbstractInterface(abc.ABC):
-    def __init__(self, gamestate:core.Gamestate, generator:generate.UniverseGenerator, mixer: AbstractMixer) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, mixer: AbstractMixer) -> None:
         self.logger = logging.getLogger(util.fullname(self))
-        self.gamestate = gamestate
+        self.runtime = core.AbstractGameRuntime()
+        self.gamestate:core.Gamestate = None # type: ignore
         self.generator = generator
         self.mixer = mixer
         self.views:List[View] = []
@@ -583,6 +606,12 @@ class AbstractInterface(abc.ABC):
             self.views[-1].focus()
         #TODO: else case, other code assumes there's always a view
 
+    def close_all_views(self) -> None:
+        for view in self.views.copy():
+            self.views.remove(view)
+            view.terminate()
+        assert(len(self.views) == 0)
+
     def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
         if old_view is not None:
             self.close_view(old_view)
@@ -641,8 +670,10 @@ class FPSCounter:
         return self.current_fps
 
 class Interface(AbstractInterface):
-    def __init__(self, *args:Any, **kwargs:Any):
+    def __init__(self, game_saver:save_game.GameSaver, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
+        self.game_saver = game_saver
+        self.next_autosave_timestamp = 0.
         self.stdscr:curses.window = None # type: ignore[assignment]
 
         self.desired_fps = Settings.MAX_FPS
@@ -982,7 +1013,7 @@ class Interface(AbstractInterface):
             self.stdscr.addstr(self.screen_height-1, len(message), " ", curses.A_REVERSE)
 
         if message:
-            self.status_message_clear_time = self.gamestate.timestamp + self.status_message_lifetime
+            self.status_message_clear_time = time.time() + self.status_message_lifetime
         else:
             self.status_message_clear_time = np.inf
 
@@ -991,11 +1022,20 @@ class Interface(AbstractInterface):
         self.stdscr.addstr(self.screen_height-1, self.screen_width-len(message)-1, message, attr)
 
     def show_diagnostics(self) -> None:
+        if self.runtime.game_running():
+            ticks = self.gamestate.ticks
+            timestamp = self.gamestate.timestamp
+            paused = self.gamestate.paused
+        else:
+            ticks = 0
+            timestamp = 0
+            paused = False
+
         attr = 0
         diagnostics = []
         if self.show_fps:
-            diagnostics.append(f'{self.gamestate.ticks} ({self.gamestate.missed_ticks}) {self.gamestate.timestamp:.2f} ({self.gamestate.ticktime*1000:>5.2f}ms +{(self.gamestate.desired_dt - self.gamestate.ticktime)*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
-        if self.gamestate.paused:
+            diagnostics.append(f'{ticks} ({self.runtime.get_missed_ticks()}) {timestamp:.2f} ({self.runtime.get_ticktime()*1000:>5.2f}ms +{(self.runtime.get_desired_dt() - self.runtime.get_ticktime())*1000:>5.2f}ms) {self.fps_counter.fps:>2.0f}fps')
+        if paused:
             attr |= curses.color_pair(1)
             diagnostics.append("PAUSED")
 
@@ -1004,7 +1044,7 @@ class Interface(AbstractInterface):
     def show_date(self) -> None:
         date_string = ' '
         date_string += self.gamestate.current_time().strftime("%c")
-        time_accel_rate, fast_mode = self.gamestate.get_time_acceleration()
+        time_accel_rate, fast_mode = self.runtime.get_time_acceleration()
         if not util.isclose(time_accel_rate, 1.0) or fast_mode:
             if fast_mode:
                 date_string += f' ( fast)'
@@ -1023,6 +1063,8 @@ class Interface(AbstractInterface):
         )
 
     def show_cash(self) -> None:
+        #TODO: what if the player is currently unattached to a character?
+        assert(self.player.character)
         balance_string = f' ${self.player.character.balance:.2f} '
         self.stdscr.addstr(
             self.viewscreen.y+self.viewscreen.height,
@@ -1039,6 +1081,30 @@ class Interface(AbstractInterface):
         else:
             return False
 
+    def _tick_autosave(self) -> None:
+        if self.game_saver is None:
+            return
+        if self.gamestate is None:
+            return
+        if self.gamestate.is_force_paused():
+            # no autosave whlie force paused, we'll pick it back up when it
+            # gets force paused (even if it stays paused)
+            return
+
+        #TODO: do I want this to be game seconds or wall seconds?
+        #TODO: what about time acceleration?
+        #TODO: what about doing a ton of stuff while paused?
+        if self.gamestate.timestamp > self.next_autosave_timestamp:
+            self.log_message('saving game...')
+            start_time = time.perf_counter()
+            self.game_saver.autosave(self.gamestate)
+            end_time = time.perf_counter()
+            self.log_message(f'game saved in {end_time-start_time:.2f}s.')
+            self.set_next_autosave_ts()
+
+    def set_next_autosave_ts(self) -> None:
+        self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
+
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()
         self.fps_counter.update_fps(start_time)
@@ -1052,14 +1118,14 @@ class Interface(AbstractInterface):
                 self.gamestate.paused = True
                 self.one_time_step = False
 
-            if self.gamestate.timestamp > self.status_message_clear_time:
+            if time.time() > self.status_message_clear_time:
                 self.status_message()
 
             for view in self.views:
                 if view.active:
                     view.update_display()
-            self.show_date()
-            if self.player:
+            if self.runtime.game_running():
+                self.show_date()
                 self.show_cash()
             self.show_diagnostics()
             self.stdscr.noutrefresh()
@@ -1074,6 +1140,8 @@ class Interface(AbstractInterface):
             self.stdscr.noutrefresh()
             curses.doupdate()
 
+        # autosave
+        self._tick_autosave()
 
         #TODO: this can block in the case of mouse clicks
         #TODO: see note above about setting mouseinterval to 0 which fixes this?

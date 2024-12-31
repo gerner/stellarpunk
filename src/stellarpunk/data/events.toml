@@ -1,4 +1,26 @@
 # Events
+# object names here name specific trigger responses for a "type" of event
+
+# some common top-level response keys:
+# type: event type (this is in a global, well-known event space
+# priority: priority of the trigger. lower value means higher priority. any 
+#   given trigger will get at most one response per character candidate
+# criteria: a list of criteria applied to the event/candidate context
+#   criteria have a simple language:
+#   a single string indicates a flag with a non-zero value
+#   "$" indicates an entity context fetch, allowing access to further context
+#     keys from that specific entity
+#   flag values can be compared with a one or two sided range comparison
+#     only "<=" is recognized. flag values are unsigned 64-bit ints.
+
+# under the top level trigger response is a list of "actions" to take if the
+# response is taken.
+# common action keys:
+# _action: the type of action to take (from global, well-known action space)
+# _delay: how many game seconds to wait for the action to happen
+# all other keys without a leading underscore are parameters for the action
+#   these keys are action specific and not global/well-known
+
 
 [help_start]
 type = "start_game"
@@ -17,7 +39,7 @@ priority = 0
 criteria = ["tutorial_guy"]
 [[tutorial.actions]]
 _action = "message"
-_delay = 0.5
+_delay = 1.0
 message_id = 0
 subject = "Let's get to work"
 message = "is this thing on?"
@@ -97,6 +119,7 @@ flag = "_ref:tutorial_amount_to_trade"
 
 # Player event handlers
 
+# player is in a sector during someone else's broadcast
 [player_receive_broadcast]
 type = "broadcast"
 priority = 0
@@ -104,6 +127,7 @@ criteria = ["is_player"]
 [[player_receive_broadcast.actions]]
 _action = "player_receive_broadcast"
 
+# someone sends the player a message
 [player_receive_message]
 type = "message"
 priority = 0
@@ -111,13 +135,13 @@ criteria = ["is_player"]
 [[player_receive_message.actions]]
 _action = "player_receive_message"
 
+# player contacts an NPC that has no other dialog, should trigger no-dialog UX
 [player_contact]
 type = "contact"
 priority = 2
 criteria = ["$contacter.is_player"]
 [[player_contact.actions]]
 _action = "dialog"
-# should trigger no-dialog UX
 
 #[player_open_dialog]
 #type = "dialog"

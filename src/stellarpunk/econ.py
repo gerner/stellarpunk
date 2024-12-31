@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 
 from stellarpunk import core, util, events
+from stellarpunk.core import sector_entity
 
 #TODO: unify this with the one in effects
 AMOUNT_EPS = 0.5
@@ -118,16 +119,25 @@ class YesAgent(core.EconAgent):
         raise NotImplementedError("do not trade with the YesAgent")
 
 class PlayerAgent(core.EconAgent):
-    def __init__(self, player:core.Player, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
+    @staticmethod
+    def create_player_agent(player:core.Player, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "PlayerAgent":
+        player_agent = PlayerAgent(gamestate, *args, **kwargs)
+        player_agent.player = player
+        return player_agent
+
+    def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
         super().__init__(gamestate, *args, **kwargs)
-        self.player = player
+        self.player:core.Player = None# type: ignore
         self.gamestate = gamestate
 
     @property
     def location(self) -> core.SectorEntity:
+        assert(self.player.character)
+        assert(self.player.character.location)
         return self.player.character.location
 
     def get_owner(self) -> core.Character:
+        assert(self.player.character)
         return self.player.character
 
     def buy_resources(self) -> Collection:
@@ -143,6 +153,7 @@ class PlayerAgent(core.EconAgent):
         return np.inf
 
     def balance(self) -> float:
+        assert(self.player.character)
         return self.player.character.balance
 
     def budget(self, resource:int) -> float:
@@ -152,6 +163,7 @@ class PlayerAgent(core.EconAgent):
         return self.location.cargo[resource]
 
     def buy(self, resource:int, price:float, amount:float) -> None:
+        assert(self.player.character)
         value = price * amount
         assert self.balance()+PRICE_EPS >= value
         assert self.location.cargo.sum() <= self.location.cargo_capacity
@@ -162,15 +174,16 @@ class PlayerAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.player.character],
-            events.Events.BOUGHT,
+            self.gamestate.event_manager.e(events.Events.BOUGHT),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): resource,
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
     def sell(self, resource:int, price:float, amount:float) -> None:
+        assert(self.player.character)
         assert self.inventory(resource) >= amount
 
         self.location.cargo[resource] -= amount
@@ -180,11 +193,11 @@ class PlayerAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.player.character],
-            events.Events.SOLD,
+            self.gamestate.event_manager.e(events.Events.SOLD),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): resource,
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -196,7 +209,7 @@ class StationAgent(core.EconAgent):
     """
 
     @classmethod
-    def create_station_agent(cls, character:core.Character, station:core.Station, production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
+    def create_station_agent(cls, character:core.Character, station:sector_entity.Station, production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
         if station.resource is None:
             raise ValueError(f'cannot create station agent for station that has no resource')
 
@@ -204,18 +217,18 @@ class StationAgent(core.EconAgent):
             raise ValueError(f'cannot create station agent for station that has no owner')
 
         station_agent = StationAgent(
-            station,
-            station.owner,
-            character,
             production_chain,
             gamestate
         )
+        station_agent.station = station
+        station_agent.owner = station.owner
+        station_agent.character = character
 
         resource = station.resource
         inputs = production_chain.inputs_of(resource)
 
-        station_agent._buy_resources = tuple(inputs) # type: ignore
-        station_agent._sell_resources = (resource,)
+        station_agent._buy_resources = list(int(x) for x in inputs) # type: ignore
+        station_agent._sell_resources = [int(resource)]
 
         # start with buy price half the markup on our resource, reserving the
         # other half for the trader to transport it
@@ -230,24 +243,24 @@ class StationAgent(core.EconAgent):
         return station_agent
 
     @classmethod
-    def create_planet_agent(cls, character:core.Character, planet:core.Planet,  production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
+    def create_planet_agent(cls, character:core.Character, planet:sector_entity.Planet,  production_chain:core.ProductionChain, gamestate:core.Gamestate) -> "StationAgent":
         if planet.owner is None:
             raise ValueError(f'cannot create station agent for planet that has no owner')
 
         station_agent = StationAgent(
-            planet,
-            planet.owner,
-            character,
             production_chain,
             gamestate
         )
+        station_agent.station = planet
+        station_agent.owner = planet.owner
+        station_agent.character = character
 
         end_product_ids = production_chain.final_product_ids()[[
             core.production_chain.RESOURCE_REL_CONSUMER,
             core.production_chain.RESOURCE_REL_SHIP,
             core.production_chain.RESOURCE_REL_STATION,
         ]]
-        station_agent._buy_resources = tuple(end_product_ids) # type: ignore
+        station_agent._buy_resources = list(int(x) for x in end_product_ids) # type: ignore
 
         # start with buy price the markup for the consumer good again
         station_agent._buy_price[end_product_ids] = production_chain.prices[end_product_ids] * production_chain.markup[end_product_ids]
@@ -257,9 +270,6 @@ class StationAgent(core.EconAgent):
 
     def __init__(
         self,
-        station:core.SectorEntity,
-        owner:core.Character,
-        character:core.Character,
         production_chain:core.ProductionChain,
         gamestate:core.Gamestate,
         *args:Any,
@@ -267,15 +277,15 @@ class StationAgent(core.EconAgent):
     ) -> None:
         super().__init__(gamestate, *args, **kwargs)
         self.gamestate = gamestate
-        self._buy_resources:Tuple[int] = tuple() # type: ignore
-        self._sell_resources:Tuple[int] = tuple() # type: ignore
+        self._buy_resources:list[int] = list() # type: ignore
+        self._sell_resources:list[int] = list() # type: ignore
 
         self._buy_price = np.zeros((production_chain.num_products,))
         self._sell_price = np.full((production_chain.num_products,), np.inf)
         self._budget = np.zeros((production_chain.num_products,))
-        self.station = station
-        self.owner = owner
-        self.character = character
+        self.station:core.SectorEntity = None # type: ignore
+        self.owner:core.Character = None # type: ignore
+        self.character:core.Character = None # type: ignore
 
     def get_owner(self) -> core.Character:
         return self.owner
@@ -324,11 +334,11 @@ class StationAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.BOUGHT,
+            self.gamestate.event_manager.e(events.Events.BOUGHT),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): resource,
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -343,11 +353,11 @@ class StationAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.SOLD,
+            self.gamestate.event_manager.e(events.Events.SOLD),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): resource,
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -361,18 +371,29 @@ class ShipTraderAgent(core.EconAgent):
     Buy/sell prices and budget are irrelevant for this agent. We assume this
     agent is "active" and decisions are handled elsewhere. """
 
-    def __init__(
-        self,
+    @staticmethod
+    def create_ship_trader_agent(
         ship:core.Ship,
         character:core.Character,
+        gamestate:core.Gamestate,
+        *args:Any,
+        **kwargs:Any
+    ) -> "ShipTraderAgent":
+        agent = ShipTraderAgent(gamestate, *args, **kwargs)
+        agent.ship = ship
+        agent.character = character
+        return agent
+
+    def __init__(
+        self,
         gamestate:core.Gamestate,
         *args:Any,
         **kwargs:Any
     ) -> None:
         super().__init__(gamestate, *args, **kwargs)
         self.gamestate = gamestate
-        self.ship = ship
-        self.character = character
+        self.ship:core.Ship = None # type: ignore
+        self.character:core.Character = None # type: ignore
 
     def get_owner(self) -> core.Character:
         assert self.ship.owner is not None
@@ -417,11 +438,11 @@ class ShipTraderAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.BOUGHT,
+            self.gamestate.event_manager.e(events.Events.BOUGHT),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): resource,
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )
 
@@ -436,10 +457,10 @@ class ShipTraderAgent(core.EconAgent):
 
         self.gamestate.trigger_event(
             [self.character],
-            events.Events.SOLD,
+            self.gamestate.event_manager.e(events.Events.SOLD),
             {
-                events.ContextKeys.RESOURCE: resource,
-                events.ContextKeys.AMOUNT: int(amount),
-                events.ContextKeys.AMOUNT_ON_HAND: int(self.inventory(resource)),
+                self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): resource,
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.inventory(resource)),
             },
         )

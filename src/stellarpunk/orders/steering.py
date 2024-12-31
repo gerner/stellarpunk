@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import collections
 import math
-from typing import Optional, Deque, Any, Tuple
 import logging
+import abc
+from typing import Optional, Deque, Any, Tuple, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -14,6 +15,7 @@ from numba import jit # type: ignore
 import cymunk # type: ignore
 
 from stellarpunk import util, core
+from stellarpunk.core import order
 from stellarpunk.orders import collision
 
 ANGLE_EPS = 8e-2 # about 3 degrees #2e-3 # about .06 degrees
@@ -32,7 +34,26 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
-class AbstractSteeringOrder(core.Order):
+class AbstractSteeringOrder(order.Order, abc.ABC):
+    @classmethod
+    def create_abstract_steering_order[T:"AbstractSteeringOrder"](cls:Type[T],
+            *args:Any,
+            safety_factor:float=2.,
+            collision_margin:float=2e2,
+            neighborhood_radius: float = 8.5e3,
+            **kwargs:Any) -> T:
+
+        o = cls.create_order(*args, safety_factor=safety_factor, collision_margin=collision_margin, neighborhood_radius=neighborhood_radius, **kwargs)
+        assert o.ship.sector is not None
+        o.neighbor_analyzer = collision.Navigator(
+                o.ship.sector.space, o.ship.phys,
+                o.ship.radius, o.ship.max_thrust, o.ship.max_torque,
+                o.ship.max_speed(),
+                collision_margin,
+                neighborhood_radius,
+        )
+        return o
+
     def __init__(self, *args: Any,
             safety_factor:float=2.,
             collision_margin:float=2e2,
@@ -41,15 +62,7 @@ class AbstractSteeringOrder(core.Order):
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
         self.collision_dv = ZERO_VECTOR
-
-        assert self.ship.sector is not None
-        self.neighbor_analyzer = collision.Navigator(
-                self.ship.sector.space, self.ship.phys,
-                self.ship.radius, self.ship.max_thrust, self.ship.max_torque,
-                self.ship.max_speed(),
-                collision_margin,
-                neighborhood_radius,
-        )
+        self.neighbor_analyzer:collision.Navigator = None # type: ignore
 
     def _cancel(self) -> None:
         self.logger.debug(f'cancel at {self.gamestate.timestamp}')

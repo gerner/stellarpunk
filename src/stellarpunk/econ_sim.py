@@ -17,7 +17,8 @@ import numpy.typing as npt
 import msgpack # type: ignore
 import tqdm # type: ignore
 
-from stellarpunk import util, core, generate, serialization, econ
+from stellarpunk import util, core, generate, econ
+from stellarpunk.serialization import serialize_econ_sim
 
 # sometimes we're willing to manufacture a very small amount of cash to avoid
 # precision errors
@@ -76,16 +77,16 @@ class EconomyDataLogger(contextlib.AbstractContextManager, core.AbstractEconData
         self.flush_interval = flush_interval
 
         self.transaction_log:TextIO = None #type:ignore[assignment]
-        self.inventory_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.balance_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.buy_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.buy_budget_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.max_buy_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.sell_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.min_sell_prices_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.production_efficiency_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.cannot_buy_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
-        self.cannot_sell_log:serialization.TickMatrixWriter = None #type:ignore[assignment]
+        self.inventory_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.balance_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.buy_prices_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.buy_budget_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.max_buy_prices_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.sell_prices_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.min_sell_prices_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.production_efficiency_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.cannot_buy_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
+        self.cannot_sell_log:serialize_econ_sim.TickMatrixWriter = None #type:ignore[assignment]
 
         self.files:MutableSequence[IO] = []
         self.exit_stack:contextlib.ExitStack = contextlib.ExitStack()
@@ -108,16 +109,16 @@ class EconomyDataLogger(contextlib.AbstractContextManager, core.AbstractEconData
 
         if self.enabled:
             self.transaction_log = self._open_txt_log("transactions")
-            self.inventory_log = serialization.TickMatrixWriter(self._open_bin_log("inventory"))
-            self.balance_log = serialization.TickMatrixWriter(self._open_bin_log("balance"))
-            self.buy_prices_log = serialization.TickMatrixWriter(self._open_bin_log("buy_prices"))
-            self.buy_budget_log = serialization.TickMatrixWriter(self._open_bin_log("buy_budget"))
-            self.max_buy_prices_log = serialization.TickMatrixWriter(self._open_bin_log("max_buy_prices"))
-            self.sell_prices_log = serialization.TickMatrixWriter(self._open_bin_log("sell_prices"))
-            self.min_sell_prices_log = serialization.TickMatrixWriter(self._open_bin_log("min_sell_prices"))
-            self.production_efficiency_log = serialization.TickMatrixWriter(self._open_bin_log("production_efficiency"))
-            self.cannot_buy_log = serialization.TickMatrixWriter(self._open_bin_log("cannot_buy"))
-            self.cannot_sell_log = serialization.TickMatrixWriter(self._open_bin_log("cannot_sell"))
+            self.inventory_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("inventory"))
+            self.balance_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("balance"))
+            self.buy_prices_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("buy_prices"))
+            self.buy_budget_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("buy_budget"))
+            self.max_buy_prices_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("max_buy_prices"))
+            self.sell_prices_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("sell_prices"))
+            self.min_sell_prices_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("min_sell_prices"))
+            self.production_efficiency_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("production_efficiency"))
+            self.cannot_buy_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("cannot_buy"))
+            self.cannot_sell_log = serialize_econ_sim.TickMatrixWriter(self._open_bin_log("cannot_sell"))
 
         return self
 
@@ -159,13 +160,13 @@ class EconomyDataLogger(contextlib.AbstractContextManager, core.AbstractEconData
         self.gamestate = sim.gamestate
         if self.enabled:
             with open(os.path.join(self.logdir, "agent_goods.log"), "wb") as agent_goods_log:
-                agent_goods_log.write(msgpack.packb(self.sim.agent_goods, default=serialization.encode_matrix))
+                agent_goods_log.write(msgpack.packb(self.sim.agent_goods, default=serialize_econ_sim.encode_matrix))
             self.sim.gamestate.production_chain.viz().render(os.path.join(self.logdir, "production_chain"), format="pdf")
 
     def begin_simulation(self) -> None:
         if self.enabled:
             with open(os.path.join(self.logdir, "production_chain.log"), "wb") as production_chain_log:
-                production_chain_log.write(serialization.save_production_chain(self.gamestate.production_chain))
+                production_chain_log.write(serialize_econ_sim.save_production_chain(self.gamestate.production_chain))
 
     def produce_goods(self, goods_produced:npt.NDArray[np.float64]) -> None:
         #TODO: we've disabled production efficiency logging since it takes too
@@ -374,7 +375,8 @@ class EconomySimulation:
             self.gamestate = gamestate
 
         if production_chain is None:
-            generator = generate.UniverseGenerator(self.gamestate)
+            generator = generate.UniverseGenerator()
+            generator.gamestate = self.gamestate
             self.gamestate.production_chain = generator.generate_chain(
                 #n_ranks=1,
                 #min_per_rank=(2,),

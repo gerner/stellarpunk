@@ -37,7 +37,7 @@ def composite_sprites(sprites:Sequence[core.Sprite]) -> core.Sprite:
                     else:
                         attr[x,y] = (0,0)
 
-    return core.Sprite(["".join(t) for t in text], attr)
+    return core.Sprite("ephemeral_composited_sprite", ["".join(t) for t in text], attr)
 
 def draw_sprite(
     sprite: core.Sprite,
@@ -408,6 +408,9 @@ class MeterMenu(UIComponent):
 
         value_str = f'{diff_str}{option.setting}'
         canvas.addstr(y, x, f'{value_str:>{self.left_number_width}} ', attr)
+
+        assert(option.value <= option.maximum)
+        assert(option.setting <= option.maximum)
 
         # meter visual █░▓▁
         # show original value and current setting

@@ -13,6 +13,7 @@ import numpy as np
 import dtmf # type: ignore
 
 from stellarpunk import interface, core, config, util, events
+from stellarpunk.core import sector_entity
 from stellarpunk.interface import ui_util, starfield
 from stellarpunk.interface.ui_util import ValidationError
 
@@ -55,10 +56,10 @@ class Mode(enum.Enum):
     EXIT = enum.auto()
 
 
-class StationView(interface.View):
+class StationView(interface.GameView):
     """ UI experience while docked at a station. """
     def __init__(
-            self, station: core.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
+            self, station: sector_entity.Station, ship: core.Ship, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.station = station
@@ -292,6 +293,7 @@ class StationView(interface.View):
         self.gamestate.force_unpause(self)
 
     def _validate_trade(self, *args:Any) -> bool:
+        assert(self.interface.player.character)
         # validate the overall set of trades are valid
         # validate ship and station have the relevant goods
         # validate ship and station have total cargo capacity for buys/sells
@@ -504,14 +506,13 @@ class StationView(interface.View):
 
         def make_contact(character: core.Character) -> Callable[[], Any]:
             def handle_contact() -> None:
-                event_args: Dict[str, Any] = {}
+                assert(self.interface.player.character)
                 self.gamestate.trigger_event_immediate(
                     [character],
-                    events.e(events.Events.CONTACT),
+                    self.gamestate.event_manager.e(events.Events.CONTACT),
                     {
-                        events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
+                        self.gamestate.event_manager.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                     },
-                    event_args
                 )
 
             return handle_contact
@@ -537,11 +538,12 @@ class StationView(interface.View):
             pass
 
         def contact() -> None:
+            assert(self.interface.player.character)
             self.gamestate.trigger_event_immediate(
                 [character],
-                events.e(events.Events.CONTACT),
+                self.gamestate.event_manager.e(events.Events.CONTACT),
                 {
-                    events.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
+                    self.gamestate.event_manager.ck(events.ContextKeys.CONTACTER): self.interface.player.character.short_id_int(),
                 },
             )
         key_list:List[interface.KeyBinding] = []

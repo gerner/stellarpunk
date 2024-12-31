@@ -9,9 +9,8 @@ from stellarpunk.interface import comms
 logger = logging.getLogger(__name__)
 
 class DialogAction(events.Action):
-    def __init__(self, interface: interface.Interface, event_manager: events.EventManager) -> None:
+    def __init__(self, interface: interface.Interface) -> None:
         self.interface = interface
-        self.event_manager = event_manager
 
     def _validate(self, action_args: Mapping[str, Any]) -> bool:
         #if not all(
@@ -30,22 +29,23 @@ class DialogAction(events.Action):
         event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
-        contacter = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.CONTACTER)]]
+        contacter = self.gamestate.entities_short[event_context[self.gamestate.event_manager.ck(events.ContextKeys.CONTACTER)]]
         assert isinstance(contacter, core.Character)
         #TODO: handle other characters contacting the player and not just
         # player initiating the contact
-        assert contacter == self.gamestate.player.character
+        assert contacter == self.interface.player.character
 
         if "dialog_id" not in action_args:
             logger.info(f'{core.Gamestate.gamestate.timestamp} no dialog: {character} {action_args}')
-            no_response_view = comms.NoResponseView(character, self.interface)
+            no_response_view = comms.NoResponseView(character, self.gamestate, self.interface)
             self.interface.open_view(no_response_view, deactivate_views=True)
         else:
             dialog_id = action_args["dialog_id"]
             logger.info(f'{core.Gamestate.gamestate.timestamp} dialog: {character} {action_args}')
             comms_view = comms.CommsView(
-                events.DialogManager(dialog.load_dialog(dialog_id), self.gamestate, self.event_manager, contacter, character),
+                events.DialogManager(dialog.load_dialog(dialog_id), self.gamestate, contacter, character),
                 character,
+                self.gamestate,
                 self.interface,
             )
             self.interface.open_view(comms_view, deactivate_views=True)
@@ -92,7 +92,7 @@ class PlayerReceiveBroadcast(events.Action):
         event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
-        sender = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.MESSAGE_SENDER)]]
+        sender = self.gamestate.entities_short[event_context[self.gamestate.event_manager.ck(events.ContextKeys.MESSAGE_SENDER)]]
         assert isinstance(sender, core.Character)
         assert sender.location
         assert character.location
@@ -112,11 +112,12 @@ class PlayerReceiveMessage(events.Action):
         event_args: MutableMapping[str, Any],
         action_args: Mapping[str, Any]
     ) -> None:
-        sender = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.MESSAGE_SENDER)]]
-        message = self.gamestate.entities_short[event_context[events.ck(events.ContextKeys.MESSAGE)]]
+        sender = self.gamestate.entities_short[event_context[self.gamestate.event_manager.ck(events.ContextKeys.MESSAGE_SENDER)]]
+        message = self.gamestate.entities_short[event_context[self.gamestate.event_manager.ck(events.ContextKeys.MESSAGE)]]
         assert isinstance(sender, core.Character)
         assert isinstance(message, core.Message)
 
-        self.interface.log_message(f'Message from {sender.address_str()}:\n{message.subject}')
+        self.interface.player.messages[message.entity_id] = message
+        self.interface.log_message(f'Message {message.short_id()} from {sender.address_str()}:\n{message.subject}')
 
 

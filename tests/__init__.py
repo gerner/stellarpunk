@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from stellarpunk import core, sim, orders, interface, util
+from stellarpunk import core, sim, orders, interface, util, generate
 from stellarpunk.orders import steering
 
 def write_history(func):
@@ -20,16 +20,21 @@ def write_history(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         sector = kwargs["sector"]
-        gamestate = kwargs["gamestate"]
+        #gamestate = kwargs["gamestate"]
+        sector_id = sector.entity_id
         wrote=False
         try:
             return func(*args, **kwargs)
         except Exception as e:
+            gamestate = core.Gamestate.gamestate
+            sector = gamestate.get_entity(sector_id, core.Sector)
             core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz', now=gamestate.timestamp)
             wrote=True
             raise
         finally:
             if not wrote and os.environ.get("WRITE_HIST"):
+                gamestate = core.Gamestate.gamestate
+                sector = gamestate.get_entity(sector_id, core.Sector)
                 core.write_history_to_file(sector, f'/tmp/stellarpunk_test.{func.__name__}.history.gz', now=gamestate.timestamp)
     return wrapper
 
@@ -84,7 +89,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
     if order_type in ("stellarpunk.orders.GoToLocation", "stellarpunk.orders.movement.GoToLocation"):
         arrival_distance = history_entry["o"].get("ad", 1.5e3)
         min_distance = history_entry["o"].get("md", None)
-        gorder = orders.GoToLocation(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
+        gorder = orders.GoToLocation.create_go_to_location(np.array(history_entry["o"]["t_loc"]), ship, gamestate, arrival_distance=arrival_distance, min_distance=min_distance)
         #if "nn" in history_entry["o"]:
         #    gorder.neighbor_analyzer.set_nearest_neighbors(history_entry["o"]["nn"])
 
@@ -98,7 +103,7 @@ def order_from_history(history_entry:dict, ship:core.Ship, gamestate:core.Gamest
     elif order_type in ("stellarpunk.orders.core.TransferCargo", "stellarpunk.orders.core.MineOrder", "stellarpunk.orders.core.HarvestOrder", "stellarpunk.orders.movement.WaitOrder"):
         # in these cases we'll just give a null order so they just stay exactly
         # where they are, without collision avoidance or any other steering.
-        order = core.Order(ship, gamestate)
+        order = core.NullOrder.create_null_order(ship, gamestate)
     else:
         raise ValueError(f'can not load {history_entry["o"]["o"]}')
     ship.prepend_order(order)
@@ -162,7 +167,7 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
     ) -> None:
         pass
 
-class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
+class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, interface.AbstractInterface):
     def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
@@ -170,7 +175,7 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
         self.margin = 2e2
         self.min_neighbor_dist = np.inf
 
-        self.agenda:List[core.Agendum] = []
+        self.agenda:List[core.AbstractAgendum] = []
         self.orders:List[core.Order] = []
         self.cannot_stop_orders:List[orders.GoToLocation] = []
         self.cannot_avoid_collision_orders:List[steering.AbstractSteeringOrder] = []
@@ -192,6 +197,66 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
         self.last_status_message = ""
 
         self.tick_callback:Optional[Callable[[], None]] = None
+
+        self.generator.observe(self)
+
+    def universe_loaded(self, gamestate:core.Gamestate) -> None:
+        self.logger.info("universe loaded")
+        gamestate.econ_logger = self.gamestate.econ_logger
+        self.gamestate = gamestate
+        assert(gamestate.player)
+        assert(gamestate.player.character)
+        assert(gamestate.player == self.player)
+
+        self.sector = gamestate.get_entity(self.sector.entity_id, core.Sector)
+
+        old_agenda = self.agenda.copy()
+        self.agenda.clear()
+        for agendum in old_agenda:
+            self.agenda.append(gamestate.agenda[agendum.agenda_id])
+        old_orders = self.orders.copy()
+        self.orders.clear()
+        for order in old_orders:
+            if order.is_complete() and order.order_id not in gamestate.orders:
+                self.orders.append(order)
+            else:
+                new_order = gamestate.get_order(order.order_id, core.Order) # type: ignore
+                self.orders.append(new_order)
+                new_order.observe(self)
+
+        old_cannot_stop_orders = self.cannot_stop_orders.copy()
+        self.cannot_stop_orders.clear()
+        for gtl_order in old_cannot_stop_orders:
+            if gtl_order.is_complete() and gtl_order.order_id not in gamestate.orders:
+                self.cannot_stop_orders.append(gtl_order)
+            else:
+                self.cannot_stop_orders.append(gamestate.get_order(gtl_order.order_id, orders.GoToLocation))
+        old_cannot_avoid_collision_orders = self.cannot_avoid_collision_orders.copy()
+        self.cannot_avoid_collision_orders.clear()
+        for as_order in old_cannot_avoid_collision_orders:
+            if as_order.is_complete() and as_order.order_id not in gamestate.orders:
+                self.cannot_avoid_collision_orders.append(as_order)
+            else:
+                self.cannot_avoid_collision_orders.append(gamestate.get_order(gtl_order.order_id, steering.AbstractSteeringOrder)) # type: ignore
+        old_margin_neighbors = self.margin_neighbors.copy()
+        self.margin_neighbors.clear()
+        for sector_entity in old_margin_neighbors:
+            self.margin_neighbors.append(gamestate.get_entity(sector_entity.entity_id, core.SectorEntity))
+
+        old_collisions = self.collisions.copy()
+        self.collisions.clear()
+        for old_se_a, old_se_b, x, y in old_collisions:
+            se_a = gamestate.get_entity(old_se_a.entity_id, core.SectorEntity)
+            se_b = gamestate.get_entity(old_se_b.entity_id, core.SectorEntity)
+            self.collisions.append((se_a, se_b, x, y))
+
+        old_complete_orders = self.complete_orders.copy()
+        self.complete_orders.clear()
+        for order in old_complete_orders:
+            if order.is_complete() and order.order_id not in gamestate.orders:
+                self.complete_orders.append(order)
+            else:
+                self.complete_orders.append(gamestate.get_order(order.order_id, core.Order)) # type: ignore
 
     @property
     def player(self) -> core.Player:
@@ -224,6 +289,10 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
 
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         self.collisions.append((entity_a, entity_b, impulse, ke))
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
 
     def order_cancel(self, order:core.Order) -> None:
         self.order_complete(order)
@@ -263,19 +332,21 @@ class MonitoringUI(interface.AbstractInterface, core.OrderObserver):
                 self.done = True
 
         if self.done:
-            self.gamestate.quit()
+            self.runtime.quit()
 
         if self.gamestate.timestamp > self.max_timestamp:
-            self.gamestate.quit()
+            self.runtime.quit()
 
         if self.tick_callback:
             self.tick_callback()
 
 class MonitoringSimulator(sim.Simulator):
-    def __init__(self, gamestate:core.Gamestate, testui:MonitoringUI) -> None:
-        super().__init__(gamestate, testui, ticks_per_hist_sample=1)
+    def __init__(self, generator:generate.UniverseGenerator, testui:MonitoringUI) -> None:
+        super().__init__(generator, testui, ticks_per_hist_sample=1)
         self.testui = testui
 
     def run(self) -> None:
+        assert self.gamestate == self.generator.gamestate
+        assert self.gamestate == self.testui.gamestate
         self.testui.first_tick()
         super().run()

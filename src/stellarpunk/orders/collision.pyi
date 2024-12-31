@@ -21,6 +21,54 @@ class RocketModel:
     def effective_thrust(self, timestamp:float) -> float: ...
     def set_thrust(self, thrust:float, timestamp:float) -> None: ...
 
+class NeighborAnalysisParameters:
+    """ carries analysis parameters for serialization. """
+    neighborhood_radius:float
+    threat_count:int
+    neighborhood_size:int
+    nearest_neighborhood_dist:float
+    cannot_avoid_collision:bool
+    coalesced_threat_count:int
+
+class NavigatorParameters:
+    """ carries navigator parameters for serialization. """
+    radius:float
+    max_thrust:float
+    max_torque:float
+    max_acceleration:float
+    max_angular_acceleration:float
+    worst_case_rot_time:float
+
+    base_neighborhood_radius:float
+    neighborhood_radius:float
+    full_neighborhood_radius_period:float
+    full_neighborhood_radius_ts:float
+
+    base_max_speed:float
+    max_speed:float
+
+    max_speed_cap:float
+    max_speed_cap_ts:float
+    max_speed_cap_alpha:float
+    min_max_speed:float
+    max_speed_cap_max_expiration:float
+
+    base_margin:float
+    margin:float
+
+    target_location:tuple[float,float]
+    arrival_radius:float
+    min_radius:float
+
+    last_threat_id:int
+    collision_margin_histeresis:float
+    cannot_avoid_collision_hold = False
+    collision_cbdr:bool
+
+    analysis:NeighborAnalysisParameters
+    prior_threats:list[cymunk.Shape]
+
+
 class Navigator:
     def __init__(
             self, space:cymunk.Space, body:cymunk.Body,
@@ -29,6 +77,9 @@ class Navigator:
             base_margin:float,
             base_neighborhood_radius:float,
             ) -> None: ...
+
+    def get_navigator_parameters(self) -> NavigatorParameters: ...
+    def set_navigator_parameters(self, params:NavigatorParameters) -> None: ...
 
     def set_location_params(self,
             target_location:cymunk.Vec2d,

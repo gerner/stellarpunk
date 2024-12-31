@@ -1,22 +1,35 @@
-import pytest
+from typing import Generator
 
+import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate, interface, sensors
+from stellarpunk import core, sim, generate, interface, sensors, events
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
-def gamestate(econ_logger:MonitoringEconDataLogger) -> core.Gamestate:
-    gamestate = core.Gamestate()
-    gamestate.econ_logger = econ_logger
-    gamestate.player = core.Player(gamestate)
-    return gamestate
+def event_manager() -> events.EventManager:
+    em = events.EventManager()
+    events.register_events(em)
+    #TODO: all events (e.g. ui manager events) should be registered by this point
+    #TODO: this is where events are setup from config, do we need to worry about that?
+    em.pre_initialize({})
+    return em
 
 @pytest.fixture
-def generator(gamestate:core.Gamestate) -> generate.UniverseGenerator:
-    ug = generate.UniverseGenerator(gamestate, seed=0)
-    ug.initialize(starfield_composite=False, empty_name_model_culture="test")
+def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventManager) -> Generator[core.Gamestate, None, None]:
+    gamestate = core.Gamestate()
+    gamestate.econ_logger = econ_logger
+    event_manager.initialize_gamestate(events.EventState(), gamestate)
+    yield gamestate
+    gamestate.sanity_check_orders()
+    gamestate.sanity_check_effects()
+
+@pytest.fixture
+def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> generate.UniverseGenerator:
+    ug = generate.UniverseGenerator(seed=0)
+    ug.gamestate = gamestate
+    ug.pre_initialize(event_manager, empty_name_model_culture="test")
     gamestate.random = ug.r
     gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
@@ -35,7 +48,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
 
     sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name, culture="test")
     sector.sensor_manager = sensors.SensorManager(sector)
-    gamestate.sectors[sector.entity_id] = sector
+    gamestate.add_sector(sector, 0)
 
     return sector
 
@@ -51,19 +64,24 @@ def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, shi
 
 @pytest.fixture
 def testui(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector) -> MonitoringUI:
-    return MonitoringUI(sector, gamestate, generator, interface.AbstractMixer())
+    testui = MonitoringUI(sector, generator, interface.AbstractMixer())
+    testui.gamestate = gamestate
+    return testui
 
 @pytest.fixture
 def econ_logger() -> MonitoringEconDataLogger:
     return MonitoringEconDataLogger()
 
 @pytest.fixture
-def simulator(gamestate:core.Gamestate, testui:MonitoringUI) -> sim.Simulator:
-    simulation = MonitoringSimulator(gamestate, testui)
-    gamestate.min_tick_sleep = np.inf
+def simulator(event_manager:events.EventManager, gamestate:core.Gamestate, generator:generate.UniverseGenerator, testui:MonitoringUI) -> sim.Simulator:
+    simulation = MonitoringSimulator(generator, testui)
+    simulation.min_tick_sleep = np.inf
     #testui.min_ui_timeout = -np.inf
+    testui.runtime = simulation
 
-    simulation.initialize()
-    gamestate.start_game()
+    simulation.pre_initialize()
+
+    simulation.initialize_gamestate(gamestate)
+    simulation.start_game()
 
     return simulation

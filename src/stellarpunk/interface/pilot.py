@@ -9,13 +9,13 @@ import curses
 import enum
 import collections
 import uuid
-from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping, Set
+from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection, Dict, MutableMapping, Set, Type
 
 import numpy as np
 import cymunk # type: ignore
 
 from stellarpunk import core, interface, util, orders, config
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
 from stellarpunk.orders import steering, movement, collision
@@ -32,14 +32,18 @@ TRANSLATE_DIRECTIONS = {
 class Settings:
     MAX_ANGULAR_VELOCITY = 2. # about 115 degrees per second
 
+
 class LambdaOrderObserver(core.OrderObserver):
     def __init__(
         self,
         lifetime_collection:Set,
+        *args:Any,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
         cancel: Optional[Callable[[core.Order], None]] = None,
+        **kwargs:Any
     ):
+        super().__init__(*args, **kwargs)
         # we must handle at least one event
         assert begin or complete or cancel
 
@@ -53,6 +57,10 @@ class LambdaOrderObserver(core.OrderObserver):
         # one event, we go away
         lifetime_collection.add(self)
         self.lifetime_collection = lifetime_collection
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
 
     def order_begin(self, order: core.Order) -> None:
         if self.begin:
@@ -76,9 +84,13 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
     the player at any time relinquishes control.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    @classmethod
+    def create_player_control_order[T:"PlayerControlOrder"](cls:Type[T], dt:float, *args: Any, **kwargs: Any) -> T:
+        return cls.create_abstract_steering_order(*args, dt, **kwargs)
 
+    def __init__(self, dt:float, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.dt = dt
         self.has_thrust_command = False
         self.has_torque_command = False
 
@@ -89,7 +101,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         # 
         r_v, theta_v = util.cartesian_to_polar(*(self.ship.velocity))
         r_h, theta_h = util.cartesian_to_polar(force[0], force[1])
-        r_h = r_h / self.ship.mass * self.gamestate.dt
+        r_h = r_h / self.ship.mass * self.dt
         expected_speed = np.sqrt(r_v**2 + r_h**2 + 2 * r_v * r_h * np.cos(theta_h - theta_v))
 
         if expected_speed > self.ship.max_speed():
@@ -120,7 +132,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             if r_desired <= 0.:
                 return (0., 0.)
 
-            r_desired = np.clip(r_desired * self.ship.mass / self.gamestate.dt, 0., max_thrust)
+            r_desired = np.clip(r_desired * self.ship.mass / self.dt, 0., max_thrust)
             return util.polar_to_cartesian(r_desired, theta_h)
         else:
             return force
@@ -130,15 +142,16 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         # max_angular_velocity
         # w = w_0 + torque * dt
 
-        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * self.gamestate.dt
+        expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * self.dt
         if abs(expected_w) > max_angular_velocity:
             if expected_w < 0:
-                return (-max_angular_velocity - self.ship.phys.angular_velocity)/self.gamestate.dt*self.ship.moment
+                return (-max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment
             else:
-                return (max_angular_velocity - self.ship.phys.angular_velocity)/self.gamestate.dt*self.ship.moment
+                return (max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment
         return torque
 
     def act(self, dt:float) -> None:
+        self.dt = dt
         # if the player is controlling, do nothing and wait until next tick
         if self.has_thrust_command:
             self.has_thrust_command = False
@@ -188,7 +201,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             return
         #TODO: handle continuous force/torque
         period = collision.accelerate_to(
-                self.ship.phys, cymunk.Vec2d(0,0), self.gamestate.dt,
+                self.ship.phys, cymunk.Vec2d(0,0), self.dt,
                 self.ship.max_speed(), self.ship.max_torque,
                 self.ship.max_thrust, self.ship.max_fine_thrust,
                 self.ship.sensor_settings)
@@ -235,7 +248,7 @@ class MouseState(enum.Enum):
     EMPTY = enum.auto()
     GOTO = enum.auto()
 
-class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
+class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interface.GameView):
     """ Piloting mode: direct command of a ship. """
 
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any) -> None:
@@ -301,9 +314,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         return observer
 
 
-    def open_station_view(self, dock_station: core.Station) -> None:
+    def open_station_view(self, dock_station: sector_entity.Station) -> None:
         # TODO: make sure we're within docking range?
-        station_view = v_station.StationView(dock_station, self.ship, self.interface)
+        station_view = v_station.StationView(dock_station, self.ship, self.gamestate, self.interface)
         self.interface.open_view(station_view, deactivate_views=True)
 
     def command_list(self) -> Collection[interface.CommandBinding]:
@@ -341,72 +354,72 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def order_jump(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for jump")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.TRAVEL_GATE:
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.TravelGate):
                 raise command_input.UserError("target is not identified as a travel gate")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the travel gate")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, core.TravelGate)
+            assert isinstance(selected_entity, sector_entity.TravelGate)
             order = orders.TravelThroughGate(selected_entity, self.ship, self.gamestate)
-            self.ship.clear_orders(self.gamestate)
+            self.ship.clear_orders()
             self.ship.prepend_order(order)
 
         def order_mine(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for mining")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.ASTEROID:
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Asteroid):
                 raise command_input.UserError("target is not identified as an asteroid")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the asteroid")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, core.Asteroid)
-            order = orders.MineOrder(selected_entity, math.inf, self.ship, self.gamestate)
-            self.ship.clear_orders(self.gamestate)
+            assert isinstance(selected_entity, sector_entity.Asteroid)
+            order = orders.MineOrder.create_mine_order(selected_entity, math.inf, self.ship, self.gamestate)
+            self.ship.clear_orders()
             self.ship.prepend_order(order)
 
         def order_dock(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target for docking")
-            if not self.presenter.selected_target_image.identified or self.presenter.selected_target_image.identity.object_type != core.ObjectType.STATION:
+            if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
                 raise command_input.UserError("target is not identified as a station")
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the station")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, core.Station)
-            order = orders.DockingOrder(selected_entity, self.ship, self.gamestate)
+            assert isinstance(selected_entity, sector_entity.Station)
+            order = orders.DockingOrder.create_docking_order(selected_entity, self.ship, self.gamestate)
             dock_station = selected_entity
 
             def complete_docking(order: core.Order) -> None:
                 self.open_station_view(dock_station)
 
             order.observe(self.make_order_observer(complete=complete_docking))
-            self.ship.clear_orders(self.gamestate)
+            self.ship.clear_orders()
             self.ship.prepend_order(order)
 
         def order_pursue(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target")
-            order = movement.PursueOrder(self.presenter.selected_target_image, self.ship, self.gamestate)
-            self.ship.clear_orders(self.gamestate)
+            order = movement.PursueOrder.create_pursue_order(self.presenter.selected_target_image, self.ship, self.gamestate)
+            self.ship.clear_orders()
             self.ship.prepend_order(order)
 
         def order_evade(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target")
 
-            order = movement.EvadeOrder(self.presenter.selected_target_image, self.ship, self.gamestate)
-            self.ship.clear_orders(self.gamestate)
+            order = movement.EvadeOrder.create_evade_order(self.presenter.selected_target_image, self.ship, self.gamestate)
+            self.ship.clear_orders()
             self.ship.prepend_order(order)
 
         def order_attack(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
                 raise command_input.UserError("no target")
 
-            order = combat.AttackOrder(self.presenter.selected_target_image, self.ship, self.gamestate)
-            self.ship.clear_orders(self.gamestate)
+            order = combat.AttackOrder.create_attack_order(self.presenter.selected_target_image, self.ship, self.gamestate)
+            self.ship.clear_orders()
             self.ship.prepend_order(order)
 
         def log_cargo(args:Sequence[str]) -> None:
@@ -451,7 +464,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         def toggle_point_defense(args:Sequence[str]) -> None:
             assert self.ship.sector
             if self.point_defense is None:
-                self.point_defense = combat.PointDefenseEffect(self.ship, self.ship.sector, self.gamestate)
+                self.point_defense = combat.PointDefenseEffect.create_point_defense_effect(self.ship, self.ship.sector, self.gamestate)
                 self.ship.sector.add_effect(self.point_defense)
             else:
                 self.point_defense.cancel_effect()
@@ -478,7 +491,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         return [
             self.bind_command("orders", show_orders),
-            self.bind_command("clear_orders", lambda x: self.ship.clear_orders(self.gamestate)),
+            self.bind_command("clear_orders", lambda x: self.ship.clear_orders()),
             self.bind_command("target", target_entity, util.tab_completer(detected_short_ids)),
             self.bind_command("jump", order_jump),
             self.bind_command("mine", order_mine),
@@ -505,14 +518,20 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
         else:
             self.presenter.selected_target = target.identity.entity_id
 
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         if entity != self.ship:
             raise ValueError(f'got unexpected entity in migration {entity} migrating {from_sector} to {to_sector}')
         if from_sector != self.sector:
             raise ValueError(f'got unexpected from sector in migration {entity} migrating {from_sector} to {to_sector}')
 
+        assert(self.interface.player.character and isinstance(self.interface.player.character.location, core.Ship))
         self.interface.swap_view(
-                PilotView(self.gamestate.player.character.location, self.interface),
+                PilotView(self.interface.player.character.location, self.gamestate, self.interface),
                 self
         )
 
@@ -546,9 +565,10 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             assert self.control_order is None
         else:
             self.logger.info("entering player control")
-            self.ship.clear_orders(self.gamestate)
+            self.ship.clear_orders()
 
-            control_order = PlayerControlOrder(
+            control_order = PlayerControlOrder.create_player_control_order(
+                self.interface.runtime.get_dt(),
                 self.ship,
                 self.gamestate,
                 observer=self.make_order_observer(
@@ -608,7 +628,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
             r_x = self.perspective.meters_per_char[0]
             r_y = self.perspective.meters_per_char[1]
-            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if x.identity.object_type != core.ObjectType.PROJECTILE), None)
+            hit = next((x for x in self.presenter.sensor_image_manager.spatial_query((sector_x-r_x, sector_y-r_y, sector_x+r_x, sector_y+r_y)) if not issubclass(x.identity.object_type, sector_entity.Projectile)), None)
             if hit:
                 #TODO: check if the hit is close enough
                 self._select_target(hit)
@@ -617,9 +637,9 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             if self.control_order:
                 self._toggle_player_control()
 
-            self.ship.clear_orders(self.gamestate)
+            self.ship.clear_orders()
 
-            goto_order = movement.GoToLocation(np.array((sector_x, sector_y)), self.ship, self.gamestate, arrival_distance=5e2)
+            goto_order = movement.GoToLocation.create_go_to_location(np.array((sector_x, sector_y)), self.ship, self.gamestate, arrival_distance=5e2)
             self.ship.prepend_order(goto_order)
 
             self.mouse_state = MouseState.EMPTY
@@ -635,7 +655,7 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
             raise ValueError("ship must be in a sector to select a target")
 
         potential_targets = sorted(
-            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and x.identity.object_type != core.ObjectType.PROJECTILE),
+            (x for x in self.presenter.sensor_image_manager.spatial_point(self.ship.loc) if x.identity.entity_id != self.ship.entity_id and not issubclass(x.identity.object_type, sector_entity.Projectile)),
             key=lambda x: util.distance(self.ship.loc, x.loc)
         )
 
@@ -880,20 +900,20 @@ class PilotView(interface.View, interface.PerspectiveObserver, core.SectorEntity
 
         status_y += 9
 
-        if self.presenter.selected_target_image.identified and self.presenter.selected_target_image.identity.object_type == core.ObjectType.STATION:
+        if self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
             #TODO: how do we get the product type?
             entity_id = self.presenter.selected_target_image.identity.entity_id
             if entity_id in self.sector.entities:
                 selected_entity = self.sector.entities[entity_id]
-                assert isinstance(selected_entity, core.Station)
+                assert isinstance(selected_entity, sector_entity.Station)
                 assert selected_entity.resource is not None
                 label_product = "product:"
                 self.viewscreen.addstr(status_y, status_x, f'{label_product:>12} {ui_util.product_name(self.gamestate.production_chain, selected_entity.resource, 20)}')
-        elif self.presenter.selected_target_image.identified and self.presenter.selected_target_image.identity.object_type == core.ObjectType.ASTEROID:
+        elif self.presenter.selected_target_image.identified and issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Asteroid):
             entity_id = self.presenter.selected_target_image.identity.entity_id
             if entity_id in self.sector.entities:
                 selected_entity = self.sector.entities[entity_id]
-                assert isinstance(selected_entity, core.Asteroid)
+                assert isinstance(selected_entity, sector_entity.Asteroid)
                 #TODO: how do we get the resource type?
                 assert selected_entity.resource is not None
                 label_ore = "ore:"

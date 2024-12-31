@@ -15,9 +15,10 @@ import drawille # type: ignore
 import numpy as np
 
 from stellarpunk import util, core, interface, orders, effects, config
+from stellarpunk.core import sector_entity
 from stellarpunk.interface import command_input, starfield, presenter, pilot as pilot_interface
 
-class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntityObserver):
+class SectorView(interface.PerspectiveObserver, core.SectorEntityObserver, interface.GameView):
     """ Sector mode: interacting with the sector map.
 
     Draw the contents of the sector: ships, stations, asteroids, etc.
@@ -103,7 +104,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
                 #TODO: display queued orders?
                 #for order in list(entity.orders)[1:]:
                 #    self.interface.log_message(f'queued: {order}')
-            elif isinstance(entity, core.TravelGate):
+            elif isinstance(entity, sector_entity.TravelGate):
                 self.interface.log_message(f'{entity.short_id()}: {entity.name} direction: {entity.direction}')
             else:
                 self.interface.log_message(f'{entity.short_id()}: {entity.name}')
@@ -113,6 +114,11 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
 
         if focus:
             self.focus_target()
+
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self.selected_entity:
@@ -125,7 +131,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
             self.select_target(None, None)
 
     def _compute_grid(self, max_ticks:int=10) -> None:
-        self._cached_grid = util.compute_uigrid(self.perspective.bbox, *self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
+        self._cached_grid = util.compute_uigrid(self.perspective.bbox, self.perspective.meters_per_char, bounds=self.viewscreen_bounds, max_ticks=max_ticks)
 
     def draw_grid(self) -> None:
         """ Draws a grid at tick lines. """
@@ -228,7 +234,7 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
         self._draw_character_info()
 
     def open_pilot_view(self, ship:core.Ship) -> pilot_interface.PilotView:
-        self.pilot_view = pilot_interface.PilotView(ship, self.interface)
+        self.pilot_view = pilot_interface.PilotView(ship, self.gamestate, self.interface)
         self.interface.close_view(self)
         self.interface.open_view(self.pilot_view)
         return self.pilot_view
@@ -263,15 +269,15 @@ class SectorView(interface.View, interface.PerspectiveObserver, core.SectorEntit
                     x,y = int(args[0]), int(args[1])
                 except Exception:
                     raise command_input.UserError("need two int args for x,y pos")
-            self.selected_entity.clear_orders(self.gamestate)
-            order = orders.GoToLocation(np.array((x,y)), self.selected_entity, self.gamestate)
+            self.selected_entity.clear_orders()
+            order = orders.GoToLocation.create_go_to_location(np.array((x,y)), self.selected_entity, self.gamestate)
             self.selected_entity.prepend_order(order)
 
         def wait(args:Sequence[str])->None:
             if not self.selected_entity or not isinstance(self.selected_entity, core.Ship):
                 raise command_input.UserError(f'order only valid on a ship target')
-            self.selected_entity.clear_orders(self.gamestate)
-            order = orders.WaitOrder(self.selected_entity, self.gamestate)
+            self.selected_entity.clear_orders()
+            order = orders.WaitOrder.create_wait_order(self.selected_entity, self.gamestate)
             self.selected_entity.prepend_order(order)
 
         def debug_entity(args:Sequence[str])->None: self.debug_entity = not self.debug_entity

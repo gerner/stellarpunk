@@ -1,5 +1,8 @@
 # Stellarpunk config file
 
+#TODO: 30 seconds seems far too short
+AUTOSAVE_PERIOD_SEC = 30.0
+
 [help]
     [help.interface.InterfaceManager]
         [help.interface.InterfaceManager.commands]
@@ -275,7 +278,8 @@
             MASS = 2e5
             RADIUS = 300
             MAX_SENSOR_POWER = 0
-            SENSOR_INTERCEPT = 1e100
+            # large value still expressible in a 32 bit float
+            SENSOR_INTERCEPT = 1e38
         [generate.SectorEntities.station]
             MASS = 2e5
             RADIUS = 300
@@ -384,7 +388,8 @@
             MAX_FINE_THRUST = 0.0
             MAX_TORQUE = 0.0
             MAX_SENSOR_POWER = 0.0
-            SENSOR_INTERCEPT = 1e100
+            # very large but still expressible in 32 bits
+            SENSOR_INTERCEPT = 1e38
 
 [sensors]
     # these are tuned so a stationary, passive ship under normal sector

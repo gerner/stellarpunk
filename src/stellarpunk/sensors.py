@@ -1,38 +1,46 @@
 """ Sensor handling stuff, limiting what's visible and adding in ghosts. """
 
-from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 import uuid
 import logging
+import weakref
+from collections.abc import Collection
+from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 
 import rtree.index
 import numpy.typing as npt
 import numpy as np
 
 from stellarpunk import core, config, util
+from stellarpunk.core import sector_entity
 
 logger = logging.getLogger(__name__)
 
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
-class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
-    def __init__(self, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:"SensorManager", identity:Optional[core.SensorIdentity]=None) -> None:
-        self._sensor_manager = sensor_manager
-        self._ship:Optional[core.SectorEntity] = ship
-        self._detector_entity_id = ship.entity_id
-        self._detector_short_id = ship.short_id()
-        self._target:Optional[core.SectorEntity] = target
+class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
+    @classmethod
+    def create_sensor_image(cls, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:core.AbstractSensorManager, identity:Optional[core.SensorIdentity]=None) -> "SensorImage":
+        if identity is None:
+            assert(target)
+            identity = core.SensorIdentity(target)
+        image = SensorImage(identity)
+        image.set_sensor_manager(sensor_manager)
+        image._target = target
+        image._ship = ship
+        image._detector_id = ship.entity_id
         if target:
-            if identity is None:
-                self._identity = core.SensorIdentity(target)
-            else:
-                self._identity = identity
-            target.observe(self)
-        else:
-            if identity is None:
-                raise ValueError("must provide a sensor identity if no target is given")
-            self._identity = identity
-        ship.observe(self)
+            target.observe(image)
+        ship.observe(image)
+        return image
+
+    def __init__(self, identity:core.SensorIdentity, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._identity = identity
+        self._sensor_manager:core.AbstractSensorManager = None # type: ignore
+        self._ship:core.SectorEntity = None # type: ignore
+        self._detector_id:uuid.UUID = None # type: ignore
+        self._target:Optional[core.SectorEntity] = None
         self._last_update = 0.
         self._prior_fidelity = 1.0
         self._last_profile = 0.
@@ -51,10 +59,15 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         self._identified = False
 
     def __str__(self) -> str:
-        return f'{self._identity.short_id} detected by {self._detector_short_id} {self.age}s old'
+        return f'{self._identity.short_id} detected by {self._ship or self._detector_id} {self.age}s old'
 
     def __hash__(self) -> int:
-        return hash((self._identity.entity_id, self._detector_entity_id))
+        return hash((self._identity.entity_id, self._detector_id))
+
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self._detector_id
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity == self._target:
@@ -63,14 +76,14 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
                 self._is_active = False
                 self._inactive_reason = core.SensorImageInactiveReason.DESTROYED
             self._target = None
-            if self._ship:
-                self._ship.unobserve(self)
         elif entity == self._ship:
             if self._target:
                 self._target.unobserve(self)
                 self._target = None
             self._ship.unobserve(self)
-            self._ship = None
+            self._ship.sensor_settings.unregister_image(self)
+            # we drop our _ship reference to let it get cleaned up
+            self._ship = None # type: ignore
         else:
             raise ValueError(f'got entity_destroyed for unexpected entity {entity}')
 
@@ -83,19 +96,19 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
             self._target.unobserve(self)
             self._target = None
         elif entity == self._ship:
+            # this sensor image is invalid if the detector migrates
             if self._target:
                 self._target.unobserve(self)
                 self._target = None
             self._ship.unobserve(self)
-            self._ship = None
+            self._ship.sensor_settings.unregister_image(self)
+            self._ship = None # type: ignore
         else:
             raise ValueError(f'got entity_migrated for unexpected entity {entity}')
 
-    @property
-    def detector_entity_id(self) -> uuid.UUID:
-        return self._detector_entity_id
-    def detector_short_id(self) -> str:
-        return self._detector_short_id
+
+    def set_sensor_manager(self, sensor_manager:core.AbstractSensorManager) -> None:
+        self._sensor_manager = sensor_manager
 
     @property
     def age(self) -> float:
@@ -103,7 +116,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def loc(self) -> npt.NDArray[np.float64]:
-        assert self._ship
         if self._ship.sensor_settings.ignore_bias:
             return (self._loc) + (self._velocity) * (core.Gamestate.gamestate.timestamp - self._last_update)
         else:
@@ -115,7 +127,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def fidelity(self) -> float:
-        assert self._ship
         return self.profile / self._sensor_manager.compute_effective_threshold(self._ship)
 
     @property
@@ -128,7 +139,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
     @property
     def velocity(self) -> npt.NDArray[np.float64]:
-        assert self._ship
         if self._ship.sensor_settings.ignore_bias:
             return self._velocity
         else:
@@ -151,9 +161,6 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
     @property
     def inactive_reason(self) -> core.SensorImageInactiveReason:
         return self._inactive_reason
-
-    def is_detector_active(self) -> bool:
-        return self._ship is not None
 
     def initialize(self) -> None:
         self._initialize_bias()
@@ -180,7 +187,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         assert self._target
         assert self._ship
 
-        if self._target.object_type == core.ObjectType.PROJECTILE:
+        if isinstance(self._target, sector_entity.Projectile):
             self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
             return
 
@@ -242,8 +249,11 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
 
         This does not reset state, but future updates will be with respect to
         the new detector. """
+        if detector.sensor_settings.has_image(self.identity.entity_id):
+            return detector.sensor_settings.get_image(self.identity.entity_id)
+
         identity = self._identity
-        image = SensorImage(self._target, detector, self._sensor_manager, identity=self._identity)
+        image = SensorImage.create_sensor_image(self._target, detector, self._sensor_manager, identity=self._identity)
         image._last_update = self._last_update
         image._last_profile = self._last_profile
         image._loc = self._loc
@@ -254,6 +264,7 @@ class SensorImage(core.AbstractSensorImage, core.SectorEntityObserver):
         image._loc_bias = self._loc_bias
         image._velocity_bias = self._velocity_bias
         image._last_bias_update_ts = self._last_bias_update_ts
+        detector.sensor_settings.register_image(image)
 
         assert image._ship
 
@@ -277,6 +288,20 @@ class SensorSettings(core.AbstractSensorSettings):
         self._thrust_seconds = 0.
 
         self._ignore_bias = False
+
+        self._images:weakref.WeakValueDictionary[uuid.UUID, core.AbstractSensorImage] = weakref.WeakValueDictionary()
+
+    def register_image(self, image:core.AbstractSensorImage) -> None:
+        self._images[image.identity.entity_id] = image
+    def unregister_image(self, image:core.AbstractSensorImage) -> None:
+        del self._images[image.identity.entity_id]
+    def has_image(self, target_id:uuid.UUID) -> bool:
+        return target_id in self._images
+    def get_image(self, target_id:uuid.UUID) -> core.AbstractSensorImage:
+        return self._images[target_id]
+    @property
+    def images(self) -> Collection[core.AbstractSensorImage]:
+        return list(self._images.values())
 
     @property
     def max_sensor_power(self) -> float:
@@ -394,10 +419,16 @@ class SensorManager(core.AbstractSensorManager):
     def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):
             raise ValueError(f'{detector} cannot detect {target}')
-        image = SensorImage(target, detector, self)
-        image.initialize()
-        image.update(notify_target=notify_target)
-        return image
+        if detector.sensor_settings.has_image(target.entity_id):
+            image = detector.sensor_settings.get_image(target.entity_id)
+            image.update(notify_target=notify_target)
+            return image
+        else:
+            image = SensorImage.create_sensor_image(target, detector, self)
+            image.initialize()
+            image.update(notify_target=notify_target)
+            detector.sensor_settings.register_image(image)
+            return image
 
     def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
         # range to detect passive targets

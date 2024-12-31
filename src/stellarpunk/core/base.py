@@ -3,22 +3,75 @@
 No dependencies on other parts of the datamodel
 """
 
+import io
 import enum
 import abc
 import uuid
 import itertools
 import logging
-from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, TYPE_CHECKING
+import collections
+import weakref
+from collections.abc import Iterable
+from typing import Optional, Tuple, List, Sequence, Dict, Any, Collection, Union, Type
 
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import narrative, util
-
-if TYPE_CHECKING:
-    from .character import Character
+from stellarpunk import narrative, util, _version
 
 logger = logging.getLogger(__name__)
+
+def stellarpunk_version() -> str:
+    return _version.version
+
+OBSERVER_ID_NULL = uuid.UUID(hex="deadbeefdeadbeefdeadbeefdeadbeef")
+class Observer(abc.ABC):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._observings:weakref.WeakSet[Observable] = weakref.WeakSet()
+
+    @property
+    @abc.abstractmethod
+    def observer_id(self) -> uuid.UUID: ...
+
+    @property
+    def observings(self) -> Iterable["Observable"]:
+        return self._observings
+
+    def mark_observing(self, observed:"Observable") -> None:
+        self._observings.add(observed)
+
+    def unmark_observing(self, observed:"Observable") -> None:
+        self._observings.remove(observed)
+
+class Observable[T:Observer](abc.ABC):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._observers:weakref.WeakSet[T] = weakref.WeakSet()
+
+    @property
+    @abc.abstractmethod
+    def observable_id(self) -> uuid.UUID: ...
+
+    @property
+    def observers(self) -> Iterable[T]:
+        return self._observers
+
+    def observe(self, observer:T) -> None:
+        self._observers.add(observer)
+        observer.mark_observing(self)
+
+    def unobserve(self, observer:T) -> None:
+        # allow double unobserve calls. this might happen because, e.g.
+        # Entity.destroy removes observers and the caller might then have
+        # further cleanup that removes the observer
+        if observer in self._observers:
+            self._observers.remove(observer)
+            observer.unmark_observing(self)
+
+    def clear_observers(self) -> None:
+        for observer in self._observers.copy():
+            self.unobserve(observer)
 
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod
@@ -26,13 +79,17 @@ class EntityRegistry(abc.ABC):
 
     @abc.abstractmethod
     def unregister_entity(self, entity: "Entity") -> None: ...
+    @abc.abstractmethod
+    def contains_entity(self, entity_id:uuid.UUID) -> bool: ...
+    @abc.abstractmethod
+    def get_entity[T:"Entity"](self, entity_id:uuid.UUID, klass:Type[T]) -> "Entity": ...
 
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
     def __init__(self, entity_registry: EntityRegistry, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
-        self._entity_id_short_int = int.from_bytes(self.entity_id.bytes[0:8], byteorder='big')
+        self._entity_id_short_int = util.uuid_to_u64(self.entity_id)
 
         if name is None:
             name = f'{self.__class__} {str(self.entity_id)}'
@@ -62,33 +119,28 @@ class Entity(abc.ABC):
         return f'{self.short_id()}'
 
 
-class Asset(Entity):
-    """ An abc for classes that are assets ownable by characters. """
-    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
-        # forward arguments onward, so implementing classes should inherit us
-        # first
-        super().__init__(*args, **kwargs)
-        self.owner = owner
-
-
 class Sprite:
     """ A "sprite" from a text file that can be drawn in text """
 
     @staticmethod
-    def load_sprites(data:str, sprite_size:Tuple[int, int]) -> List["Sprite"]:
+    def load_sprites(data:str, sprite_size:Tuple[int, int], sprite_namespace:str) -> List["Sprite"]:
         sprites = []
         sheet = data.split("\n")
         offset_limit = (len(sheet[0])//sprite_size[0], len(sheet)//sprite_size[1])
+        sprite_count = 0
         for offset_x, offset_y in itertools.product(range(offset_limit[0]), range(offset_limit[1])):
             sprites.append(Sprite(
+                f'{sprite_namespace}.{sprite_count}',
                 [
                     x[offset_x*sprite_size[0]:offset_x*sprite_size[0]+sprite_size[0]] for x in sheet[offset_y*sprite_size[1]:offset_y*sprite_size[1]+sprite_size[1]]
                 ]
             ))
+            sprite_count += 1
 
         return sprites
 
-    def __init__(self, text:Sequence[str], attr:Optional[Dict[Tuple[int,int], Tuple[int, int]]]=None) -> None:
+    def __init__(self, sprite_id:str, text:Sequence[str], attr:Optional[Dict[Tuple[int,int], Tuple[int, int]]]=None) -> None:
+        self.sprite_id = sprite_id
         self.text = text
         self.attr = attr or {}
         self.height = len(text)
@@ -184,3 +236,55 @@ class StarfieldLayer:
         self.num_stars += 1
         self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
 
+class AbstractOrder(abc.ABC):
+    def __init__(self, order_id:Optional[uuid.UUID]=None) -> None:
+        if order_id:
+            self.order_id = order_id
+        else:
+            self.order_id = uuid.uuid4()
+
+        self.parent_order:Optional[AbstractOrder] = None
+        self.child_orders:collections.deque[AbstractOrder] = collections.deque()
+
+    @abc.abstractmethod
+    def to_history(self) -> dict: ...
+    @abc.abstractmethod
+    def estimate_eta(self) -> float: ...
+    @abc.abstractmethod
+    def begin_order(self) -> None: ...
+    @abc.abstractmethod
+    def cancel_order(self) -> None: ...
+    @abc.abstractmethod
+    def is_complete(self) -> bool: ...
+    @abc.abstractmethod
+    def pause(self) -> None: ...
+    @abc.abstractmethod
+    def resume(self) -> None: ...
+    @abc.abstractmethod
+    def register(self) -> None: ...
+    @abc.abstractmethod
+    def unregister(self) -> None: ...
+    @abc.abstractmethod
+    def base_act(self, dt:float) -> None: ...
+    @abc.abstractmethod
+    def sanity_check(self, order_id:uuid.UUID) -> None: ...
+
+class AbstractEffect(abc.ABC):
+    def __init__(self, effect_id:Optional[uuid.UUID]=None) -> None:
+        if effect_id:
+            self.effect_id=effect_id
+        else:
+            self.effect_id = uuid.uuid4()
+
+    @abc.abstractmethod
+    def act(self, dt:float) -> None: ...
+    @abc.abstractmethod
+    def sanity_check(self, effect_id:uuid.UUID) -> None: ...
+    @abc.abstractmethod
+    def register(self) -> None: ...
+    @abc.abstractmethod
+    def unregister(self) -> None: ...
+    @abc.abstractmethod
+    def begin_effect(self) -> None: ...
+    @abc.abstractmethod
+    def bbox(self) -> Tuple[float, float, float, float]: ...

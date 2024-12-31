@@ -6,13 +6,15 @@ import pytest
 import numpy as np
 import numpy.testing as nptest
 
-from stellarpunk import econ_sim, core, generate, serialization
+from stellarpunk import econ_sim, core, generate
+from stellarpunk.serialization import serialize_econ_sim
 
 @pytest.fixture
 def sim() -> econ_sim.EconomySimulation:
     s = econ_sim.EconomySimulation(econ_sim.EconomyDataLogger(enabled=False))
     gamestate = core.Gamestate()
-    generator = generate.UniverseGenerator(gamestate)
+    generator = generate.UniverseGenerator()
+    generator.gamestate = gamestate
     gamestate.production_chain = generator.generate_chain(
             n_ranks=1,
             min_per_rank=(2,),
@@ -28,13 +30,13 @@ def test_tick_matrix_serialiation() -> None:
     m2 = np.eye(3)+2.
 
     bio = io.BytesIO()
-    writer = serialization.TickMatrixWriter(bio)
+    writer = serialize_econ_sim.TickMatrixWriter(bio)
     writer.write(1, m1)
     writer.write(2, m2)
     bio.flush()
     bio.seek(0)
 
-    reader = serialization.TickMatrixReader(bio)
+    reader = serialize_econ_sim.TickMatrixReader(bio)
 
     ret1 = reader.read()
     assert ret1 is not None
@@ -52,7 +54,7 @@ def test_tick_matrix_serialiation() -> None:
     assert ret3 is None
 
     bio.seek(0)
-    df = serialization.read_tick_log_to_df(bio, index_name="foo_index", column_names=["A", "B", "C"])
+    df = serialize_econ_sim.read_tick_log_to_df(bio, index_name="foo_index", column_names=["A", "B", "C"])
     assert df.shape[0] == 3*2
     assert df.shape[1] == 3
 

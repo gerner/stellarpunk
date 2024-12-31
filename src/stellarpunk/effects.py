@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Tuple
+import uuid
+from typing import Any, Tuple, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -12,16 +13,31 @@ from stellarpunk import core, econ, util, events
 AMOUNT_EPS = 0.5
 TRANSFER_PERIOD = 1.0
 
-class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
-    def __init__(
-            self,
+class TransferCargoEffect(core.SectorEntityObserver, core.Effect):
+    @classmethod
+    def create_transfer_cargo_effect[T:TransferCargoEffect](
+            cls:Type[T],
             resource:int, amount:float,
             source:core.SectorEntity,
             destination:core.SectorEntity,
             *args: Any,
+            **kwargs: Any) -> T:
+        effect = cls.create_effect(*args, resource, amount, **kwargs)
+        effect.source = source
+        effect.destination = destination
+        effect.source.observe(effect)
+        effect.destination.observe(effect)
+        return effect
+
+    def __init__(
+            self,
+            resource:int, amount:float,
+            *args: Any,
             transfer_rate:float=1e2, max_distance:float=2.5e3,
             **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self.source:core.SectorEntity = None # type: ignore
+        self.destination:core.SectorEntity = None # type: ignore
         self.resource = resource
         self.amount = amount
         self.sofar = 0.
@@ -30,10 +46,10 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
 
         self._completed_transfer = False
 
-        self.source = source
-        self.source.observe(self)
-        self.destination = destination
-        self.destination.observe(self)
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.effect_id
 
     def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         self.cancel_effect()
@@ -65,7 +81,7 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
         max_x, max_y = np.max(locs, axis=0)
         return (min_x, max_y, max_x, min_y)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self._completed_transfer
 
     def act(self, dt:float) -> None:
@@ -119,11 +135,17 @@ class TransferCargoEffect(core.Effect, core.SectorEntityObserver):
         self.destination.cargo[self.resource] += amount
 
 class TradeTransferEffect(TransferCargoEffect):
-    #TODO: do we want to log trading somewhere?
-    def __init__(self, buyer:core.EconAgent, seller:core.EconAgent, current_price:econ.PriceFn, *args:Any, floor_price:float=0., ceiling_price:float=np.inf, **kwargs:Any) -> None:
+    @classmethod
+    def create_trade_transfer_effect[T:"TradeTransferEffect"](cls:Type[T], buyer:core.EconAgent, seller:core.EconAgent, current_price:econ.PriceFn, *args:Any, **kwargs:Any) -> T:
+        effect = cls.create_transfer_cargo_effect(*args, current_price, **kwargs)
+        effect.buyer = buyer
+        effect.seller = seller
+        return effect
+
+    def __init__(self, current_price:econ.PriceFn, *args:Any, floor_price:float=0., ceiling_price:float=np.inf, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.buyer = buyer
-        self.seller = seller
+        self.buyer:core.EconAgent = None # type: ignore
+        self.seller:core.EconAgent = None # type: ignore
         self.floor_price = floor_price
         self.ceiling_price = ceiling_price
         self.current_price = current_price
@@ -169,20 +191,23 @@ class MiningEffect(TransferCargoEffect):
     #TODO: do we want to log mining somewhere?
     def _deliver(self, amount: float) -> None:
         super()._deliver(amount)
-        if self.destination.captain is not None:
+        if isinstance(self.destination, core.CrewedSectorEntity) and self.destination.captain is not None:
             self.gamestate.trigger_event(
                 [self.destination.captain],
-                events.Events.MINED,
+                self.gamestate.event_manager.e(events.Events.MINED),
                 {
-                    events.ContextKeys.TARGET: self.source.short_id_int(),
-                    events.ContextKeys.RESOURCE: self.resource,
-                    events.ContextKeys.AMOUNT: int(amount),
-                    events.ContextKeys.AMOUNT_ON_HAND: int(self.destination.cargo[self.resource]),
+                    self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.source.short_id_int(),
+                    self.gamestate.event_manager.ck(events.ContextKeys.RESOURCE): self.resource,
+                    self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT): int(amount),
+                    self.gamestate.event_manager.ck(events.ContextKeys.AMOUNT_ON_HAND): int(self.destination.cargo[self.resource]),
                 },
             )
 
 
 class WarpOutEffect(core.Effect):
+    @classmethod
+    def create_warp_out_effect[T:"WarpOutEffect"](cls:Type[T], loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> T:
+        return cls.create_effect(*args, loc, **kwargs)
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.loc = loc
@@ -192,17 +217,20 @@ class WarpOutEffect(core.Effect):
 
     def _begin(self) -> None:
         self.expiration_time = self.gamestate.timestamp + self.ttl
-        self.gamestate.schedule_effect(self.expiration_time + self.gamestate.desired_dt, self)
+        self.gamestate.schedule_effect_immediate(self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         ll = self.loc - self.radius
         ur = self.loc + self.radius
         return (ll[0], ll[1], ur[0], ur[1])
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.gamestate.timestamp >= self.expiration_time
 
 class WarpInEffect(core.Effect):
+    @classmethod
+    def create_warp_in_effect[T:"WarpInEffect"](cls:Type[T], loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> T:
+        return cls.create_effect(*args, loc, **kwargs)
     def __init__(self, loc:npt.NDArray[np.float64], *args:Any, radius:float=1e4, ttl:float=2., **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.loc = loc
@@ -212,13 +240,13 @@ class WarpInEffect(core.Effect):
 
     def _begin(self) -> None:
         self.expiration_time = self.gamestate.timestamp + self.ttl
-        self.gamestate.schedule_effect(self.expiration_time + self.gamestate.desired_dt, self)
+        self.gamestate.schedule_effect_immediate(self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         ll = self.loc - self.radius
         ur = self.loc + self.radius
         return (ll[0], ll[1], ur[0], ur[1])
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.gamestate.timestamp >= self.expiration_time
 

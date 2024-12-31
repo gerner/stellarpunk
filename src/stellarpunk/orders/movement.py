@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Optional, Any, Union, Tuple
 import math
+from typing import Optional, Any, Union, Tuple, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -15,10 +15,14 @@ from .steering import ANGLE_EPS, VELOCITY_EPS, ZERO_VECTOR, CYZERO_VECTOR, Abstr
 from stellarpunk.orders import collision
 
 class KillRotationOrder(core.Order):
+    @classmethod
+    def create_kill_rotation_order[T:"KillRotationOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        return cls.create_order(*args, **kwargs)
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.ship.angular_velocity == 0
 
     def act(self, dt: float) -> None:
@@ -38,11 +42,15 @@ class KillRotationOrder(core.Order):
             self.gamestate.schedule_order_immediate(self)
 
 class RotateOrder(AbstractSteeringOrder):
+    @classmethod
+    def create_rotate_order[T:"RotateOrder"](cls:Type[T], target_angle: float, *args: Any, **kwargs: Any) -> T:
+        return cls.create_abstract_steering_order(*args, target_angle, **kwargs)
+
     def __init__(self, target_angle: float, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.target_angle = util.normalize_angle(target_angle)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.ship.angular_velocity == 0 and util.isclose(util.normalize_angle(self.ship.angle), self.target_angle)
 
     def act(self, dt: float) -> None:
@@ -70,10 +78,14 @@ class KillVelocityOrder(AbstractSteeringOrder):
             ship.phys.force != CYZERO_VECTOR
         )
 
+    @classmethod
+    def create_kill_velocity_order[T:"KillVelocityOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        return cls.create_abstract_steering_order(*args, **kwargs)
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return not KillVelocityOrder.in_motion(self.ship)
 
     def act(self, dt: float) -> None:
@@ -140,7 +152,7 @@ class GoToLocation(AbstractSteeringOrder):
         if empty_arrival and tries >= max_tries:
             raise GoToLocation.NoEmptyArrivalError()
 
-        return GoToLocation(
+        return GoToLocation.create_go_to_location(
                 target_loc, ship, gamestate,
                 arrival_distance=target_arrival_distance,
                 min_distance=0.,
@@ -180,13 +192,33 @@ class GoToLocation(AbstractSteeringOrder):
         assert rotate_away >= 0.
 
         return rotate_towards + accelerate_up + rotate_away + cruise + accelerate_down
+    @classmethod
+    def create_go_to_location[T:"GoToLocation"](cls:Type[T], 
+            target_location: npt.NDArray[np.float64],
+            *args: Any,
+            arrival_distance: float=1.5e3,
+            min_distance:Optional[float]=None,
+            target_sector: Optional[core.Sector]=None,
+            **kwargs: Any) -> T:
+        o = cls.create_abstract_steering_order(*args, target_location, arrival_distance=arrival_distance, min_distance=min_distance, **kwargs)
+        if target_sector is None:
+            if o.ship.sector is None:
+                raise ValueError(f'no target sector provided and ship {o.ship} is not in any sector')
+            target_sector = o.ship.sector
+
+        o.target_sector = target_sector
+
+        o.neighbor_analyzer.set_location_params(
+                o._target_location, o.arrival_distance, o.min_distance
+        )
+
+        return o
 
     def __init__(self,
             target_location: npt.NDArray[np.float64],
             *args: Any,
             arrival_distance: float=1.5e3,
             min_distance:Optional[float]=None,
-            target_sector: Optional[core.Sector]=None,
             **kwargs: Any) -> None:
         """ Creates an order to go to a specific location.
 
@@ -199,12 +231,7 @@ class GoToLocation(AbstractSteeringOrder):
         """
 
         super().__init__(*args, **kwargs)
-        if target_sector is None:
-            if self.ship.sector is None:
-                raise ValueError(f'no target sector provided and ship {self.ship} is not in any sector')
-            target_sector = self.ship.sector
-
-        self.target_sector = target_sector
+        self.target_sector:core.Sector = None # type: ignore
         self._target_location = cymunk.Vec2d(*target_location)
 
         self.target_v = CYZERO_VECTOR
@@ -212,10 +239,6 @@ class GoToLocation(AbstractSteeringOrder):
         if min_distance is None:
             min_distance = self.arrival_distance * 0.9
         self.min_distance = min_distance
-
-        self.neighbor_analyzer.set_location_params(
-                self._target_location, arrival_distance, min_distance
-        )
 
         self.cannot_stop = False
 
@@ -226,6 +249,10 @@ class GoToLocation(AbstractSteeringOrder):
         # the next time we should do a costly computation of desired velocity
         self._next_compute_ts = 0.
         self._nts = 0.
+
+    @property
+    def target_location(self) -> npt.NDArray[np.float64]:
+        return np.array(self._target_location)
 
     def set_target_location(self, target_location:cymunk.Vec2d) -> None:
         """ For testing support """
@@ -253,7 +280,7 @@ class GoToLocation(AbstractSteeringOrder):
     def estimate_eta(self) -> float:
         return GoToLocation.compute_eta(self.ship, np.array(self._target_location), self.safety_factor)
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         # computing this is expensive, so don't if we can avoid it
         if self.distance_estimate > self.arrival_distance*5:
             return False
@@ -271,6 +298,7 @@ class GoToLocation(AbstractSteeringOrder):
         self.init_eta = self.estimate_eta()
 
     def act(self, dt: float) -> None:
+        self.gamestate.breakpoint()
         # make sure we're in the right sector
         if self.ship.sector != self.target_sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_sector}')
@@ -375,11 +403,24 @@ class GoToLocation(AbstractSteeringOrder):
 
         return
 
-class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
-    def __init__(self, target_image:core.AbstractSensorImage, *args: Any, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> None:
+class EvadeOrder(AbstractSteeringOrder):
+    @classmethod
+    def create_evade_order[T:"EvadeOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args: Any, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> T:
+        o = cls.create_abstract_steering_order(*args, escape_distance=escape_distance, **kwargs)
+        assert o.ship.sector
+        o.target = target_image
+        if max_thrust:
+            o.max_thrust = max(0.0, min(max_thrust, o.ship.max_thrust))
+            o.max_fine_thrust = max(0.0, min(max_thrust, o.ship.max_fine_thrust))
+        else:
+            o.max_thrust = o.ship.max_thrust
+            o.max_fine_thrust = o.ship.max_fine_thrust
+
+        return o
+
+    def __init__(self, *args: Any, escape_distance:float=np.inf, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        assert self.ship.sector
-        self.target = target_image
+        self.target:core.AbstractSensorImage = None # type: ignore
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -393,12 +434,8 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         #self.last_est_tv = 0.
 
         self.escape_distance = escape_distance
-        if max_thrust:
-            self.max_thrust = max(0.0, min(max_thrust, self.ship.max_thrust))
-            self.max_fine_thrust = max(0.0, min(max_thrust, self.ship.max_fine_thrust))
-        else:
-            self.max_thrust = self.ship.max_thrust
-            self.max_fine_thrust = self.ship.max_fine_thrust
+        self.max_thrust = 0.0
+        self.max_fine_thrust = 0.0
 
     def __str__(self) -> str:
         return f'Evade: {self.target.identity.short_id} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
@@ -408,7 +445,7 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     #    self.est_tv_volume = self.gamestate.dt
     #    self.last_est_tv = self.gamestate.timestamp
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         # TODO: when do we stop evading?
         return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) > self.escape_distance or not self.target.is_active()
 
@@ -478,13 +515,33 @@ class EvadeOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
         self.gamestate.schedule_order(next_ts, self)
 
-class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
+class PursueOrder(AbstractSteeringOrder):
     """ Steer toward a collision with the target """
-    def __init__(self, target_image:core.AbstractSensorImage, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        assert self.ship.sector
+    @classmethod
+    def create_pursue_order[T:"PursueOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> T:
+        o = cls.create_abstract_steering_order(*args, **kwargs, arrival_distance=arrival_distance, avoid_collisions=avoid_collisions)
+        assert o.ship.sector
+        o.target = target_image
+        if max_speed:
+            o.max_speed = max_speed
+        else:
+            o.max_speed = o.ship.max_speed()
+        if max_thrust:
+            o.max_thrust = max_thrust
+            o.max_fine_thrust = min(max_thrust, o.ship.max_fine_thrust)
+        else:
+            o.max_thrust = o.ship.max_thrust
+            o.max_fine_thrust = o.ship.max_fine_thrust
+        if final_speed:
+            o.final_speed = final_speed
+        else:
+            o.final_speed = o.max_thrust / o.ship.mass * 0.5
+        return o
 
-        self.target = target_image
+    def __init__(self, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.target:core.AbstractSensorImage = None # type: ignore
 
         self.intercept_location = np.array((0.0, 0.0))
         self.intercept_time = 0.0
@@ -492,22 +549,10 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         self.arrival_distance = arrival_distance
 
         self.avoid_collisions=avoid_collisions
-        if max_speed:
-            self.max_speed = max_speed
-        else:
-            self.max_speed = self.ship.max_speed()
-
-        if max_thrust:
-            self.max_thrust = max_thrust
-            self.max_fine_thrust = min(max_thrust, self.ship.max_fine_thrust)
-        else:
-            self.max_thrust = self.ship.max_thrust
-            self.max_fine_thrust = self.ship.max_fine_thrust
-
-        if final_speed:
-            self.final_speed = final_speed
-        else:
-            self.final_speed = self.max_thrust / self.ship.mass * 0.5
+        self.max_speed = 0.0
+        self.max_thrust = 0.0
+        self.max_fine_thrust = 0.0
+        self.final_speed = 0.0
 
     def __str__(self) -> str:
         return f'PursueOrder: {self.target.identity.short_id} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
@@ -515,7 +560,7 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
     def estimate_eta(self) -> float:
         return self.intercept_time
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         return self.completed_at > 0 or float(np.linalg.norm(self.target.loc - self.ship.loc)) < self.arrival_distance or not self.target.is_active()
 
     def act(self, dt:float) -> None:
@@ -571,11 +616,15 @@ class PursueOrder(AbstractSteeringOrder, core.SectorEntityObserver):
         self.gamestate.schedule_order(next_ts, self)
 
 class WaitOrder(AbstractSteeringOrder):
+    @classmethod
+    def create_wait_order[T:"WaitOrder"](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        return cls.create_abstract_steering_order(*args, **kwargs)
+
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.wait_wakeup_period = 10.
 
-    def is_complete(self) -> bool:
+    def _is_complete(self) -> bool:
         # wait forever
         return False
 

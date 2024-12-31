@@ -2,16 +2,22 @@
 
 import abc
 import logging
+import enum
 import uuid
 import weakref
-from typing import Optional, Any, MutableSequence, Set, List, Dict, TYPE_CHECKING
+from typing import Optional, Any, Union, Type
+from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
 
 from stellarpunk import util, dialog
-from .base import Entity, Sprite, EconAgent, Asset
-from .sector_entity import SectorEntity
+from . import base, sector
 
-if TYPE_CHECKING:
-    from .gamestate import Gamestate
+class Asset(base.Entity):
+    """ An abc for classes that are assets ownable by characters. """
+    def __init__(self, *args:Any, owner:Optional["Character"]=None, **kwargs:Any) -> None:
+        # forward arguments onward, so implementing classes should inherit us
+        # first
+        super().__init__(*args, **kwargs)
+        self.owner = owner
 
 
 class AgendumLoggerAdapter(logging.LoggerAdapter):
@@ -22,30 +28,36 @@ class AgendumLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
         return f'{self.character.address_str()} {msg}', kwargs
 
-class CharacterObserver(abc.ABC):
-    def message_received(self, character: "Character", message: "Message") -> None:
-        pass
-
-    def character_destroyed(self, character: "Character") -> None:
-        pass
-
-class Agendum(CharacterObserver):
+class AbstractAgendum(abc.ABC):
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """
 
-    def __init__(self, character:"Character", gamestate:"Gamestate") -> None:
+    @classmethod
+    def create_agendum[T:AbstractAgendum](cls:Type[T], character:"Character", *args:Any, **kwargs:Any) -> T:
+        kwargs.update({"_check_flag":True})
+        agendum = cls(*args, **kwargs)
+        agendum.initialize_agendum(character)
+        return agendum
+
+    def __init__(self, agenda_id:Optional[uuid.UUID]=None, _check_flag:bool=False) -> None:
+        assert(_check_flag is True)
+        if agenda_id:
+            assert(isinstance(agenda_id, uuid.UUID))
+            self.agenda_id = agenda_id
+        else:
+            self.agenda_id = uuid.uuid4()
+        self.character:Character = None # type: ignore
+        self.logger:AgendumLoggerAdapter = None # type: ignore
+
+    def initialize_agendum(self, character:"Character") -> None:
         self.character = character
-        self.character.observe(self)
-        self.gamestate = gamestate
         self.logger = AgendumLoggerAdapter(
                 self.character,
                 logging.getLogger(util.fullname(self)),
         )
 
-        logging.getLogger(util.fullname(self))
-
-    def character_destroyed(self, character:"Character") -> None:
-        self.stop()
+    def sanity_check(self) -> None:
+        assert(self in self.character.agenda)
 
     def _start(self) -> None:
         pass
@@ -65,14 +77,17 @@ class Agendum(CharacterObserver):
     def unpause(self) -> None:
         self._unpause()
 
-    def pause(self) -> None:
-        self._pause()
-        self.gamestate.unschedule_agendum(self)
+    @abc.abstractmethod
+    def pause(self) -> None: ...
 
-    def stop(self) -> None:
-        self._stop()
-        self.character.unobserve(self)
-        self.gamestate.unschedule_agendum(self)
+    @abc.abstractmethod
+    def stop(self) -> None: ...
+
+    @abc.abstractmethod
+    def register(self) -> None: ...
+
+    @abc.abstractmethod
+    def unregister(self) -> None: ...
 
     def is_complete(self) -> bool:
         return False
@@ -81,47 +96,46 @@ class Agendum(CharacterObserver):
         """ Lets the character interact. Called when scheduled. """
         pass
 
-class Character(Entity):
+class CharacterObserver(base.Observer, abc.ABC):
+    def character_destroyed(self, character: "Character") -> None:
+        pass
+
+class Character(base.Observable[CharacterObserver], base.Entity):
     id_prefix = "CHR"
-    def __init__(self, sprite:Sprite, location:SectorEntity, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
+    def __init__(self, sprite:base.Sprite, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.portrait:Sprite = sprite
+        self.portrait:base.Sprite = sprite
         #TODO: other character background stuff
 
         #TODO: does location matter?
-        self.location:Optional[SectorEntity] = location
+        self.location:Optional[sector.SectorEntity] = None
 
         # how much money
         self.balance:float = 0.
 
         # owned assets (ships, stations)
         #TODO: are these actually SectorEntity instances? maybe a new co-class (Asset)
-        self.assets:MutableSequence[Asset] = []
+        self.assets:list[Asset] = []
         # activites this character is enaged in (how they interact)
-        self.agenda:MutableSequence[Agendum] = []
-
-        self.observers:weakref.WeakSet[CharacterObserver] = weakref.WeakSet()
+        self.agenda:list[AbstractAgendum] = []
 
         self.home_sector_id = home_sector_id
 
+    # base.Observable
+    @property
+    def observable_id(self) -> uuid.UUID:
+        return self.entity_id
+
+
     def destroy(self) -> None:
         super().destroy()
-        for observer in self.observers.copy():
+        for observer in self._observers.copy():
             observer.character_destroyed(self)
-        self.observers.clear()
+        self.clear_observers()
         for agendum in self.agenda:
             agendum.stop()
         self.location = None
-
-    def observe(self, observer:CharacterObserver) -> None:
-        self.observers.add(observer)
-
-    def unobserve(self, observer:CharacterObserver) -> None:
-        try:
-            self.observers.remove(observer)
-        except KeyError:
-            pass
 
     def address_str(self) -> str:
         if self.location is None:
@@ -133,20 +147,49 @@ class Character(Entity):
         self.assets.append(asset)
         asset.owner = self
 
-    def add_agendum(self, agendum:Agendum, start:bool=True) -> None:
+    def add_agendum(self, agendum:AbstractAgendum, start:bool=True) -> None:
+        agendum.register()
         self.agenda.append(agendum)
         if start:
             agendum.start()
 
-    def send_message(self, message: "Message") -> None:
-        for observer in self.observers:
-            observer.message_received(self, message)
+    def remove_agendum(self, agendum:AbstractAgendum) -> None:
+        self.agenda.remove(agendum)
+        agendum.unregister()
+
+class AbstractEventManager:
+    def e(self, event_id: enum.IntEnum) -> int:
+        raise NotImplementedError()
+    def ck(self, context_key: enum.IntEnum) -> int:
+        raise NotImplementedError()
+    def f(self, flag:str) -> int:
+        raise NotImplementedError()
+    def trigger_event(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: Mapping[int,int],
+        event_args: dict[str, Union[int,float,str,bool]],
+    ) -> None:
+        raise NotImplementedError()
+
+    def trigger_event_immediate(
+        self,
+        characters: Iterable[Character],
+        event_type: int,
+        context: Mapping[int,int],
+        event_args: dict[str, Union[int,float,str,bool]],
+    ) -> None:
+        raise NotImplementedError()
+
+    def tick(self) -> None:
+        raise NotImplementedError()
 
 
-class Message(Entity):
+class Message(base.Entity):
     id_prefix = "MSG"
 
-    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:"Character", *args:Any, reply_dialog:Optional[dialog.DialogGraph]=None, **kwargs:Any) -> None:
+    def __init__(self, message_id:int, subject:str, message:str, timestamp:float, reply_to:uuid.UUID, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.message_id = message_id
@@ -155,33 +198,31 @@ class Message(Entity):
         self.timestamp = timestamp
 
         self.reply_to = reply_to
-        self.reply_dialog = reply_dialog
         self.replied_at:Optional[float] = None
 
 
-class Player(Entity, CharacterObserver):
+class Player(base.Entity):
     id_prefix = "PLR"
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         # which character the player controls
-        self._character:Character = None # type: ignore[assignment]
-        self.agent:EconAgent = None # type: ignore[assignment]
+        self._character:Optional[Character] = None # type: ignore[assignment]
+        self.agent:base.EconAgent = None # type: ignore[assignment]
 
-        self.messages:Dict[uuid.UUID, Message] = {}
+        self.messages:dict[uuid.UUID, Message] = {}
 
-    def get_character(self) -> Character:
+    @property
+    def character(self) -> Optional[Character]:
         return self._character
 
-    def set_character(self, character:Character) -> None:
-        if self._character:
-            self._character.unobserve(self)
-
+    @character.setter
+    def character(self, character:Optional[Character]) -> None:
         self._character = character
-        self._character.observe(self)
 
-    character = property(get_character, set_character, doc="which character this player plays as")
+class CrewedSectorEntity(sector.SectorEntity):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.captain: Optional["Character"] = None
 
-    def message_received(self, character:Character, message:Message) -> None:
-        self.messages[message.entity_id] = message

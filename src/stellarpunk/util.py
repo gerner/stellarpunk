@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 import math
 import bisect
@@ -10,6 +11,8 @@ import pdb
 import curses
 import re
 import collections
+import uuid
+import types
 from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection
 
 import numpy as np
@@ -28,11 +31,16 @@ def fullname(o:Any) -> str:
     # Alas, the module name is explicitly excluded from __qualname__
     # in Python 3.
 
-    module = o.__class__.__module__
-    if module is None or module == str.__class__.__module__:
-        return o.__class__.__qualname__  # Avoid reporting __builtin__
+    if isinstance(o, type) or isinstance(o, types.FunctionType):
+        klass = o
     else:
-        return module + '.' + o.__class__.__qualname__
+        klass = o.__class__
+
+    module = klass.__module__
+    if module is None or module == str.__class__.__module__:
+        return klass.__qualname__  # Avoid reporting __builtin__
+    else:
+        return module + '.' + klass.__qualname__
 
 def throttled_log(timestamp:float, throttle:float, logger:logging.Logger, level:int, message:str, limit:float) -> float:
     if timestamp > throttle:
@@ -131,6 +139,10 @@ def human_timespan(timespan_sec:float) -> str:
     else:
         return f'{timespan_sec*1000*1000:0.2}us'
 
+def uuid_to_u64(u:uuid.UUID) -> int:
+    """ maps a uuid to an unsigned 64 bit integer. not reverseable """
+    return int.from_bytes(u.bytes[0:8], byteorder='big')
+
 def sector_to_drawille(
         sector_loc_x:float, sector_loc_y:float,
         meters_per_char_x:float, meters_per_char_y:float) -> Tuple[int, int]:
@@ -220,6 +232,15 @@ def isclose(a:float, b:float) -> bool:
     return abs(a-b) <= (1e-08 + 1e-05 * abs(b))
 
 @jit(cache=True, nopython=True, fastmath=True)
+def inf_nan_isclose(a:float, b:float) -> bool:
+    if math.isnan(a):
+        return math.isnan(b)
+    if math.isinf(a):
+        return math.isinf(b) and a == b
+    else:
+        return isclose(a, b)
+
+@jit(cache=True, nopython=True, fastmath=True)
 def isclose_flex(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     # numba gets confused with default parameters sometimes, so we have this
     # "overload"
@@ -228,6 +249,11 @@ def isclose_flex(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
 @jit(cache=True, nopython=True, fastmath=True)
 def both_almost_zero(v:npt.NDArray[np.float64]) -> bool:
     return isclose(v[0], 0.) and isclose(v[1], 0.)
+
+@jit(cache=True, nopython=True, fastmath=True)
+def both_isclose(a:npt.NDArray[np.float64], b:npt.NDArray[np.float64]) -> bool:
+    return isclose(a[0], b[0]) and isclose(a[1], b[1])
+
 
 def pyisclose(a:float, b:float, rtol:float=1e-05, atol:float=1e-08) -> bool:
     return np.abs(a-b) <= (atol + rtol * np.abs(b))
@@ -480,13 +506,14 @@ def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
 
 def compute_uigrid(
         bbox:Tuple[float, float, float, float],
-        meters_per_char_x:float, meters_per_char_y:float,
+        meters_per_char:tuple[float, float],
         bounds:Tuple[int, int, int, int],
         max_ticks:int=10,
     ) ->  Tuple[NiceScale, NiceScale, NiceScale, NiceScale, Mapping[Tuple[int, int], str]]:
     """ Materializes a grid, in text, that fits in a bounding box.
 
     returns a tuple of major/minor x/y tics and the grid itself in text. """
+    meters_per_char_x, meters_per_char_y = meters_per_char
 
     # choose ticks
 

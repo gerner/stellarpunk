@@ -20,7 +20,7 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     ship_owner = generator.spawn_character(ship)
     ship_owner.take_ownership(ship)
     ship.captain = ship_owner
-    mining_agendum = agenda.MiningAgendum(ship, ship_owner, gamestate)
+    mining_agendum = agenda.MiningAgendum.create_mining_agendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
 
     station_owner = generator.spawn_character(station)
@@ -85,7 +85,7 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     ship_owner = generator.spawn_character(ship)
     ship_owner.take_ownership(ship)
     ship.captain = ship_owner
-    mining_agendum = agenda.MiningAgendum(ship, ship_owner, gamestate)
+    mining_agendum = agenda.MiningAgendum.create_mining_agendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
 
     station_owner = generator.spawn_character(station, balance=1.5 * 5e2 * price + price/2)
@@ -151,7 +151,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     ship_owner = generator.spawn_character(ship, balance=initial_balance)
     ship_owner.take_ownership(ship)
     ship.captain = ship_owner
-    trading_agendum = agenda.TradingAgendum(ship=ship, character=ship_owner, gamestate=gamestate)
+    trading_agendum = agenda.TradingAgendum.create_trading_agendum(ship, ship_owner, gamestate)
     trading_agendum.max_trips=2
     trader_agent = trading_agendum.agent
     ship_owner.add_agendum(trading_agendum)
@@ -161,7 +161,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     producer_owner = generator.spawn_character(station_producer, balance=producer_initial_balance)
     producer_owner.take_ownership(station_producer)
     station_producer.captain = producer_owner
-    producer_agendum = agenda.StationManager(station=station_producer, character=producer_owner, gamestate=gamestate)
+    producer_agendum = agenda.StationManager.create_station_manager(station_producer, producer_owner, gamestate)
     producer_owner.add_agendum(producer_agendum)
     producer_agent = gamestate.econ_agents[station_producer.entity_id]
 
@@ -174,7 +174,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     consumer_owner = generator.spawn_character(station_consumer, balance=consumer_initial_balance)
     consumer_owner.take_ownership(station_consumer)
     station_consumer.captain = consumer_owner
-    consumer_agendum = agenda.StationManager(station=station_consumer, character=consumer_owner, gamestate=gamestate)
+    consumer_agendum = agenda.StationManager.create_station_manager(station_consumer, consumer_owner, gamestate)
     consumer_owner.add_agendum(consumer_agendum)
     consumer_agent = gamestate.econ_agents[station_consumer.entity_id]
 

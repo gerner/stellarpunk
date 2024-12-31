@@ -156,3 +156,4 @@ production_chain
 production_chain.pdf
 .vimrc
 /data/
+/src/stellarpunk/_version.py
