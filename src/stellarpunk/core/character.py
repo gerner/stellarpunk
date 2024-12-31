@@ -28,6 +28,7 @@ class AgendumLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg:str, kwargs:Any) -> tuple[str, Any]:
         return f'{self.character.address_str()} {msg}', kwargs
 
+#TODO: should effects be entities? perhaps some kind of scheduled or action entity
 class AbstractAgendum(abc.ABC):
     """ Represents an activity a Character is engaged in and how they can
     interact with the world. """

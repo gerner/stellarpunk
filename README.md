@@ -8,8 +8,8 @@ development.
 Three sets of mechanics form the core of the gameplay:
 
 * Spaceflight
-* Trading,
-* Characters Dynamics
+* Trading, production chain, economy
+* Characters dynamics
 
 Spaceflight includes transportation, navigation, sensing, combat and the
 physics and mechanics to support those things. The space sim gameplay includes
@@ -57,10 +57,10 @@ accumulate power.
 - [x] mining
 - [x] cargo transport and cargo transportation
 - [x] basic player flight controls
-- [ ] player can mine and trade
+- [x] player can mine and trade
 - [ ] docking experience
-- [ ] basic combat (think submarines or "bazookas and flashlights")
-- [ ] sensor/intel system
+- [x] basic combat (think submarines or "bazookas and flashlights")
+- [x] sensor
 - [ ] different kinds of ships?
 
 ### Player Mining/Trading
@@ -75,21 +75,35 @@ accumulate power.
 
 ### Intel System
 
-Intel manager keeps track of known points of interest (stations, asteroid
-clusters, entire sectors in a universe context, etc.), prices (which might be
-out of date), inventories (stations and asteroids)
+- [ ] data model for intel, knowing POIs, knowing prices
+- [ ] intel integrated into sensors for identification and physical params
+- [ ] intel lifecycle: created and added to a character's knowledge, expires or
+      somehow goes away
+- [ ] buying/selling intel
+- [ ] intel is available in intel forums
+- [ ] agenda for gathering and distributing intel
+- [ ] intel used by miners and traders
+- [ ] intel manager interface for player to see intel
+
+## News System
+
+- [ ] events can be recorded creating news items
+- [ ] stories are created from news items for the player to read
+- [ ] news is available in news forums
+- [ ] news interface for managing and reading stories
 
 ### Station Experience
 
-- [ ] buy/sell goods
+- [x] buy/sell goods
 - [ ] meet other characters (sense of activitiy, content/interaction opp)
 - [ ] trigger for events (on docking, on leave, maybe other actions)
 
 ### Combat
 
-- [ ] basic sensors
-- [ ] basic weapons and damage model
-- [ ] combat AI
+- [x] basic sensors
+- [x] basic weapons
+- [ ] damage model
+- [x] combat AI
 - [ ] what does losing combat mean?
 
 ## Trading
@@ -105,18 +119,22 @@ out of date), inventories (stations and asteroids)
 - [ ] agents deciding to exit a market and enter a new one
 - [x] optimize price setting to maximize profit
 - [x] figuring out roughly correct scales for number of each producer
-- [ ] adding/removing agents
+- [x] adding/removing agents
 
 ## Character Dynamics
 
 - [x] character framework hooked into each ships, stations, etc.
+- [ ] characters have jobs
+- [ ] lots of characters including those that aren't ship/station operators
 - [ ] basic character relationship framework
 - [ ] basic/short-term missions and employment
-- [ ] long-term subordinate/employment system, including independent balance and depdendent budget
+- [ ] long-term subordinate/employment system, including independent balance
+      and depdendent budget
 - [ ] basic background, attributes/traits, overall goals
 - [ ] character motivation/agenda setting/AI
 - [ ] factions/political organizations
-- [ ] experiment with character death and taking over some other character (including suggesting a character to take over)
+- [ ] experiment with character death and taking over some other character
+      (including suggesting a character to take over)
 
 ## Other Stuff
 

@@ -236,6 +236,7 @@ class StarfieldLayer:
         self.num_stars += 1
         self.density = self.num_stars / ((self.bbox[2]-self.bbox[0])*(self.bbox[3]-self.bbox[1]))
 
+#TODO: should orders be entities? perhaps some kind of scheduled or action entity
 class AbstractOrder(abc.ABC):
     def __init__(self, order_id:Optional[uuid.UUID]=None) -> None:
         if order_id:
@@ -269,6 +270,7 @@ class AbstractOrder(abc.ABC):
     @abc.abstractmethod
     def sanity_check(self, order_id:uuid.UUID) -> None: ...
 
+#TODO: should effects be entities? perhaps some kind of scheduled or action entity
 class AbstractEffect(abc.ABC):
     def __init__(self, effect_id:Optional[uuid.UUID]=None) -> None:
         if effect_id:

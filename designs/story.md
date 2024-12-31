@@ -1,4 +1,54 @@
-# Content Ideas
+Stellarpunk
+===========
+
+The goal of Stellarpunk is to have emergent stories and to string together your
+own story as you play some character. The universe is alive around you with
+characters living their own lives: mining, trading, managing a station or
+habitat, running a pirate gang, killing pirates for bounty as a mercenary,
+policing a sector to keep violence down between gangs and mercenaries, etc.
+
+Whenever there's an interaction, you should ask, "who else is involved?" or
+"who's behind this and why are they involved?" Having a real answer to these
+questions is what makes the universe alive.
+
+The "story" of Stellarpunk is emergent from the economic and interpersonal
+conditions in the game.
+
+# Aesthetic and Lore
+
+## A Traumatic History and A Present of Survival
+
+The universe as the player might experience it is disconnected from what we
+might naturally expect for future development. No one is running around in the
+sunshine living in a tech utopia. Something, or more likely many things,
+happened in the past that made all of that impossible. Maybe society
+experienced a singularity and now all that's left is those that were left
+behind in some kind of waste-land galaxy. Maybe super intelligent AIs ran amok,
+destroying infrastructure before escaping to some unknown space. Maybe disease,
+polution and resource over-extraction left the rich home worlds as
+uninhabitable slag heaps. Maybe technology simply never progressed beyond
+modulated digital signals on noisy analog communication channels.
+
+Regardless of why, humanity as we know it and might interact with now exists on
+habitats, scraping by on recycled air, water and hand-me-down equipment and
+parts. A few brave souls live outside the habs on utilitarian starships and
+stations gathering resources and producing goods to support those back home.
+Those that have little to no sense of societal responsibilities prey on those
+that do. Or they seek to maximize profit to support some sense of luxury on the
+backs of everyone else.
+
+All of that given, people still seek pleasure and relaxation. And of course
+society provides those things in limited amounts. Media exists, whether that's
+news and information, or written, visual and video art and entertainment. Food,
+drink and familiar physical pleasures all exist too. Many of these are
+commodities that need to be transported, produced on one hab for export to
+another.
+
+Every character in the game exists in this universe. They are largely absorbed
+with the task of simple survival. They may seek to eke out some kind of
+improved circumstances by whatever means are available. The vast majority of
+the population is poor and subject to harsh employment by a limited upper
+class.
 
 ## Modempunk
 
@@ -9,6 +59,92 @@ wealthy/powerful folks can do it, but most people rely on lo-fi communication
 that might be very out of date.
 
 This helps to explain why getting price information is so tricky.
+
+## Jobs, Careers, Occupations
+
+Core production chain economy:
+These are things that directly impact the production chain economy. These
+already (as of 2024-12-31) have logic in the game.
+* Miner: paid by employer or by selling goods
+* Trader: paid by employer or by selling goods
+* Station Manager: paid by employer or by selling goods
+
+Other Jobs supporting the economy or just adding flavor:
+* Explorer: gathers and distributes economic information (e.g. prices), simply
+  travels between stations and to other sectors. That information is valuable
+  to other characters (traders, miners, station managers) who pay the explorer.
+* Pirate: attack ships for cargo (stations?). paid by selling stolen cargo to
+  stations.
+* Mercenary: attack known pirates for bounty. paid by bounty offered by some
+  other character.
+* Law Enforcement Officer (LEO): intervene in conflicts in civilized areas.
+  Attack the instigator of violence, and/or come to defense of characters
+  according to some criteria (relationship, organizational membership, etc.
+  Paid for by government / pseudo government "org".
+* Courier: carry information, other characters, non-production-chain items from
+  one place to another. Paid by other characters (passenger, characters that
+  want misc news or misc items)
+* Ship/Station Crew: necessary worker on a ship/station. many flavors of this?
+  Paid by ship captain or ship owner.
+* Hab worker: misc worker on a hab. might travel from one place to another on
+  misc business. many flavors of this. Paid by government / pseudo government
+  "org"
+
+Ideas:
+* Explorers collect asteroid/resource and station locations as well as trade
+  prices. They distribute this information to traders and station managers.
+* Pirates hunt for cargo. If they have cargo they'll try and sell it, with
+  similar profit maximization as traders.Ships drop some portion of their cargo
+  on destruction. Pirates ask traders and miners to drop their cargo (all of
+  it) before attacking (for a smaller
+  payout, and paying the cost of combat). Pirates get a bounty (somehow)
+* Mercenaries have a list of bounties and simply travel around looking to
+  identify a ship on their bounty list and engage in combat. On destruction
+  they get paid (or have to collect the bounty?)
+
+Questions:
+* What are "orgs" here?
+* What do characters personally do with money? Do they need to pay for food,
+  water, air, space to sleep and live? Do they desire for other things they
+  need money to obtain? See below
+* Where does money go? how does it travel through the economy (beyond the
+  production chain) See below
+* Do ship crew have game mechanics?
+
+## Money Flow
+
+Stellarpunk has a production chain with resources and goods which offers a
+concrete way to interact with the economy. Underpinning this economy is a flow
+of money. Trades through the production chain is one way money flows. In this
+case money flows from habs (the ultimate consumers in the production chain) to
+traders and station managers.
+
+Another way money flows is throgh fuel and life support. These are generic
+goods needed by ships and stations to function properly. Habs produce these
+goods and offer them for sale to dedicated fuel and life support traders who
+distribute them to stations for sale to ships. This completes the cycle of
+income.
+
+Habs here are unlimited buffers which can take up any slack in the economy.
+In principle, they can consume an unlimited amount of production goods, produce
+an unlimited amount of fuel and lifesupport goods, and have unlimited money.
+There's no underlying game mechanic limitations on this part of the income
+cycle they way there is on other parts of the production chain where stations
+require raw resources or input goods to produce output goods and money must
+exchange hands to move those resources and goods through the production chain.
+
+Habs can be used to artificailly create interesting game dynamics like
+shortages or surpluses of fuel/life support goods, or drains or injections of
+money into the economy. For instance, all of the habs in one particular sector
+might be unable to produce fuel, creating a need for cross-sector trade. In
+another case the game might create a temporary shortage of money on a
+particular hab, making it unable to buy any production goods until a certain
+amount of fuel or life support goods are purchased. If the economic cycle is
+failing to distribute lifesupport or fuel goods the game can create an
+abundance of low-priced goods in response. These situations can be manipulated
+at habs to create a dynamic and interesting economy.
+
+# Content Ideas
 
 ## "The Lead", Investigative Reporter
 
@@ -67,7 +203,8 @@ circuit that.
 * Set up Mining Agendum (only allowed to mine given resource, sell to refinery)
 * Mine a full load of resources
 * Deliver to station
-* Set up Trading Agendum (only allowed to buy refined good from refinery, sell to any station)
+* Set up Trading Agendum (only allowed to buy refined good from refinery, sell
+  to any station)
 * Pick up refined goods from same station
 * Sell to different station (not owned by the hab)
 * Repeat this process until something happens (level up agenda?)
@@ -92,13 +229,16 @@ controls, navigating to the asteroid, mining the asteroid)...
 Alright, go grab a full load of RESOURCE and dock back here at STATION to drop
 it off.
 
-...MANAGER sends comms after some period of time if they don't return fast enough...
+...MANAGER sends comms after some period of time if they don't return fast
+enough...
 
 ...Player returns with the goods...
 
-Get that ore unloaded and we can get started on the second half of your job: transporting refined materials between stations.
+Get that ore unloaded and we can get started on the second half of your job:
+transporting refined materials between stations.
 
-You got this one covered or should I walk you through it? (Y/N to enter trading tutorial)
+You got this one covered or should I walk you through it? (Y/N to enter trading
+tutorial)
 
 ...Tutorial goes here (finding 
 
