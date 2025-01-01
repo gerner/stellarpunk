@@ -9,8 +9,15 @@ from typing import BinaryIO, Optional, Tuple, Sequence, Any, Callable, Union
 import numpy as np
 import numpy.typing as npt
 import msgpack # type: ignore
-import pandas as pd # type: ignore
-from scipy import sparse # type: ignore
+
+# we don't want to take a dependency on scipy in general
+# the only stuff in this file that needs this is for experimentation
+#TODO: refactor things so we don't need to import this module
+try:
+    import pandas as pd # type: ignore
+    from scipy import sparse # type: ignore
+except ModuleNotFoundError:
+    pass
 
 from stellarpunk import core
 

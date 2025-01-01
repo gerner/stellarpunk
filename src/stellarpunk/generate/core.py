@@ -17,7 +17,6 @@ from typing import Optional, List, Dict, MutableMapping, Mapping, Tuple, Sequenc
 
 import numpy as np
 import numpy.typing as npt
-from scipy.spatial import distance # type: ignore
 import cymunk # type: ignore
 import rtree.index # type: ignore
 import graphviz # type: ignore
@@ -1782,7 +1781,7 @@ class UniverseGenerator(core.AbstractGenerator):
             )
 
         # set up connectivity between sectors
-        distances = distance.squareform(distance.pdist(sector_coords))
+        distances = util.pairwise_distances(sector_coords)#distance.squareform(distance.pdist(sector_coords))
         sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
 
         # index of bboxes for edges

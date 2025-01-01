@@ -13,7 +13,7 @@ toml
 pysdl2
 pysdl2-dll
 cython
-cymunk @ git+https://github.com/gerner/cymunk@a43d9aa
+cymunk @ git+https://github.com/gerner/cymunk@b3020d3
 uroman
 
 # dev dependencies
