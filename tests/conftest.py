@@ -4,7 +4,7 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate, interface, sensors, events
+from stellarpunk import core, sim, generate, interface, sensors, events, intel
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
@@ -27,9 +27,11 @@ def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventMa
 
 @pytest.fixture
 def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> generate.UniverseGenerator:
+    intel_factory = intel.IntelFactory()
+    intel_factory.gamestate = gamestate
     ug = generate.UniverseGenerator(seed=0)
     ug.gamestate = gamestate
-    ug.pre_initialize(event_manager, empty_name_model_culture="test")
+    ug.pre_initialize(event_manager, intel_factory, empty_name_model_culture="test")
     gamestate.random = ug.r
     gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(
@@ -79,7 +81,7 @@ def simulator(event_manager:events.EventManager, gamestate:core.Gamestate, gener
     #testui.min_ui_timeout = -np.inf
     testui.runtime = simulation
 
-    simulation.pre_initialize()
+    simulation.pre_initialize(generator.intel_factory)
 
     simulation.initialize_gamestate(gamestate)
     simulation.start_game()

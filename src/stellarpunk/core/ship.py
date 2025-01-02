@@ -11,7 +11,7 @@ import cymunk # type: ignore
 
 from . import base, sector, character
 
-class Ship(character.CrewedSectorEntity, character.Asset):
+class Ship(character.Asset, character.CrewedSectorEntity):
     DefaultOrderSig:TypeAlias = "Callable[[Ship], base.AbstractOrder]"
 
     id_prefix = "SHP"

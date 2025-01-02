@@ -21,7 +21,7 @@ import cymunk # type: ignore
 import rtree.index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
+from stellarpunk import util, core, orders, agenda, econ, config, events, sensors, intel
 from stellarpunk.core import combat, sector_entity
 from . import markov
 
@@ -643,8 +643,9 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models[culture] = markov.MarkovModel(romanize=False)
 
 
-    def pre_initialize(self, event_manager:events.EventManager, empty_name_model_culture:Optional[str]=None) -> None:
+    def pre_initialize(self, event_manager:events.EventManager, intel_factory:intel.IntelFactory, empty_name_model_culture:Optional[str]=None) -> None:
         self.event_manager = event_manager
+        self.intel_factory = intel_factory
         self._prepare_sprites()
         self._prepare_projectile_spawn_pattern()
 
@@ -991,16 +992,18 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
         assert(self.gamestate)
-
         assert location.sector
-        character = core.Character(
+        intel_manager = intel.IntelManager.create_intel_manager(self.intel_factory, self.gamestate)
+        character = core.Character.create_character(
             self._choose_portrait(),
+            intel_manager,
             self.gamestate,
             name=self._gen_character_name(location.sector.culture),
             home_sector_id=location.sector.entity_id,
         )
         character.location = location
         character.balance = balance
+        intel_manager.owner = character
         self.gamestate.add_character(character)
         return character
 

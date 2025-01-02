@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors
+from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors, intel
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import ui_util, manager as interface_manager
 from stellarpunk.serialization import (
@@ -41,10 +41,11 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
         self.context_stack=context_stack
+        self.intel_factory:intel.IntelFactory = None # type: ignore
         self.generator = generator
         # we create a dummy gamestate immediately, but we get the real one by
         # watching for UniverseGenerator events
-        self.gamestate:core.Gamestate = None #type: ignore
+        self.gamestate:core.Gamestate = None # type: ignore
         self.ui = ui
 
         self.pause_on_collision = False
@@ -196,6 +197,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         self.time_accel_rate = 1.0
         self.fast_mode = False
 
+
         self.gamestate = gamestate
         self.gamestate.game_runtime = self
 
@@ -209,6 +211,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             data_logger = self.context_stack.enter_context(econ_sim.EconomyDataLogger(enabled=True, line_buffering=True, gamestate=self.gamestate))
             self.gamestate.econ_logger = data_logger
             data_logger.begin_simulation()
+
+        self.intel_factory.initialize_gamestate(gamestate)
 
         # can only happen after the universe is initialized
         combat.initialize_gamestate(self.gamestate)
@@ -225,7 +229,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
         self.initialize_gamestate(gamestate)
 
-    def pre_initialize(self) -> None:
+    def pre_initialize(self, intel_factory:intel.IntelFactory) -> None:
+        self.intel_factory = intel_factory
         self.generator.observe(self)
 
     def _tick_space(self, dt: float) -> None:
@@ -472,6 +477,14 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             ticktime = now - starttime
             self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
+def initialize_intel_factory() -> intel.IntelFactory:
+    intel_factory = intel.IntelFactory()
+    intel_factory.add_entity_intel_maker(sector_entity.Asteroid, intel.AsteroidIntelMaker())
+    intel_factory.add_entity_intel_maker(sector_entity.Station, intel.StationIntelMaker())
+    intel_factory.add_entity_intel_maker(core.EconAgent, intel.EconAgentIntelMaker())
+
+    return intel_factory
+
 def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, debug:bool=True) -> save_game.GameSaver:
     sg = save_game.GameSaver(generator, event_manager, debug=debug)
 
@@ -595,9 +608,10 @@ def main() -> None:
 
         generator = generate.UniverseGenerator()
         sg = initialize_save_game(generator, event_manager)
+        intel_factory = initialize_intel_factory()
         ui = context_stack.enter_context(interface_manager.InterfaceManager(generator, sg))
 
-        generator.pre_initialize(event_manager)
+        generator.pre_initialize(event_manager, intel_factory)
 
         ui_util.initialize()
         ui.pre_initialize(event_manager)
@@ -608,7 +622,7 @@ def main() -> None:
         #TODO: should this be tied to the gamestate?
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
         sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, game_saver=sg, context_stack=context_stack)
-        sim.pre_initialize()
+        sim.pre_initialize(intel_factory)
 
         ui.interface.runtime = sim
 

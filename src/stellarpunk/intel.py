@@ -29,7 +29,7 @@ class SectorEntityIntel[T:core.SectorEntity](core.EntityIntel[T]):
 
 class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
     @classmethod
-    def create_asteroid_intel(cls, asteroid:sector_entity.Asteroid, *args:Any, **kwargs:Any) -> AsteroidIntel:
+    def create_asteroid_intel(cls, asteroid:sector_entity.Asteroid, *args:Any, **kwargs:Any) -> "AsteroidIntel":
 
         return cls.create_sector_entity_intel(asteroid, *args, asteroid.resource, asteroid.cargo[asteroid.resource], **kwargs)
 
@@ -40,7 +40,7 @@ class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
 
 class StationIntel(SectorEntityIntel[sector_entity.Station]):
     @classmethod
-    def create_station_intel(cls, station:sector_entity.Station, *args:Any, **kwargs:Any) -> StationIntel:
+    def create_station_intel(cls, station:sector_entity.Station, *args:Any, **kwargs:Any) -> "StationIntel":
         return cls.create_sector_entity_intel(station, *args, **kwargs)
         return StationIntel(station.entity_id, sector_entity.Station, *args, **kwargs)
 
@@ -52,7 +52,7 @@ class StationIntel(SectorEntityIntel[sector_entity.Station]):
 
 class EconAgentIntel(core.EntityIntel[core.EconAgent]):
     @classmethod
-    def create_econ_agent_intel(cls, econ_agent:core.EconAgent, *args:Any, **kwargs:Any) -> EconAgentIntel:
+    def create_econ_agent_intel(cls, econ_agent:core.EconAgent, *args:Any, **kwargs:Any) -> "EconAgentIntel":
         return EconAgentIntel(econ_agent.entity_id, core.EconAgent, *args, **kwargs)
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -62,7 +62,10 @@ class EconAgentIntel(core.EntityIntel[core.EconAgent]):
         #TODO: what amounts for sale and/or what budget for buying
 
 class IntelMaker[T:core.Intel]:
-    def __init__(self, gamestate:core.Gamestate) -> None:
+    def __init__(self) -> None:
+        self.gamestate:core.Gamestate = None # type: ignore
+
+    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate
 
     @property
@@ -95,8 +98,9 @@ class EconAgentIntelMaker(EntityIntelMaker[core.EconAgent, EconAgentIntel]):
         return EconAgentIntel.create_econ_agent_intel(agent, self.gamestate)
 
 class IntelFactory:
-    def __init__(self, gamestate:core.Gamestate) -> None:
-        self.gamestate = gamestate
+    def __init__(self) -> None:
+        # we can't have a gamestate until initialize_gamestate gets called
+        self.gamestate:core.Gamestate = None # type: ignore
 
         # a list of (entity type, entity intel type) representing a mapping
         # this is maintained in sorted order by entity type specificity
@@ -105,6 +109,11 @@ class IntelFactory:
         # this guarantees the most specific intel type is found first
         self._entity_intel_type:collections.deque[tuple[Type[core.Entity], Type[core.EntityIntel]]] = collections.deque()
         self._entity_intel_makers:dict[Type[core.EntityIntel], EntityIntelMaker] = {}
+
+    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
+        for entity_intel_maker in self._entity_intel_makers.values():
+            entity_intel_maker.initialize_gamestate(gamestate)
 
     def add_entity_intel_maker(self, entity_type:Type[core.Entity], intel_maker:EntityIntelMaker) -> None:
 
@@ -134,9 +143,8 @@ class IntelFactory:
 class IntelManager(core.AbstractIntelManager):
     """ Manages known intel and creates intel items for a character. """
     @classmethod
-    def create_intel_manager(cls, owner:core.Character, intel_factory:IntelFactory, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> IntelManager:
+    def create_intel_manager(cls, intel_factory:IntelFactory, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "IntelManager":
         intel_manager = cls(intel_factory, gamestate, *args, **kwargs)
-        intel_manager.owner = owner
         return intel_manager
 
     def __init__(self, intel_factory:IntelFactory, gamestate:core.Gamestate) -> None:
@@ -148,7 +156,8 @@ class IntelManager(core.AbstractIntelManager):
         self._entity_intel:dict[uuid.UUID, uuid.UUID] = {}
 
     def witness_entity(self, entity:core.Entity) -> None:
-        #TODO: check if we already have intel about this entity
+        #TODO: what if we don't have a factory for this entity?
+        # check if we already have intel about this entity
         intel_type = self.intel_factory.get_entity_intel_type(entity)
         entity_intel = self.get_entity_intel(entity.entity_id, intel_type)
         if entity_intel:
