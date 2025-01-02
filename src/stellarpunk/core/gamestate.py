@@ -167,6 +167,7 @@ class Gamestate(EntityRegistry):
         #TODO: how do we keep this up to date?
         # collection of EconAgents, by uuid of the entity they represent
         self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
+        self.agent_to_entity:dict[uuid.UUID, Entity] = {}
 
         self.econ_logger:AbstractEconDataLogger = AbstractEconDataLogger()
 
@@ -234,6 +235,9 @@ class Gamestate(EntityRegistry):
         self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
+
+    def now(self) -> float:
+        return self.timestamp
 
     def register_order(self, order: AbstractOrder) -> None:
         self.orders[order.order_id] = order
@@ -370,10 +374,13 @@ class Gamestate(EntityRegistry):
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
+        self.agent_to_entity[agent.entity_id] = self.entities[entity_id]
 
     def withdraw_agent(self, entity_id:uuid.UUID) -> None:
         try:
             agent = self.econ_agents.pop(entity_id)
+            assert agent.entity_id in self.agent_to_entity
+            del self.agent_to_entity[agent.entity_id]
             self.destroy_entity(agent)
         except KeyError:
             pass

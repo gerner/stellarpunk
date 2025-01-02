@@ -240,6 +240,7 @@ class EntityOperatorAgendum(core.SectorEntityObserver, Agendum):
     def _stop(self) -> None:
         self.craft.unobserve(self)
 
+    # core.SectorEntityObserver
     @property
     def observer_id(self) -> uuid.UUID:
         return self.agenda_id
@@ -291,6 +292,11 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
             for a in self.character.agenda:
                 if isinstance(a, EntityOperatorAgendum):
                     a.unpause()
+
+    # core.SectorEntityObserver
+    def target_identified(self, craft:core.SectorEntity, target:core.SectorEntity, target_image:core.AbstractSensorImage) -> None:
+        # create intel about this sector entity if we don't already have it
+        pass
 
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
         assert craft == self.craft

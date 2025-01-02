@@ -227,9 +227,8 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
                 self._loc = self._target.loc
                 self._velocity = np.array(self._target.velocity)
 
-                if self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
-                    #if not self._identified:
-                    #    logger.debug(f'{self._ship.short_id()} identified {self._target.short_id()} with fidelity={self.fidelity}')
+                if not self._identified and self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
+                    self._ship.identify_target(self._target, self)
                     # once identified, always identified
                     self._identified = True
 

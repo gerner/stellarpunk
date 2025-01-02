@@ -6,7 +6,9 @@ import enum
 import uuid
 import weakref
 from typing import Optional, Any, Union, Type
-from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable
+from collections.abc import Mapping, MutableMapping, MutableSequence, Iterable, Collection
+
+import numpy as np
 
 from stellarpunk import util, dialog
 from . import base, sector
@@ -19,6 +21,37 @@ class Asset(base.Entity):
         super().__init__(*args, **kwargs)
         self.owner = owner
 
+class Intel(base.Entity):
+    def __init__(self, *args:Any, expires_at:float=np.inf, **kwargs:Any):
+        super().__init__(*args, **kwargs)
+        self.expires_at = expires_at
+
+    def is_valid(self) -> bool:
+        return self.expires_at > self.entity_registry.now()
+
+    def is_fresh(self) -> bool:
+        return self.is_valid()
+
+class EntityIntel[T:base.Entity](Intel):
+    def __init__(self, entity_id:uuid.UUID, entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        # we specifically do not retain a reference to the original entity
+        self.intel_entity_type:Type[T] = entity_type
+        self.intel_entity_id = entity_id
+
+class AbstractIntelManager:
+    @abc.abstractmethod
+    def witness_entity(self, entity:base.Entity) -> None: ...
+    @abc.abstractmethod
+    def add_intel(self, intel:"Intel") -> None: ...
+    @abc.abstractmethod
+    def intel[T:Intel](self, cls:Type[T]) -> Collection[T]: ...
+    @abc.abstractmethod
+    def get_entity_intel[T:EntityIntel](self, entity_id:uuid.UUID, cls:Type[T]) -> Optional[T]: ...
+
+    #TODO: some way to ask for asteroids
+    #TODO: some way to ask for buyers (econ agents, or at least some proxy representing our knowledge of the econ agent at that time) and the corresponding locations we can find them at
+    #TODO:
 
 class AgendumLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, character:"Character", *args:Any, **kwargs:Any):
@@ -103,7 +136,14 @@ class CharacterObserver(base.Observer, abc.ABC):
 
 class Character(base.Observable[CharacterObserver], base.Entity):
     id_prefix = "CHR"
-    def __init__(self, sprite:base.Sprite, *args:Any, home_sector_id:uuid.UUID, **kwargs:Any) -> None:
+
+    @classmethod
+    def create_character[T:"Character"](cls:Type[T], sprite:base.Sprite, intel_manager:AbstractIntelManager, *args:Any, **kwargs:Any) -> T:
+        character = cls(sprite, *args, _check_flag=True, **kwargs)
+        character.intel_manager = intel_manager
+        return character
+
+    def __init__(self, sprite:base.Sprite, *args:Any, home_sector_id:uuid.UUID, _check_flag:bool=False, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.portrait:base.Sprite = sprite
@@ -122,6 +162,8 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         self.agenda:list[AbstractAgendum] = []
 
         self.home_sector_id = home_sector_id
+
+        self.intel_manager:AbstractIntelManager = None # type: ignore
 
     # base.Observable
     @property

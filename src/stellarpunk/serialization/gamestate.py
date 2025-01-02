@@ -430,5 +430,5 @@ class NoneEntitySaver(EntitySaver[core.Entity]):
     def _save_entity(self, entity:core.Entity, f:io.IOBase) -> int:
         return 0
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Entity:
-        return core.Entity(load_context.gamestate, entity_id=entity_id)
+        return core.Entity(load_context.gamestate, created_at=0.0, entity_id=entity_id)
 

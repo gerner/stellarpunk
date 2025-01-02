@@ -92,22 +92,65 @@ consume these as intel they can use in their behavior planning.
   a news story about an attack by one ship, captained by a particular Character
   on another ship, captained by a different Character, leading to some piece of
   cargo being left behind in the battle.
+* News is a function of one or more "related" pieces of intel.
+    * For instance, several intels about asteroids that are all within a
+      certain distance could create a story about a rich resource field.
+    * For instance, a sell price much below average, or buy price much above,
+      or a rare resource for sale could create a story about a great trade
+      opportunity. Especially if this is part of a pattern.
+    * A sequence in a short period of time of "combat events" (how is this
+      discovered?) in a sector could create a story about priacy in a sector.
+    * "Claiming a bounty" (how is this discovered?) on a pirate could create a
+      story about a notorious pirate being captured/killed.
+* News is created by Reporters. News items are attributed to the reporter.
+    * News cannot be sold by anyone but the author of the news item.
+    * News can be freely shared by anyone. There's incentive for an
+      organization to do so.
+* News can be distributed by Characters.
+    * A Reporter can sell their story to different news forums that don't
+      already have the news story (do they always buy?)
+    * A Courier for a news network can distribute news from one forum to
+      another (e.g. across sector boundaries)
+* News stories carry the related intel with them. Acquiring the news story gets
+  all the related intel. (this is the value to AI)
+* News forums are connected into news networks. News is not necessarily shared
+  across a news network crossing sector boundaries (sector boundaries are a big
+  deal.)
+* News stories in one news forum in a sector are shared by all related forums
+  in that sector. i.e. instant communication within a sector is possible.
 
 Ideas:
-* News could also be used to distribute information (i.e. Intel).
-* News could be distributed by Characters (i.e. courier)
-* Publicaly (Re)Discovering an asteroid field is a news event
-* Reporter could be an occupation for a Character who gathers news items by
-  observing them and then sharing them with a public forum. The news forum
-  should compensate them.
+* Perhaps every sector has a single news network. Perhaps every
+  social/political org has a single news network. (e.g. different stations
+  owned by different orgs might have different news networks, but all the
+  stations owned by one org have the same news network)
 
 Questions:
-* Are News and Intel the same thing?
+* Are News and Intel the same thing? No: a news story is related to zero or
+  more pieces of intel and is generally a function of intel. But they are
+  separate
 * What is an "event" (or is it anything about which News/Intel exists?)
 * What's a news forum? is that an organization? where does their money come
   from? Subscriptions characters can make to get access to the forum?
 
-# Strawman Implementation
+## Types of stories
+
+All of these should check that we haven't seen a "recent" "related" news story.
+
+* Resource fields: a bunch of asteroid intels close to each other
+* Trade opportunities: a particularly high buy offer for a resource or a
+  particularly low sell offer or a sell offer for a "rare" resource.
+* Economic pattern: a pattern of low or high prices for a resource. Or a
+  general lack of a resource at stations.
+* Economic summary: simply publishing average buy/sell prices and amounts in a
+  sector.
+* Combat: simply observing combat, especially if a craft is destroyed: who's
+  the victim, who's the perpetrator? was an LEO involved? was cargo stolen?
+* Piracy pattern: a set of priacy events in a sector over a short period of
+  time, especially if there's a common perp or cargo involved, or no/rarely LEO
+  involved.
+
+# Implementation
 * A piece of intel might automatically be created according to some trigger (is
   this plugged into the event system?)
 * No or minimal effort to dedupe this intel with other intel. E.g. maybe if a
@@ -131,6 +174,27 @@ Questions:
 * The model is that this information is "learned" from the acquired intel and
   is a function of the intel in the manager. So if the intel goes away, that
   learned knowledge should change.
+
+## Use Cases
+
+### Choose an asteroid to mine
+Pass over all known asteroids looking at what resource it is, how much was
+available last we saw, and where it is, distance and time it'll take to get
+there
+
+### Choose a station to sell to
+Pass over buy offers (buyer, resource, price, max amount)
+for each also get corresponding intel about station
+consider price, amount, distance/time it'll take to get there
+
+### Newly Identify a SensorImage
+if a sensor image is identified we now know about the location and some
+parameters of the entity. For instance we know what resource an asteroid has or
+what resource a statio produces. We don't know buy/sell prices for the station.
+
+### Attach prevoius intel to a SensorImage
+if a sensor image is identified we can pull in whatever information we know
+about that object.
 
 ## Knowledge
 Stuff we might want to know that is a function of the intel we have:

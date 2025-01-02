@@ -83,11 +83,13 @@ class EntityRegistry(abc.ABC):
     def contains_entity(self, entity_id:uuid.UUID) -> bool: ...
     @abc.abstractmethod
     def get_entity[T:"Entity"](self, entity_id:uuid.UUID, klass:Type[T]) -> "Entity": ...
+    @abc.abstractmethod
+    def now(self) -> float: ...
 
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
-    def __init__(self, entity_registry: EntityRegistry, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
+    def __init__(self, entity_registry: EntityRegistry, created_at:Optional[float]=None, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = util.uuid_to_u64(self.entity_id)
 
@@ -96,7 +98,7 @@ class Entity(abc.ABC):
         self.name = name
 
         self.description = description or name
-        self.created_at:float = 0.
+        self.created_at:float = created_at or entity_registry.now()
 
         self.entity_registry = entity_registry
         self.context = self.entity_registry.register_entity(self)

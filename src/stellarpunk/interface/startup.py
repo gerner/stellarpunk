@@ -42,11 +42,14 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
         self._start_time = time.time()
         self._target_startup_time = 5.0
-        self._universe_loaded = False
         self._mode = Mode.NONE
-        self._current_generation_step = generate.GenerationStep.NONE
+
+        # these fields are shared by multiple threads
+        self._generation_lock = threading.Lock()
         self._estimated_generation_ticks = 0
+        self._current_generation_step = generate.GenerationStep.NONE
         self._generation_ticks = 0
+        self._universe_loaded = False
 
         self._main_menu = ui_util.Menu("null", [])
         self._load_menu = ui_util.Menu("null", [])
@@ -55,23 +58,33 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._save_game:Optional[save_game.SaveGame] = None
         self._loaded_gamestate:Optional[core.Gamestate] = None
 
+    # generate.UniverseGeneratorObserver
+    # these methods might be called from the generation thread
     def estimated_generation_ticks(self, ticks:int) -> None:
-        self._estimated_generation_ticks = ticks
+        with self._generation_lock:
+            self._estimated_generation_ticks = ticks
 
     def generation_step(self, step:generate.GenerationStep) -> None:
-        self.logger.debug(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
-        self._current_generation_step = step
+        with self._generation_lock:
+            self.logger.debug(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+            self._current_generation_step = step
 
     def generation_tick(self) -> None:
-        self._generation_ticks += 1
-        self.logger.debug(f'generation tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+        with self._generation_lock:
+            self._generation_ticks += 1
+            self.logger.debug(f'generation tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
 
+    # save_game.GameSaverObserver
+    # these methods might be called from the generation thread
     def load_start(self, ticks:int, game_saver:save_game.GameSaver) -> None:
-        self._estimated_generation_ticks = ticks
+        with self._generation_lock:
+            self._estimated_generation_ticks = ticks
 
     def load_tick(self, game_saver:save_game.GameSaver) -> None:
-        self._generation_ticks += 1
-        self.logger.debug(f'load tick: {self._generation_ticks}/{self._estimated_generation_ticks}')
+        with self._generation_lock:
+            self._generation_ticks += 1
+            self.logger.debug(f'load tick: {self._generation_ticks}/{self._estimated_generation_ticks}')
+
 
     def _generate_universe(self) -> None:
         self.interface.log_message("generating a universe...")
@@ -291,18 +304,19 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._main_menu.draw(self.viewscreen, y, x)
 
     def _draw_new_game(self) -> None:
-        self.viewscreen.erase()
-        self.viewscreen.addstr(15, 15, f'generating a universe...')
-        self.viewscreen.addstr(16, 15, f'{self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
-        #TODO: janky hack to draw a progress bar
-        m = ui_util.MeterMenu("foo", [])
-        m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
-        #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
-        if self._universe_loaded:
-            self.viewscreen.addstr(18, 15, f'universe generated.')
-            self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
-        elif self._generator_exception:
-            raise self._generator_exception
+        with self._generation_lock:
+            self.viewscreen.erase()
+            self.viewscreen.addstr(15, 15, f'generating a universe...')
+            self.viewscreen.addstr(16, 15, f'{self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+            #TODO: janky hack to draw a progress bar
+            m = ui_util.MeterMenu("foo", [])
+            m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
+            #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
+            if self._universe_loaded:
+                self.viewscreen.addstr(18, 15, f'universe generated.')
+                self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
+            elif self._generator_exception:
+                raise self._generator_exception
 
     def _draw_load_game(self) -> None:
         self.viewscreen.erase()
@@ -331,18 +345,19 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
 
     def _draw_loading(self) -> None:
-        self.viewscreen.erase()
-        self.viewscreen.addstr(15, 15, f'loading game...')
-        self.viewscreen.addstr(16, 15, f'{self._generation_ticks}/{self._estimated_generation_ticks}')
-        #TODO: janky hack to draw a progress bar
-        m = ui_util.MeterMenu("foo", [])
-        m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
-        #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
-        if self._universe_loaded:
-            self.viewscreen.addstr(18, 15, f'game loaded.')
-            self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
-        elif self._generator_exception:
-            raise self._generator_exception
+        with self._generation_lock:
+            self.viewscreen.erase()
+            self.viewscreen.addstr(15, 15, f'loading game...')
+            self.viewscreen.addstr(16, 15, f'{self._generation_ticks}/{self._estimated_generation_ticks}')
+            #TODO: janky hack to draw a progress bar
+            m = ui_util.MeterMenu("foo", [])
+            m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
+            #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
+            if self._universe_loaded:
+                self.viewscreen.addstr(18, 15, f'game loaded.')
+                self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
+            elif self._generator_exception:
+                raise self._generator_exception
 
     def update_display(self) -> None:
         # TODO: have some clever graphic for the main menu
@@ -363,15 +378,16 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         return self._main_menu.key_list()
 
     def _key_list_new_game(self) -> Collection[interface.KeyBinding]:
-        if self._universe_loaded:
-            def begin() -> None:
-                self._enter_mode(Mode.EXIT)
-            key_list = self.bind_aliases(
-                [curses.ascii.ESC, curses.ascii.CR], begin, help_key="startup_start_game"
-            )
-            return key_list
-        else:
-            return []
+        with self._generation_lock:
+            if self._universe_loaded:
+                def begin() -> None:
+                    self._enter_mode(Mode.EXIT)
+                key_list = self.bind_aliases(
+                    [curses.ascii.ESC, curses.ascii.CR], begin, help_key="startup_start_game"
+                )
+                return key_list
+            else:
+                return []
 
     def _key_list_load_game(self) -> Collection[interface.KeyBinding]:
         def cancel() -> None:
@@ -390,15 +406,16 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
 
     def _key_list_loading(self) -> Collection[interface.KeyBinding]:
-        if self._universe_loaded:
-            def begin() -> None:
-                self._enter_mode(Mode.EXIT)
-            key_list = self.bind_aliases(
-                [curses.ascii.ESC, curses.ascii.CR], begin, help_key="startup_start_game"
-            )
-            return key_list
-        else:
-            return []
+        with self._generation_lock:
+            if self._universe_loaded:
+                def begin() -> None:
+                    self._enter_mode(Mode.EXIT)
+                key_list = self.bind_aliases(
+                    [curses.ascii.ESC, curses.ascii.CR], begin, help_key="startup_start_game"
+                )
+                return key_list
+            else:
+                return []
 
     def key_list(self) -> Collection[interface.KeyBinding]:
         if self._mode == Mode.MAIN_MENU:
