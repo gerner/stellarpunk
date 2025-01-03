@@ -197,11 +197,10 @@ def magnitude(x:float, y:float) -> float:
 def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
     return magnitude((s - t)[0], (s - t)[1])
 
-@jit(cache=True, nopython=True, fastmath=True)
 def pairwise_distances(coordinates:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     # coords is of shape num_sectors, 2, values are are x,y coords
     # want to return 2d matrix of shape num_sectors, num_sectors, values are distances
-    distances = np.zeros(coordinates.shape[0])
+    distances = np.zeros((coordinates.shape[0], coordinates.shape[0]))
     distances += np.inf
     for (idx_a,a),(idx_b,b) in itertools.product(enumerate(coordinates), enumerate(coordinates)):
         distances[idx_a][idx_b] = distance(a,b)

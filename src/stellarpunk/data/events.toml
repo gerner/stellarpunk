@@ -149,19 +149,19 @@ _action = "dialog"
 # not interfer with other narrative event rules.
 
 [intel_id_asteroid]
-type = "sensors.identified"
+type = "sensors:identified"
 priority = 0
 terminal = false
-criteria = ["$target.generate:is_asteroid"]
-[[intel_asteroid.actions]]
+criteria = ["$target.generate:etype_asteroid"]
+[[intel_id_asteroid.actions]]
 _action = "intel:identify_asteroid"
 
 #TODO: what about planets?
 [intel_id_station]
-type = "sensors.identified"
+type = "sensors:identified"
 priority = 0
 terminal = false
-criteria = ["$target.generate:is_station"]
+criteria = ["$target.generate:etype_station"]
 [[intel_id_station.actions]]
 _action = "intel:identify_station"
 
@@ -170,7 +170,7 @@ _action = "intel:identify_station"
 type = "docked"
 priority = 0
 terminal = false
-criteria = ["$target.generate:is_station"]
+criteria = ["$target.generate:etype_station"]
 [[intel_docked_station.actions]]
 _action = "intel:witness_docking"
 

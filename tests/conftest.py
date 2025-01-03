@@ -12,6 +12,7 @@ def event_manager() -> events.EventManager:
     em = events.EventManager()
     events.register_events(em)
     sensors.pre_initialize(em)
+    intel.pre_initialize(em)
     #TODO: all events (e.g. ui manager events) should be registered by this point
     #TODO: this is where events are setup from config, do we need to worry about that?
     em.pre_initialize({})
