@@ -1,15 +1,56 @@
 import uuid
 import collections
 import abc
-from collections.abc import Collection, MutableMapping
-from typing import Type, Any, Optional, TypeVar
+from collections.abc import Collection, MutableMapping, Mapping
+from typing import Type, Any, Optional, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core
+from stellarpunk import core, events, sensors
 #TODO: sector_entity shouldn't be in core
 from stellarpunk.core import sector_entity
+
+class IntelManager(core.AbstractIntelManager):
+    """ Manages known intel and creates intel items for a character. """
+    @classmethod
+    def create_intel_manager(cls, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "IntelManager":
+        intel_manager = cls(gamestate, *args, **kwargs)
+        return intel_manager
+
+    def __init__(self, gamestate:core.Gamestate) -> None:
+        self.owner:Character = None # type: ignore
+        self.gamestate = gamestate
+        self._intel:set[uuid.UUID] = set()
+        self._intel_by_type:MutableMapping[Type[core.Intel], set[uuid.UUID]] = collections.defaultdict(set)
+        self._entity_intel:dict[uuid.UUID, uuid.UUID] = {}
+
+    def _add_intel(self, intel:core.Intel) -> None:
+        self._intel.add(intel.entity_id)
+        self._intel_by_type[type(intel)].add(intel.entity_id)
+        if isinstance(intel, core.EntityIntel):
+            self._entity_intel[intel.intel_entity_id] = intel.entity_id
+
+    def add_intel(self, intel:core.Intel) -> None:
+        #TODO: check if we already have a partial match for this intel
+        # if ours is better, ignore this
+
+        # if theirs is better, replace ours with theirs
+        self._add_intel(intel)
+
+    def intel[T:core.Intel](self, cls:Type[T]) -> Collection[T]:
+        return list(self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel_by_type[cls])
+
+    def get_entity_intel[T:core.EntityIntel](self, entity_id:uuid.UUID, cls:Type[T]) -> Optional[T]:
+        # check if we have such intel
+        if entity_id not in self._entity_intel:
+            return None
+        # we assume the intel is of the right type
+        #TODO: could you ever have multiple types of intel about the same entity?
+        #   e.g. the location of a Character vs a Character's affiliations
+        intel_id = self._entity_intel[entity_id]
+        intel = self.gamestate.get_entity(intel_id, cls)
+        return intel
 
 class SectorEntityIntel[T:core.SectorEntity](core.EntityIntel[T]):
     @classmethod
@@ -61,136 +102,48 @@ class EconAgentIntel(core.EntityIntel[core.EconAgent]):
         #TODO: what prices for each resouce
         #TODO: what amounts for sale and/or what budget for buying
 
-class IntelMaker[T:core.Intel]:
-    def __init__(self) -> None:
-        self.gamestate:core.Gamestate = None # type: ignore
+class IdentifyAsteroidAction(events.Action):
+    def act(self,
+            character:core.Character,
+            event_type:int,
+            event_context:Mapping[int,int],
+            event_args: MutableMapping[str, Union[int,float,str,bool]],
+            action_args: Mapping[str, Union[int,float,str,bool]]
+    ) -> None:
+        asteroid = self.gamestate.get_entity_short(event_context[self.gamestate.event_manager.ck(sensors.ContextKeys.TARGET)], sector_entity.Asteroid)
+        entity_intel = character.intel_manager.get_entity_intel(asteroid.entity_id, AsteroidIntel)
+        if not entity_intel or not entity_intel.is_fresh():
+            character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, self.gamestate))
 
-    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
-        self.gamestate = gamestate
+class IdentifyStationAction(events.Action):
+    def act(self,
+            character:core.Character,
+            event_type:int,
+            event_context:Mapping[int,int],
+            event_args: MutableMapping[str, Union[int,float,str,bool]],
+            action_args: Mapping[str, Union[int,float,str,bool]]
+    ) -> None:
+        station = self.gamestate.get_entity_short(event_context[self.gamestate.event_manager.ck(sensors.ContextKeys.TARGET)], sector_entity.Station)
+        entity_intel = character.intel_manager.get_entity_intel(station.entity_id, StationIntel)
+        if not entity_intel or not entity_intel.is_fresh():
+            character.intel_manager.add_intel(StationIntel.create_station_intel(station, self.gamestate))
 
-    @property
-    @abc.abstractmethod
-    def intel_type(self) -> Type[T]: ...
+class DockingAction(events.Action):
+    def act(self,
+            character:core.Character,
+            event_type:int,
+            event_context:Mapping[int,int],
+            event_args: MutableMapping[str, Union[int,float,str,bool]],
+            action_args: Mapping[str, Union[int,float,str,bool]]
+    ) -> None:
+        station = self.gamestate.get_entity_short(event_context[self.gamestate.event_manager.ck(sensors.ContextKeys.TARGET)], sector_entity.Station)
+        agent = self.gamestate.econ_agents[station.entity_id]
+        entity_intel = character.intel_manager.get_entity_intel(agent.entity_id, EconAgentIntel)
+        if not entity_intel or not entity_intel.is_fresh():
+            character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, self.gamestate))
+        #TODO: what other intel do we want to create now that we're docked?
 
-class EntityIntelMaker[EntityType:core.Entity, T:core.EntityIntel](IntelMaker[T]):
-    @abc.abstractmethod
-    def create_entity_intel(self, entity:EntityType) -> T: ...
-
-class AsteroidIntelMaker(EntityIntelMaker[sector_entity.Asteroid, AsteroidIntel]):
-    @property
-    def intel_type(self) -> Type[AsteroidIntel]:
-        return AsteroidIntel
-    def create_entity_intel(self, asteroid:sector_entity.Asteroid) -> AsteroidIntel:
-        return AsteroidIntel.create_asteroid_intel(asteroid, self.gamestate)
-
-class StationIntelMaker(EntityIntelMaker[sector_entity.Station, StationIntel]):
-    @property
-    def intel_type(self) -> Type[StationIntel]:
-        return StationIntel
-    def create_entity_intel(self, station:sector_entity.Station) -> StationIntel:
-        return StationIntel.create_station_intel(station, self.gamestate)
-
-class EconAgentIntelMaker(EntityIntelMaker[core.EconAgent, EconAgentIntel]):
-    @property
-    def intel_type(self) -> Type[EconAgentIntel]:
-        return EconAgentIntel
-    def create_entity_intel(self, agent:core.EconAgent) -> EconAgentIntel:
-        return EconAgentIntel.create_econ_agent_intel(agent, self.gamestate)
-
-class IntelFactory:
-    def __init__(self) -> None:
-        # we can't have a gamestate until initialize_gamestate gets called
-        self.gamestate:core.Gamestate = None # type: ignore
-
-        # a list of (entity type, entity intel type) representing a mapping
-        # this is maintained in sorted order by entity type specificity
-        # that is, any entry which represents a superclass of another entry
-        # appears before that second entry.
-        # this guarantees the most specific intel type is found first
-        self._entity_intel_type:collections.deque[tuple[Type[core.Entity], Type[core.EntityIntel]]] = collections.deque()
-        self._entity_intel_makers:dict[Type[core.EntityIntel], EntityIntelMaker] = {}
-
-    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
-        self.gamestate = gamestate
-        for entity_intel_maker in self._entity_intel_makers.values():
-            entity_intel_maker.initialize_gamestate(gamestate)
-
-    def add_entity_intel_maker(self, entity_type:Type[core.Entity], intel_maker:EntityIntelMaker) -> None:
-
-        intel_type = intel_maker
-        #assert(issubclass(intel_type, core.EntityIntel))
-        self._entity_intel_makers[intel_maker.intel_type] = intel_maker
-
-        for i, (other_entity_type, _) in enumerate(self._entity_intel_type):
-            if issubclass(entity_type, other_entity_type):
-                break
-
-        self._entity_intel_type.insert(i, (entity_type, intel_maker.intel_type))
-
-    def get_entity_intel_type(self, entity:core.Entity) -> Type[core.EntityIntel]:
-        for entity_type, intel_type in self._entity_intel_type:
-            if isinstance(entity, entity_type):
-                return intel_type
-        #TODO: what if there's no matching intel?
-        raise ValueError(f'do not know how to make intel for {entity}')
-
-    def create_entity_intel(self, entity:core.Entity, intel_type:Optional[Type[core.EntityIntel]]) -> core.EntityIntel:
-        if intel_type is None:
-            intel_type = self.get_entity_intel_type(entity)
-
-        return self._entity_intel_makers[intel_type].create_entity_intel(entity)
-
-class IntelManager(core.AbstractIntelManager):
-    """ Manages known intel and creates intel items for a character. """
-    @classmethod
-    def create_intel_manager(cls, intel_factory:IntelFactory, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "IntelManager":
-        intel_manager = cls(intel_factory, gamestate, *args, **kwargs)
-        return intel_manager
-
-    def __init__(self, intel_factory:IntelFactory, gamestate:core.Gamestate) -> None:
-        self.owner:Character = None # type: ignore
-        self.gamestate = gamestate
-        self.intel_factory = intel_factory
-        self._intel:set[uuid.UUID] = set()
-        self._intel_by_type:MutableMapping[Type[core.Intel], set[uuid.UUID]] = collections.defaultdict(set)
-        self._entity_intel:dict[uuid.UUID, uuid.UUID] = {}
-
-    def witness_entity(self, entity:core.Entity) -> None:
-        #TODO: what if we don't have a factory for this entity?
-        # check if we already have intel about this entity
-        intel_type = self.intel_factory.get_entity_intel_type(entity)
-        entity_intel = self.get_entity_intel(entity.entity_id, intel_type)
-        if entity_intel:
-            # if ours is just as good, ignore this. note: a fresh observation
-            # cannot be worse than old intel
-            if entity_intel.is_fresh():
-                return
-        entity_intel = self.intel_factory.create_entity_intel(entity, intel_type=intel_type)
-        self._add_intel(entity_intel)
-
-    def _add_intel(self, intel:core.Intel) -> None:
-        self._intel.add(intel.entity_id)
-        self._intel_by_type[type(intel)].add(intel.entity_id)
-        if isinstance(intel, core.EntityIntel):
-            self._entity_intel[intel.intel_entity_id] = intel.entity_id
-
-    def add_intel(self, intel:core.Intel) -> None:
-        #TODO: check if we already have a partial match for this intel
-        # if ours is better, ignore this
-
-        # if theirs is better, replace ours with theirs
-        pass
-
-    def intel[T:core.Intel](self, cls:Type[T]) -> Collection[T]:
-        return list(self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel_by_type[cls])
-
-    def get_entity_intel[T:core.EntityIntel](self, entity_id:uuid.UUID, cls:Type[T]) -> Optional[T]:
-        # check if we have such intel
-        if entity_id not in self._entity_intel:
-            return None
-        # we assume the intel is of the right type
-        #TODO: could you ever have multiple types of intel about the same entity?
-        #   e.g. the location of a Character vs a Character's affiliations
-        intel_id = self._entity_intel[entity_id]
-        intel = self.gamestate.get_entity(intel_id, cls)
-        return intel
+def pre_initialize(event_manager:events.EventManager) -> None:
+    event_manager.register_action(IdentifyAsteroidAction(), "identify_asteroid", "intel")
+    event_manager.register_action(IdentifyStationAction(), "identify_station", "intel")
+    event_manager.register_action(DockingAction(), "witness_docking", "intel")

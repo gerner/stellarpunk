@@ -569,5 +569,5 @@ class SensorImageManager:
             del self._cached_entities[entity_id]
 
 def pre_initialize(event_manager:events.EventManager) -> None:
-    event_manager.register_events(Events)
-    event_manager.register_context_keys(ContextKeys)
+    event_manager.register_events(Events, "sensors")
+    event_manager.register_context_keys(ContextKeys, "sensors")

@@ -84,10 +84,10 @@ class EventManager(core.AbstractEventManager):
 
         # this is mapping to/from code specific logic and EventManager logic
         self._event_offset = 0
-        self.RegisteredEventSpaces:dict[enum.EnumMeta, int] = {}
+        self.RegisteredEventSpaces:dict[enum.EnumMeta, tuple[int, str]] = {}
         self._context_key_offset = 0
-        self.RegisteredContextSpaces:dict[enum.EnumMeta, int] = {}
-        self.RegisteredActions:dict[Action, str] = {}
+        self.RegisteredContextSpaces:dict[enum.EnumMeta, tuple[int, str]] = {}
+        self.RegisteredActions:dict[Action, tuple[str, str]] = {}
 
         # this is mapping to/from EventContext id space and EventManager logic
         self.actions:dict[int, Action] = {}
@@ -104,17 +104,17 @@ class EventManager(core.AbstractEventManager):
     # logic helping code interact with the event system
     def e(self, event_id: enum.IntEnum) -> int:
         """ map code specific event id to the global EventContext event id """
-        return event_id + self.RegisteredEventSpaces[event_id.__class__]
+        return event_id + self.RegisteredEventSpaces[event_id.__class__][0]
 
     def ck(self, context_key: enum.IntEnum) -> int:
         """ map code specific context key to the global EventContext key """
-        return context_key + self.RegisteredContextSpaces[context_key.__class__]
+        return context_key + self.RegisteredContextSpaces[context_key.__class__][0]
 
     def f(self, flag:str) -> int:
         """ map global flag string name to EventContext key """
         return self.context_keys[flag]
 
-    def register_events(self, events: enum.EnumMeta) -> None:
+    def register_events(self, events: enum.EnumMeta, namespace:str="") -> None:
         """ Registers a set of events code might trigger later
 
         Code keeps its own notion of events and this registration maps into a
@@ -130,10 +130,10 @@ class EventManager(core.AbstractEventManager):
                 raise ValueError("events must start at 0 or 1")
             if max(events) > len(events):
                 raise ValueError("events must be continuous")
-        self.RegisteredEventSpaces[events] = self._event_offset
+        self.RegisteredEventSpaces[events] = (self._event_offset, namespace)
         self._event_offset += max(events)+1
 
-    def register_context_keys(self, context_keys: enum.EnumMeta) -> None:
+    def register_context_keys(self, context_keys: enum.EnumMeta, namespace:str="") -> None:
         if len(context_keys) > 0:
             if not all(isinstance(x, int) for x in context_keys): # type: ignore[var-annotated]
                 raise ValueError("members of context keys must all be int-like")
@@ -141,31 +141,41 @@ class EventManager(core.AbstractEventManager):
                 raise ValueError("context keys must start at 0 or 1")
             if max(context_keys) > len(context_keys):
                 raise ValueError("context keys must be continuous")
-        self.RegisteredContextSpaces[context_keys] = self._context_key_offset
+        self.RegisteredContextSpaces[context_keys] = (self._context_key_offset, namespace)
         self._context_key_offset += max(context_keys)+1
 
-    def register_action(self, action: Action, name:str) -> None:
+    def register_action(self, action: Action, name:str, namespace:str="") -> None:
         #if name is None:
         #    name = util.camel_to_snake(action.__class__.__name__)
         #    if name.endswith("_action"):
         #        name = name[:-len("_action")]
-        self.RegisteredActions[action] = name
+        self.RegisteredActions[action] = (name, namespace)
 
     def pre_initialize(self, events: Mapping[str, Any]) -> None:
         """ pre-gamestate creation/loading initialization. """
         # assign integer ids for events, contexts, actions
         action_validators:dict[int, Callable[[Mapping], bool]] = {}
 
-        for event_enum in self.RegisteredEventSpaces:
+        for event_enum, (offset, namespace) in self.RegisteredEventSpaces.items():
             for event_key in event_enum: # type: ignore[var-annotated]
-                self.event_types[util.camel_to_snake(event_key.name)] = event_key + self.RegisteredEventSpaces[event_enum]
+                if namespace:
+                    event_name = f'{namespace}.{util.camel_to_snake(event_key.name)}'
+                else:
+                    event_name = util.camel_to_snake(event_key.name)
+                self.event_types[event_name] = event_key + offset
 
-        for context_enum in self.RegisteredContextSpaces:
+        for context_enum, (offset, namespace) in self.RegisteredContextSpaces.items():
             for context_key in context_enum: # type: ignore[var-annotated]
-                self.context_keys[util.camel_to_snake(context_key.name)] = context_key.value + self.RegisteredContextSpaces[context_enum]
+                if namespace:
+                    context_name = f'{namespace}.{util.camel_to_snake(context_key.name)}'
+                else:
+                    context_name = util.camel_to_snake(context_key.name)
+                self.context_keys[context_name] = context_key.value + offset
 
         action_count = 0
-        for action, action_name in self.RegisteredActions.items():
+        for action, (action_name, namespace) in self.RegisteredActions.items():
+            if namespace:
+                action_name = f'{namespace}.{action_name}'
             self.action_ids[action_name] = action_count
             self.actions[action_count] = action
             action_validators[action_count] = action.validate

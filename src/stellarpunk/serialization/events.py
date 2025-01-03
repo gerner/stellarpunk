@@ -9,8 +9,12 @@ from . import save_game
 
 class EventStateSaver(save_game.Saver[events.EventState]):
     def _load_sanity_check(self, f:io.IOBase) -> None:
-        res = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
-        rcs = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
+        def int_str_from_f(f:io.IOBase) -> tuple[int, str]:
+            i = s_util.int_from_f(f)
+            s = s_util.from_len_pre_f(f)
+            return (i, s)
+        res = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, int_str_from_f)
+        rcs = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, int_str_from_f)
         actions = s_util.fancy_dict_from_f(f, s_util.int_from_f, s_util.from_len_pre_f)
 
         event_types = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
@@ -72,8 +76,15 @@ class EventStateSaver(save_game.Saver[events.EventState]):
 
         # debug info on event, context keys, actions for error checking
         bytes_written += s_util.debug_string_w("event space", f)
-        bytes_written += s_util.fancy_dict_to_f(dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredEventSpaces.items()), f, s_util.to_len_pre_f, s_util.int_to_f)
-        bytes_written += s_util.fancy_dict_to_f(dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredContextSpaces.items()), f, s_util.to_len_pre_f, s_util.int_to_f)
+
+        def int_str_to_f(v:tuple[int,str], f:io.IOBase) -> int:
+            bytes_written = 0
+            bytes_written += s_util.int_to_f(v[0], f)
+            bytes_written += s_util.to_len_pre_f(v[1], f)
+            return bytes_written
+
+        bytes_written += s_util.fancy_dict_to_f(dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredEventSpaces.items()), f, s_util.to_len_pre_f, int_str_to_f)
+        bytes_written += s_util.fancy_dict_to_f(dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredContextSpaces.items()), f, s_util.to_len_pre_f, int_str_to_f)
         bytes_written += s_util.fancy_dict_to_f(dict((k,util.fullname(v)) for k,v in self.save_game.event_manager.actions.items()), f, s_util.int_to_f, s_util.to_len_pre_f)
 
         bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.event_types, f, s_util.to_len_pre_f, s_util.int_to_f)

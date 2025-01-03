@@ -150,6 +150,13 @@ def is_occupied(loc:npt.NDArray[np.float64], prev_locs:Sequence[npt.NDArray[np.f
             return True
     return False
 
+class ContextKeys(enum.IntEnum):
+    ETYPE_ASTEROID = enum.auto()
+    ETYPE_STATION = enum.auto()
+    ETYPE_PLANET = enum.auto()
+    ETYPE_SHIP = enum.auto()
+    ETYPE_MISSILE = enum.auto()
+
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
     INPUT_CONSTRAINTS = enum.auto()
@@ -643,9 +650,9 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models[culture] = markov.MarkovModel(romanize=False)
 
 
-    def pre_initialize(self, event_manager:events.EventManager, intel_factory:intel.IntelFactory, empty_name_model_culture:Optional[str]=None) -> None:
+    def pre_initialize(self, event_manager:events.EventManager, empty_name_model_culture:Optional[str]=None) -> None:
         self.event_manager = event_manager
-        self.intel_factory = intel_factory
+        self.event_manager.register_context_keys(ContextKeys, "generate")
         self._prepare_sprites()
         self._prepare_projectile_spawn_pattern()
 
@@ -680,6 +687,7 @@ class UniverseGenerator(core.AbstractGenerator):
             description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
         )
         station.resource = resource
+        station.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_STATION), 1)
 
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
         assert station.cargo.sum() <= station.cargo_capacity
@@ -708,6 +716,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
+        planet.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_PLANET), 1)
 
         self.phys_shape(planet_body, planet, planet_radius)
         planet.mass = config.Settings.generate.SectorEntities.planet.MASS
@@ -739,6 +748,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_ship_name(sector.culture),
             entity_id=entity_id
         )
+        ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_SHIP), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
 
@@ -792,6 +802,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_ship_name(sector.culture),
             entity_id=entity_id,
         )
+        ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
         ship.default_order_fn=default_order_fn
 
         self.phys_shape(ship_body, ship, ship_radius)
@@ -932,6 +943,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_asteroid_name(sector.culture),
             entity_id=entity_id
         )
+        asteroid.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_ASTEROID), 1)
 
         self.phys_shape(body, asteroid, asteroid_radius)
         asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
@@ -993,7 +1005,7 @@ class UniverseGenerator(core.AbstractGenerator):
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
         assert(self.gamestate)
         assert location.sector
-        intel_manager = intel.IntelManager.create_intel_manager(self.intel_factory, self.gamestate)
+        intel_manager = intel.IntelManager.create_intel_manager(self.gamestate)
         character = core.Character.create_character(
             self._choose_portrait(),
             intel_manager,
