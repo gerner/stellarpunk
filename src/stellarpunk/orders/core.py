@@ -9,7 +9,7 @@ from typing import Optional, Any, Type
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import util, core, effects, econ
+from stellarpunk import util, core, effects, econ, events
 from stellarpunk.core import sector_entity
 from stellarpunk.narrative import director
 from . import movement
@@ -593,18 +593,15 @@ class DockingOrder(core.OrderObserver, core.Order):
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
 
     def _complete(self) -> None:
-        pass
-        #if self.ship.captain is not None:
-        #    self.gamestate.trigger_event(
-        #        [self.ship.captain],
-        #        core.EventType.APPROACH_DESTINATION,
-        #        director.context({
-        #            core.ContextKey.DESTINATION: self.target.short_id_int(),
-        #            core.ContextKey.SHIP: self.ship.short_id_int(),
-        #        }),
-        #        self.target,
-        #        self.ship,
-        #    )
+        if self.ship.captain is not None:
+            self.gamestate.trigger_event(
+                [self.ship.captain],
+                self.gamestate.event_manager.e(events.Events.DOCKED),
+                {
+                    self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target.short_id_int(),
+                    self.gamestate.event_manager.ck(events.ContextKeys.SHIP): self.ship.short_id_int(),
+                },
+            )
 
     @property
     def observer_id(self) -> uuid.UUID:

@@ -234,6 +234,17 @@ def loadd(
             raise ValueError(f'missing or bad priority in rule {rule_id}')
         priority = rule["priority"]
 
+        if "terminal" in rule:
+            if not isinstance(rule["terminal"], bool):
+                raise ValueError(f'terminal must be a boolean value')
+            terminal = rule["terminal"]
+        else:
+            # by default matching rules will terminate event processing for a
+            # character candidate
+            # if you want an event to allow further events to be processed, you
+            # need to opt into that behavior
+            terminal = True
+
         # find and parse all the various criteria
         criteria_data: List[str]
         if "criteria" not in rule:
@@ -266,12 +277,13 @@ def loadd(
             actions.append(parse_action(rule_id, act, action_ids, action_validators, context_keys))
 
         # create a rule record
-        rules[event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
+        rules[event_type_id].append(director.Rule(event_type_id, priority, terminal, criteria_builder, actions))
 
     # make sure the rules are in priority order
+    # non-terminal rules come before terminal rules of the same priority
     sorted_rules:MutableMapping[int, list[director.Rule]] = {}
     for event_type_id, rule_values in rules.items():
-        sorted_rules[event_type_id] = sorted(rule_values, key=lambda x: x.get_priority())
+        sorted_rules[event_type_id] = sorted(rule_values, key=lambda x: (x.get_priority(), x.is_terminal()))
 
     # create and return an event director
     return director.Director(sorted_rules)

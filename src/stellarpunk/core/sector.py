@@ -135,9 +135,6 @@ class SectorEntityObserver(base.Observer):
     def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
         pass
 
-    def target_identified(self, entity:"SectorEntity", target:"SectorEntity", target_image:"AbstractSensorImage") -> None:
-        pass
-
 class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
     """ An entity in space in a sector. """
 
@@ -252,10 +249,6 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
             return f'{self.short_id()}@{self.sector.short_id()}'
         else:
             return f'{self.short_id()}@None'
-
-    def identify_target(self, target:"SectorEntity", target_image:"AbstractSensorImage") -> None:
-        for observer in self._observers:
-            observer.target_identified(self, target, target_image)
 
 class CollisionObserver:
     def __init__(self, *args:Any, **kwargs:Any) -> None:

@@ -85,6 +85,7 @@ cdef extern from "director.hpp":
         )
 
         uint64_t get_priority()
+        bool is_terminal()
 
     cdef cppclass cDirector:
         cDirector()
@@ -227,15 +228,16 @@ cdef class Rule:
     cdef unique_ptr[cRule] c_rule
     cdef object actions
 
-    def __cinit__(self, event_type, priority, criteria, actions=[]):
+    def __cinit__(self, event_type, priority, terminal, criteria, actions=[]):
         cdef vector[cActionTemplate] c_actions
         cdef uint64_t c_event_type = event_type
         cdef uint64_t c_priority = priority
+        cdef bool c_terminal = terminal
 
         for a in actions:
             c_actions.push_back((<ActionTemplate?>a).action_template)
 
-        self.c_rule = make_unique[cRule](c_event_type, c_priority, (<CriteriaBuilder?>criteria).c_criteria, c_actions)
+        self.c_rule = make_unique[cRule](c_event_type, c_priority, c_terminal, (<CriteriaBuilder?>criteria).c_criteria, c_actions)
 
         # we hang on to action templates to keep them alive
         self.actions = list(actions)
@@ -248,6 +250,9 @@ cdef class Rule:
 
     def get_priority(self):
         return dereference(self.c_rule).get_priority();
+
+    def is_terminal(self):
+        return dereference(self.c_rule).is_terminal();
 
 
 cdef class Event:

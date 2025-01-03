@@ -52,11 +52,13 @@ class Rule:
         self,
         event_type: int,
         priority: int,
+        terminal: bool,
         criteria: CriteriaBuilder,
         actions: List[ActionTemplate] = [],
     ) -> None: ...
 
     def get_priority(self) -> int: ...
+    def is_terminal(self) -> bool: ...
 
 
 class Event:

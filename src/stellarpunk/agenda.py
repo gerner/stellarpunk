@@ -294,10 +294,6 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
                     a.unpause()
 
     # core.SectorEntityObserver
-    def target_identified(self, craft:core.SectorEntity, target:core.SectorEntity, target_image:core.AbstractSensorImage) -> None:
-        # create intel about this sector entity if we don't already have it
-        pass
-
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
         assert craft == self.craft
         assert self.craft.sector

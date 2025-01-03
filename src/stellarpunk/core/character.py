@@ -269,3 +269,7 @@ class CrewedSectorEntity(sector.SectorEntity):
         super().__init__(*args, **kwargs)
         self.captain: Optional["Character"] = None
 
+def captain(craft:sector.SectorEntity) -> Optional[Character]:
+    if isinstance(craft, CrewedSectorEntity) and craft.captain:
+        return craft.captain
+    return None

@@ -3,6 +3,7 @@
 import uuid
 import logging
 import weakref
+import enum
 from collections.abc import Collection
 from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
 
@@ -10,13 +11,21 @@ import rtree.index
 import numpy.typing as npt
 import numpy as np
 
-from stellarpunk import core, config, util
+from stellarpunk import core, config, util, events
 from stellarpunk.core import sector_entity
 
 logger = logging.getLogger(__name__)
 
 ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
+
+class Events(enum.IntEnum):
+    TARGETED = enum.auto()
+    IDENTIFIED = enum.auto()
+
+class ContextKeys(enum.IntEnum):
+    DETECTOR = enum.auto()
+    TARGET = enum.auto()
 
 class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     @classmethod
@@ -228,12 +237,33 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
                 self._velocity = np.array(self._target.velocity)
 
                 if not self._identified and self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
-                    self._ship.identify_target(self._target, self)
+                    if isinstance(self._ship, core.CrewedSectorEntity) and self._ship.captain:
+                        gamestate = core.Gamestate.gamestate
+                        gamestate.trigger_event(
+                                [self._ship.captain],
+                                gamestate.event_manager.e(Events.IDENTIFIED),
+                                {
+                                    gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
+                                    gamestate.event_manager.ck(ContextKeys.TARGET): self._target.short_id_int(),
+                                }
+                        )
                     # once identified, always identified
                     self._identified = True
 
                 # let the target know they've been targeted by us
                 if notify_target and self._sensor_manager.detected(self._ship, self._target):
+                    candidates:list[core.Character] = list(x for x in (core.captain(self._ship), core.captain(self._target)) if x is not None)
+                    if candidates:
+                        gamestate = core.Gamestate.gamestate
+                        gamestate.trigger_event(
+                                candidates,
+                                gamestate.event_manager.e(Events.TARGETED),
+                                {
+                                    gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
+                                    gamestate.event_manager.ck(ContextKeys.TARGET): self._target.short_id_int(),
+                                }
+                        )
+
                     self._target.target(self._ship)
                 return True
             else:
@@ -537,3 +567,7 @@ class SensorImageManager:
                 idx+=1
         for entity_id in remove_ids:
             del self._cached_entities[entity_id]
+
+def pre_initialize(event_manager:events.EventManager) -> None:
+    event_manager.register_events(Events)
+    event_manager.register_context_keys(ContextKeys)

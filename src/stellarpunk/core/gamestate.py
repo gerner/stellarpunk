@@ -293,6 +293,11 @@ class Gamestate(EntityRegistry):
         assert(isinstance(entity, klass))
         return entity
 
+    def get_entity_short[T:Entity](self, entity_short_id:int, klass:Type[T]) -> T:
+        entity = self.entities_short[entity_short_id]
+        assert(isinstance(entity, klass))
+        return entity
+
     def sanity_check_entities(self) -> None:
         for k, entity in self.entities.items():
             assert(k == entity.entity_id)
