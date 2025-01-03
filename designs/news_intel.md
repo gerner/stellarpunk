@@ -151,19 +151,20 @@ All of these should check that we haven't seen a "recent" "related" news story.
   involved.
 
 # Implementation
-* A piece of intel might automatically be created according to some trigger (is
-  this plugged into the event system?)
-* No or minimal effort to dedupe this intel with other intel. E.g. maybe if a
-  piece of intel is permanent with limited scope we can search for a matching,
-  existing piece of itel. but otherwise don't worry about duplication. This is
-  especially not a problem if intel is likely to expire.
+* A piece of intel might automatically be created according to some trigger
+* Intel created via events, independent from other events. E.g. identifying a
+  target on sensors creates intel about that entity if such intel doesn't
+  already exist.
+* Intel is deduped against other "matching" intel if the existing intel is
+  "better" (fresher). E.g. maybe if a piece of intel is permanent with limited
+  scope we can search for a matching, existing piece of itel.
 * Pieces of intel might be redundant or partially matching where a Character
   can prefer one piece to another and assign some value to replacing an
   existing partial match. E.g. price information for a resource at a station
   that is newer than some existing price information for the same resource at
   the same station might be preferred, replacing that existing piece of intel.
 * If a piece of intel is transferred from one Character to another, they both
-  refer to the same object, sharing it.
+  refer to the same object, sharing it. Intel are Entities.
 * Intel should be immutable or any changes should make sense to be shared by
   anyone referring to that intel, even if separated, without any communication
   channel.
@@ -173,7 +174,8 @@ All of these should check that we haven't seen a "recent" "related" news story.
   bounties on ships/characters, etc.
 * The model is that this information is "learned" from the acquired intel and
   is a function of the intel in the manager. So if the intel goes away, that
-  learned knowledge should change.
+  learned knowledge should change. The "knowledge" is entirely ephemeral and
+  code should consult the IntelManager whenever it needs such information.
 
 ## Use Cases
 
@@ -191,6 +193,11 @@ consider price, amount, distance/time it'll take to get there
 if a sensor image is identified we now know about the location and some
 parameters of the entity. For instance we know what resource an asteroid has or
 what resource a statio produces. We don't know buy/sell prices for the station.
+
+### Docking at a Station
+Suddenly we know a great deal about the economic status of the station:
+resources, prices, amounts, etc. We also know about people at the station and
+other properties of that station we might want in the future.
 
 ### Attach prevoius intel to a SensorImage
 if a sensor image is identified we can pull in whatever information we know
