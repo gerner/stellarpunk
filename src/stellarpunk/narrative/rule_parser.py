@@ -11,7 +11,7 @@ import toml # type: ignore
 from . import director
 
 INT_RE = re.compile("[0-9]+")
-FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
+FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_:]*")
 
 POS_INF = (1<<64)-1
 

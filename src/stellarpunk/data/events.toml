@@ -143,6 +143,37 @@ criteria = ["$contacter.is_player"]
 [[player_contact.actions]]
 _action = "dialog"
 
+
+# Intel
+# all of these are non-terminal with priority 0 so they always go off and do
+# not interfer with other narrative event rules.
+
+[intel_id_asteroid]
+type = "sensors.identified"
+priority = 0
+terminal = false
+criteria = ["$target.generate:is_asteroid"]
+[[intel_asteroid.actions]]
+_action = "intel:identify_asteroid"
+
+#TODO: what about planets?
+[intel_id_station]
+type = "sensors.identified"
+priority = 0
+terminal = false
+criteria = ["$target.generate:is_station"]
+[[intel_id_station.actions]]
+_action = "intel:identify_station"
+
+#TODO: what about planets?
+[intel_docked_station]
+type = "docked"
+priority = 0
+terminal = false
+criteria = ["$target.generate:is_station"]
+[[intel_docked_station.actions]]
+_action = "intel:witness_docking"
+
 #[player_open_dialog]
 #type = "dialog"
 #priority = 0

@@ -145,5 +145,7 @@ class DockingAction(events.Action):
 
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_action(IdentifyAsteroidAction(), "identify_asteroid", "intel")
+    #TODO: what about planets?
     event_manager.register_action(IdentifyStationAction(), "identify_station", "intel")
+    #TODO: what about planets?
     event_manager.register_action(DockingAction(), "witness_docking", "intel")

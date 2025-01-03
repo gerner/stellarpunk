@@ -159,7 +159,7 @@ class EventManager(core.AbstractEventManager):
         for event_enum, (offset, namespace) in self.RegisteredEventSpaces.items():
             for event_key in event_enum: # type: ignore[var-annotated]
                 if namespace:
-                    event_name = f'{namespace}.{util.camel_to_snake(event_key.name)}'
+                    event_name = f'{namespace}:{util.camel_to_snake(event_key.name)}'
                 else:
                     event_name = util.camel_to_snake(event_key.name)
                 self.event_types[event_name] = event_key + offset
@@ -167,7 +167,7 @@ class EventManager(core.AbstractEventManager):
         for context_enum, (offset, namespace) in self.RegisteredContextSpaces.items():
             for context_key in context_enum: # type: ignore[var-annotated]
                 if namespace:
-                    context_name = f'{namespace}.{util.camel_to_snake(context_key.name)}'
+                    context_name = f'{namespace}:{util.camel_to_snake(context_key.name)}'
                 else:
                     context_name = util.camel_to_snake(context_key.name)
                 self.context_keys[context_name] = context_key.value + offset
@@ -175,7 +175,7 @@ class EventManager(core.AbstractEventManager):
         action_count = 0
         for action, (action_name, namespace) in self.RegisteredActions.items():
             if namespace:
-                action_name = f'{namespace}.{action_name}'
+                action_name = f'{namespace}:{action_name}'
             self.action_ids[action_name] = action_count
             self.actions[action_count] = action
             action_validators[action_count] = action.validate
