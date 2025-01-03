@@ -21,23 +21,73 @@ class Asset(base.Entity):
         super().__init__(*args, **kwargs)
         self.owner = owner
 
-class Intel(base.Entity):
-    def __init__(self, *args:Any, expires_at:float=np.inf, **kwargs:Any):
-        super().__init__(*args, **kwargs)
+class IntelObserver(base.Observer):
+    def intel_expired(self, intel:"Intel") -> None:
+        pass
+
+class Intel(base.Observable[IntelObserver], base.Entity):
+    id_prefix = "INT"
+
+    def __init__(self, *args:Any, expires_at:float=np.inf, fresh_until:Optional[float]=None, **kwargs:Any):
+        # we set these fields before calling super init because they may be
+        # referenced in overriden __str__ calls before we get to initialize
+        # them.
+        if not fresh_until:
+            fresh_until = expires_at
+
+        self.fresh_until = fresh_until
         self.expires_at = expires_at
+        super().__init__(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f'{self.short_id()} {type(self)} {self.is_valid()=} {self.is_fresh()=}'
+
+    @property
+    def observable_id(self) -> uuid.UUID:
+        return self.entity_id
+
+    def _unobserve(self, observer:IntelObserver) -> None:
+        # when we've got no one left observing us, we get nuked
+        # this is equivalent to no one knowing (or caring) about this piece of
+        # intel any more, so it cannot be transferred to another character
+        if len(self.observers) == 0:
+            self.entity_registry.destroy_entity(self)
+
+    def matches(self, other:"Intel") -> bool:
+        return False
 
     def is_valid(self) -> bool:
         return self.expires_at > self.entity_registry.now()
 
     def is_fresh(self) -> bool:
-        return self.is_valid()
+        return self.fresh_until > self.entity_registry.now()
+
+    def expire(self) -> None:
+        assert(not self.is_valid())
+        for observer in list(self.observers):
+            observer.intel_expired(self)
+        self.clear_observers()
+        # when the last observer is cleared we'll destroy ourselves
+        # so destroying here is redundant
+        # self.entity_registry.destroy_entity(self)
 
 class EntityIntel[T:base.Entity](Intel):
-    def __init__(self, entity_id:uuid.UUID, entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, entity_id:uuid.UUID, entity_short_id:str, entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
+        # we need to set these fields before the super constructor because we
+        # override __str__ which might be called in a super constructor
         # we specifically do not retain a reference to the original entity
         self.intel_entity_type:Type[T] = entity_type
         self.intel_entity_id = entity_id
+        self.intel_entity_short_id = entity_short_id
+        super().__init__(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f'{self.short_id()} {type(self)} on {self.intel_entity_short_id} valid:{self.is_valid()} fresh:{self.is_fresh()}'
+
+    def matches(self, other:"Intel") -> bool:
+        if not isinstance(other, EntityIntel):
+            return False
+        return other.intel_entity_id == self.intel_entity_id
 
 class AbstractIntelManager:
     @abc.abstractmethod
@@ -205,6 +255,12 @@ class AbstractEventManager:
         raise NotImplementedError()
     def f(self, flag:str) -> int:
         raise NotImplementedError()
+
+    def e_rev(self, event_id:int) -> str:
+        raise NotImplementedError()
+    def ck_rev(self, context_key:int) -> str:
+        raise NotImplementedError()
+
     def trigger_event(
         self,
         characters: Iterable[Character],

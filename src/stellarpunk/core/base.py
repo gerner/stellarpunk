@@ -32,7 +32,18 @@ class Observer(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def observer_id(self) -> uuid.UUID: ...
+    def observer_id(self) -> uuid.UUID:
+        """ identifies where this observer is coming from
+
+        Does not have to be unique, this is used for debugging to find a source
+        for this observer. Could be an entity_id, even if this Observer is not
+        that entity, as long as knowing that entity_id helps to know how to
+        find this Observer.
+
+        Ideally knowing the type of the observer and this observer_id is enough
+        to uniquely identify the observer, but that's not strictly
+        necessary."""
+        ...
 
     @property
     def observings(self) -> Iterable["Observable"]:
@@ -51,11 +62,19 @@ class Observable[T:Observer](abc.ABC):
 
     @property
     @abc.abstractmethod
-    def observable_id(self) -> uuid.UUID: ...
+    def observable_id(self) -> uuid.UUID:
+        """ uniquely identifies this observable. e.g. entity_id """
+        ...
 
     @property
-    def observers(self) -> Iterable[T]:
+    def observers(self) -> Collection[T]:
         return self._observers
+
+    def _observe(self, observer:T) -> None:
+        pass
+
+    def _unobserve(self, observer:T) -> None:
+        pass
 
     def observe(self, observer:T) -> None:
         self._observers.add(observer)
@@ -76,6 +95,9 @@ class Observable[T:Observer](abc.ABC):
 class EntityRegistry(abc.ABC):
     @abc.abstractmethod
     def register_entity(self, entity: "Entity") -> narrative.EventContext: ...
+
+    @abc.abstractmethod
+    def destroy_entity(self, entity:"Entity") -> None: ...
 
     @abc.abstractmethod
     def unregister_entity(self, entity: "Entity") -> None: ...

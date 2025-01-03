@@ -114,7 +114,9 @@ def test_parse_eval():
         id_for_testing = 1
     """
 
-    d = rule_parser.loads(test_config, {x.name: x.value for x in ET}, {x.name: x.value for x in CK}, {x.name: x.value for x in A})
+    directors = rule_parser.loads(test_config, {x.name: x.value for x in ET}, {x.name: x.value for x in CK}, {x.name: x.value for x in A})
+    assert(len(directors) == 1)
+    d = directors[0]
     #d.check_refcounts()
 
     event_context:Dict[int,int] = {CK.foo: 100, CK.bar: 200}

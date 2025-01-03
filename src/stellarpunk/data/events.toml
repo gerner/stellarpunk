@@ -150,29 +150,31 @@ _action = "dialog"
 
 [intel_id_asteroid]
 type = "sensors:identified"
-priority = 0
-terminal = false
+priority = 1
+group = "intel"
 criteria = ["$target.generate:etype_asteroid"]
 [[intel_id_asteroid.actions]]
 _action = "intel:identify_asteroid"
 
 #TODO: what about planets?
-[intel_id_station]
-type = "sensors:identified"
-priority = 0
-terminal = false
-criteria = ["$target.generate:etype_station"]
-[[intel_id_station.actions]]
-_action = "intel:identify_station"
-
-#TODO: what about planets?
 [intel_docked_station]
 type = "docked"
-priority = 0
-terminal = false
+priority = 1
+group = "intel"
 criteria = ["$target.generate:etype_station"]
 [[intel_docked_station.actions]]
 _action = "intel:witness_docking"
+
+# fallback sector_entity_identification
+[intel_id_sector_entity]
+type = "sensors:identified"
+priority = 2
+group = "intel"
+criteria = []
+[[intel_id_sector_entity.actions]]
+_action = "intel:identify_sector_entity"
+
+
 
 #[player_open_dialog]
 #type = "dialog"

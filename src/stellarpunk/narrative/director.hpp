@@ -315,7 +315,6 @@ class cRule {
     private:
         std::uint64_t event_type;
         std::uint64_t priority;
-        bool terminal;
         std::vector<std::unique_ptr<cCriteriaBase>> criteria;
         std::vector<cActionTemplate> actions;
 
@@ -326,13 +325,11 @@ class cRule {
         cRule(
             std::uint64_t et,
             std::uint64_t pri,
-            bool t,
             std::vector<std::unique_ptr<cCriteriaBase>> &cri,
             std::vector<cActionTemplate> a
         ) {
             event_type = et;
             priority = pri;
-            terminal = t;
             actions = a;
 
             for(auto &c : cri) {
@@ -359,10 +356,6 @@ class cRule {
 
         std::uint64_t get_priority() {
             return priority;
-        }
-
-        bool is_terminal() {
-            return terminal;
         }
 };
 
@@ -404,9 +397,7 @@ class cDirector {
                             //printf("adding action %lu\n", aitr.action_id);
                             matches.push_back(aitr.resolve(event, character_candidate));
                         }
-                        if(itr->is_terminal()) {
-                            break;
-                        }
+                        break;
                     }
                 }
             }

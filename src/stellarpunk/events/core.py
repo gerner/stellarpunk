@@ -21,6 +21,13 @@ class Action:
     def __init__(self) -> None:
         self.gamestate: core.Gamestate = None # type: ignore[assignment]
 
+    def ck(self, event_context:Mapping[int, int], context_key:enum.IntEnum) -> int:
+        ck_id = self.gamestate.event_manager.ck(context_key)
+        try:
+            return event_context[ck_id]
+        except KeyError as ke:
+            raise KeyError(f'{self.gamestate.event_manager.ck_rev(ck_id)}({ck_id}) not found in event context with keys {list(self.gamestate.event_manager.ck_rev(c) for c in event_context.keys())}') from ke
+
     def _required_keys(self, key_types: Sequence[tuple[str, type]], action_args: Mapping[str, Any]) -> bool:
         return all(
             k in action_args and isinstance(action_args[k], t) for k,t in key_types
@@ -80,7 +87,7 @@ class EventManager(core.AbstractEventManager):
     ) -> None:
         self.logger = logging.getLogger(util.fullname(self))
         self.gamestate:core.Gamestate = None # type: ignore[assignment]
-        self.director:narrative.Director = None # type: ignore[assignment]
+        self.directors:list[narrative.Director] = None # type: ignore[assignment]
 
         # this is mapping to/from code specific logic and EventManager logic
         self._event_offset = 0
@@ -113,6 +120,12 @@ class EventManager(core.AbstractEventManager):
     def f(self, flag:str) -> int:
         """ map global flag string name to EventContext key """
         return self.context_keys[flag]
+
+    def e_rev(self, event_id:int) -> str:
+        return self.event_type_lookup[event_id]
+
+    def ck_rev(self, context_key:int) -> str:
+        return self.context_key_lookup[context_key]
 
     def register_events(self, events: enum.EnumMeta, namespace:str="") -> None:
         """ Registers a set of events code might trigger later
@@ -188,7 +201,7 @@ class EventManager(core.AbstractEventManager):
         self.logger.info(f'known events {self.event_types.keys()}')
         self.logger.info(f'known context keys {self.context_keys.keys()}')
         self.logger.info(f'known actions {self.action_ids.keys()}')
-        self.director = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
+        self.directors = narrative.loadd(events, self.event_types, self.context_keys, self.action_ids, action_validators)
 
         self.logger.info(f'event manager initialized')
 
@@ -257,7 +270,10 @@ class EventManager(core.AbstractEventManager):
     def _do_event(self, event: narrative.Event, candidates:Iterable["narrative.CharacterCandidate[core.Character]"]) -> int:
         actions_processed = 0
         self.logger.debug(f'evaluating event {self.event_type_lookup[event.event_type]} ({event.event_type}) for {list(x.data.short_id() for x in candidates)}')
-        actions = self.director.evaluate(event, candidates)
+        actions:list[narrative.Action] = []
+        for director in self.directors:
+            actions.extend(director.evaluate(event, candidates))
+
         for action in actions:
             self.logger.debug(f'triggered action {self.action_id_lookup[action.action_id]} ({action.action_id}) for {action.character_candidate.data.short_id()}')
 

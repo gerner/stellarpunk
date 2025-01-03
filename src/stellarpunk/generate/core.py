@@ -1015,7 +1015,7 @@ class UniverseGenerator(core.AbstractGenerator):
         )
         character.location = location
         character.balance = balance
-        intel_manager.owner = character
+        intel_manager.character = character
         self.gamestate.add_character(character)
         return character
 

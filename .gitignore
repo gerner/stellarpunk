@@ -155,5 +155,6 @@ cython_debug/
 production_chain
 production_chain.pdf
 .vimrc
+.exrc
 /data/
 /src/stellarpunk/_version.py
