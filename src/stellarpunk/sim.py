@@ -605,7 +605,7 @@ def main() -> None:
 
         event_manager = events.EventManager()
         events.register_events(event_manager)
-        sensors.pre_initialize(em)
+        sensors.pre_initialize(event_manager)
 
         generator = generate.UniverseGenerator()
         sg = initialize_save_game(generator, event_manager)
