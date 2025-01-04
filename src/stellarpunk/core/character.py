@@ -42,6 +42,9 @@ class Intel(base.Observable[IntelObserver], base.Entity):
     def __str__(self) -> str:
         return f'{self.short_id()} {type(self)} {self.is_valid()=} {self.is_fresh()=}'
 
+    def sanity_check(self) -> None:
+        pass
+
     @property
     def observable_id(self) -> uuid.UUID:
         return self.entity_id
@@ -72,13 +75,13 @@ class Intel(base.Observable[IntelObserver], base.Entity):
         # self.entity_registry.destroy_entity(self)
 
 class EntityIntel[T:base.Entity](Intel):
-    def __init__(self, entity_id:uuid.UUID, entity_short_id:str, entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, intel_entity_id:uuid.UUID, intel_entity_short_id:str, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
         # we need to set these fields before the super constructor because we
         # override __str__ which might be called in a super constructor
         # we specifically do not retain a reference to the original entity
-        self.intel_entity_type:Type[T] = entity_type
-        self.intel_entity_id = entity_id
-        self.intel_entity_short_id = entity_short_id
+        self.intel_entity_id = intel_entity_id
+        self.intel_entity_short_id = intel_entity_short_id
+        self.intel_entity_type:Type[T] = intel_entity_type
         super().__init__(*args, **kwargs)
 
     def __str__(self) -> str:
@@ -89,6 +92,11 @@ class EntityIntel[T:base.Entity](Intel):
             return False
         return other.intel_entity_id == self.intel_entity_id
 
+    def sanity_check(self) -> None:
+        super().sanity_check()
+        assert(issubclass(self.intel_entity_type, base.Entity))
+
+
 class AbstractIntelManager:
     @abc.abstractmethod
     def add_intel(self, intel:"Intel") -> None: ...
@@ -96,6 +104,8 @@ class AbstractIntelManager:
     def intel[T:Intel](self, cls:Type[T]) -> Collection[T]: ...
     @abc.abstractmethod
     def get_entity_intel[T:EntityIntel](self, entity_id:uuid.UUID, cls:Type[T]) -> Optional[T]: ...
+    @abc.abstractmethod
+    def sanity_check(self) -> None: ...
 
     #TODO: some way to ask for asteroids
     #TODO: some way to ask for buyers (econ agents, or at least some proxy representing our knowledge of the econ agent at that time) and the corresponding locations we can find them at
@@ -212,6 +222,9 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         self.home_sector_id = home_sector_id
 
         self.intel_manager:AbstractIntelManager = None # type: ignore
+
+    def sanity_check(self) -> None:
+        self.intel_manager.sanity_check()
 
     # base.Observable
     @property

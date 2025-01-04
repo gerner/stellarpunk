@@ -30,6 +30,7 @@ from stellarpunk.serialization import (
     order_core as s_order_core,
     movement as s_movement,
     effect as s_effect,
+    intel as s_intel,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -499,6 +500,9 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(sector_entity.Planet, s_sector_entity.PlanetSaver(sg))
     sg.register_saver(sector_entity.Station, s_sector_entity.StationSaver(sg))
     sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
+    sg.register_saver(intel.SectorEntityIntel, s_intel.SectorEntityIntelSaver(sg))
+    sg.register_saver(intel.AsteroidIntel, s_intel.AsteroidIntelSaver(sg))
+    sg.register_saver(intel.EconAgentIntel, s_intel.EconAgentIntelSaver(sg))
 
     # agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))
@@ -536,7 +540,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(combat.AttackOrder, s_combat.AttackOrderSaver(sg))
     sg.register_saver(combat.FleeOrder, s_combat.FleeOrderSaver(sg))
 
-    #TODO: effects
+    # effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
     sg.register_saver(effects.TransferCargoEffect, s_effect.TransferCargoEffectSaver[effects.TransferCargoEffect](sg))
     sg.register_saver(effects.TradeTransferEffect, s_effect.TradeTransferEffectSaver(sg))
@@ -548,6 +552,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     # scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
     sg.register_saver(combat.TimedOrderTask, s_combat.TimedOrderTaskSaver(sg))
+    sg.register_saver(intel.ExpireIntelTask, s_intel.ExpireIntelTaskSaver(sg))
 
     # sensor settings (live in SectorEntity)
     sg.register_saver(core.AbstractSensorSettings, s_sensors.SensorSettingsSaver(sg))
@@ -559,6 +564,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
 
     # other stuff
     sg.register_saver(combat.ThreatTracker, s_combat.ThreatTrackerSaver(sg))
+    sg.register_saver(intel.IntelManager, s_intel.IntelManagerSaver(sg))
 
     return sg
 

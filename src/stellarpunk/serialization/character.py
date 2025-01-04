@@ -3,7 +3,7 @@ import io
 import collections
 from typing import Any, Optional
 
-from stellarpunk import core, util
+from stellarpunk import core, util, intel
 
 from . import save_game, util as s_util, gamestate as s_gamestate
 
@@ -69,6 +69,9 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for agendum in character.agenda:
             bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
 
+        bytes_written += s_util.debug_string_w("intel", f)
+        bytes_written += self.save_game.save_object(character.intel_manager, f)
+
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Character:
@@ -88,6 +91,9 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         for i in range(count):
             agenda_ids.append(s_util.uuid_from_f(f))
 
+        s_util.debug_string_r("intel", f)
+        intel_manager = self.save_game.load_object(intel.IntelManager, f, load_context)
+
         character = core.Character(
             load_context.generator.sprite_store[sprite_id],
             load_context.gamestate,
@@ -95,6 +101,8 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
             home_sector_id=home_sector_id
         )
         character.balance = balance
+        character.intel_manager = intel_manager
+        intel_manager.character = character
         load_context.register_post_load(character, (location_id, asset_ids, agenda_ids))
 
         return character

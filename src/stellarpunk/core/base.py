@@ -142,6 +142,9 @@ class Entity(abc.ABC):
     def __str__(self) -> str:
         return f'{self.short_id()}'
 
+    def sanity_check(self) -> None:
+        pass
+
 
 class Sprite:
     """ A "sprite" from a text file that can be drawn in text """

@@ -522,7 +522,6 @@ class GameSaver(SaverObserver):
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
 
             self.logger.debug("sanity checking loaded gamestate")
-
             gamestate.sanity_check()
 
             self.logger.debug("loading gamestate into generator")

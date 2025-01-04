@@ -26,6 +26,22 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         self._intel_by_type:MutableMapping[Type[core.Intel], set[uuid.UUID]] = collections.defaultdict(set)
         self._entity_intel:dict[uuid.UUID, uuid.UUID] = {}
 
+    def sanity_check(self) -> None:
+        intel_count = 0
+        entity_intel_count = 0
+        for intel_type, intels in self._intel_by_type.items():
+            for intel_id in intels:
+                intel_count += 1
+                assert intel_id in self._intel
+                intel = self.gamestate.get_entity(intel_id, intel_type)
+                assert intel.entity_id == intel_id
+                if isinstance(intel, core.EntityIntel):
+                    entity_intel_count += 1
+                    assert intel_id == self._entity_intel[intel.intel_entity_id]
+
+        assert intel_count == len(self._intel)
+        assert entity_intel_count == len(self._entity_intel)
+
     @property
     def observer_id(self) -> uuid.UUID:
         return self.character.entity_id
@@ -50,7 +66,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     def add_intel(self, intel:core.Intel) -> None:
         old_intel:Optional[core.Intel] = None
         if isinstance(intel, core.EntityIntel):
-            old_intel = self.character.intel_manager.get_entity_intel(intel.entity_id, type(intel))
+            old_intel = self.get_entity_intel(intel.entity_id, type(intel))
         else:
             for candidate_id in self._intel:
                 intel_candidate = self.gamestate.get_entity(candidate_id, core.Intel)
@@ -60,8 +76,10 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
         # if we already have fresh matching intel
         if old_intel and old_intel.created_at > intel.created_at:
+            # ours is better, ignore theirs
             return
         elif old_intel:
+            # theirs is better, drop ours
             self._remove_intel(old_intel)
 
         self._add_intel(intel)
@@ -119,6 +137,11 @@ class SectorEntityIntel[T:core.SectorEntity](core.EntityIntel[T]):
         self.sector_id = sector_id
         self.loc = loc
 
+    def sanity_check(self) -> None:
+        super().sanity_check()
+        #TODO: is it possible sectors go away?
+        sector = core.Gamestate.gamestate.get_entity(self.sector_id, core.Sector)
+
 class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
     @classmethod
     def create_asteroid_intel(cls, asteroid:sector_entity.Asteroid, *args:Any, **kwargs:Any) -> "AsteroidIntel":
@@ -130,10 +153,20 @@ class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
         self.resource = resource
         self.amount = amount
 
+    def sanity_check(self) -> None:
+        super().sanity_check()
+        #TODO: can asteroids go away?
+        asteroid = core.Gamestate.gamestate.get_entity(self.intel_entity_id, sector_entity.Asteroid)
+        assert(asteroid.resource == self.resource)
+
 class EconAgentIntel(core.EntityIntel[core.EconAgent]):
     @classmethod
-    def create_econ_agent_intel(cls, econ_agent:core.EconAgent, *args:Any, **kwargs:Any) -> "EconAgentIntel":
-        agent_intel = EconAgentIntel(econ_agent.entity_id, core.EconAgent, *args, **kwargs)
+    def create_econ_agent_intel(cls, econ_agent:core.EconAgent, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "EconAgentIntel":
+        entity_id = econ_agent.entity_id
+        entity_short_id = econ_agent.short_id()
+        entity_class = type(econ_agent)
+        agent_intel = EconAgentIntel(entity_id, entity_short_id, entity_class, gamestate, **kwargs)
+        agent_intel.sector_entity_id = gamestate.agent_to_entity[entity_id].entity_id
 
         for resource in econ_agent.sell_resources():
             agent_intel.sell_offers[resource] = (
@@ -151,7 +184,7 @@ class EconAgentIntel(core.EntityIntel[core.EconAgent]):
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        sector_entity_id:uuid.UUID = None # type: ignore
+        self.sector_entity_id:uuid.UUID = None # type: ignore
 
         # resource id -> price, amount
         self.sell_offers:dict[int, tuple[float, float]] = {}
@@ -209,7 +242,7 @@ class DockingAction(events.Action):
             event_args: MutableMapping[str, Union[int,float,str,bool]],
             action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
-        station = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.Station)
+        station = self.gamestate.get_entity_short(self.ck(event_context, events.ContextKeys.TARGET), sector_entity.Station)
 
         # first make some econ agent intel to record resources and prices at
         # this station

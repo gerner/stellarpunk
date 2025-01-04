@@ -304,6 +304,7 @@ class Gamestate(EntityRegistry):
             if isinstance(entity, Observable):
                 for observer in entity.observers:
                     assert entity in observer.observings
+            entity.sanity_check()
 
     def recover_objects[T:tuple](self, objects:T) -> T:
         ret = []

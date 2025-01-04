@@ -4,7 +4,7 @@ import pytest
 import cymunk # type: ignore
 import numpy as np
 
-from stellarpunk import core, sim, generate, interface, sensors, events, intel
+from stellarpunk import core, sim, generate, interface, sensors, events, intel, config
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def event_manager() -> events.EventManager:
     intel.pre_initialize(em)
     #TODO: all events (e.g. ui manager events) should be registered by this point
     #TODO: this is where events are setup from config, do we need to worry about that?
-    em.pre_initialize({})
+    #em.pre_initialize({})
     return em
 
 @pytest.fixture
@@ -41,6 +41,12 @@ def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> ge
             assign_names=False,
             #n_ranks=1, min_per_rank=(1,), max_per_rank=(1,), min_final_inputs=1)
     )
+
+    # just pull out intel events
+    e = {k:v for k,v in config.Events.items() if "group" in v and v["group"] == "intel"}
+    event_manager.pre_initialize(e)
+    event_manager.initialize_gamestate(events.EventState(), gamestate)
+
     return ug
 
 @pytest.fixture
