@@ -487,6 +487,13 @@ class Presenter:
             else:
                 raise ValueError(f'do not know how to draw {type(shape)}')
 
+    def draw_hexes(self) -> None:
+        """ Draws the sector hex grid """
+
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, *self.perspective.meters_per_char, bbox=self.perspective.bbox)
+        util.draw_canvas_at(c, self.view.viewscreen.window, 0, 0, bounds=self.view.viewscreen_bounds)
+
     def update(self) -> None:
         pass
 

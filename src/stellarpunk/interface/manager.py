@@ -199,7 +199,7 @@ class PolygonDemo(interface.View):
 
     def update_display(self) -> None:
         self.interface.viewscreen.erase()
-        self.interface.viewscreen.addstr(0, 35, "CIRCLE DEMO")
+        self.interface.viewscreen.addstr(0, 35, "POLYGON DEMO")
 
         # make a rectangle
         c = util.make_rectangle_canvas(self.bbox, 1, 2)
@@ -227,6 +227,135 @@ class PolygonDemo(interface.View):
             self.sidelength += 1
         elif key == ord("<"):
             self.sidelength -= 1
+        elif key == ord("w"):
+            self.bbox = (self.bbox[0], self.bbox[1]-1, self.bbox[2], self.bbox[3]-1)
+        elif key == ord("a"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1], self.bbox[2]-1, self.bbox[3])
+        elif key == ord("s"):
+            self.bbox = (self.bbox[0], self.bbox[1]+1, self.bbox[2], self.bbox[3]+1)
+        elif key == ord("d"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1], self.bbox[2]+1, self.bbox[3])
+        elif key == ord("i"):
+            self.offset = (self.offset[0], self.offset[1]-1)
+        elif key == ord("k"):
+            self.offset = (self.offset[0], self.offset[1]+1)
+        elif key == ord("j"):
+            self.offset = (self.offset[0]-1, self.offset[1])
+        elif key == ord("l"):
+            self.offset = (self.offset[0]+1, self.offset[1])
+        else:
+            return False
+        return True
+
+
+class LineDemo(interface.View):
+    """ Testing tool showing a line drawn on the screen inside a bounding box
+
+    Useful for debugging the drawing logic. """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.scale = 15.
+        self.start =(-self.scale, -self.scale)
+        self.end = (self.scale, self.scale)
+        self.bbox = (-1.5*self.scale, -1.5*self.scale, 1.5*self.scale, 1.5*self.scale)
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "HEX GRID DEMO")
+
+        # make a rectangle
+        c = util.make_rectangle_canvas(self.bbox, 1, 2)
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        # make a line
+        c = util.drawille_line(self.start, self.end, 1, 2, bbox=self.bbox, )
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        self.interface.viewscreen.addstr(int(self.scale+15), 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == curses.ascii.ESC:
+            self.interface.close_view(self)
+            return True
+        elif key == ord("+"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1]-1, self.bbox[2]+1, self.bbox[3]+1)
+        elif key == ord("-"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1]+1, self.bbox[2]-1, self.bbox[3]-1)
+        elif key == ord("w"):
+            self.bbox = (self.bbox[0], self.bbox[1]-1, self.bbox[2], self.bbox[3]-1)
+        elif key == ord("a"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1], self.bbox[2]-1, self.bbox[3])
+        elif key == ord("s"):
+            self.bbox = (self.bbox[0], self.bbox[1]+1, self.bbox[2], self.bbox[3]+1)
+        elif key == ord("d"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1], self.bbox[2]+1, self.bbox[3])
+
+        elif key == ord("i"):
+            self.start = (self.start[0], self.start[1]-1)
+        elif key == ord("k"):
+            self.start = (self.start[0], self.start[1]+1)
+        elif key == ord("j"):
+            self.start = (self.start[0]-1, self.start[1])
+        elif key == ord("l"):
+            self.start = (self.start[0]+1, self.start[1])
+
+        elif key == ord("I"):
+            self.end = (self.end[0], self.end[1]-1)
+        elif key == ord("K"):
+            self.end = (self.end[0], self.end[1]+1)
+        elif key == ord("J"):
+            self.end = (self.end[0]-1, self.end[1])
+        elif key == ord("L"):
+            self.end = (self.end[0]+1, self.end[1])
+
+        else:
+            return False
+        return True
+
+
+class HexGridDemo(interface.View):
+    """ Testing tool drawing hex grid on the screen inside a bounding box
+
+    Useful for debugging the drawing logic. """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.scale = 15.
+        self.size = self.scale
+        self.bbox = (-1.5*self.scale, -1.5*self.scale, 1.5*self.scale, 1.5*self.scale)
+        self.offset = (0,0)
+
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "HEX GRID DEMO")
+
+        # make a rectangle
+        c = util.make_rectangle_canvas(self.bbox, 1, 2)
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        # make a polygon
+        c = util.make_pointy_hex_grid_canvas(self.size, 1, 2, bbox=self.bbox, offset_x=self.offset[0], offset_y=self.offset[1])
+
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        self.interface.viewscreen.addstr(int(self.scale+15), 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == curses.ascii.ESC:
+            self.interface.close_view(self)
+            return True
+        elif key == ord("+"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1]-1, self.bbox[2]+1, self.bbox[3]+1)
+        elif key == ord("-"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1]+1, self.bbox[2]-1, self.bbox[3]-1)
+        elif key == ord(">"):
+            self.size += 1
+        elif key == ord("<"):
+            self.size -= 1
         elif key == ord("w"):
             self.bbox = (self.bbox[0], self.bbox[1]-1, self.bbox[2], self.bbox[3]-1)
         elif key == ord("a"):
@@ -462,6 +591,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
         def circledemo(args:Sequence[str]) -> None: self.interface.open_view(CircleDemo(self.interface), deactivate_views=True)
         def polygondemo(args:Sequence[str]) -> None: self.interface.open_view(PolygonDemo(self.interface), deactivate_views=True)
+        def linedemo(args:Sequence[str]) -> None: self.interface.open_view(LineDemo(self.interface), deactivate_views=True)
+        def hexgriddemo(args:Sequence[str]) -> None: self.interface.open_view(HexGridDemo(self.interface), deactivate_views=True)
         def profile(args:Sequence[str]) -> None:
             if self.profiler:
                 self.profiler.disable()
@@ -629,6 +760,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("keydemo", keydemo),
             self.bind_command("circledemo", circledemo),
             self.bind_command("polygondemo", polygondemo),
+            self.bind_command("linedemo", linedemo),
+            self.bind_command("hexgriddemo", hexgriddemo),
             self.bind_command("profile", profile),
             self.bind_command("decrease_fps", decrease_fps),
             self.bind_command("increase_fps", increase_fps),

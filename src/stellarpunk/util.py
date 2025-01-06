@@ -295,6 +295,7 @@ def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float,
 
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
 
+#@jit(cache=True, nopython=True, fastmath=True)
 def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tuple[float, float, float, float]) -> Optional[Tuple[float, float, float, float]]:
     """ returns the subsegment that overlaps rect or None if no overlap. """
     # left and right sides
@@ -309,17 +310,18 @@ def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tupl
     if len(subsegment) == 2:
         return tuple(x for p in subsegment for x in p) # type: ignore
     elif len(subsegment) == 1:
-        if rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
+        if rect[0] <= segment[0] and segment[0] <= rect[2] and rect[1] <= segment[1] and segment[1] <= rect[3]:
             return (subsegment[0][0], subsegment[0][1], segment[0], segment[1])
         else:
             # the other point better be in the rect
-            assert rect[0] < segment[2] and segment[2] < rect[2] and rect[1] < segment[3] and segment[3] < rect[3]
+            assert rect[0] <= segment[2] and segment[2] <= rect[2] and rect[1] <= segment[3] and segment[3] <= rect[3]
             return (subsegment[0][0], subsegment[0][1], segment[2], segment[3])
     elif rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
         return segment
     else:
         return None
 
+@jit(cache=True, nopython=True, fastmath=True)
 def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple[float, float]]:
     """ returns true iff segments a and b intersect. """
     # inspired by https://stackoverflow.com/a/565282/553580
@@ -402,9 +404,19 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
-def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None) -> drawille.Canvas:
+def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None, bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+
     if canvas is None:
         canvas = drawille.Canvas()
+
+    # truncate the line if necessary
+    if bbox is not None:
+        segment = segment_intersects_rect((start[0], start[1], end[0], end[1]), bbox)
+        if segment is None:
+            return canvas
+        start = segment[0:2]
+        end = segment[2:4]
+
     course = np.array(end) - np.array(start)
     distance = np.linalg.norm(course)
     if distance == 0:
@@ -724,11 +736,12 @@ def make_rectangle_canvas(rect:Tuple[float, float, float, float], meters_per_cha
         y += step
     return c
 
-def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[np.float64]|Sequence[float]]], meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[np.float64]|Sequence[float]]], meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
     if step is None:
         step = 2
 
-    c = drawille.Canvas()
+    if c is None:
+        c = drawille.Canvas()
 
     if len(vertices) == 0:
         return c
@@ -807,6 +820,97 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
             d_x, d_y = sector_to_drawille(c_x+offset_x, c_y+offset_y, meters_per_char_x, meters_per_char_y)
             c.set(d_x, d_y)
             theta += step
+
+    return c
+
+def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+    """ Draws right half of a regular hexagon, center to point distance size.
+
+    This is useful when drawing a tessalating hex pattern. Each hex draws its
+    right half. Together this creates a complete, non-overlapping hex grid. """
+
+    if step is None:
+        step = 2. * meters_per_char_x
+
+    if c is None:
+        c = drawille.Canvas()
+
+    assert(size > 0)
+
+    # top right segment
+    start = (0.+offset_x, size+offset_y)
+    end = (np.sqrt(3.)/2.*size+offset_x, size/2.+offset_y)
+    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "1.s")
+    #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "1.e")
+    # right segment
+    start = end
+    end = (np.sqrt(3.)/2.*size+offset_x, -size/2.+offset_y)
+    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "2.s")
+    #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "2.e")
+
+    # bottom right segment
+    start = end
+    end = (0+offset_x, -size+offset_y)
+    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "3.s")
+    #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "3.e")
+
+    #c.set_text(*sector_to_drawille(offset_x, offset_y, meters_per_char_x, meters_per_char_y), "X")
+
+    return c
+
+def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+    """ makes a pointy hex grid filling bbox. """
+    c = drawille.Canvas()
+    if bbox is None:
+        return c
+
+    # start with hex containing upper left of perspective
+    pixel_loc = np.array((bbox[0]-offset_x, bbox[1]-offset_y))
+    hex_loc = axial_round(pixel_to_pointy_hex(pixel_loc, size))
+    # back up to the left by one hex
+    hex_loc[0] -= 1.
+    pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+
+    hex_pairs = 0
+    row_pairs = 0
+    # draw pairs of lines until hex center is size distance outside bottom edge
+    #logger.info(f'bbox: {bbox}')
+    #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
+    while(pixel_loc[1] < bbox[3]+size):
+        # draw pairs of hexes (q, r) and (q-1, r+1) until second hex center is outside the right edge
+        #logger.info(f'considering hex pair pixel: {hex_loc} {pixel_loc}')
+        row_start = hex_loc.copy()
+        while(pixel_loc[0] < bbox[2]):
+            # draw first, upper left hex
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # debugging:
+            #c.set_text(*sector_to_drawille(pixel_loc[0], pixel_loc[1], meters_per_char_x, meters_per_char_y), f'{hex_pairs}.a {hex_loc}')
+
+            # draw second, lower right hex
+            hex_loc[1] += 1
+            pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # debugging:
+            #c.set_text(*sector_to_drawille(pixel_loc[0], pixel_loc[1], meters_per_char_x, meters_per_char_y), f'{hex_pairs}.b {hex_loc}')
+
+            # set up next pair of hexes: rewind to first hex and move right
+            hex_loc[0]+=1
+            hex_loc[1]-=1
+            pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+            hex_pairs += 1
+            #logger.info(f'considering hex pair pixel: {hex_loc} {pixel_loc}')
+
+        # set up next pair of lines:
+        # move down and to the right and down and to the left
+        hex_loc = row_start
+        hex_loc[0] -= 1
+        hex_loc[1] += 2
+        pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+        row_pairs += 1
+        #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
 
     return c
 
