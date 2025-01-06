@@ -52,9 +52,10 @@ def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> ge
 @pytest.fixture
 def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
+    hex_size = 1e4
     sector_name = "Sector"
 
-    sector = core.Sector(np.array([0, 0]), sector_radius, cymunk.Space(), gamestate, sector_name, culture="test")
+    sector = core.Sector(np.array([0, 0]), sector_radius, hex_size, cymunk.Space(), gamestate, sector_name, culture="test")
     sector.sensor_manager = sensors.SensorManager(sector)
     gamestate.add_sector(sector, 0)
 

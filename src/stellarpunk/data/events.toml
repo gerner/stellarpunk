@@ -174,7 +174,14 @@ criteria = []
 [[intel_id_sector_entity.actions]]
 _action = "intel:identify_sector_entity"
 
-
+# sensor scan
+[intel_sensor_scan]
+type = "sensors:scanned"
+priority = 1
+group = "intel"
+criteria = []
+[[intel_sensor_scan.actions]]
+_action = "intel:witness_scan"
 
 #[player_open_dialog]
 #type = "dialog"

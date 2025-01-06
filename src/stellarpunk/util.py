@@ -849,6 +849,48 @@ def update_vema(value_estimate:float | npt.NDArray[np.float64], volume_estimate:
     volume_estimate = alpha * volume_estimate + (1-alpha) * volume
     return (value_estimate, volume_estimate)
 
+# Hex functions
+# all of these are courtesey https://www.redblobgames.com/grids/hexagons/
+
+@jit(cache=True, nopython=True, fastmath=True)
+def cube_to_axial(cube:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    return cube[:2].copy()
+
+@jit(cache=True, nopython=True, fastmath=True)
+def axial_to_cube(coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    return np.array((coords[0], coords[1], -coords[0]-coords[1]))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def cube_round(frac:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    coords = np.round(frac)
+    coords_diff = np.abs(coords - frac)
+
+    if coords_diff[0] > coords_diff[1] and coords_diff[0] > coords_diff[2]:
+        coords[0] = -coords[1]-coords[2]
+    elif coords_diff[1] > coords_diff[2]:
+        coords[1] = -coords[0]-coords[2]
+    else:
+        coords[2] = -coords[0]-coords[1]
+
+    return coords
+
+@jit(cache=True, nopython=True, fastmath=True)
+def axial_round(coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    return cube_to_axial(cube_round(axial_to_cube(coords)))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def pointy_hex_to_pixel(coords:npt.NDArray[np.float64], size:float) -> npt.NDArray[np.float64]:
+    x = size * (np.sqrt(3) * coords[0]  +  np.sqrt(3)/2 * coords[1])
+    y = size * (                         3./2 * coords[1])
+    return np.array((x, y))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def pixel_to_pointy_hex(point:npt.NDArray[np.float64], size:float) -> npt.NDArray[np.float64]:
+    q = (np.sqrt(3)/3 * point[0]  -  1./3 * point[1]) / size
+    r = (                        2./3 * point[1]) / size
+    return np.array((q,r))
+
+
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
 

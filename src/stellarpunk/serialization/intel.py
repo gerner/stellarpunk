@@ -66,7 +66,7 @@ class IntelSaver[T: core.Intel](s_gamestate.EntitySaver[T]):
         intel.expires_at = expires_at
         return intel
 
-class EntityIntelSaver[T: core.EntityIntel](IntelSaver[T]):
+class EntityIntelSaver[T: intel.EntityIntel](IntelSaver[T]):
     @abc.abstractmethod
     def _save_entity_intel(self, intel:T, f:io.IOBase) -> int: ...
     @abc.abstractmethod

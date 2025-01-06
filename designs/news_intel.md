@@ -58,6 +58,8 @@ Questions:
 * How fine grained should intel be? Should each asteroid be its own piece of
   intel, or the resource field in general?
 * Can there be false intel?
+* Can two characters independently discover the same intel? or do they create
+  two independent, but otherwise identical intels?
 
 ### Sensor Integration
 
@@ -237,4 +239,14 @@ Stuff we might want to know that is a function of the intel we have:
 * Conclusions or rules of thumb: this sector is dangerous, this sector has a
   lot of some particular resource. Do we materialize this or is this inferred
   from knowledge questions above?
+* Information about the absence of sector entities, e.g. how do we know if
+  we've seen ALL the asteroids in a sector? (this can help avoid someone
+  re-exploring the same space over and over again)
+    * Divide a sector into hexes on a hex grid
+    * Hexes are as large as possible such that a craft in the hex is likely to
+      "see" all other objects in the hex.
+    * SectorCensusIntel is gained about the hex on entering it, including how
+      many static SectorEntities of each type are present. Presumably the ship
+      has corresponding intel for these entities. Regardless, it'll now know
+      how many such objects it _could_ have such intel about.
 

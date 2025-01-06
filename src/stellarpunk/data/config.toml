@@ -126,6 +126,12 @@ AUTOSAVE_PERIOD_SEC = 30.0
         # mean and std of sector radius in meters
         SECTOR_RADIUS_MEAN = 5e5
         SECTOR_RADIUS_STD = 1e5
+        # size of a "hex" within a sector, a region of exploration, as large as
+        # possible, but small enough that a craft within the sector can
+        # reasonably expect to detect all objects within the hex
+        # this should be approximately half the detection range for objects of
+        # interest
+        SECTOR_HEX_SIZE = 2e5
         # max distance between sectors to guarantee a gate connection
         MAX_SECTOR_EDGE_LENGTH = 2e8
 

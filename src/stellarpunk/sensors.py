@@ -4,8 +4,9 @@ import uuid
 import logging
 import weakref
 import enum
-from collections.abc import Collection
-from typing import Tuple, Iterator, Optional, Any, Union, Dict, Mapping, Iterable, Set
+import collections
+from collections.abc import Collection, Mapping, MutableMapping, Iterator, Iterable
+from typing import Optional, Any, Union
 
 import rtree.index
 import numpy.typing as npt
@@ -20,12 +21,16 @@ ZERO_VECTOR = np.array((0.,0.))
 ZERO_VECTOR.flags.writeable = False
 
 class Events(enum.IntEnum):
+    SCANNED = enum.auto()
     TARGETED = enum.auto()
     IDENTIFIED = enum.auto()
 
 class ContextKeys(enum.IntEnum):
     DETECTOR = enum.auto()
     TARGET = enum.auto()
+    SECTOR = enum.auto()
+    STATIC_COUNT = enum.auto()
+    DYNAMIC_COUNT = enum.auto()
 
 class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     @classmethod
@@ -435,15 +440,59 @@ class SensorManager(core.AbstractSensorManager):
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > self.compute_effective_threshold(detector)
 
-    def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
-        for hit in self.sector.spatial_query(bbox):
-            if self.detected(hit, detector):
-                yield hit
+    #def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
+    #    for hit in self.sector.spatial_query(bbox):
+    #        if self.detected(hit, detector):
+    #            yield hit
 
-    def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.SectorEntity]:
-        for hit in self.sector.spatial_point(point, max_dist):
+    #def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.SectorEntity]:
+    #    for hit in self.sector.spatial_point(point, max_dist):
+    #        if self.detected(hit, detector):
+    #            yield hit
+
+    def scan(self, detector:core.SectorEntity) -> Iterator[core.AbstractSensorImage]:
+        """ Scans the sector for detectable sensor images
+
+        This does not notify targets of being targeted. Instead any targets of
+        interest should be retargeted after the scan. Think of this as a
+        passive scan looking for shallow information about surroundings.
+
+        This is an expensive operation. It has to touch every sector entity in
+        the sector. So don't do this too often.  """
+        static_hits = 0
+        dynamic_hits = 0
+        static_type_counts:MutableMapping[str, int] = collections.defaultdict(int)
+        dynamic_type_counts:MutableMapping[str, int] = collections.defaultdict(int)
+        for hit in self.sector.entities.values():
             if self.detected(hit, detector):
-                yield hit
+                target = self.target(hit, detector, notify_target=False)
+                yield target
+                if target.identified:
+                    target_entity = core.Gamestate.gamestate.get_entity(target.identity.entity_id, target.identity.object_type)
+                    if target_entity.is_static:
+                        static_hits += 1
+                        static_type_counts[f'static_type:{util.fullname(target.identity.object_type)}'] += 1
+                    else:
+                        dynamic_hits += 1
+                        dynamic_type_counts[f'dynamic_type:{util.fullname(target.identity.object_type)}'] += 1
+
+        # trigger an event that we've done the scan
+        if isinstance(detector, core.CrewedSectorEntity) and detector.captain:
+            gamestate = core.Gamestate.gamestate
+            event_args = {"loc_x": detector.loc[0], "loc_y": detector.loc[1]}
+            event_args.update(static_type_counts)
+            event_args.update(dynamic_type_counts)
+            gamestate.trigger_event(
+                    [detector.captain],
+                    gamestate.event_manager.e(Events.SCANNED),
+                    {
+                        gamestate.event_manager.ck(ContextKeys.DETECTOR): detector.short_id_int(),
+                        gamestate.event_manager.ck(ContextKeys.SECTOR): self.sector.short_id_int(),
+                        gamestate.event_manager.ck(ContextKeys.STATIC_COUNT): static_hits,
+                        gamestate.event_manager.ck(ContextKeys.DYNAMIC_COUNT): dynamic_hits,
+                    },
+                    event_args
+            )
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):
@@ -459,7 +508,7 @@ class SensorManager(core.AbstractSensorManager):
             detector.sensor_settings.register_image(image)
             return image
 
-    def sensor_ranges(self, entity:core.SectorEntity) -> Tuple[float, float, float]:
+    def sensor_ranges(self, entity:core.SectorEntity) -> tuple[float, float, float]:
         # range to detect passive targets
         passive_profile = (config.Settings.sensors.COEFF_MASS * config.Settings.generate.SectorEntities.ship.MASS + config.Settings.sensors.COEFF_RADIUS * config.Settings.generate.SectorEntities.ship.RADIUS)
         # range to detect full thrust targets
@@ -475,7 +524,7 @@ class SensorManager(core.AbstractSensorManager):
             np.sqrt(sensor_profile / threshold / config.Settings.sensors.COEFF_DISTANCE),
         )
 
-    def profile_ranges(self, entity:core.SectorEntity) -> Tuple[float, float]:
+    def profile_ranges(self, entity:core.SectorEntity) -> tuple[float, float]:
         profile = self.compute_effective_profile(entity)
 
         # range we're detected by passive threats
@@ -520,8 +569,8 @@ class SensorImageManager:
     def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float):
         self.ship = ship
 
-        self._cached_entities:Dict[uuid.UUID, core.AbstractSensorImage] = {}
-        self._cached_entities_by_idx:Dict[int, core.AbstractSensorImage]
+        self._cached_entities:dict[uuid.UUID, core.AbstractSensorImage] = {}
+        self._cached_entities_by_idx:dict[int, core.AbstractSensorImage]
         self._cached_entities_ts = -1.
         self._sensor_image_ttl = sensor_image_ttl
         self._sensor_loc_index = rtree.index.Index()
@@ -530,10 +579,10 @@ class SensorImageManager:
     def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
         return self._cached_entities
 
-    def spatial_point(self, point:Union[Tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
+    def spatial_point(self, point:Union[tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
         return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1)) # type: ignore
 
-    def spatial_query(self, bbox:Tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
+    def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
         return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
 
     def update(self) -> None:
@@ -545,7 +594,7 @@ class SensorImageManager:
                 self._cached_entities[hit.entity_id].update(notify_target=False)
             elif self.ship.sector.sensor_manager.detected(hit, self.ship):
                 self._cached_entities[hit.entity_id] = self.ship.sector.sensor_manager.target(hit, self.ship, notify_target=False)
-        remove_ids:Set[uuid.UUID] = set()
+        remove_ids:set[uuid.UUID] = set()
 
         # then index all those images for retrieval later
         idx = 0

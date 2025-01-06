@@ -81,6 +81,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         bytes_written += s_util.debug_string_w("basic fields", f)
         bytes_written += s_util.matrix_to_f(sector.loc, f)
         bytes_written += s_util.float_to_f(sector.radius, f)
+        bytes_written += s_util.float_to_f(sector.hex_size, f)
         bytes_written += s_util.to_len_pre_f(sector.culture, f)
 
         # entities. we'll reconstruct planets, etc. from entities
@@ -143,13 +144,14 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         s_util.debug_string_r("basic fields", f)
         loc = s_util.matrix_from_f(f)
         radius = s_util.float_from_f(f)
+        hex_size = s_util.float_from_f(f)
         culture = s_util.from_len_pre_f(f)
 
         # we can create a blank space here and let it be populated by
         # SectorEntity objects in post_load.
         # SectorEntity is responsible for saving/loading its own physics body
         # and shape
-        sector = core.Sector(loc, radius, cymunk.Space(), load_context.gamestate, entity_id=entity_id, culture=culture)
+        sector = core.Sector(loc, radius, hex_size, cymunk.Space(), load_context.gamestate, entity_id=entity_id, culture=culture)
 
         # entities. we'll reconstruct these in post load
         s_util.debug_string_r("sector entities", f)
@@ -186,10 +188,10 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
                 velocity = s_util.float_pair_from_f(f)
                 force = s_util.float_pair_from_f(f)
                 torque = s_util.float_from_f(f)
-                is_static = s_util.int_from_f(f)
+                phys_is_static = s_util.int_from_f(f)
 
                 assert(entity_id not in body_params)
-                body_params[entity_id] = BodyParams(entity_id, klass, mass, moment, angle, angular_velocity, position, velocity, force, torque, is_static)
+                body_params[entity_id] = BodyParams(entity_id, klass, mass, moment, angle, angular_velocity, position, velocity, force, torque, phys_is_static)
 
             load_context.register_sanity_check(sector, (entity_info, effect_info, observer_info, body_params))
 

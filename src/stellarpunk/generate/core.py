@@ -746,6 +746,7 @@ class UniverseGenerator(core.AbstractGenerator):
             sensor_settings,
             self.gamestate,
             self._gen_ship_name(sector.culture),
+            is_static=False,
             entity_id=entity_id
         )
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_SHIP), 1)
@@ -800,6 +801,7 @@ class UniverseGenerator(core.AbstractGenerator):
             sensor_settings,
             self.gamestate,
             self._gen_ship_name(sector.culture),
+            is_static=False,
             entity_id=entity_id,
         )
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
@@ -849,6 +851,7 @@ class UniverseGenerator(core.AbstractGenerator):
             sensor_settings,
             self.gamestate,
             self._gen_ship_name(sector.culture),
+            is_static=False,
             entity_id=entity_id
         )
 
@@ -1097,9 +1100,12 @@ class UniverseGenerator(core.AbstractGenerator):
         for i in range(1, len(slices)-1):
             raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
 
+        hex_size = config.Settings.generate.Universe.SECTOR_HEX_SIZE
+
         sector = core.Sector(
             np.array([x, y]),
             radius,
+            hex_size,
             cymunk.Space(),
             self.gamestate,
             self._gen_sector_name(culture),
@@ -1261,9 +1267,11 @@ class UniverseGenerator(core.AbstractGenerator):
         assert(self.gamestate)
 
         culture = self._gen_sector_culture(x, y, entity_id)
+        hex_size = config.Settings.generate.Universe.SECTOR_HEX_SIZE
         sector = core.Sector(
             np.array([x, y]),
             radius,
+            hex_size,
             cymunk.Space(),
             self.gamestate,
             self._gen_sector_name(culture),
@@ -2144,8 +2152,8 @@ class UniverseGenerator(core.AbstractGenerator):
         for observer in self._observers:
             observer.generation_step(GenerationStep.PLAYER)
             observer.generation_tick()
-        #self.generate_player()
-        self.generate_player_for_combat_test(sector_ids, habitable_mask)
+        self.generate_player()
+        #self.generate_player_for_combat_test(sector_ids, habitable_mask)
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
         self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')

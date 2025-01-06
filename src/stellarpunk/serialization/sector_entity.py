@@ -58,6 +58,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written += s_util.debug_string_w("others", f)
         bytes_written += s_util.float_to_f(sector_entity.cargo_capacity, f)
         bytes_written += s_util.matrix_to_f(sector_entity.cargo, f)
+        bytes_written += s_util.bool_to_f(sector_entity.is_static, f)
         if isinstance(sector_entity, core.CrewedSectorEntity) and sector_entity.captain:
             bytes_written += s_util.int_to_f(1, f, blen=1)
             bytes_written += s_util.uuid_to_f(sector_entity.captain.entity_id, f)
@@ -97,6 +98,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         s_util.debug_string_r("others", f)
         cargo_capacity = s_util.float_from_f(f)
         cargo = s_util.matrix_from_f(f)
+        is_static = s_util.bool_from_f(f)
         has_captain = s_util.int_from_f(f, blen=1)
         captain_id:Optional[uuid.UUID] = None
         if has_captain:
@@ -123,6 +125,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
 
         s_util.debug_string_r("type specific", f)
         sector_entity, extra_context = self._load_sector_entity(f, load_context, entity_id, np.array((loc_x, loc_y)), phys_body, sensor_settings)
+        sector_entity.is_static = is_static
 
         if self.save_game.debug:
             sector_entity.set_history(history)

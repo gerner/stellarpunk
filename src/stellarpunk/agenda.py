@@ -470,11 +470,79 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
             assert self.transfer_order is not None
             self.transfer_order.cancel_order()
 
+    def _do_selling(self) -> None:
+        assert(isinstance(self.craft, core.Ship))
+        # if we've got resources to sell, find a station to sell to
+
+        sell_station_ret = choose_station_to_sell_to(
+                self.gamestate, self.craft, self.agent,
+                self.allowed_resources, self.allowed_stations,
+        )
+        if sell_station_ret is None:
+            self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.craft.cargo[self.allowed_resources] > 0.)}). Sleeping...')
+            sleep_jitter = self.gamestate.random.uniform(high=MINING_SLEEP_TIME)
+            self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME/2 + sleep_jitter, self)
+            return
+
+        resource, station, station_agent = sell_station_ret
+        assert station_agent.buy_price(resource) > 0
+        assert station_agent.budget(resource) > 0
+        #TODO: sensibly have a floor for selling the good
+        # basically we pick a station and hope for the best
+        floor_price = 0.
+
+        self.state = MiningAgendum.State.TRADING
+        self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
+                station_agent, self.agent, floor_price,
+                station, resource, self.craft.cargo[resource],
+                self.craft, self.gamestate)
+        self.transfer_order.observe(self)
+        self.craft.prepend_order(self.transfer_order)
+
+    def _do_mining(self) -> None:
+        assert(isinstance(self.craft, core.Ship))
+        # if we don't have any resources in cargo, go mine some
+
+        target = self._choose_asteroid()
+        if target is None:
+            #TODO: notify someone?
+            self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.craft.sector}, sleeping...')
+            self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
+            return
+
+        #TODO: choose amount to harvest
+        # push mining order
+        self.state = MiningAgendum.State.MINING
+        self.mining_order = ocore.MineOrder.create_mine_order(target, 1e3, self.craft, self.gamestate)
+        self.mining_order.observe(self)
+        self.craft.prepend_order(self.mining_order)
+
+    def _has_enough_intel(self) -> bool:
+        #TODO: decide if, given our current position, we've got enough intel to
+        # successfully mine/trade
+        # consider if we've got enough intel about asteroids to mine
+        # consider if we've got enough fresh buy offers to sell mined goods at
+        # we may need to travel (in sector? out of sector?) to get the intel
+        return True
+
+    def _do_intel(self) -> None:
+        #TODO: seek intel about asteroids and stations buying resources
+        # this should be reusable logic other stuff can use to accumulate
+        # relevant intel
+        pass
+
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.round_trips >= self.max_trips
 
     def act(self) -> None:
-        assert(isinstance(self.craft, core.Ship))
+
+        #TODO: periodically wake up and check if there's nearby asteroids or
+        # stations that we don't have good econ intel for
+        # we can be opportunistic and grab that intel while we're operating
+        # do a sensor scan trying to identify asteroids and stations
+        # if there are stations "nearby" that buy the resources we mine, dock
+        # at them
+
         assert self.state == MiningAgendum.State.IDLE
 
         if self.is_complete():
@@ -482,48 +550,11 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
             return
 
         if np.any(self.craft.cargo[self.allowed_resources] > 0.):
-            # if we've got resources to sell, find a station to sell to
-
-            sell_station_ret = choose_station_to_sell_to(
-                    self.gamestate, self.craft, self.agent,
-                    self.allowed_resources, self.allowed_stations,
-            )
-            if sell_station_ret is None:
-                self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.craft.cargo[self.allowed_resources] > 0.)}). Sleeping...')
-                sleep_jitter = self.gamestate.random.uniform(high=MINING_SLEEP_TIME)
-                self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME/2 + sleep_jitter, self)
-                return
-
-            resource, station, station_agent = sell_station_ret
-            assert station_agent.buy_price(resource) > 0
-            assert station_agent.budget(resource) > 0
-            #TODO: sensibly have a floor for selling the good
-            # basically we pick a station and hope for the best
-            floor_price = 0.
-
-            self.state = MiningAgendum.State.TRADING
-            self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
-                    station_agent, self.agent, floor_price,
-                    station, resource, self.craft.cargo[resource],
-                    self.craft, self.gamestate)
-            self.transfer_order.observe(self)
-            self.craft.prepend_order(self.transfer_order)
+            self._do_selling()
+        elif self._has_enough_intel():
+            self._do_mining()
         else:
-            # if we don't have any resources in cargo, go mine some
-
-            target = self._choose_asteroid()
-            if target is None:
-                #TODO: notify someone?
-                self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.craft.sector}, sleeping...')
-                self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
-                return
-
-            #TODO: choose amount to harvest
-            # push mining order
-            self.state = MiningAgendum.State.MINING
-            self.mining_order = ocore.MineOrder.create_mine_order(target, 1e3, self.craft, self.gamestate)
-            self.mining_order.observe(self)
-            self.craft.prepend_order(self.mining_order)
+            self._do_intel()
 
 class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
 

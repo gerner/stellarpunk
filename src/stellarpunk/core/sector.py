@@ -138,7 +138,7 @@ class SectorEntityObserver(base.Observer):
 class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
     """ An entity in space in a sector. """
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, is_static:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector:Optional["Sector"] = None
@@ -155,9 +155,12 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         assert(not np.isnan(loc[0]))
         assert(not np.isnan(loc[1]))
 
+        # is this a long-lived, (mostly?) stationary object
+        self.is_static:bool = is_static
+
         phys.position = (loc[0], loc[1])
 
-        # physics simulation entity (we don't manage this, just have a pointer to it)
+        # physics sim entity (we don't manage this, just have a pointer to it)
         self.phys = phys
         self.phys_shape:Any = None
 
@@ -409,11 +412,11 @@ class AbstractSensorManager:
     def detected(self, target:SectorEntity, detector:SectorEntity) -> bool:
         return True
 
-    @abc.abstractmethod
-    def spatial_query(self, detector:SectorEntity, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
+    #@abc.abstractmethod
+    #def spatial_query(self, detector:SectorEntity, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
 
-    @abc.abstractmethod
-    def spatial_point(self, detector:SectorEntity, point:Union[tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
+    #@abc.abstractmethod
+    #def spatial_point(self, detector:SectorEntity, point:Union[tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
 
     @abc.abstractmethod
     def target(self, target:SectorEntity, detector:SectorEntity, notify_target:bool=True) -> AbstractSensorImage: ...
@@ -461,13 +464,14 @@ class Sector(base.Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, culture:str, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, hex_size:float, space:cymunk.Space, *args: Any, culture:str, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
 
         self.logger = logging.getLogger(util.fullname(self))
 
         # sector's position in the universe
         self.loc = loc
+        self.hex_size = hex_size
 
         # one standard deviation
         self.radius = radius
@@ -491,6 +495,13 @@ class Sector(base.Entity):
         self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
+
+    def get_hex_coords(self, coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return util.axial_round(util.pixel_to_pointy_hex(coords, self.hex_size))
+
+    def get_coords_from_hex(self, hex_coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return util.pointy_hex_to_pixel(hex_coords, self.hex_size)
+
 
     def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):

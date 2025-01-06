@@ -21,6 +21,10 @@ class Asset(base.Entity):
         super().__init__(*args, **kwargs)
         self.owner = owner
 
+class IntelMatchCriteria:
+    @abc.abstractmethod
+    def matches(self, intel:"Intel") -> bool: ...
+
 class IntelObserver(base.Observer):
     def intel_expired(self, intel:"Intel") -> None:
         pass
@@ -41,6 +45,9 @@ class Intel(base.Observable[IntelObserver], base.Entity):
 
     def __str__(self) -> str:
         return f'{self.short_id()} {type(self)} {self.is_valid()=} {self.is_fresh()=}'
+
+    @abc.abstractmethod
+    def match_criteria(self) -> IntelMatchCriteria: ...
 
     def sanity_check(self) -> None:
         pass
@@ -74,36 +81,13 @@ class Intel(base.Observable[IntelObserver], base.Entity):
         # so destroying here is redundant
         # self.entity_registry.destroy_entity(self)
 
-class EntityIntel[T:base.Entity](Intel):
-    def __init__(self, intel_entity_id:uuid.UUID, intel_entity_short_id:str, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
-        # we need to set these fields before the super constructor because we
-        # override __str__ which might be called in a super constructor
-        # we specifically do not retain a reference to the original entity
-        self.intel_entity_id = intel_entity_id
-        self.intel_entity_short_id = intel_entity_short_id
-        self.intel_entity_type:Type[T] = intel_entity_type
-        super().__init__(*args, **kwargs)
-
-    def __str__(self) -> str:
-        return f'{self.short_id()} {type(self)} on {self.intel_entity_short_id} valid:{self.is_valid()} fresh:{self.is_fresh()}'
-
-    def matches(self, other:"Intel") -> bool:
-        if not isinstance(other, EntityIntel):
-            return False
-        return other.intel_entity_id == self.intel_entity_id
-
-    def sanity_check(self) -> None:
-        super().sanity_check()
-        assert(issubclass(self.intel_entity_type, base.Entity))
-
-
 class AbstractIntelManager:
     @abc.abstractmethod
     def add_intel(self, intel:"Intel") -> None: ...
     @abc.abstractmethod
     def intel[T:Intel](self, cls:Type[T]) -> Collection[T]: ...
     @abc.abstractmethod
-    def get_entity_intel[T:EntityIntel](self, entity_id:uuid.UUID, cls:Type[T]) -> Optional[T]: ...
+    def get_intel[T:Intel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Optional[T]: ...
     @abc.abstractmethod
     def sanity_check(self) -> None: ...
 
