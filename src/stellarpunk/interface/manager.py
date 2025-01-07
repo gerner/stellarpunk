@@ -583,7 +583,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
     def command_list(self) -> Collection[interface.CommandBinding]:
         """ Global commands that should be valid in any context. """
         def fps(args:Sequence[str]) -> None: self.interface.show_fps = not self.interface.show_fps
-        def quit(args:Sequence[str]) -> None: self.interface.runtime.quit()
+        def quit(args:Sequence[str]) -> None:
+            self.interface.close_all_views()
+            self.interface.runtime.quit()
         def raise_exception(args:Sequence[str]) -> None: self.interface.runtime.raise_exception()
         def raise_breakpoint(args:Sequence[str]) -> None: self.interface.runtime.raise_breakpoint()
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)

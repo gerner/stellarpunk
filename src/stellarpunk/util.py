@@ -13,8 +13,10 @@ import re
 import collections
 import uuid
 import itertools
+import threading
+import contextlib
 import types
-from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection
+from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator
 
 import numpy as np
 import numpy.typing as npt
@@ -1081,3 +1083,15 @@ class PDBManager:
             self.logger.info(f'handling exception {e} {m}')
             print(m.__repr__(), file=sys.stderr)
             pdb.post_mortem(tb)
+
+class TimeoutLock(object):
+    """ Allows acquiring a Lock with a timeout in a context manager """
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def acquire(self, blocking:bool=True, timeout:float=-1) -> Generator[bool, None, None]:
+        result = self._lock.acquire(blocking=blocking, timeout=timeout)
+        yield result
+        if result:
+            self._lock.release()

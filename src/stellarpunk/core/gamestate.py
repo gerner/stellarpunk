@@ -617,16 +617,6 @@ class Gamestate(EntityRegistry):
     def current_time(self) -> datetime.datetime:
         return self.timestamp_to_datetime(self.timestamp)
 
-    #def exit_startup(self) -> None:
-    #    self.startup_running = False
-
-    #def start_game(self) -> None:
-    #    self.keep_running = True
-
-    #def quit(self) -> None:
-    #    self.startup_running = False
-    #    self.keep_running = False
-
     def trigger_event(
         self,
         characters: Collection[Character],

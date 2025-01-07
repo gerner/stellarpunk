@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import hashime # type: ignore
 
-from stellarpunk import core, interface, generate
+from stellarpunk import core, interface, generate, util
 from stellarpunk.interface import pilot, ui_util
 from stellarpunk.serialization import save_game
 
@@ -18,6 +18,7 @@ class Mode(enum.Enum):
     MAIN_MENU = enum.auto()
     RESUME = enum.auto()
     NEW_GAME = enum.auto()
+    CREATE_NEW_GAME = enum.auto()
     LOAD_GAME = enum.auto()
     LOADING = enum.auto()
     EXIT_GAME = enum.auto()
@@ -45,13 +46,16 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._mode = Mode.NONE
 
         # these fields are shared by multiple threads
-        self._generation_lock = threading.Lock()
+        # their access should be protected by the lock
+        self._generation_lock = util.TimeoutLock()
+        self._generator_abort:bool = False
         self._estimated_generation_ticks = 0
         self._current_generation_step = generate.GenerationStep.NONE
         self._generation_ticks = 0
         self._universe_loaded = False
 
         self._main_menu = ui_util.Menu("null", [])
+        self._new_game_config_menu = ui_util.MeterMenu("null", [])
         self._load_menu = ui_util.Menu("null", [])
         self._saves:list[save_game.SaveGame] = []
 
@@ -61,27 +65,31 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
     # generate.UniverseGeneratorObserver
     # these methods might be called from the generation thread
     def estimated_generation_ticks(self, ticks:int) -> None:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
             self._estimated_generation_ticks = ticks
 
     def generation_step(self, step:generate.GenerationStep) -> None:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
             self.logger.debug(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
             self._current_generation_step = step
 
     def generation_tick(self) -> None:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
+            if self._generator_abort:
+                raise generate.GenerationError(generate.GenerationErrorCase.ABORT)
             self._generation_ticks += 1
             self.logger.debug(f'generation tick: {self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
 
     # save_game.GameSaverObserver
     # these methods might be called from the generation thread
     def load_start(self, ticks:int, game_saver:save_game.GameSaver) -> None:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
             self._estimated_generation_ticks = ticks
 
     def load_tick(self, game_saver:save_game.GameSaver) -> None:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
+            if self._generator_abort:
+                raise save_game.LoadError(save_game.LoadErrorCase.ABORT)
             self._generation_ticks += 1
             self.logger.debug(f'load tick: {self._generation_ticks}/{self._estimated_generation_ticks}')
 
@@ -147,6 +155,26 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self.interface.close_view(self)
 
     def _enter_new_game(self) -> None:
+        self.viewscreen.erase()
+
+        # start with default options
+        self._generator.universe_config = generate.UniverseConfig()
+
+        #TODO: get savegame options
+        config_options:list[ui_util.MeterItem] = []
+        config_options.append(ui_util.MeterItem(
+            "some option",
+            15,
+        ))
+
+        self._new_game_config_menu = ui_util.MeterMenu(
+            "Configure a New Game",
+            config_options
+        )
+
+    def _enter_create_new_game(self) -> None:
+        #TODO: transfer values from the config menu to the universe config
+
         self._generation_ticks = 0
         self._estimated_generation_ticks = 100
         self._generator.observe(self)
@@ -156,7 +184,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         else:
             self._generate_universe()
 
-    def _exit_new_game(self) -> None:
+    def _exit_create_new_game(self) -> None:
         assert(self._universe_loaded)
         self._generator.unobserve(self)
         #TODO: should we have a timeout here?
@@ -253,8 +281,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
         self.logger.debug(f'exiting {self._mode} entering {mode}')
         # leave the old mode
-        if self._mode == Mode.NEW_GAME:
-            self._exit_new_game()
+        if self._mode == Mode.CREATE_NEW_GAME:
+            self._exit_create_new_game()
         elif self._mode == Mode.LOADING:
             self._exit_loading()
 
@@ -266,6 +294,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             self._enter_resume()
         elif mode == Mode.NEW_GAME:
             self._enter_new_game()
+        elif mode == Mode.CREATE_NEW_GAME:
+            self._enter_create_new_game()
         elif mode == Mode.LOAD_GAME:
             self._enter_load_game()
         elif mode == Mode.LOADING:
@@ -294,7 +324,32 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self.interface.reinitialize_screen(name="Stellarpunk")
         self.active=True
 
+    def _force_cleanup_generator_thread(self) -> None:
+        if self._generator_thread is None:
+            return
+        if not self._generator_thread.is_alive():
+            self.logger.warning(f'generator thread is not None, but is not running')
+            self._generator_thread = None
+        else:
+            self.logger.warning(f'generation thread is still running, attempting to terminate...')
+            # abort the generator thread if it's still running
+            # this might happen if the user quits while generating/loading
+            with self._generation_lock.acquire(timeout=5.0) as result:
+                if result:
+                    self._generator_abort = True
+                else:
+                    self.logger.error(f'could not acquire generation lock to trigger generation/load abort. aborting thread cleanup.')
+            if result:
+                self._generator_thread.join(5.0)
+                if self._generator_thread.is_alive():
+                    self.logger.error(f'could not join generator thread. aborting thread cleanup')
+                else:
+                    self._generator_thread = None
+                    self.logger.warning('generation thread cleaned up')
+
     def terminate(self) -> None:
+        self._force_cleanup_generator_thread()
+
         if self.interface.gamestate:
             self.interface.gamestate.force_unpause(self)
 
@@ -304,7 +359,18 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._main_menu.draw(self.viewscreen, y, x)
 
     def _draw_new_game(self) -> None:
-        with self._generation_lock:
+        """ new game configuration screen. """
+        self.viewscreen.erase()
+        y = 15
+        x = 15
+        self._new_game_config_menu.draw(self.viewscreen, y, x)
+
+        y = self._new_game_config_menu.height + 4
+        self.viewscreen.addstr(y, x, "Press <ENTER> to create new game or <ESC> to cancel")
+
+    def _draw_create_new_game(self) -> None:
+        """ new game creation loading screen. """
+        with self._generation_lock.acquire():
             self.viewscreen.erase()
             self.viewscreen.addstr(15, 15, f'generating a universe...')
             self.viewscreen.addstr(16, 15, f'{self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
@@ -319,6 +385,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
                 raise self._generator_exception
 
     def _draw_load_game(self) -> None:
+        """ choose save to load menu """
         self.viewscreen.erase()
         # menu to choose which save game to load
         # selecting one loads that game and then transitions 
@@ -345,7 +412,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             self.viewscreen.addstr(19, 15, f'<press esc or return to start>')
 
     def _draw_loading(self) -> None:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
             self.viewscreen.erase()
             self.viewscreen.addstr(15, 15, f'loading game...')
             self.viewscreen.addstr(16, 15, f'{self._generation_ticks}/{self._estimated_generation_ticks}')
@@ -366,6 +433,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             self._draw_main_menu()
         elif self._mode == Mode.NEW_GAME:
             self._draw_new_game()
+        elif self._mode == Mode.CREATE_NEW_GAME:
+            self._draw_create_new_game()
         elif self._mode == Mode.LOAD_GAME:
             self._draw_load_game()
         elif self._mode == Mode.LOADING:
@@ -378,7 +447,22 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         return self._main_menu.key_list()
 
     def _key_list_new_game(self) -> Collection[interface.KeyBinding]:
-        with self._generation_lock:
+        def cancel() -> None:
+            self._enter_mode(Mode.MAIN_MENU)
+        def create() -> None:
+            self._enter_mode(Mode.CREATE_NEW_GAME)
+
+        key_list = list(self._new_game_config_menu.key_list())
+        key_list.extend(self.bind_aliases(
+            [curses.ascii.ESC], cancel, help_key="startup_new_game_cancel"
+        ))
+        key_list.extend(self.bind_aliases(
+            [curses.ascii.CR], create, help_key="startup_new_game_create"
+        ))
+        return key_list
+
+    def _key_list_create_new_game(self) -> Collection[interface.KeyBinding]:
+        with self._generation_lock.acquire():
             if self._universe_loaded:
                 def begin() -> None:
                     self._enter_mode(Mode.EXIT)
@@ -406,7 +490,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
 
     def _key_list_loading(self) -> Collection[interface.KeyBinding]:
-        with self._generation_lock:
+        with self._generation_lock.acquire():
             if self._universe_loaded:
                 def begin() -> None:
                     self._enter_mode(Mode.EXIT)
@@ -422,6 +506,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             return self._key_list_main_menu()
         elif self._mode == Mode.NEW_GAME:
             return self._key_list_new_game()
+        elif self._mode == Mode.CREATE_NEW_GAME:
+            return self._key_list_create_new_game()
         elif self._mode == Mode.LOAD_GAME:
             return self._key_list_load_game()
         elif self._mode == Mode.LOADING:

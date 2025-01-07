@@ -457,6 +457,7 @@ class View(abc.ABC):
         self.active = True
         self.fast_render = False
         self.interface = interface
+        self.closed = False
 
     @property
     def viewscreen(self) -> BasicCanvas:
@@ -597,19 +598,25 @@ class AbstractInterface(abc.ABC):
         view.focus()
         self.views.append(view)
 
-    def close_view(self, view:View) -> None:
+    def close_view(self, view:View, skip_focus:bool=False) -> None:
+        if view.closed:
+            # don't double terminate
+            # this allows one code deep path to close a view while the caller
+            # tries to clean itself up (e.g. CommandInput executing a command
+            # that closes the active view)
+            assert(view not in self.views)
+            return
         self.logger.debug(f'closing view {view}')
         assert view in self.views
         self.views.remove(view)
         view.terminate()
-        if len(self.views) > 0:
+        view.closed = True
+        if not skip_focus and len(self.views) > 0:
             self.views[-1].focus()
-        #TODO: else case, other code assumes there's always a view
 
     def close_all_views(self) -> None:
         for view in self.views.copy():
-            self.views.remove(view)
-            view.terminate()
+            self.close_view(view, skip_focus=True)
         assert(len(self.views) == 0)
 
     def swap_view(self, new_view:View, old_view:Optional[View]) -> None:

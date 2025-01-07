@@ -3,6 +3,7 @@ import io
 import os
 import glob
 import abc
+import enum
 import pydoc
 import uuid
 import datetime
@@ -80,6 +81,14 @@ class LoadContext:
         self.logger.info("sanity checking observers...")
         for obj, context in self._observer_sanity_checks:
             self.save_game.sanity_check_observers(obj, self, context)
+
+class LoadErrorCase(enum.Enum):
+    ABORT = enum.auto()
+
+class LoadError(Exception):
+    def __init__(self, case:LoadErrorCase, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.case = case
 
 class SaverObserver:
     def load_tick(self, saver:"Saver") -> None:
