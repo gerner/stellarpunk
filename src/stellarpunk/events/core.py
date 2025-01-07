@@ -12,8 +12,11 @@ import enum
 import logging
 import collections
 import numbers
+import uuid
 from typing import Any, Optional, Union, Callable
-from collections.abc import Iterable, Sequence, Mapping, MutableMapping
+from collections.abc import Collection, Iterable, Sequence, Mapping, MutableMapping
+
+import numpy as np
 
 from stellarpunk import core, util, dialog, narrative, task_schedule
 
@@ -79,13 +82,16 @@ class EventState:
     def __init__(self) -> None:
         self.event_queue:collections.deque[tuple[narrative.Event, Iterable["narrative.CharacterCandidate[core.Character]"]]] = collections.deque()
         self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, "narrative.Action[core.Character]"]] = task_schedule.TaskSchedule()
+        self.last_event_trigger:dict[uuid.UUID, MutableMapping[int, float]] = collections.defaultdict(lambda: collections.defaultdict(lambda: -np.inf))
 
 
 class EventManager(core.AbstractEventManager):
     def __init__(
         self,
+        event_throttle_secs:float=30.0
     ) -> None:
         self.logger = logging.getLogger(util.fullname(self))
+        self.event_throttle_secs = event_throttle_secs
         self.gamestate:core.Gamestate = None # type: ignore[assignment]
         self.directors:list[narrative.Director] = None # type: ignore[assignment]
 
@@ -216,11 +222,17 @@ class EventManager(core.AbstractEventManager):
 
     def trigger_event(
         self,
-        characters: Iterable[core.Character],
+        characters: Collection[core.Character],
         event_type: int,
         context: Mapping[int, int],
         event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
+        candidates = [narrative.CharacterCandidate(c.context, c) for c in characters if self.event_state.last_event_trigger[c.entity_id][event_type] + self.event_throttle_secs < self.gamestate.timestamp]
+        self.gamestate.counters[core.Counters.EVENT_CANDIDATES_THROTTLED] += float(len(characters) - len(candidates))
+        if len(candidates) == 0:
+            self.gamestate.counters[core.Counters.EVENTS_TOTAL_THROTTLED] += 1
+            self.logger.debug(f'skipping event {self.event_type_lookup[event_type]} ({event_type}) with no non-throttled candidates')
+            return
         self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
         self.event_state.event_queue.append((
             narrative.Event(
@@ -229,7 +241,7 @@ class EventManager(core.AbstractEventManager):
                 self.gamestate.entity_context_store,
                 event_args,
             ),
-            [narrative.CharacterCandidate(c.context, c) for c in characters]
+            candidates
         ))
 
     def trigger_event_immediate(
@@ -275,6 +287,7 @@ class EventManager(core.AbstractEventManager):
             actions.extend(director.evaluate(event, candidates))
 
         for action in actions:
+            self.event_state.last_event_trigger[action.character_candidate.data.entity_id][event.event_type] = self.gamestate.timestamp
             self.logger.debug(f'triggered action {self.action_id_lookup[action.action_id]} ({action.action_id}) for {action.character_candidate.data.short_id()}')
 
             if "_delay" in action.args:

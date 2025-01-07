@@ -260,7 +260,7 @@ class AbstractEventManager:
 
     def trigger_event(
         self,
-        characters: Iterable[Character],
+        characters: Collection[Character],
         event_type: int,
         context: Mapping[int,int],
         event_args: dict[str, Union[int,float,str,bool]],

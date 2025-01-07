@@ -8,15 +8,48 @@ from stellarpunk.serialization import save_game, util as s_util
 from . import save_game
 
 class EventStateSaver(save_game.Saver[events.EventState]):
+    def _save_sanity_check(self, f:io.IOBase) -> int:
+        def int_str_to_f(v:tuple[int,str], f:io.IOBase) -> int:
+            bytes_written = 0
+            bytes_written += s_util.int_to_f(v[0], f)
+            bytes_written += s_util.to_len_pre_f(v[1], f)
+            return bytes_written
+
+        bytes_written = 0
+
+        bytes_written += s_util.debug_string_w("event reg", f)
+        event_registration = dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredEventSpaces.items())
+        bytes_written += s_util.fancy_dict_to_f(event_registration, f, s_util.to_len_pre_f, int_str_to_f)
+
+        bytes_written += s_util.debug_string_w("context key reg", f)
+        context_key_registration = dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredContextSpaces.items())
+        bytes_written += s_util.fancy_dict_to_f(context_key_registration, f, s_util.to_len_pre_f, int_str_to_f)
+
+        bytes_written += s_util.debug_string_w("action reg", f)
+        action_registration = dict((k,util.fullname(v)) for k,v in self.save_game.event_manager.actions.items())
+        bytes_written += s_util.fancy_dict_to_f(action_registration, f, s_util.int_to_f, s_util.to_len_pre_f)
+
+        bytes_written ++ s_util.debug_string_w("processed reg", f)
+        bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.event_types, f, s_util.to_len_pre_f, s_util.int_to_f)
+        bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.context_keys, f, s_util.to_len_pre_f, s_util.int_to_f)
+        bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.action_ids, f, s_util.to_len_pre_f, s_util.int_to_f)
+
+        return bytes_written
+
     def _load_sanity_check(self, f:io.IOBase) -> None:
         def int_str_from_f(f:io.IOBase) -> tuple[int, str]:
             i = s_util.int_from_f(f)
             s = s_util.from_len_pre_f(f)
             return (i, s)
+
+        s_util.debug_string_r("event reg", f)
         res = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, int_str_from_f)
+        s_util.debug_string_r("context key reg", f)
         rcs = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, int_str_from_f)
+        s_util.debug_string_r("action reg", f)
         actions = s_util.fancy_dict_from_f(f, s_util.int_from_f, s_util.from_len_pre_f)
 
+        s_util.debug_string_r("processed reg", f)
         event_types = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
         context_keys = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
         action_ids = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
@@ -76,20 +109,7 @@ class EventStateSaver(save_game.Saver[events.EventState]):
 
         # debug info on event, context keys, actions for error checking
         bytes_written += s_util.debug_string_w("event space", f)
-
-        def int_str_to_f(v:tuple[int,str], f:io.IOBase) -> int:
-            bytes_written = 0
-            bytes_written += s_util.int_to_f(v[0], f)
-            bytes_written += s_util.to_len_pre_f(v[1], f)
-            return bytes_written
-
-        bytes_written += s_util.fancy_dict_to_f(dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredEventSpaces.items()), f, s_util.to_len_pre_f, int_str_to_f)
-        bytes_written += s_util.fancy_dict_to_f(dict((util.fullname(k),v) for k,v in self.save_game.event_manager.RegisteredContextSpaces.items()), f, s_util.to_len_pre_f, int_str_to_f)
-        bytes_written += s_util.fancy_dict_to_f(dict((k,util.fullname(v)) for k,v in self.save_game.event_manager.actions.items()), f, s_util.int_to_f, s_util.to_len_pre_f)
-
-        bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.event_types, f, s_util.to_len_pre_f, s_util.int_to_f)
-        bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.context_keys, f, s_util.to_len_pre_f, s_util.int_to_f)
-        bytes_written += s_util.fancy_dict_to_f(self.save_game.event_manager.action_ids, f, s_util.to_len_pre_f, s_util.int_to_f)
+        bytes_written += self._save_sanity_check(f)
 
         # event queue
         bytes_written += s_util.debug_string_w("event queue", f)
@@ -109,6 +129,10 @@ class EventStateSaver(save_game.Saver[events.EventState]):
             # have a reference to that one copy?
             bytes_written += self._save_event(event, f)
             bytes_written += self._save_action(action, f)
+
+        # last event trigger
+        bytes_written += s_util.debug_string_w("last event trigger", f)
+        bytes_written += s_util.fancy_dict_to_f(event_state.last_event_trigger, f, s_util.uuid_to_f, lambda v, f: s_util.fancy_dict_to_f(v, f, s_util.int_to_f, s_util.float_to_f))
 
         return bytes_written
 
@@ -137,7 +161,14 @@ class EventStateSaver(save_game.Saver[events.EventState]):
             loaded_action = self._load_action(f)
             loaded_actions.append((timestamp, loaded_event, loaded_action))
 
+        s_util.debug_string_r("last event trigger", f)
+        last_event_trigger = s_util.fancy_dict_from_f(f, s_util.uuid_from_f, lambda f: s_util.fancy_dict_from_f(f, s_util.int_from_f, s_util.float_from_f))
+
         event_state = events.EventState()
+        for character_id, triggers in last_event_trigger.items():
+            for event_type, last_trigger in triggers.items():
+                event_state.last_event_trigger[character_id][event_type] = last_trigger
+
         load_context.register_post_load(event_state, (loaded_events, loaded_actions))
 
         return event_state

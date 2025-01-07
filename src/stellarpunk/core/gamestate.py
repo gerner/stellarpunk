@@ -8,7 +8,8 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, Type
+from typing import Optional, Any, Union, Type
+from collections.abc import Collection, Mapping, MutableMapping, Sequence, MutableSequence, Iterator
 
 import numpy as np
 import numpy.typing as npt
@@ -57,6 +58,8 @@ class Counters(enum.IntEnum):
     EVENT_ACTIONS_PROCESSED = enum.auto()
     EVENTS_PROCESSED_OOB = enum.auto()
     EVENT_ACTIONS_PROCESSED_OOB = enum.auto()
+    EVENT_CANDIDATES_THROTTLED = enum.auto()
+    EVENTS_TOTAL_THROTTLED = enum.auto()
 
 
 class AbstractGameRuntime:
@@ -68,7 +71,7 @@ class AbstractGameRuntime:
     def get_ticktime(self) -> float:
         return 0.
 
-    def get_time_acceleration(self) -> Tuple[float, bool]:
+    def get_time_acceleration(self) -> tuple[float, bool]:
         """ Get time acceleration parameters. """
         return (1.0, False)
 
@@ -105,9 +108,9 @@ class AbstractGameRuntime:
 
 class AbstractGenerator:
     @abc.abstractmethod
-    def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False)->npt.NDArray[np.float64]: ...
+    def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False)->npt.NDArray[np.float64]: ...
     @abc.abstractmethod
-    def gen_projectile_location(self, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> Tuple[npt.NDArray[np.float64],int]: ...
+    def gen_projectile_location(self, center:Union[tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> tuple[npt.NDArray[np.float64],int]: ...
     @abc.abstractmethod
     def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
 
@@ -140,8 +143,8 @@ class Gamestate(EntityRegistry):
         # this will get replaced by the generator's random generator
         self.random = np.random.default_rng()
 
-        self.entities: Dict[uuid.UUID, Entity] = {}
-        self.entities_short: Dict[int, Entity] = {}
+        self.entities: dict[uuid.UUID, Entity] = {}
+        self.entities_short: dict[int, Entity] = {}
         self.entity_context_store = narrative.EntityStore()
 
         # global registry of all orders, effects, agenda
@@ -153,7 +156,7 @@ class Gamestate(EntityRegistry):
         self.production_chain = ProductionChain()
 
         # the universe is a set of sectors, indexed by their entity id
-        self.sectors:Dict[uuid.UUID, Sector] = {}
+        self.sectors:dict[uuid.UUID, Sector] = {}
         self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
         self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
         self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
@@ -166,12 +169,12 @@ class Gamestate(EntityRegistry):
         # representing a station if I want to trade with it.
         #TODO: how do we keep this up to date?
         # collection of EconAgents, by uuid of the entity they represent
-        self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
+        self.econ_agents:dict[uuid.UUID, EconAgent] = {}
         self.agent_to_entity:dict[uuid.UUID, Entity] = {}
 
         self.econ_logger:AbstractEconDataLogger = AbstractEconDataLogger()
 
-        self.characters:Dict[uuid.UUID, Character] = {}
+        self.characters:dict[uuid.UUID, Character] = {}
 
         # priority queue of order items in form (scheduled timestamp, agendum)
         self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
@@ -516,7 +519,7 @@ class Gamestate(EntityRegistry):
         buyer.buy(product_id, price, amount)
         self.econ_logger.transact(0., product_id, buyer.agent_id, seller.agent_id, price, amount, ticks=self.timestamp)
 
-    def _construct_econ_state(self) -> Tuple[
+    def _construct_econ_state(self) -> tuple[
             npt.NDArray[np.float64], # inventory
             npt.NDArray[np.float64], # balance
             npt.NDArray[np.float64], # buy_prices
@@ -589,7 +592,7 @@ class Gamestate(EntityRegistry):
             # or should it be inf?
             self.max_edge_length = 0.0
 
-    def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
+    def spatial_query(self, bounds:tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits # type: ignore
 
@@ -626,7 +629,7 @@ class Gamestate(EntityRegistry):
 
     def trigger_event(
         self,
-        characters: Iterable[Character],
+        characters: Collection[Character],
         event_type: int,
         context: Mapping[int, int],
         event_args: dict[str, Union[int,float,str,bool]] = {},
@@ -635,7 +638,7 @@ class Gamestate(EntityRegistry):
 
     def trigger_event_immediate(
         self,
-        characters: Iterable[Character],
+        characters: Collection[Character],
         event_type: int,
         context: Mapping[int, int],
         event_args: dict[str, Union[int,float,str,bool]] = {},

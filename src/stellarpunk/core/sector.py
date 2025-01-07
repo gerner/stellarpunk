@@ -261,24 +261,27 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
-    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None):
+    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None, is_static:Optional[bool]=None):
         if entity:
             self.object_type:Type[SectorEntity]=type(entity)
             self.id_prefix = entity.id_prefix
             self.entity_id = entity.entity_id
             self.short_id = entity.short_id()
-            #self.radius = entity.radius
+            self.radius = entity.radius
+            self.is_static = entity.is_static
         else:
             assert(object_type)
             assert(id_prefix)
             assert(entity_id)
             assert(short_id)
-            #assert(radius)
+            assert(radius is not None)
+            assert(is_static is not None)
             self.object_type = object_type
             self.id_prefix = id_prefix
             self.entity_id = entity_id
             self.short_id = short_id
-            #self.radius = radius
+            self.radius = radius
+            self.is_static = is_static
         # must be updated externally
         self.angle = 0.0
 
@@ -420,6 +423,10 @@ class AbstractSensorManager:
 
     @abc.abstractmethod
     def target(self, target:SectorEntity, detector:SectorEntity, notify_target:bool=True) -> AbstractSensorImage: ...
+    @abc.abstractmethod
+    def target_from_identity(self, target_identity:SensorIdentity, detector:SectorEntity, loc:npt.NDArray[np.float64], notify_target:bool=True) -> AbstractSensorImage: ...
+    @abc.abstractmethod
+    def scan(self, detector:SectorEntity) -> Iterator[AbstractSensorImage]: ...
     @abc.abstractmethod
     def sensor_ranges(self, ship:SectorEntity) -> tuple[float, float, float]: ...
     @abc.abstractmethod

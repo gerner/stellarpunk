@@ -2,7 +2,7 @@ import io
 import json
 import uuid
 import struct
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from typing import Union, Callable, Optional, Union
 
 import numpy as np
@@ -135,12 +135,21 @@ def float_pair_from_f(f:io.IOBase) -> npt.NDArray[np.float64]:
     y = float_from_f(f)
     return np.array((x, y))
 
-def fancy_dict_to_f[K, V](d:dict[K, V], f:io.IOBase, k:Callable[[K, io.IOBase], int], v:Callable[[V, io.IOBase], int]) -> int:
+def fancy_dict_to_f[K, V](d:Mapping[K, V], f:io.IOBase, s_k:Callable[[K, io.IOBase], int], s_v:Callable[[V, io.IOBase], int]) -> int:
     bytes_written = 0
+    bytes_written += size_to_f(len(d), f)
+    for k,v in d.items():
+        bytes_written += s_k(k, f)
+        bytes_written += s_v(v, f)
     return bytes_written
 
-def fancy_dict_from_f[K, V](f:io.IOBase, k:Callable[[io.IOBase], K], v:Callable[[io.IOBase], V]) -> dict[K, V]:
+def fancy_dict_from_f[K, V](f:io.IOBase, s_k:Callable[[io.IOBase], K], s_v:Callable[[io.IOBase], V]) -> dict[K, V]:
     ret:dict[K, V] = {}
+    count = size_from_f(f)
+    for i in range(count):
+        k = s_k(f)
+        v = s_v(f)
+        ret[k] = v
     return ret
 
 def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
@@ -228,8 +237,9 @@ def optional_uuid_from_f(f:io.IOBase) -> Optional[uuid.UUID]:
 
 def matrix_to_f(matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]], f:io.IOBase) -> int:
     ret = msgpack.packb(matrix, default = serialize_econ_sim.encode_matrix)
-    size_to_f(len(ret), f)
-    return f.write(ret)
+    bytes_written = size_to_f(len(ret), f)
+    bytes_written += f.write(ret)
+    return bytes_written
 
 def matrix_from_f(f:io.IOBase) -> npt.NDArray:
     count = size_from_f(f)

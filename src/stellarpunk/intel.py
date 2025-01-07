@@ -121,11 +121,12 @@ class EntityIntelMatchCriteria(core.IntelMatchCriteria):
         return other.intel_entity_id == self.entity_id
 
 class EntityIntel[T:core.Entity](core.Intel):
-    def __init__(self, intel_entity_id:uuid.UUID, intel_entity_short_id:str, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, intel_entity_id:uuid.UUID, id_prefix:str, intel_entity_short_id:str, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
         # we need to set these fields before the super constructor because we
         # override __str__ which might be called in a super constructor
         # we specifically do not retain a reference to the original entity
         self.intel_entity_id = intel_entity_id
+        self.intel_entity_id_prefix = id_prefix
         self.intel_entity_short_id = intel_entity_short_id
         self.intel_entity_type:Type[T] = intel_entity_type
         super().__init__(*args, **kwargs)
@@ -144,6 +145,10 @@ class EntityIntel[T:core.Entity](core.Intel):
     def sanity_check(self) -> None:
         super().sanity_check()
         assert(issubclass(self.intel_entity_type, core.Entity))
+        if core.Gamestate.gamestate.contains_entity(self.intel_entity_id):
+            entity = core.Gamestate.gamestate.get_entity(self.intel_entity_id, self.intel_entity_type)
+            assert(entity.short_id() == self.intel_entity_short_id)
+            assert(entity.id_prefix == self.intel_entity_id_prefix)
 
 class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
     @classmethod
@@ -151,10 +156,13 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
         assert(entity.sector)
         sector_id = entity.sector.entity_id
         loc = entity.loc
+        radius = entity.radius
+        is_static = entity.is_static
         entity_id = entity.entity_id
+        id_prefix = entity.id_prefix
         entity_short_id = entity.short_id()
         entity_class = type(entity)
-        intel = cls(*args, sector_id, loc, entity_id, entity_short_id, entity_class, gamestate, **kwargs)
+        intel = cls(*args, sector_id, loc, radius, is_static, entity_id, id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
 
         # schedule this intel to expire only once per shared intel
         if intel.expires_at < np.inf:
@@ -162,15 +170,39 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
 
         return intel
 
-    def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.sector_id = sector_id
         self.loc = loc
+        self.radius = radius
+        self.is_static = is_static
 
     def sanity_check(self) -> None:
         super().sanity_check()
         #TODO: is it possible sectors go away?
-        sector = core.Gamestate.gamestate.get_entity(self.sector_id, core.Sector)
+        assert(issubclass(self.intel_entity_type, core.SectorEntity))
+        if core.Gamestate.gamestate.contains_entity(self.intel_entity_id):
+            sector = core.Gamestate.gamestate.get_entity(self.sector_id, core.Sector)
+            sector_entity = core.Gamestate.gamestate.get_entity(self.intel_entity_id, self.intel_entity_type)
+            assert(sector_entity.radius == self.radius)
+            assert(sector_entity.is_static == self.is_static)
+            if self.is_static:
+                assert(util.both_isclose(sector_entity.loc, self.loc))
+        else:
+            assert(not self.is_static)
+
+    def create_sensor_identity(self) -> core.SensorIdentity:
+        """ creates a sensor identity out of this intel.
+
+        useful for creating sensor images based on historical intel. """
+        return core.SensorIdentity(
+                object_type=self.intel_entity_type,
+                id_prefix=self.intel_entity_id_prefix,
+                entity_id=self.intel_entity_id,
+                short_id=self.intel_entity_short_id,
+                radius=self.radius,
+                is_static=self.is_static
+        )
 
 class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
     @classmethod
@@ -193,9 +225,10 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
     @classmethod
     def create_econ_agent_intel(cls, econ_agent:core.EconAgent, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "EconAgentIntel":
         entity_id = econ_agent.entity_id
+        entity_id_prefix = econ_agent.id_prefix
         entity_short_id = econ_agent.short_id()
         entity_class = type(econ_agent)
-        agent_intel = EconAgentIntel(entity_id, entity_short_id, entity_class, gamestate, **kwargs)
+        agent_intel = EconAgentIntel(entity_id, entity_id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
         agent_intel.sector_entity_id = gamestate.agent_to_entity[entity_id].entity_id
 
         for resource in econ_agent.sell_resources():
@@ -336,33 +369,39 @@ class ScanAction(events.Action):
             event_args: MutableMapping[str, Union[int,float,str,bool]],
             action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
-        sector = core.Gamestate.gamestate.get_entity_short(event_context[sensors.ContextKeys.SECTOR], core.Sector)
-        hex_coords = sector.get_hex_coords(np.array((event_args["loc_x"], event_args["loc_y"])))
+        sector = core.Gamestate.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.SECTOR), core.Sector)
+        detector = core.Gamestate.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.DETECTOR), core.CrewedSectorEntity)
+        assert(character == detector.captain)
 
-        # extract counts and type counts
-        static_count = event_context[sensors.ContextKeys.STATIC_COUNT]
-        dynamic_count = event_context[sensors.ContextKeys.DYNAMIC_COUNT]
+        #TODO: figure out the set of hexes that are relevant
+        passive_range, thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
+        sector_hexes:list[npt.NDArray[np.float64]] = []
 
-        static_entity_types:dict[str, int] = {}
-        dynamic_entity_types:dict[str, int] = {}
-        for k, v in event_args.items():
-            if k.startswith("static_type:"):
-                assert(isinstance(v, int))
-                type_name = k[len("static_type:"):]
-                static_entity_types[type_name] = v
-            elif k.startswith("dynamic_type:"):
-                assert(isinstance(v, int))
-                type_name = k[len("dynamic_type:"):]
-                dynamic_entity_types[type_name] = v
+        for hex_coords in sector_hexes:
+            #TODO: extract counts and type counts within the hex
+            static_count = self.ck(event_context, sensors.ContextKeys.STATIC_COUNT)
+            dynamic_count = self.ck(event_context, sensors.ContextKeys.DYNAMIC_COUNT)
 
-        # just create the intel, add will handle freshness
-        fresh_until = self.gamestate.timestamp + self.static_intel_ttl*0.2
-        expires_at = self.gamestate.timestamp + self.static_intel_ttl
-        static_hex_intel = SectorHexIntel(sector.entity_id, hex_coords, True, static_count, static_entity_types)
+            static_entity_types:dict[str, int] = {}
+            dynamic_entity_types:dict[str, int] = {}
+            for k, v in event_args.items():
+                if k.startswith("static_type:"):
+                    assert(isinstance(v, int))
+                    type_name = k[len("static_type:"):]
+                    static_entity_types[type_name] = v
+                elif k.startswith("dynamic_type:"):
+                    assert(isinstance(v, int))
+                    type_name = k[len("dynamic_type:"):]
+                    dynamic_entity_types[type_name] = v
 
-        fresh_until = self.gamestate.timestamp + self.dynamic_intel_ttl*0.2
-        expires_at = self.gamestate.timestamp + self.dynamic_intel_ttl
-        static_hex_intel = SectorHexIntel(sector.entity_id, hex_coords, False, dynamic_count, dynamic_entity_types)
+            # just create the intel, add will handle if we already have it
+            fresh_until = self.gamestate.timestamp + self.static_intel_ttl*0.2
+            expires_at = self.gamestate.timestamp + self.static_intel_ttl
+            static_hex_intel = SectorHexIntel(sector.entity_id, hex_coords, True, static_count, static_entity_types, self.gamestate, expires_at=expires_at, fresh_until=fresh_until)
+
+            fresh_until = self.gamestate.timestamp + self.dynamic_intel_ttl*0.2
+            expires_at = self.gamestate.timestamp + self.dynamic_intel_ttl
+            static_hex_intel = SectorHexIntel(sector.entity_id, hex_coords, False, dynamic_count, dynamic_entity_types, self.gamestate, expires_at=expires_at, fresh_until=fresh_until)
 
 
 def pre_initialize(event_manager:events.EventManager) -> None:

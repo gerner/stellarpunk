@@ -34,7 +34,7 @@ class ContextKeys(enum.IntEnum):
 
 class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     @classmethod
-    def create_sensor_image(cls, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:core.AbstractSensorManager, identity:Optional[core.SensorIdentity]=None) -> "SensorImage":
+    def create_sensor_image(cls, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:core.AbstractSensorManager, identity:Optional[core.SensorIdentity]=None, identified:bool=False) -> "SensorImage":
         if identity is None:
             assert(target)
             identity = core.SensorIdentity(target)
@@ -43,6 +43,7 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
         image._target = target
         image._ship = ship
         image._detector_id = ship.entity_id
+        image._identified = identified
         if target:
             target.observe(image)
         ship.observe(image)
@@ -223,6 +224,15 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
         self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
 
     def update(self, notify_target:bool=True) -> bool:
+        if self._ship and self._ship.sector and not self._target:
+            # try to re-fetch the target if possible
+            # this might happen if this image is created from intel
+            # also possible if the target jumps away without us detecting them
+            # and then comes back
+            if self.identity.entity_id in self._ship.sector.entities:
+                self._target = self._ship.sector.entities[self.identity.entity_id]
+                self._target.observe(self)
+
         if self._target and self._ship:
             # update sensor reading if possible
             if self._sensor_manager.detected(self._target, self._ship):
@@ -287,7 +297,7 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
             return detector.sensor_settings.get_image(self.identity.entity_id)
 
         identity = self._identity
-        image = SensorImage.create_sensor_image(self._target, detector, self._sensor_manager, identity=self._identity)
+        image = SensorImage.create_sensor_image(self._target, detector, self._sensor_manager, identity=self._identity, identified=self._identified)
         image._last_update = self._last_update
         image._last_profile = self._last_profile
         image._loc = self._loc
@@ -461,8 +471,6 @@ class SensorManager(core.AbstractSensorManager):
         the sector. So don't do this too often.  """
         static_hits = 0
         dynamic_hits = 0
-        static_type_counts:MutableMapping[str, int] = collections.defaultdict(int)
-        dynamic_type_counts:MutableMapping[str, int] = collections.defaultdict(int)
         for hit in self.sector.entities.values():
             if self.detected(hit, detector):
                 target = self.target(hit, detector, notify_target=False)
@@ -471,17 +479,12 @@ class SensorManager(core.AbstractSensorManager):
                     target_entity = core.Gamestate.gamestate.get_entity(target.identity.entity_id, target.identity.object_type)
                     if target_entity.is_static:
                         static_hits += 1
-                        static_type_counts[f'static_type:{util.fullname(target.identity.object_type)}'] += 1
                     else:
                         dynamic_hits += 1
-                        dynamic_type_counts[f'dynamic_type:{util.fullname(target.identity.object_type)}'] += 1
 
         # trigger an event that we've done the scan
         if isinstance(detector, core.CrewedSectorEntity) and detector.captain:
             gamestate = core.Gamestate.gamestate
-            event_args = {"loc_x": detector.loc[0], "loc_y": detector.loc[1]}
-            event_args.update(static_type_counts)
-            event_args.update(dynamic_type_counts)
             gamestate.trigger_event(
                     [detector.captain],
                     gamestate.event_manager.e(Events.SCANNED),
@@ -491,7 +494,6 @@ class SensorManager(core.AbstractSensorManager):
                         gamestate.event_manager.ck(ContextKeys.STATIC_COUNT): static_hits,
                         gamestate.event_manager.ck(ContextKeys.DYNAMIC_COUNT): dynamic_hits,
                     },
-                    event_args
             )
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
@@ -507,6 +509,17 @@ class SensorManager(core.AbstractSensorManager):
             image.update(notify_target=notify_target)
             detector.sensor_settings.register_image(image)
             return image
+
+    def target_from_identity(self, target_identity:core.SensorIdentity, detector:core.SectorEntity, loc:npt.NDArray[np.float64], notify_target:bool=True, identified:bool=True) -> core.AbstractSensorImage:
+        if detector.sensor_settings.has_image(target_identity.entity_id):
+            return detector.sensor_settings.get_image(target_identity.entity_id)
+
+        image = SensorImage.create_sensor_image(None, detector, self, identity=target_identity, identified=identified)
+        image._loc = loc
+        detector.sensor_settings.register_image(image)
+
+        return image
+
 
     def sensor_ranges(self, entity:core.SectorEntity) -> tuple[float, float, float]:
         # range to detect passive targets
@@ -563,59 +576,6 @@ class SensorManager(core.AbstractSensorManager):
     def compute_thrust_for_sensor_power(self, ship:core.SectorEntity, distance_sq:float, sensor_power:float) -> float:
         threshold = config.Settings.sensors.COEFF_THRESHOLD / (sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
         return self.compute_thrust_for_profile(ship, distance_sq, threshold)
-
-class SensorImageManager:
-    """ Manages SensorImage instances for a particular ship. """
-    def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float):
-        self.ship = ship
-
-        self._cached_entities:dict[uuid.UUID, core.AbstractSensorImage] = {}
-        self._cached_entities_by_idx:dict[int, core.AbstractSensorImage]
-        self._cached_entities_ts = -1.
-        self._sensor_image_ttl = sensor_image_ttl
-        self._sensor_loc_index = rtree.index.Index()
-
-    @property
-    def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
-        return self._cached_entities
-
-    def spatial_point(self, point:Union[tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
-        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1)) # type: ignore
-
-    def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
-        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
-
-    def update(self) -> None:
-        assert self.ship.sector
-
-        # first we find all the detectable entities
-        for hit in self.ship.sector.entities.values():
-            if hit.entity_id in self._cached_entities:
-                self._cached_entities[hit.entity_id].update(notify_target=False)
-            elif self.ship.sector.sensor_manager.detected(hit, self.ship):
-                self._cached_entities[hit.entity_id] = self.ship.sector.sensor_manager.target(hit, self.ship, notify_target=False)
-        remove_ids:set[uuid.UUID] = set()
-
-        # then index all those images for retrieval later
-        idx = 0
-        self._sensor_loc_index = rtree.index.Index()
-        self._cached_entities_by_idx = {}
-        for image in self._cached_entities.values():
-            if not image.is_active() or image.age > self._sensor_image_ttl:
-                remove_ids.add(image.identity.entity_id)
-            else:
-                r = image.identity.radius
-                loc = image.loc
-                x,y= loc[0], loc[1]
-                self._sensor_loc_index.insert(
-                    idx,
-                    (x-r, y-r,
-                     x+r, y+r),
-                )
-                self._cached_entities_by_idx[idx] = image
-                idx+=1
-        for entity_id in remove_ids:
-            del self._cached_entities[entity_id]
 
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_events(Events, "sensors")
