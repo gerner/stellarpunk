@@ -305,6 +305,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         # stuff in the sector (for debugging)
         self.draw_cymunk_shapes = False
 
+        self.draw_hexes = False
+
     def make_order_observer(self,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
@@ -489,6 +491,9 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         def only_draw_cymunk(args:Sequence[str]) -> None:
             self.draw_cymunk_shapes = not self.draw_cymunk_shapes
 
+        def draw_hexes(args:Sequence[str]) -> None:
+            self.draw_hexes = not self.draw_hexes
+
         return [
             self.bind_command("orders", show_orders),
             self.bind_command("clear_orders", lambda x: self.ship.clear_orders()),
@@ -509,6 +514,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             self.bind_command("max_thrust", max_thrust),
             self.bind_command("mouse_pos", mouse_pos),
             self.bind_command("cymunk_shapes", only_draw_cymunk),
+            self.bind_command("draw_hexes", draw_hexes),
         ]
 
     def _select_target(self, target:Optional[core.AbstractSensorImage]) -> None:
@@ -1062,8 +1068,11 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
         if self.draw_cymunk_shapes:
             self.presenter.draw_cymunk_shapes()
+        if self.draw_hexes:
+            self.presenter.draw_hexes()
         else:
             self.starfield.draw_starfield(self.viewscreen)
+            self.presenter.draw_hexes()
             self.presenter.draw_weather()
             self.presenter.draw_shapes()
             self._draw_radar()

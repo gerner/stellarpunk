@@ -338,7 +338,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
             self.viewscreen.addstr(16, x+64+20, selected_save.pc_name)
             self.viewscreen.addstr(17, x+64+20, selected_save.pc_sector_name)
-            self.viewscreen.addstr(18, x+64+20, f'{datetime.datetime.fromtimestamp(selected_save.game_base_date.timestamp() + selected_save.game_timestamp)}')
+            self.viewscreen.addstr(18, x+64+20, f'{selected_save.game_date}')
 
         else:
             self.viewscreen.addstr(18, 15, f'no save games to load.')

@@ -187,6 +187,11 @@ class Gamestate(EntityRegistry):
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
         self.base_date = datetime.datetime(2234, 4, 3)
+        # this is so 40 hours of gameplay => 4 years of gametime
+        # 4 years is long enough to accomplish a lot and 40 hours seems like a
+        # long play session.
+        #TODO: put this in configuration and save/load it
+        self.game_secs_per_sec = 876.
         self.timestamp = 0.
 
         self.ticks = 0
@@ -604,11 +609,9 @@ class Gamestate(EntityRegistry):
         self.sanity_check_sectors()
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
-        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)
+        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp*self.game_secs_per_sec)
+
     def current_time(self) -> datetime.datetime:
-        #TODO: probably want to decouple telling time from ticks processed
-        # we want missed ticks to slow time, but if we skip time will we
-        # increment the ticks even though we don't process them?
         return self.timestamp_to_datetime(self.timestamp)
 
     #def exit_startup(self) -> None:

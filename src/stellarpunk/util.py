@@ -879,22 +879,22 @@ def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_
     # draw pairs of lines until hex center is size distance outside bottom edge
     #logger.info(f'bbox: {bbox}')
     #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
-    while(pixel_loc[1] < bbox[3]+size):
+    while(pixel_loc[1]+offset_y < bbox[3]+size):
         # draw pairs of hexes (q, r) and (q-1, r+1) until second hex center is outside the right edge
         #logger.info(f'considering hex pair pixel: {hex_loc} {pixel_loc}')
         row_start = hex_loc.copy()
-        while(pixel_loc[0] < bbox[2]):
+        while(pixel_loc[0]+offset_x < bbox[2]):
             # draw first, upper left hex
             c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
             # debugging:
-            #c.set_text(*sector_to_drawille(pixel_loc[0], pixel_loc[1], meters_per_char_x, meters_per_char_y), f'{hex_pairs}.a {hex_loc}')
+            #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.a {hex_loc}')
 
             # draw second, lower right hex
             hex_loc[1] += 1
             pixel_loc = pointy_hex_to_pixel(hex_loc, size)
             c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
             # debugging:
-            #c.set_text(*sector_to_drawille(pixel_loc[0], pixel_loc[1], meters_per_char_x, meters_per_char_y), f'{hex_pairs}.b {hex_loc}')
+            #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.b {hex_loc}')
 
             # set up next pair of hexes: rewind to first hex and move right
             hex_loc[0]+=1

@@ -492,7 +492,9 @@ class Presenter:
 
         assert isinstance(self.view.viewscreen, interface.Canvas)
         c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, *self.perspective.meters_per_char, bbox=self.perspective.bbox)
-        util.draw_canvas_at(c, self.view.viewscreen.window, 0, 0, bounds=self.view.viewscreen_bounds)
+        s_x, s_y = self.perspective.sector_to_screen(0, 0)
+        util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(23))
+        self.gamestate.breakpoint()
 
     def update(self) -> None:
         pass

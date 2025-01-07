@@ -203,7 +203,7 @@ class NoneSaver(Saver[None]):
         return None
 
 class SaveGame:
-    def __init__(self, save_format_version:str, game_version:str, game_start_version:str, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, game_fingerprint:bytes, game_timestamp:float, game_base_date:datetime.datetime, game_save_count:int, pc_name:str, pc_sector_name:str, filename:str=""):
+    def __init__(self, save_format_version:str, game_version:str, game_start_version:str, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, game_fingerprint:bytes, game_timestamp:float, game_base_date:datetime.datetime, game_secs_per_sec:float, game_save_count:int, pc_name:str, pc_sector_name:str, filename:str=""):
         self.filename = filename
         self.save_format_version = SAVE_FORMAT_VERSION
         self.game_version = game_version
@@ -215,10 +215,15 @@ class SaveGame:
         self.game_fingerprint = game_fingerprint
         self.game_timestamp = game_timestamp
         self.game_base_date = game_base_date
+        self.game_secs_per_sec = game_secs_per_sec
         self.game_save_count = game_save_count
 
         self.pc_name = pc_name
         self.pc_sector_name = pc_sector_name
+
+    @property
+    def game_date(self) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(self.game_base_date.timestamp() + self.game_timestamp*self.game_secs_per_sec)
 
 
 class GameSaverObserver:
@@ -319,6 +324,7 @@ class GameSaver(SaverObserver):
         bytes_written += s_util.bytes_to_f(gamestate.fingerprint, save_file)
         bytes_written += s_util.float_to_f(gamestate.timestamp, save_file)
         bytes_written += s_util.to_len_pre_f(gamestate.base_date.isoformat(), save_file)
+        bytes_written += s_util.float_to_f(gamestate.game_secs_per_sec, save_file)
         bytes_written += s_util.int_to_f(gamestate.save_count, save_file)
 
         # TODO: will the player always have selected a character and be in a sector?
@@ -348,12 +354,13 @@ class GameSaver(SaverObserver):
         fingerprint = s_util.bytes_from_f(save_file)
         timestamp = s_util.float_from_f(save_file)
         base_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(save_file))
+        game_secs_per_sec = s_util.float_from_f(save_file)
         save_count = s_util.int_from_f(save_file)
 
         pc_name = s_util.from_len_pre_f(save_file)
         pc_sector_name = s_util.from_len_pre_f(save_file)
 
-        return SaveGame(save_format_version, game_version, game_start_version, debug_flag, save_date, estimated_ticks, fingerprint, timestamp, base_date, save_count, pc_name, pc_sector_name)
+        return SaveGame(save_format_version, game_version, game_start_version, debug_flag, save_date, estimated_ticks, fingerprint, timestamp, base_date, game_secs_per_sec, save_count, pc_name, pc_sector_name)
 
     def key_from_class(self, klass:type) -> int:
         return self._class_key_lookup[klass]

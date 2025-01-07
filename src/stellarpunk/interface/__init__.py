@@ -674,6 +674,7 @@ class Interface(AbstractInterface):
         super().__init__(*args, **kwargs)
         self.game_saver = game_saver
         self.next_autosave_timestamp = 0.
+        self.next_autosave_real_timestamp = 0.
         self.stdscr:curses.window = None # type: ignore[assignment]
 
         self.desired_fps = Settings.MAX_FPS
@@ -1094,7 +1095,7 @@ class Interface(AbstractInterface):
         #TODO: do I want this to be game seconds or wall seconds?
         #TODO: what about time acceleration?
         #TODO: what about doing a ton of stuff while paused?
-        if self.gamestate.timestamp > self.next_autosave_timestamp:
+        if self.gamestate.timestamp > self.next_autosave_timestamp and time.time() > self.next_autosave_real_timestamp:
             self.log_message('saving game...')
             start_time = time.perf_counter()
             self.game_saver.autosave(self.gamestate)
@@ -1104,6 +1105,7 @@ class Interface(AbstractInterface):
 
     def set_next_autosave_ts(self) -> None:
         self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
+        self.next_autosave_real_timestamp = time.time() + config.Settings.AUTOSAVE_PERIOD_SEC
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()

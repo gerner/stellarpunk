@@ -21,6 +21,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         bytes_written += s_util.debug_string_w("simple fields", f)
         bytes_written += s_util.random_state_to_f(gamestate.random, f)
         bytes_written += s_util.to_len_pre_f(gamestate.base_date.isoformat(), f)
+        bytes_written += s_util.float_to_f(gamestate.game_secs_per_sec, f)
         bytes_written += s_util.float_to_f(gamestate.timestamp, f)
         #bytes_written += s_util.float_to_f(gamestate.desired_dt, f)
         # no need to save dt, we should reload with desired dt
@@ -153,6 +154,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         s_util.debug_string_r("simple fields", f)
         gamestate.random = s_util.random_state_from_f(f)
         gamestate.base_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(f))
+        gamestate.game_secs_per_sec = s_util.float_from_f(f)
         gamestate.timestamp = s_util.float_from_f(f)
         #gamestate.desired_dt = s_util.float_from_f(f)
         #gamestate.dt = gamestate.desired_dt

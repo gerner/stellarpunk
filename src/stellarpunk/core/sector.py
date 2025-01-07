@@ -267,18 +267,18 @@ class SensorIdentity:
             self.id_prefix = entity.id_prefix
             self.entity_id = entity.entity_id
             self.short_id = entity.short_id()
-            self.radius = entity.radius
+            #self.radius = entity.radius
         else:
             assert(object_type)
             assert(id_prefix)
             assert(entity_id)
             assert(short_id)
-            assert(radius)
+            #assert(radius)
             self.object_type = object_type
             self.id_prefix = id_prefix
             self.entity_id = entity_id
             self.short_id = short_id
-            self.radius = radius
+            #self.radius = radius
         # must be updated externally
         self.angle = 0.0
 
