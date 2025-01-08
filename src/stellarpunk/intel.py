@@ -260,7 +260,9 @@ class SectorHexMatchCriteria(core.IntelMatchCriteria):
         self.is_static = is_static
 
     def __hash__(self) -> int:
-        return hash((self.sector_id, self.hex_loc))
+        #TODO: is it bad that we're hashing a float here but using isclose
+        # below for comparison? (hint: yes, but does it matter?)
+        return hash((self.sector_id, util.int_coords(self.hex_loc)))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, type(self)):
@@ -375,33 +377,53 @@ class ScanAction(events.Action):
 
         #TODO: figure out the set of hexes that are relevant
         passive_range, thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
-        sector_hexes:list[npt.NDArray[np.float64]] = []
+        sector_hexes = util.hexes_within_pixel_dist(detector.loc, passive_range, sector.hex_size)
+
+        # eliminate hexes we already have good intel for
+        # and create a dict from hex coord to info about the hex
+        static_intel:dict[tuple[int, int], SectorHexIntel] = {}
+        dynamic_intel:dict[tuple[int, int], SectorHexIntel] = {}
+        static_fresh_until = self.gamestate.timestamp + self.static_intel_ttl*0.2
+        static_expires_at = self.gamestate.timestamp + self.static_intel_ttl
+        dynamic_fresh_until = self.gamestate.timestamp + self.dynamic_intel_ttl*0.2
+        dynamic_expires_at = self.gamestate.timestamp + self.dynamic_intel_ttl
 
         for hex_coords in sector_hexes:
-            #TODO: extract counts and type counts within the hex
-            static_count = self.ck(event_context, sensors.ContextKeys.STATIC_COUNT)
-            dynamic_count = self.ck(event_context, sensors.ContextKeys.DYNAMIC_COUNT)
+            static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
+            s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
+            if not s_intel or not s_intel.is_fresh():
+                static_intel[util.int_coords(hex_coords)] = SectorHexIntel(sector.entity_id, hex_coords, True, 0, {}, self.gamestate, expires_at=static_expires_at, fresh_until=static_fresh_until)
 
-            static_entity_types:dict[str, int] = {}
-            dynamic_entity_types:dict[str, int] = {}
-            for k, v in event_args.items():
-                if k.startswith("static_type:"):
-                    assert(isinstance(v, int))
-                    type_name = k[len("static_type:"):]
-                    static_entity_types[type_name] = v
-                elif k.startswith("dynamic_type:"):
-                    assert(isinstance(v, int))
-                    type_name = k[len("dynamic_type:"):]
-                    dynamic_entity_types[type_name] = v
+            dynamic_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, False)
+            d_intel = character.intel_manager.get_intel(dynamic_criteria, SectorHexIntel)
+            if not d_intel or not d_intel.is_fresh():
+                dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel(sector.entity_id, hex_coords, False, 0, {}, self.gamestate, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
 
-            # just create the intel, add will handle if we already have it
-            fresh_until = self.gamestate.timestamp + self.static_intel_ttl*0.2
-            expires_at = self.gamestate.timestamp + self.static_intel_ttl
-            static_hex_intel = SectorHexIntel(sector.entity_id, hex_coords, True, static_count, static_entity_types, self.gamestate, expires_at=expires_at, fresh_until=fresh_until)
+        # iterate over all the sensor images we've got accumulating info for
+        # the hex they lie in, if it's within range
+        for image in detector.sensor_settings.images:
+            if not image.identified:
+                continue
 
-            fresh_until = self.gamestate.timestamp + self.dynamic_intel_ttl*0.2
-            expires_at = self.gamestate.timestamp + self.dynamic_intel_ttl
-            static_hex_intel = SectorHexIntel(sector.entity_id, hex_coords, False, dynamic_count, dynamic_entity_types, self.gamestate, expires_at=expires_at, fresh_until=fresh_until)
+            h_coords = util.int_coords(util.axial_round(util.pixel_to_pointy_hex(image.loc, sector.hex_size)))
+
+            if image.identity.is_static:
+                intels = static_intel
+            else:
+                intels = dynamic_intel
+
+            if h_coords in static_intel:
+                intels[h_coords].entity_count += 1
+                type_name = util.fullname(image.identity.object_type)
+                if type_name in intels[h_coords].type_counts:
+                    intels[h_coords].type_counts[type_name] += 1
+                else:
+                    intels[h_coords].type_counts[type_name] = 1
+
+        for s_intel in static_intel.values():
+            character.intel_manager.add_intel(s_intel)
+        for d_intel in dynamic_intel.values():
+            character.intel_manager.add_intel(d_intel)
 
 
 def pre_initialize(event_manager:events.EventManager) -> None:

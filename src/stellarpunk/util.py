@@ -984,6 +984,9 @@ def cube_round(frac:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
 def axial_round(coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return cube_to_axial(cube_round(axial_to_cube(coords)))
 
+def int_coords(coords:npt.NDArray[np.float64]) -> tuple[int, int]:
+    return (int(coords[0]), int(coords[1]))
+
 @jit(cache=True, nopython=True, fastmath=True)
 def pointy_hex_to_pixel(coords:npt.NDArray[np.float64], size:float) -> npt.NDArray[np.float64]:
     x = size * (np.sqrt(3) * coords[0]  +  np.sqrt(3)/2 * coords[1])
@@ -995,6 +998,65 @@ def pixel_to_pointy_hex(point:npt.NDArray[np.float64], size:float) -> npt.NDArra
     q = (np.sqrt(3)/3 * point[0]  -  1./3 * point[1]) / size
     r = (                        2./3 * point[1]) / size
     return np.array((q,r))
+
+def hexes_at_hex_dist(k:int, hex_coords:npt.NDArray[np.float64]) -> Collection[npt.NDArray[np.float64]]:
+    """ returns all hex coords at hex distance k """
+    c = hex_coords.copy()
+    if k == 0:
+        return [c]
+    c[0] -= k
+    # start with empty ret, we'll get the current c at the very end
+    ret = []
+    # move in sq+ direction
+    for _ in range(k):
+        c[0] += 1
+        c[1] -= 1
+        ret.append(c.copy())
+    # move in q+ direction
+    for _ in range(k):
+        c[0] += 1
+        ret.append(c.copy())
+    # move in r+ direction
+    for _ in range(k):
+        c[1] += 1
+        ret.append(c.copy())
+    # move in sq- direction
+    for _ in range(k):
+        c[0] -= 1
+        c[1] += 1
+        ret.append(c.copy())
+    # move in q- direction
+    for _ in range(k):
+        c[0] -= 1
+        ret.append(c.copy())
+    # move in r- direction
+    for _ in range(k):
+        c[1] -= 1
+        ret.append(c.copy())
+
+    return ret
+
+
+def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:float) -> Collection[npt.NDArray[np.float64]]:
+    """ returns all hex coords for hexes contained completely within pixel dist
+    of pixel coords. """
+
+    # determine k, the largest integral hex distance that is wholly within dist
+    center_hex = axial_round(pixel_to_pointy_hex(coords, size))
+    outside_coords = np.array((coords[0]-dist, coords[1]))
+    outside_hex = axial_round(pixel_to_pointy_hex(outside_coords, size))
+    if both_isclose(outside_hex, center_hex):
+        return []
+
+    diff_hex = center_hex - outside_hex
+    d = int(diff_hex[0] - 1)
+    assert(d>=0)
+
+    ret = [center_hex]
+    for k in range(d, 0, -1):
+        ret.extend(hexes_at_hex_dist(k, center_hex))
+
+    return ret
 
 
 class NiceScale:
