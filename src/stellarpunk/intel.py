@@ -275,7 +275,7 @@ class SectorHexMatchCriteria(core.IntelMatchCriteria):
         return self.is_static == intel.is_static and self.sector_id == intel.sector_id and util.both_isclose(self.hex_loc, intel.hex_loc)
 
 class SectorHexIntel(core.Intel):
-    def __init__(self, sector_id:uuid.UUID, hex_loc:npt.NDArray[np.float64], is_static:bool, entity_count:int, type_counts:dict[str,int], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sector_id:uuid.UUID, hex_loc:npt.NDArray[np.float64], is_static:bool, entity_count:int, type_counts:dict[Type[core.SectorEntity],int], *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.sector_id = sector_id
         self.hex_loc = hex_loc
@@ -414,7 +414,7 @@ class ScanAction(events.Action):
 
             if h_coords in static_intel:
                 intels[h_coords].entity_count += 1
-                type_name = util.fullname(image.identity.object_type)
+                type_name = image.identity.object_type
                 if type_name in intels[h_coords].type_counts:
                     intels[h_coords].type_counts[type_name] += 1
                 else:

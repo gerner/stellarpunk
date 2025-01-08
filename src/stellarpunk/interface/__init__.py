@@ -253,7 +253,10 @@ class Icons:
 
     @staticmethod
     def culture_attr(culture:str) -> int:
-        return curses.color_pair(Icons.COLOR_CULTURES[config.Settings.generate.Universe.CULTURES.index(culture) % len(Icons.COLOR_CULTURES)])
+        if culture in config.Settings.generate.Universe.CULTURES:
+            return curses.color_pair(Icons.COLOR_CULTURES[config.Settings.generate.Universe.CULTURES.index(culture) % len(Icons.COLOR_CULTURES)])
+        else:
+            return 0
 
 class BasicCanvas:
     def __init__(self, height:int, width:int, y:int, x:int, aspect_ratio:float) -> None:

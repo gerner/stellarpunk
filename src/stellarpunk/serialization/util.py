@@ -2,13 +2,15 @@ import io
 import json
 import uuid
 import struct
+import pydoc
 from collections.abc import Collection, Mapping
-from typing import Union, Callable, Optional, Union
+from typing import Union, Callable, Optional, Union, Type
 
 import numpy as np
 import numpy.typing as npt
 import msgpack # type: ignore
 
+from stellarpunk import util
 from stellarpunk.serialization import serialize_econ_sim
 
 def size_to_bytes(x:int) -> bytes:
@@ -93,6 +95,17 @@ def primitive_from_f(f:io.IOBase, slen:int=2, ilen:int=4) -> Union[int,float,str
         return int_from_f(f, blen=1) == 1
     else:
         raise ValueError(f'got unexpected type {type_code=}')
+
+def type_to_f(t:type, f:io.IOBase) -> int:
+    type_name = util.fullname(t)
+    return to_len_pre_f(type_name, f)
+
+def type_from_f[T](f:io.IOBase, superclass:Type[T]) -> type:
+    type_name = from_len_pre_f(f)
+    t = pydoc.locate(type_name)
+    assert(isinstance(t, type))
+    assert(issubclass(t, superclass))
+    return t
 
 def ints_to_f(seq:Collection[int], f:io.IOBase, blen:int=4, signed:bool=False) -> int:
     bytes_written = 0

@@ -100,7 +100,7 @@ class SectorHexIntelSaver(IntelSaver[intel.SectorHexIntel]):
         bytes_written += s_util.float_pair_to_f(intel.hex_loc, f)
         bytes_written += s_util.bool_to_f(intel.is_static, f)
         bytes_written += s_util.int_to_f(intel.entity_count, f)
-        bytes_written += s_util.fancy_dict_to_f(intel.type_counts, f, s_util.to_len_pre_f, s_util.int_to_f)
+        bytes_written += s_util.fancy_dict_to_f(intel.type_counts, f, s_util.type_to_f, s_util.int_to_f)
         return bytes_written
 
     def _load_intel(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> intel.SectorHexIntel:
@@ -108,7 +108,7 @@ class SectorHexIntelSaver(IntelSaver[intel.SectorHexIntel]):
         hex_loc = s_util.float_pair_from_f(f)
         is_static = s_util.bool_from_f(f)
         entity_count = s_util.int_from_f(f)
-        type_counts = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.int_from_f)
+        type_counts = s_util.fancy_dict_from_f(f, lambda f: s_util.type_from_f(f, core.SectorEntity), s_util.int_from_f)
 
         hex_intel = intel.SectorHexIntel(sector_id, hex_loc, is_static, entity_count, type_counts, load_context.gamestate, entity_id=entity_id)
 
