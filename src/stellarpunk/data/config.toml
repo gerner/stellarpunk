@@ -132,7 +132,7 @@ AUTOSAVE_PERIOD_SEC = 30.0
         # this should be approximately half the detection range for objects of
         # interest
         SECTOR_HEX_SIZE = 2e5
-        # max distance between sectors to guarantee a gate connection
+        # max distance between sectors to allow a gate connection
         MAX_SECTOR_EDGE_LENGTH = 2e8
 
         # how many total sectors
@@ -143,6 +143,10 @@ AUTOSAVE_PERIOD_SEC = 30.0
         MEAN_HABITABLE_RESOURCES = 1e9
         # how many resources available in uninhabited sectors
         MEAN_UNINHABITABLE_RESOURCES = 1e7
+
+        STATION_FACTOR = 2.5
+        MINING_SHIP_FACTOR = 0.67
+        TRADING_SHIP_FACTOR = 0.17
 
         # how many distinct cultures should be represented in the universe?
         # maybe on order of sqrt(NUM_SECTORS)?

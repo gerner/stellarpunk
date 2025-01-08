@@ -234,6 +234,7 @@ class UniverseConfig:
     def __init__(self) -> None:
 
         # names and cultures
+        self.empty_name_model_culture = ""
         self.name_model_location = config.Settings.generate.names.NAME_MODEL_LOCATION
         self.num_cultures = config.Settings.generate.Universe.NUM_CULTURES
         self.cultures = config.Settings.generate.Universe.CULTURES
@@ -251,16 +252,21 @@ class UniverseConfig:
         self.hightech_inputs = config.Settings.generate.ProductionChain.HIGHTECH_INPUTS
         self.intermediate_inputs = config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS
 
-        # universe layout
+        # universe setup
         self.universe_radius = config.Settings.generate.Universe.UNIVERSE_RADIUS
-        self.num_sectors = config.Settings.generate.Universe.NUM_SECTORS
+        self.sector_radius_mean = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN
+        self.sector_radius_std = config.Settings.generate.Universe.SECTOR_RADIUS_STD
         self.max_sector_edge_length = config.Settings.generate.Universe.MAX_SECTOR_EDGE_LENGTH
+
+        self.num_sectors = config.Settings.generate.Universe.NUM_SECTORS
         self.num_habitable_sectors = config.Settings.generate.Universe.NUM_HABITABLE_SECTORS
         self.mean_habitable_resources = config.Settings.generate.Universe.MEAN_HABITABLE_RESOURCES
         self.mean_uninhabitable_resources = config.Settings.generate.Universe.MEAN_UNINHABITABLE_RESOURCES
 
-        self.sector_radius_mean = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN
-        self.sector_radius_std = config.Settings.generate.Universe.SECTOR_RADIUS_STD
+
+        self.station_factor = config.Settings.generate.Universe.STATION_FACTOR
+        self.mining_ship_factor = config.Settings.generate.Universe.MINING_SHIP_FACTOR
+        self.trading_ship_factor = config.Settings.generate.Universe.TRADING_SHIP_FACTOR
 
 
 class UniverseGenerator(core.AbstractGenerator):
@@ -451,7 +457,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > self.universe_config.max_sector_name_words) and tries < max_tries:
             name = self._sector_name_models[culture].generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -461,7 +467,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > self.universe_config.max_station_name_words) and tries < max_tries:
             name = self._station_name_models[culture].generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -471,7 +477,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > self.universe_config.max_station_name_words) and tries < max_tries:
             name = self._station_name_models[culture].generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -481,7 +487,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_tries = 10
         while (not name or len(name.split()) > self.universe_config.max_ship_name_words) and tries < max_tries:
             name = self._ship_name_model.generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -1163,7 +1169,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # random number of fields per resource
         # random sizes
         # random allocation to each that sums to desired total
-        num_stations = int((self.gamestate.production_chain.ranks.sum() - self.gamestate.production_chain.ranks[0])*2.5)
+        station_factor = self.universe_config.station_factor
+        num_stations = int((self.gamestate.production_chain.ranks.sum() - self.gamestate.production_chain.ranks[0])*station_factor)
         resources_to_generate = raw_needs[:,RESOURCE_REL_STATION] *  self.r.uniform(num_stations, 2*num_stations)
         #resources_to_generate += raw_needs[:,RESOURCE_REL_SHIP] * 100
         #resources_to_generate += raw_needs[:,RESOURCE_REL_CONSUMER] * 100*100
@@ -1213,7 +1220,7 @@ class UniverseGenerator(core.AbstractGenerator):
         assets.append(planet)
 
         # some factor mining ships for every refinery
-        mining_ship_factor = 2./3.
+        mining_ship_factor = self.universe_config.mining_ship_factor
         num_mining_ships = int(agent_goods[:,self.gamestate.production_chain.ranks.cumsum()[0]:self.gamestate.production_chain.ranks.cumsum()[1]].sum() * mining_ship_factor)
 
         self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
@@ -1225,7 +1232,7 @@ class UniverseGenerator(core.AbstractGenerator):
             mining_ships.add(ship)
 
         # some factor trading ships as there are station -> station trade routes
-        trade_ship_factor = 1./6.
+        trade_ship_factor = self.universe_config.trading_ship_factor
         trade_routes_by_good = ((self.gamestate.production_chain.adj_matrix > 0).sum(axis=1))
         num_trading_ships = int((trade_routes_by_good[np.newaxis,:] * agent_goods).sum() * trade_ship_factor)
         self.logger.debug(f'adding {num_trading_ships} trading ships to sector {sector.short_id()}')
@@ -1769,7 +1776,7 @@ class UniverseGenerator(core.AbstractGenerator):
             # choose most remote sector from any current seed sector
             i = int(min_dists.argmax())
             # seed sectors should appear with dist 0
-            assert(i not in culture_map)
+            assert(i not in culture_map or self.universe_config.num_sectors == 1)
 
         uncultured_sectors = set(i for i in range(len(sector_coords)) if i not in culture_map)
 

@@ -24,6 +24,19 @@ class Mode(enum.Enum):
     EXIT_GAME = enum.auto()
     EXIT = enum.auto()
 
+class ConfigOption(enum.Enum):
+    UNIVERSE_SCALE = enum.auto()
+    SECTOR_SCALE = enum.auto()
+    SECTOR_STD = enum.auto()
+    MAX_SECTOR_EDGE_LENGTH = enum.auto()
+    NUM_SECTORS = enum.auto()
+    NUM_INHABITED_SECTORS = enum.auto()
+    MEAN_INHABITED_RESOURCES = enum.auto()
+    MEAN_UNINHABITED_RESOURCES = enum.auto()
+    STATION_FACTOR = enum.auto()
+    MINER_FACTOR = enum.auto()
+    TRADER_FACTOR = enum.auto()
+
 class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserver, interface.View):
     """ Startup screen for giving player loading feedback.
 
@@ -161,19 +174,125 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._generator.universe_config = generate.UniverseConfig()
 
         #TODO: get savegame options
-        config_options:list[ui_util.MeterItem] = []
-        config_options.append(ui_util.MeterItem(
-            "some option",
-            15,
-        ))
+        self.config_options:dict[ConfigOption, ui_util.MeterItem] = {}
+        self.config_options[ConfigOption.UNIVERSE_SCALE] = ui_util.MeterItem(
+            "Universe scale",
+            self._generator.universe_config.universe_radius,
+            minimum=self._generator.universe_config.universe_radius*0.1,
+            maximum=self._generator.universe_config.universe_radius*5.0,
+            increment=self._generator.universe_config.universe_radius/50,
+            number_format=".2",
+        )
+        self.config_options[ConfigOption.SECTOR_SCALE] = ui_util.MeterItem(
+            "Sector scale",
+            self._generator.universe_config.sector_radius_mean,
+            minimum=self._generator.universe_config.sector_radius_mean*0.1,
+            maximum=self._generator.universe_config.sector_radius_mean*5.0,
+            increment=self._generator.universe_config.sector_radius_mean/50,
+            number_format=".2",
+        )
+        self.config_options[ConfigOption.SECTOR_STD] = ui_util.MeterItem(
+            "Sector radius rel stdev ",
+            self._generator.universe_config.sector_radius_std/self._generator.universe_config.sector_radius_mean,
+            minimum=0.05,
+            maximum=1.0,
+            increment=0.05,
+            number_format=".2f",
+        )
+        self.config_options[ConfigOption.MAX_SECTOR_EDGE_LENGTH] = ui_util.MeterItem(
+            "Sector edge max length",
+            self._generator.universe_config.max_sector_edge_length,
+            minimum=self._generator.universe_config.max_sector_edge_length*0.1,
+            maximum=self._generator.universe_config.max_sector_edge_length*5.0,
+            increment=self._generator.universe_config.max_sector_edge_length/50,
+            number_format=".2",
+        )
+
+        self.config_options[ConfigOption.NUM_SECTORS] = ui_util.MeterItem(
+            "Total sectors",
+            self._generator.universe_config.num_sectors,
+            minimum=self._generator.universe_config.num_sectors*0.1,
+            maximum=self._generator.universe_config.num_sectors*5.0,
+            increment=1,
+        )
+        self.config_options[ConfigOption.NUM_INHABITED_SECTORS] = ui_util.MeterItem(
+            "Total inhabited sectors",
+            self._generator.universe_config.num_habitable_sectors,
+            minimum=self._generator.universe_config.num_habitable_sectors*0.1,
+            maximum=self._generator.universe_config.num_habitable_sectors*5.0,
+            increment=1,
+        )
+        min_resources = 0.0
+        max_resources = max(self._generator.universe_config.mean_habitable_resources*5.0, self._generator.universe_config.mean_uninhabitable_resources*5.0)
+        self.config_options[ConfigOption.MEAN_INHABITED_RESOURCES] = ui_util.MeterItem(
+            "Mean inhabited resources",
+            self._generator.universe_config.mean_habitable_resources,
+            minimum=min_resources,
+            maximum=max_resources,
+            increment=max_resources/50.0,
+            number_format=".2",
+        )
+        self.config_options[ConfigOption.MEAN_UNINHABITED_RESOURCES] = ui_util.MeterItem(
+            "Mean uninhabited resources",
+            self._generator.universe_config.mean_uninhabitable_resources,
+            minimum=min_resources,
+            maximum=max_resources,
+            increment=max_resources/50.0,
+            number_format=".2",
+        )
+
+        self.config_options[ConfigOption.STATION_FACTOR] = ui_util.MeterItem(
+            "Stations per sector per good",
+            self._generator.universe_config.station_factor,
+            minimum=0.1,
+            maximum=10.0,
+            increment=0.1,
+            number_format=".2f",
+        )
+        self.config_options[ConfigOption.MINER_FACTOR] = ui_util.MeterItem(
+            "Miners per sector per resource",
+            self._generator.universe_config.mining_ship_factor,
+            minimum=0.1,
+            maximum=10.0,
+            increment=0.1,
+            number_format=".2f",
+        )
+        self.config_options[ConfigOption.TRADER_FACTOR] = ui_util.MeterItem(
+            "Traders per sector per station",
+            self._generator.universe_config.trading_ship_factor,
+            minimum=0.1,
+            maximum=10.0,
+            increment=0.1,
+            number_format=".2f",
+        )
 
         self._new_game_config_menu = ui_util.MeterMenu(
             "Configure a New Game",
-            config_options
+            list(self.config_options.values()),
+            number_width=9,
         )
 
+    def _validate_config_options(self) -> None:
+        if self.config_options[ConfigOption.NUM_SECTORS].setting < self.config_options[ConfigOption.NUM_INHABITED_SECTORS].setting:
+            raise ui_util.ValidationError("not enough total sectors for that many inhabited sectors")
+
     def _enter_create_new_game(self) -> None:
-        #TODO: transfer values from the config menu to the universe config
+        self._validate_config_options()
+
+        # transfer values from the config menu to the universe config
+        self._generator.universe_config.universe_radius = self.config_options[ConfigOption.UNIVERSE_SCALE].setting
+        self._generator.universe_config.sector_radius_mean = self.config_options[ConfigOption.SECTOR_SCALE].setting
+        self._generator.universe_config.sector_radius_std = self.config_options[ConfigOption.SECTOR_STD].setting
+        self._generator.universe_config.max_sector_edge_length = self.config_options[ConfigOption.MAX_SECTOR_EDGE_LENGTH].setting
+
+        self._generator.universe_config.num_sectors = int(self.config_options[ConfigOption.NUM_SECTORS].setting)
+        self._generator.universe_config.num_habitable_sectors = int(self.config_options[ConfigOption.NUM_INHABITED_SECTORS].setting)
+        self._generator.universe_config.mean_habitable_resources = self.config_options[ConfigOption.MEAN_INHABITED_RESOURCES].setting
+        self._generator.universe_config.mean_uninhabitable_resources = self.config_options[ConfigOption.MEAN_UNINHABITED_RESOURCES].setting
+
+        self._generator.universe_config.station_factor = self.config_options[ConfigOption.STATION_FACTOR].setting
+        self._generator.universe_config.mining_ship_factor = self.config_options[ConfigOption.MINER_FACTOR].setting
+        self._generator.universe_config.trading_ship_factor = self.config_options[ConfigOption.TRADER_FACTOR].setting
 
         self._generation_ticks = 0
         self._estimated_generation_ticks = 100
@@ -365,7 +484,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         x = 15
         self._new_game_config_menu.draw(self.viewscreen, y, x)
 
-        y = self._new_game_config_menu.height + 4
+        y = y + self._new_game_config_menu.height + 4
         self.viewscreen.addstr(y, x, "Press <ENTER> to create new game or <ESC> to cancel")
 
     def _draw_create_new_game(self) -> None:
@@ -375,8 +494,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             self.viewscreen.addstr(15, 15, f'generating a universe...')
             self.viewscreen.addstr(16, 15, f'{self._current_generation_step} {self._generation_ticks}/{self._estimated_generation_ticks}')
             #TODO: janky hack to draw a progress bar
-            m = ui_util.MeterMenu("foo", [])
-            m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
+            m = ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks))
+            m.draw(self.viewscreen, 17, 15)
             #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
             if self._universe_loaded:
                 self.viewscreen.addstr(18, 15, f'universe generated.')
@@ -417,8 +536,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
             self.viewscreen.addstr(15, 15, f'loading game...')
             self.viewscreen.addstr(16, 15, f'{self._generation_ticks}/{self._estimated_generation_ticks}')
             #TODO: janky hack to draw a progress bar
-            m = ui_util.MeterMenu("foo", [])
-            m._draw_meter(self.viewscreen, ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks)), 17, 15)
+            m = ui_util.MeterItem("test", self._generation_ticks, maximum=max(self._generation_ticks, self._estimated_generation_ticks))
+            m.draw(self.viewscreen, 17, 15)
             #self.viewscreen.addstr(17, 15, "."*self._generation_ticks)
             if self._universe_loaded:
                 self.viewscreen.addstr(18, 15, f'game loaded.')
@@ -450,9 +569,27 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         def cancel() -> None:
             self._enter_mode(Mode.MAIN_MENU)
         def create() -> None:
+            try:
+                self._validate_config_options()
+            except ui_util.ValidationError as e:
+                self.interface.status_message(
+                        e.message,
+                        self.interface.get_color(interface.Color.ERROR)
+                )
+                return
+            self._enter_mode(Mode.CREATE_NEW_GAME)
+        def quick_gen() -> None:
+            self._generator.universe_config.cultures=[self._generator._empty_name_model_culture]
+            self._generator.universe_config.num_cultures = [1,1]
+            self._generator._load_empty_name_models(self._generator._empty_name_model_culture)
+            self.config_options[ConfigOption.NUM_SECTORS].setting = 1
+            self.config_options[ConfigOption.NUM_INHABITED_SECTORS].setting = 1
             self._enter_mode(Mode.CREATE_NEW_GAME)
 
         key_list = list(self._new_game_config_menu.key_list())
+        key_list.extend(self.bind_aliases(
+            [ord('q')], quick_gen, help_key="startup_new_game_quick_gen"
+        ))
         key_list.extend(self.bind_aliases(
             [curses.ascii.ESC], cancel, help_key="startup_new_game_cancel"
         ))

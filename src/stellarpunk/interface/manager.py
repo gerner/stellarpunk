@@ -128,7 +128,7 @@ class KeyDemo(interface.View):
         if key in self.curses_keys:
             curses_key = self.curses_keys[key]
 
-        self.interface.log_message(f'pressed {key} {print_view} {curses_key} at {core.Gamestate.gamestate.ticks}')
+        self.interface.log_message(f'pressed {key} {print_view} {curses_key}')
 
         return True
 

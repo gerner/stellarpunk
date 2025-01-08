@@ -246,17 +246,21 @@ class Menu(UIComponent):
         )
         return key_options
 
-class MeterItem:
+class MeterItem(UIComponent):
     def __init__(
             self,
             label: str,
-            value: int,
-            setting: Optional[int] = None,
-            minimum: int = 0,
-            maximum: int = 100,
-            increment: int = 1,
-            pool: Optional[int] = None,
+            value: float,
+            setting: Optional[float] = None,
+            minimum: float = 0,
+            maximum: float = 100,
+            increment: float = 1,
+            pool: Optional[float] = None,
             data: Optional[Any] = None,
+            total_width: int = 128,
+            label_width: int = 32,
+            number_width: int = 7,
+            number_format:str = ".0f"
     ) -> None:
         self.label = label
         self.value = value
@@ -268,7 +272,91 @@ class MeterItem:
         self.increment = increment
         self.pool = pool
         self.data = data
+        self.number_format = number_format
 
+        self.left_number_width = 2*number_width+1
+        self.right_number_width = number_width
+        self.meter_width = total_width - (
+            label_width + 1 +
+            self.left_number_width + 1 +
+            self.right_number_width + 1
+        )
+
+    @property
+    def bbox(self) -> Tuple[int, int, int, int]:
+        return (self.draw_y, self.draw_x, self.draw_y+self.height, self.draw_x+self.width)
+    @property
+    def width(self) -> int:
+        return self.meter_width
+
+    @property
+    def height(self) -> int:
+        return 1
+
+    def inc(self, factor:float, validator:Callable[["MeterItem"], bool]) -> None:
+        increment = self.increment
+        increment = increment * factor
+        old_setting = self.setting
+        self.setting += min(increment, self.maximum-self.setting)
+        if not validator(self):
+            self.setting = old_setting
+
+    def dec(self, factor:float, validator:Callable[["MeterItem"], bool]) -> None:
+        increment = self.increment
+        increment = increment * factor
+        old_setting = self.setting
+        self.setting -= min(increment, self.setting-self.minimum)
+        if not validator(self):
+            self.setting = old_setting
+
+    def draw(
+            self,
+            canvas: interface.BasicCanvas,
+            y: int, x: int,
+            attr: int = 0
+    ) -> None:
+        self.draw_y = y
+        self.draw_x = x
+        # current setting right justified
+        if self.setting > self.value:
+            diff_str = f'(+{self.setting-self.value:{self.number_format}}) '
+        elif self.setting < self.value:
+            diff_str = f'(-{self.value - self.setting:{self.number_format}}) '
+        else:
+            diff_str = ""
+
+        value_str = f'{diff_str}{self.setting:{self.number_format}}'
+        canvas.addstr(y, x, f'{value_str:>{self.left_number_width}} ', attr)
+
+        assert(self.value <= self.maximum)
+        assert(self.setting <= self.maximum)
+
+        # meter visual █░▓▁
+        # show original value and current setting
+        # shade the difference between value and current setting
+        # any non-zero amount should be indicated
+        chars_per_unit = self.meter_width / self.maximum
+
+        left_width = int(math.ceil(self.value*chars_per_unit))
+        l_filled_str = "█" * int(math.ceil(min(self.setting, self.value)*chars_per_unit))
+        left_str = f'{l_filled_str:{"░"}<{left_width}}'
+
+        right_width = self.meter_width - left_width
+        r_filled_str = "▓" * int(math.ceil(self.setting - self.value)*chars_per_unit)
+        right_str = f'{r_filled_str:{"▁"}<{right_width}}'
+
+        meter_visual = left_str + right_str
+
+        assert len(meter_visual) <= self.meter_width
+        canvas.addstr(y, x + self.left_number_width + 1, meter_visual, attr)
+
+        # meter maximum right justified
+        if self.pool is not None:
+            pool_avail_str = f'{self.pool - (self.setting-self.value):{self.number_format}}'
+            canvas.addstr(
+                y, x + self.left_number_width + 1 + self.meter_width + 1,
+                f' {pool_avail_str:>{self.right_number_width}}'
+            )
 
 class MeterMenu(UIComponent):
     @staticmethod
@@ -283,14 +371,14 @@ class MeterMenu(UIComponent):
             total_width: int = 128,
             label_width: int = 32,
             number_width: int = 7,
-            validator: Optional[Callable[[MeterItem, "MeterMenu"], bool]] = None,
+            validator: Optional[Callable[[MeterItem], bool]] = None,
     ) -> None:
         self.title = title
         self.options = options
         self.selected_option = 0
         if validator is None:
-            validator = MeterMenu.validate_pool
-        self.validator = validator
+            validator = lambda x, menu=self: MeterMenu.validate_pool(x, menu) # type: ignore
+        self.validator:Callable[[MeterItem], bool] = validator
 
         self.total_width = total_width
         self.label_width = label_width
@@ -301,6 +389,11 @@ class MeterMenu(UIComponent):
             self.left_number_width + 1 +
             self.right_number_width + 1
         )
+
+        for option in self.options:
+            option.meter_width = self.meter_width
+            option.left_number_width = self.left_number_width
+            option.right_number_width = self.right_number_width
 
     @property
     def bbox(self) -> Tuple[int, int, int, int]:
@@ -328,25 +421,11 @@ class MeterMenu(UIComponent):
             self.selected_option -= 1
         return self.selected_option
 
-    def select_more(self, increment: Optional[int] = None) -> int:
-        option = self.options[self.selected_option]
-        if increment is None:
-            increment = option.increment
-        old_setting = option.setting
-        option.setting += min(increment, option.maximum-option.setting)
-        if not self.validator(option, self):
-            option.setting = old_setting
-        return option.setting
+    def select_more(self, factor:float=1.0) -> None:
+        self.options[self.selected_option].inc(factor, self.validator)
 
-    def select_less(self, increment: Optional[int] = None) -> int:
-        option = self.options[self.selected_option]
-        if increment is None:
-            increment = option.increment
-        old_setting = option.setting
-        option.setting -= min(increment, option.setting-option.minimum)
-        if not self.validator(option, self):
-            option.setting = old_setting
-        return option.setting
+    def select_less(self, factor:float=1.0) -> None:
+        self.options[self.selected_option].dec(factor, self.validator)
 
     def draw(self, canvas: interface.BasicCanvas, y: int, x: int) -> None:
         self.draw_y = y
@@ -368,7 +447,7 @@ class MeterMenu(UIComponent):
                 attr
             )
 
-            self._draw_meter(canvas, option, y, x+self.label_width+1)
+            option.draw(canvas, y, x+self.label_width+1)
 
             y += 1
 
@@ -385,58 +464,15 @@ class MeterMenu(UIComponent):
             interface.KeyBinding(curses.KEY_UP, self.select_prev, nav_help, help_key="menu_nav"),
             interface.KeyBinding(ord("d"), self.select_more, inc_help, help_key="menu_inc"),
             interface.KeyBinding(ord("a"), self.select_less, inc_help, help_key="menu_inc"),
+            interface.KeyBinding(ord("D"), lambda: self.select_more(factor=10.0), inc_help, help_key="menu_inc"),
+            interface.KeyBinding(ord("A"), lambda: self.select_less(factor=10.0), inc_help, help_key="menu_inc"),
             interface.KeyBinding(ord("l"), self.select_more, inc_help, help_key="menu_inc"),
             interface.KeyBinding(ord("h"), self.select_less, inc_help, help_key="menu_inc"),
             interface.KeyBinding(curses.KEY_RIGHT, self.select_more, inc_help, help_key="menu_inc"),
             interface.KeyBinding(curses.KEY_LEFT, self.select_less, inc_help, help_key="menu_inc"),
+            interface.KeyBinding(curses.KEY_SRIGHT, lambda: self.select_more(factor=10.0), inc_help, help_key="menu_inc"),
+            interface.KeyBinding(curses.KEY_SLEFT, lambda: self.select_less(factor=10.0), inc_help, help_key="menu_inc"),
         ]
-
-    def _draw_meter(
-            self,
-            canvas: interface.BasicCanvas,
-            option: MeterItem,
-            y: int, x: int,
-            attr: int = 0
-    ) -> None:
-        # current setting right justified
-        if option.setting > option.value:
-            diff_str = f'(+{option.setting-option.value}) '
-        elif option.setting < option.value:
-            diff_str = f'(-{option.value - option.setting}) '
-        else:
-            diff_str = ""
-
-        value_str = f'{diff_str}{option.setting}'
-        canvas.addstr(y, x, f'{value_str:>{self.left_number_width}} ', attr)
-
-        assert(option.value <= option.maximum)
-        assert(option.setting <= option.maximum)
-
-        # meter visual █░▓▁
-        # show original value and current setting
-        # shade the difference between value and current setting
-        # any non-zero amount should be indicated
-        chars_per_unit = self.meter_width / option.maximum
-
-        left_width = int(math.ceil(option.value*chars_per_unit))
-        l_filled_str = "█" * int(math.ceil(min(option.setting, option.value)*chars_per_unit))
-        left_str = f'{l_filled_str:{"░"}<{left_width}}'
-
-        right_width = self.meter_width - left_width
-        r_filled_str = "▓" * int(math.ceil(option.setting - option.value)*chars_per_unit)
-        right_str = f'{r_filled_str:{"▁"}<{right_width}}'
-
-        meter_visual = left_str + right_str
-
-        assert len(meter_visual) <= self.meter_width
-        canvas.addstr(y, x + self.left_number_width + 1, meter_visual, attr)
-
-        # meter maximum right justified
-        if option.pool is not None:
-            canvas.addstr(
-                y, x + self.left_number_width + 1 + self.meter_width + 1,
-                f' {option.pool - (option.setting-option.value):>{self.right_number_width}}'
-            )
 
 def dtmf_sample(number_str: Union[str, dtmf.model.String], sample_rate:int, mark_duration:float=0.03, space_duration:float=0.03, level:float=-6.0, pause_duration:float=0.03) -> npt.NDArray[np.float64]:
     gp = dtmf._generator.GenerationParams(mark_duration=mark_duration, space_duration=space_duration, level=level, pause_duration=pause_duration)

@@ -486,12 +486,12 @@ class StationView(interface.GameView):
         ))
         key_list.extend(self.bind_aliases(
             [ord("L"), ord("D"), curses.KEY_SRIGHT],
-            lambda: current_menu.select_more(increment=10),
+            lambda: current_menu.select_more(factor=10.0),
             help_key="station_trade_biginc"
         ))
         key_list.extend(self.bind_aliases(
             [ord("H"), ord("A"), curses.KEY_SLEFT],
-            lambda: current_menu.select_less(increment=10),
+            lambda: current_menu.select_less(factor=10.0),
             help_key="station_trade_biginc"
         ))
         key_list.extend([
