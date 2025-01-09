@@ -221,6 +221,17 @@ class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
         asteroid = core.Gamestate.gamestate.get_entity(self.intel_entity_id, sector_entity.Asteroid)
         assert(asteroid.resource == self.resource)
 
+class StationIntel(SectorEntityIntel[sector_entity.Station]):
+    @classmethod
+    def create_station_intel(cls, station:sector_entity.Station, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "StationIntel":
+        inputs = gamestate.production_chain.inputs_of(station.resource)
+        return cls.create_sector_entity_intel(station, gamestate, *args, station.resource, inputs, **kwargs)
+
+    def __init__(self, resource:int, inputs:npt.NDArray[np.int64], *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.resource = resource
+        self.inputs = inputs
+
 class EconAgentIntel(EntityIntel[core.EconAgent]):
     @classmethod
     def create_econ_agent_intel(cls, econ_agent:core.EconAgent, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "EconAgentIntel":
@@ -229,8 +240,10 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
         entity_short_id = econ_agent.short_id()
         entity_class = type(econ_agent)
         agent_intel = EconAgentIntel(entity_id, entity_id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
-        agent_intel.sector_entity_id = gamestate.agent_to_entity[entity_id].entity_id
-
+        #TODO: econ agents are not always associated with sector entities!
+        underlying_entity = gamestate.agent_to_entity[entity_id]
+        agent_intel.underlying_entity_type = type(underlying_entity)
+        agent_intel.underlying_entity_id = underlying_entity.entity_id
         for resource in econ_agent.sell_resources():
             agent_intel.sell_offers[resource] = (
                 econ_agent.sell_price(resource),
@@ -247,7 +260,8 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.sector_entity_id:uuid.UUID = None # type: ignore
+        self.underlying_entity_id:uuid.UUID = None # type: ignore
+        self.underlying_entity_type:Type[core.Entity] = None # type: ignore
 
         # resource id -> price, amount
         self.sell_offers:dict[int, tuple[float, float]] = {}
@@ -306,6 +320,19 @@ class IdentifyAsteroidAction(events.Action):
         entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(asteroid.entity_id), AsteroidIntel)
         if not entity_intel or not entity_intel.is_fresh():
             character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, self.gamestate))
+
+class IdentifyStationAction(events.Action):
+    def act(self,
+            character:core.Character,
+            event_type:int,
+            event_context:Mapping[int,int],
+            event_args: MutableMapping[str, Union[int,float,str,bool]],
+            action_args: Mapping[str, Union[int,float,str,bool]]
+    ) -> None:
+        station = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.Station)
+        entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(station.entity_id), StationIntel)
+        if not entity_intel or not entity_intel.is_fresh():
+            character.intel_manager.add_intel(StationIntel.create_station_intel(station, self.gamestate))
 
 class IdentifySectorEntityAction(events.Action):
     def __init__(self, *args:Any, intel_ttl:float=300, **kwargs:Any) -> None:
@@ -428,6 +455,7 @@ class ScanAction(events.Action):
 
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_action(IdentifyAsteroidAction(), "identify_asteroid", "intel")
+    event_manager.register_action(IdentifyStationAction(), "identify_station", "intel")
     event_manager.register_action(IdentifySectorEntityAction(), "identify_sector_entity", "intel")
     event_manager.register_action(DockingAction(), "witness_docking", "intel")
     event_manager.register_action(ScanAction(), "witness_scan", "intel")

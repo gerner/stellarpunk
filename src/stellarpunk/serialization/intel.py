@@ -118,18 +118,21 @@ class SectorHexIntelSaver(IntelSaver[intel.SectorHexIntel]):
 class EconAgentIntelSaver(EntityIntelSaver[intel.EconAgentIntel]):
     def _save_entity_intel(self, intel:intel.EconAgentIntel, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(intel.sector_entity_id, f)
+        bytes_written += s_util.uuid_to_f(intel.underlying_entity_id, f)
+        bytes_written += s_util.type_to_f(intel.underlying_entity_type, f)
         bytes_written += s_util.fancy_dict_to_f(intel.sell_offers, f, s_util.int_to_f, s_util.float_pair_to_f)
         bytes_written += s_util.fancy_dict_to_f(intel.buy_offers, f, s_util.int_to_f, s_util.float_pair_to_f)
         return bytes_written
 
     def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_short_id:str, intel_entity_type:type, entity_id:uuid.UUID) -> intel.EconAgentIntel:
-        sector_entity_id = s_util.uuid_from_f(f)
+        underlying_entity_id = s_util.uuid_from_f(f)
+        underlying_entity_type = s_util.type_from_f(f, core.Entity)
         sell_offers = s_util.fancy_dict_from_f(f, s_util.int_from_f, lambda x: tuple(s_util.float_pair_from_f(x)))
         buy_offers = s_util.fancy_dict_from_f(f, s_util.int_from_f, lambda x: tuple(s_util.float_pair_from_f(x)))
 
         agent_intel = intel.EconAgentIntel(intel_entity_id, intel_entity_id_prefix, intel_entity_short_id, intel_entity_type, load_context.gamestate, entity_id=entity_id)
-        agent_intel.sector_entity_id = sector_entity_id
+        agent_intel.underlying_entity_id = underlying_entity_id
+        agent_intel.underlying_entity_type = underlying_entity_type
         agent_intel.sell_offers = sell_offers
         agent_intel.buy_offers = sell_offers
 

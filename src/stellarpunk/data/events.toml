@@ -157,6 +157,15 @@ criteria = ["$target.generate:etype_asteroid"]
 _action = "intel:identify_asteroid"
 
 #TODO: what about planets?
+[intel_id_station]
+type = "sensors:identified"
+priority = 1
+group = "intel"
+criteria = ["$target.generate:etype_station"]
+[[intel_id_asteroid.actions]]
+_action = "intel:identify_station"
+
+#TODO: what about planets?
 [intel_docked_station]
 type = "docked"
 priority = 1

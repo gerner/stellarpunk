@@ -76,15 +76,16 @@ accumulate power.
 ### Intel System
 
 - [x] data model for intel, knowing POIs, knowing prices
-- [ ] intel integrated into sensors for identification and physical params
 - [x] intel lifecycle: created and added to a character's knowledge, expires or
       somehow goes away
+- [ ] intel used by miners and traders
+- [ ] intel integrated into sensors for identification and physical params
 - [ ] buying/selling intel
 - [ ] intel is available in intel forums
-- [ ] agenda for gathering and distributing intel
-- [ ] intel used by miners and traders
+- [ ] behavior for gathering intel
+- [ ] behavior for distributing intel
 - [ ] intel manager interface for player to see intel
-- [ ] intel serialization for save/load
+- [x] intel serialization for save/load
 
 ## News System
 

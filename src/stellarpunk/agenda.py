@@ -10,7 +10,7 @@ from typing import Optional, List, Any, Iterable, Tuple, DefaultDict, Mapping, T
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, econ, util
+from stellarpunk import core, econ, util, intel, sensors
 import stellarpunk.orders.core as ocore
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.orders import movement
@@ -40,7 +40,7 @@ class Agendum(core.AbstractAgendum, abc.ABC):
         self._start()
 
     def pause(self) -> None:
-        self._pause()
+        super().pause()
         self.gamestate.unschedule_agendum(self)
 
     def stop(self) -> None:
@@ -278,7 +278,6 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
             assert not self.threat_response.is_complete()
 
     # core.OrderObserver
-
     def order_complete(self, order:core.Order) -> None:
         if order == self.threat_response:
             self.threat_response = None
@@ -372,6 +371,12 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.round_trips = 0
         self.max_trips = -1
 
+        # ephemeral state, doesn't need to exist outside an act call
+        # all of these represent intel opportunities
+        self.nearby_hexes:set[tuple[int, int]] = set()
+        self.far_hexes:set[tuple[int, int]] = set()
+        self.nearby_stations:set[uuid.UUID] = set()
+
     def initialize_mining_agendum(self, allowed_stations:Optional[list[core.SectorEntity]] = None) -> None:
         assert(isinstance(self.craft, core.Ship))
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
@@ -384,18 +389,16 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         if self.state == MiningAgendum.State.MINING:
             assert order == self.mining_order
             self.mining_order = None
-            # go back into idle state to start things off again
-            self.state = MiningAgendum.State.IDLE
-            self.gamestate.schedule_agendum_immediate(self)
         elif self.state == MiningAgendum.State.TRADING:
             assert order == self.transfer_order
             self.transfer_order = None
-            # go back into idle state to start things off again
-            self.state = MiningAgendum.State.IDLE
-            self.gamestate.schedule_agendum_immediate(self)
             self.round_trips += 1
         else:
             raise ValueError("got order_complete in wrong state {self.state}")
+
+        self.state = MiningAgendum.State.IDLE
+        if not self.paused:
+            self.gamestate.schedule_agendum_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
         if self.state == MiningAgendum.State.MINING:
@@ -408,7 +411,8 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
             raise ValueError("got order_cancel in wrong state {self.state}")
 
         self.state = MiningAgendum.State.IDLE
-        self.gamestate.schedule_agendum_immediate(self)
+        if not self.paused:
+            self.gamestate.schedule_agendum_immediate(self)
 
     def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
         if self.craft.sector is None:
@@ -518,17 +522,113 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.craft.prepend_order(self.mining_order)
 
     def _has_enough_intel(self) -> bool:
-        #TODO: decide if, given our current position, we've got enough intel to
-        # successfully mine/trade
+        """ decide if, given our current position, we've got enough intel to
+        successfully mine/trade. """
+
+        #TODO: we're still integrating all this intel logic
+        return True
+
+        assert(self.craft.sector)
         # consider if we've got enough intel about asteroids to mine
         # consider if we've got enough fresh buy offers to sell mined goods at
         # we may need to travel (in sector? out of sector?) to get the intel
-        return True
+
+        # if we don't know about any mine/sell pair at all, we don't have
+        # enough intel
+
+        # if we know about any "nearby" asteroids and any "nearby" buyer for
+        # those resources, we're happy
+        known_all_resources:set[int] = set()
+        known_all_buy_resources:set[int] = set()
+        known_local_resources:set[int] = set()
+        known_local_buy_resources:set[int] = set()
+        known_buyers:set[uuid.UUID] = set()
+        for a in self.character.intel_manager.intel(intel.AsteroidIntel):
+            if a.resource in self.allowed_resources and a.amount > 0:
+                known_all_resources.add(a.resource)
+                if a.sector_id == self.craft.sector.entity_id:
+                    #TODO: condition these on being very close by
+                    known_local_resources.add(a.resource)
+        for e in self.character.intel_manager.intel(intel.EconAgentIntel):
+            if len(e.buy_offers.keys() & set(self.allowed_resources)) > 0:
+                known_all_buy_resources.update(e.buy_offers.keys())
+                #TODO: what about planets?
+                if not issubclass(e.underlying_entity_type, sector_entity.Station):
+                    continue
+                known_buyers.add(e.underlying_entity_id)
+                sentity_intel = self.character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(e.underlying_entity_id), intel.StationIntel)
+                if not sentity_intel:
+                    continue
+                if sentity_intel.sector_id == self.craft.sector.entity_id:
+                    #TODO: condition these on being close-ish by
+                    known_local_buy_resources.update(e.buy_offers.keys())
+
+        no_mine_sell_pairs = (len(known_all_resources & known_all_buy_resources) == 0)
+
+        if len(known_local_resources & known_local_buy_resources) > 0:
+            #TODO: how to decide if these mining/trade opportunities are "good
+            # enough" for us to do it?
+            return True
+
+        # at this point we don't know about about any nearby mine/sell pairs
+        # and we know if we have far away options
+        # let's continue to explore nearby intel options
+
+        # if we don't have intel for "nearby" sector hexes, explore near, hope
+        # to find asteroids and stations to sell resources at
+        self.nearby_hexes = {util.int_coords(x) for x in util.hexes_within_pixel_dist(self.craft.loc, 5e5, self.craft.sector.hex_size)}
+        self.far_hexes = {util.int_coords(x) for x in util.hexes_within_pixel_dist(np.array((0.0, 0.0)), self.craft.sector.radius*2, self.craft.sector.hex_size)}
+        self.far_hexes -= self.nearby_hexes
+        for sector_hex_intel in self.character.intel_manager.intel(intel.SectorHexIntel):
+            if sector_hex_intel.sector_id != self.character or not sector_hex_intel.is_static:
+                continue
+            h = util.int_coords(sector_hex_intel.hex_loc)
+            if h in self.nearby_hexes:
+                self.nearby_hexes.remove(h)
+            if h in self.far_hexes:
+                self.far_hexes.remove(h)
+
+        # if we have intel for "nearby" stations that buy our goods, but don't
+        # have econ info, explore near, hope to find buy offers
+        self.nearby_stations = set()
+        for station_intel in self.character.intel_manager.intel(intel.StationIntel):
+            if station_intel.sector_id == self.craft.sector.entity_id:
+                allowed_resources = self.allowed_resources
+                if any(x in allowed_resources for x in station_intel.inputs):
+                    if station_intel.intel_entity_id not in known_buyers:
+                        self.nearby_stations.add(station_intel.intel_entity_id)
+
+        # these represent our intel opportunities to exploit
+        # in this case, they're all doable right now
+        if len(self.nearby_hexes) > 0:
+            return False
+        if len(self.nearby_stations) > 0:
+            return False
+        if len(self.far_hexes) > 0:
+            return False
+
+        # we have no nearby intel opportunities, if we have trade opps far
+        # away, do that and check in again later. otherwise we'll have to
+        # travel far away to get intel
+        return no_mine_sell_pairs
 
     def _do_intel(self) -> None:
         #TODO: seek intel about asteroids and stations buying resources
         # this should be reusable logic other stuff can use to accumulate
         # relevant intel
+
+        # if we have intel opportunities in this sector, go explore those
+        if len(self.nearby_hexes) > 0:
+            #TODO: pick one to go to do a sensor scan
+            pass
+        if len(self.nearby_stations) > 0:
+            #TODO: pick one to go to and dock
+            pass
+        if len(self.far_hexes) > 0:
+            #TODO: pick one to go to do a sensor scan
+            pass
+
+        #TODO: otherwise we'll need to travel out of sector
         pass
 
     def is_complete(self) -> bool:
@@ -544,6 +644,11 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         # at them
 
         assert self.state == MiningAgendum.State.IDLE
+
+        # do a scan of our current location. this will get us intel about the
+        # sector and entities within it that we can see
+        assert(self.craft.sector)
+        self.craft.sector.sensor_manager.scan(self.craft)
 
         if self.is_complete():
             self.state = MiningAgendum.State.COMPLETE
@@ -618,18 +723,17 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         if self.state == TradingAgendum.State.BUYING:
             assert order == self.buy_order
             self.buy_order = None
-            # go back into idle state to start things off again
-            self.state = TradingAgendum.State.IDLE
-            self.gamestate.schedule_agendum_immediate(self)
         elif self.state == TradingAgendum.State.SELLING:
             assert order == self.sell_order
             self.sell_order = None
-            # go back into idle state to start things off again
-            self.state = TradingAgendum.State.IDLE
-            self.gamestate.schedule_agendum_immediate(self)
             self.trade_trips += 1
         else:
             raise ValueError("got order_complete in wrong state {self.state}")
+
+        # go back into idle state to start things off again
+        self.state = TradingAgendum.State.IDLE
+        if not self.paused:
+            self.gamestate.schedule_agendum_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
         if self.state == TradingAgendum.State.BUYING:
@@ -642,7 +746,8 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
             raise ValueError("got order_cancel in wrong state {self.state}")
 
         self.state = TradingAgendum.State.IDLE
-        self.gamestate.schedule_agendum_immediate(self)
+        if not self.paused:
+            self.gamestate.schedule_agendum_immediate(self)
 
     def _start(self) -> None:
         super()._start()
@@ -890,3 +995,4 @@ class PlanetManager(EntityOperatorAgendum):
         assert self.gamestate.econ_agents[self.craft.entity_id] == self.agent
         #TODO: price and budget setting stuff goes here and should run periodically
         pass
+

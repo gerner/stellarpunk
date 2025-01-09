@@ -577,6 +577,13 @@ class SensorManager(core.AbstractSensorManager):
         threshold = config.Settings.sensors.COEFF_THRESHOLD / (sensor_power + config.Settings.sensors.COEFF_THRESHOLD/config.Settings.sensors.INTERCEPT_THRESHOLD)
         return self.compute_thrust_for_profile(ship, distance_sq, threshold)
 
+class SensorScanOrder(core.Order):
+    """ Has the ship do a sensor scan and nothing else. """
+    def act(self, dt: float) -> None:
+        assert(self.ship.sector)
+        self.ship.sector.sensor_manager.scan(self.ship)
+        self.complete_order()
+
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_events(Events, "sensors")
     event_manager.register_context_keys(ContextKeys, "sensors")

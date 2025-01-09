@@ -124,6 +124,7 @@ class AbstractAgendum(abc.ABC):
             self.agenda_id = uuid.uuid4()
         self.character:Character = None # type: ignore
         self.logger:AgendumLoggerAdapter = None # type: ignore
+        self.paused = False
 
     def initialize_agendum(self, character:"Character") -> None:
         self.character = character
@@ -151,10 +152,12 @@ class AbstractAgendum(abc.ABC):
         self._start()
 
     def unpause(self) -> None:
+        self.paused = False
         self._unpause()
 
-    @abc.abstractmethod
-    def pause(self) -> None: ...
+    def pause(self) -> None:
+        self.paused = True
+        self._pause()
 
     @abc.abstractmethod
     def stop(self) -> None: ...

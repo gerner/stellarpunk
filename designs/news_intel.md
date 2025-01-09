@@ -250,3 +250,60 @@ Stuff we might want to know that is a function of the intel we have:
       has corresponding intel for these entities. Regardless, it'll now know
       how many such objects it _could_ have such intel about.
 
+## Characters Collecting Intel
+
+Characters might decide they want to collect intel. For instance, an asteroid
+miner might decide they don't have enough intel to be effective. Or they might
+decide they've got some opportunity to collect some intel.
+
+Similar behaviors are likely to be common between different character intents.
+The example above might be shared with a Trader, although the specific kinds of
+desired intel might change.
+
+We could have some reusable logic that gets invoked from many places (e.g.
+MiningAgendum and TradingAgendum). But we could also have some centralized
+behavior (E.g. IntelAgendum) where different pieces of code can register their
+desire for specific kinds of intel (e.g. match criteria or intel type). This
+intel collecting behavior can evaluate if it has easy opportunities to collect
+that intel and pre-empt other behavior (e.g. prepending an order to dock at a
+station it's pasing). It could also engage in more directed intel collecting
+behavior if necessary and indicated by other behaviors.
+
+### Registering desired intel
+
+Lots of different behaviors might indicate interest in particular sorts of
+intel.
+
+* Intel interest might be very generic (any asteroid) or specific (asteroids
+  with a specific resources and/or in a specific sector)
+* Those interests might change over time (want intel on asteroids for the
+  sector we're currently in, and lose interest when we migrate away)
+* Some intel might be more important than others (want intel on asteroids in
+  this sector before getting intel on any asteroid)
+* IntelManager coordinates intel interests and whether we should be
+  opportunistic or active in intel gathering
+
+Questions:
+* Do characers that aren't captains of ships have intel collecting behavior?
+    * How do they even get intel?
+    * Do they get intel created during event processing by a ship captain for the ship they are on?
+* How do we communicate intel interest?
+    * What datastructure to represent an interest
+    * Where do we register that interest
+    * How do we incidate priority?
+    * How do we withdraw/change intersts?
+    * How do different, independent pieces of code interact here (e.g.
+      different interests with competing priorities or the same interest from
+      two different pieces of code that don't know about each other)
+    * How do we communicate that we want to be opportunistic (not getting in
+      the way of other behavior), vs we should be active (e.g. taking the lead
+      on behaviors)
+* How do we communicate back to different code that we've made progress on
+  intel? (e.g. so we can potentially resume prior behavior and go back to being
+  opportunistic on intel gathering)
+* In general how do we coordinate different behaviors?
+    * Should there always be only one "active" behavior with others allowed to
+      take some opportunistic actions?
+    * Is this active/opportunistic pattern only specific to intel gathering?
+
+
