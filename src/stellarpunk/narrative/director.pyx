@@ -280,6 +280,14 @@ class CharacterCandidate:
         self.character_context = character_context
         self.data = data
 
+    def __hash__(self) -> int:
+        return hash(self.data)
+
+    def __eq__(self, other:object) -> bool:
+        if not isinstance(other, CharacterCandidate):
+            return False
+        return self.data == other.data
+
 
 class Action:
     def __init__(self, action_id:int, character_candidate:CharacterCandidate, args:Any):

@@ -80,6 +80,7 @@ trigger_event([dude], events.e(MyEvents.coolio), narrative.context({events.ck(My
 
 class EventState:
     def __init__(self) -> None:
+        self.keyed_event_queue:dict[tuple[int, uuid.UUID], tuple[dict[int,int], dict[str, Union[int,float,str,bool]], set[narrative.CharacterCandidate]]] = {}
         self.event_queue:collections.deque[tuple[narrative.Event, Iterable["narrative.CharacterCandidate[core.Character]"]]] = collections.deque()
         self.action_schedule: task_schedule.TaskSchedule[tuple[narrative.Event, "narrative.Action[core.Character]"]] = task_schedule.TaskSchedule()
         self.last_event_trigger:dict[uuid.UUID, MutableMapping[int, float]] = collections.defaultdict(lambda: collections.defaultdict(lambda: -np.inf))
@@ -224,8 +225,9 @@ class EventManager(core.AbstractEventManager):
         self,
         characters: Collection[core.Character],
         event_type: int,
-        context: Mapping[int, int],
+        context: dict[int, int],
         event_args: dict[str, Union[int,float,str,bool]],
+        merge_key: Optional[uuid.UUID]=None,
     ) -> None:
         candidates = [narrative.CharacterCandidate(c.context, c) for c in characters if self.event_state.last_event_trigger[c.entity_id][event_type] + self.event_throttle_secs < self.gamestate.timestamp]
         self.gamestate.counters[core.Counters.EVENT_CANDIDATES_THROTTLED] += float(len(characters) - len(candidates))
@@ -233,22 +235,38 @@ class EventManager(core.AbstractEventManager):
             self.gamestate.counters[core.Counters.EVENTS_TOTAL_THROTTLED] += 1
             self.logger.debug(f'skipping event {self.event_type_lookup[event_type]} ({event_type}) with no non-throttled candidates')
             return
-        self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
-        self.event_state.event_queue.append((
-            narrative.Event(
-                event_type,
-                context,
-                self.gamestate.entity_context_store,
-                event_args,
-            ),
-            candidates
-        ))
+
+        if merge_key:
+            event_key = (event_type, merge_key)
+            if event_key in self.event_state.keyed_event_queue:
+                self.logger.debug(f'merging keyed event {self.event_type_lookup[event_type]} ({event_type}) {merge_key=}')
+                existing_context, existing_args, existing_candidates = self.event_state.keyed_event_queue[event_key]
+                existing_context.update(context)
+                existing_args.update(event_args)
+                existing_candidates.update(candidates)
+            else:
+                self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type}) {merge_key=}')
+                self.event_state.keyed_event_queue[event_key] = (
+                    context, event_args, set(candidates)
+                )
+
+        else:
+            self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
+            self.event_state.event_queue.append((
+                narrative.Event(
+                    event_type,
+                    context,
+                    self.gamestate.entity_context_store,
+                    event_args,
+                ),
+                candidates
+            ))
 
     def trigger_event_immediate(
         self,
         characters: Iterable[core.Character],
         event_type: int,
-        context: Mapping[int, int],
+        context: dict[int, int],
         event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         actions_processed = self._do_event(
@@ -267,6 +285,23 @@ class EventManager(core.AbstractEventManager):
         # check for relevant events and process them
         events_processed = 0
         actions_processed = 0
+
+        # process merged, keyed events
+        candidates:Iterable[narrative.CharacterCandidate]
+        for (event_type, _), (context, event_args, candidates) in self.event_state.keyed_event_queue.items():
+            actions_processed += self._do_event(
+                narrative.Event(
+                    event_type,
+                    context,
+                    self.gamestate.entity_context_store,
+                    event_args,
+                ),
+                candidates
+            )
+            events_processed += 1
+        self.event_state.keyed_event_queue.clear()
+
+        # process unkeyed events
         while len(self.event_state.event_queue) > 0:
             event, candidates = self.event_state.event_queue.popleft()
             actions_processed += self._do_event(event, candidates)

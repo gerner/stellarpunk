@@ -66,24 +66,18 @@ class EventStateSaver(save_game.Saver[events.EventState]):
         assert(action_ids.items() <= self.save_game.event_manager.action_ids.items())
 
     def _save_event(self, event:narrative.Event, f:io.IOBase) -> int:
-        def uint64_to_f(x:int, f:io.IOBase) -> int:
-            return s_util.int_to_f(x, f, blen=8)
-
         bytes_written = 0
         bytes_written += s_util.int_to_f(event.event_type, f)
-        bytes_written += s_util.fancy_dict_to_f(dict(event.event_context), f, uint64_to_f, uint64_to_f)
+        bytes_written += s_util.fancy_dict_to_f(event.event_context, f, s_util.uint64_to_f, s_util.uint64_to_f)
         # no need to serialize entity context here, each entity serializes
         # its own context
         bytes_written += s_util.fancy_dict_to_f(event.args, f, s_util.to_len_pre_f, s_util.primitive_to_f)
         return bytes_written
 
     def _load_event(self, f:io.IOBase) -> tuple[int, dict[int, int], dict[str, Union[int,float,str,bool]]]:
-        def uint64_from_f(f:io.IOBase) -> int:
-            return s_util.int_from_f(f, blen=8)
-
         # event
         event_type = s_util.int_from_f(f)
-        event_context = s_util.fancy_dict_from_f(f, uint64_from_f, uint64_from_f)
+        event_context = s_util.fancy_dict_from_f(f, s_util.uint64_from_f, s_util.uint64_from_f)
         # no need to serialize entity context here, each entity
         # deserializes its own context
         event_args = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.primitive_from_f)
@@ -111,6 +105,18 @@ class EventStateSaver(save_game.Saver[events.EventState]):
         bytes_written += s_util.debug_string_w("event space", f)
         bytes_written += self._save_sanity_check(f)
 
+        #TODO: can we ever actually save while there's anything in this?
+        # keyed event queue
+        bytes_written += s_util.debug_string_w("keyed event queue", f)
+        bytes_written ++ s_util.size_to_f(len(event_state.keyed_event_queue), f)
+        for (event_id, merge_key), (event_context, event_args, candidate_set) in event_state.keyed_event_queue.items():
+            bytes_written += s_util.int_to_f(event_id, f)
+            bytes_written += s_util.uuid_to_f(merge_key, f)
+            bytes_written += s_util.fancy_dict_to_f(event_context, f, s_util.uint64_to_f, s_util.uint64_to_f)
+            bytes_written += s_util.fancy_dict_to_f(event_args, f, s_util.to_len_pre_f, s_util.primitive_to_f)
+            bytes_written += s_util.uuids_to_f(list(x.data.entity_id for x in candidate_set), f)
+
+        #TODO: can we ever actually save while there's anything in this?
         # event queue
         bytes_written += s_util.debug_string_w("event queue", f)
         bytes_written += s_util.size_to_f(len(event_state.event_queue), f)
@@ -141,13 +147,25 @@ class EventStateSaver(save_game.Saver[events.EventState]):
         s_util.debug_string_r("event space", f)
         self._load_sanity_check(f)
 
+        # keyed event queue
+        s_util.debug_string_r("keyed event queue", f)
+        loaded_keyed_events:dict[tuple[int, uuid.UUID], tuple[dict[int, int], dict[str, Union[int,float,str,bool]], list[uuid.UUID]]] = {}
+        count = s_util.size_from_f(f)
+        for i in range(count):
+            event_id = s_util.int_from_f(f)
+            merge_key = s_util.uuid_from_f(f)
+            event_context = s_util.fancy_dict_from_f(f, s_util.uint64_from_f, s_util.uint64_from_f)
+            event_args = s_util.fancy_dict_from_f(f, s_util.from_len_pre_f, s_util.primitive_from_f)
+            candidates = s_util.uuids_from_f(f)
+            loaded_keyed_events[(event_id, merge_key)] = (event_context, event_args, candidates)
+
         # event queue (partial, we'll fully materialize in post_load)
         s_util.debug_string_r("event queue", f)
         loaded_events:list[tuple[tuple[int, dict[int, int], dict[str, Union[int,float,str,bool]]], list[uuid.UUID]]] = []
         count = s_util.size_from_f(f)
         for i in range(count):
             loaded_event = self._load_event(f)
-            candidates:list[uuid.UUID] = s_util.uuids_from_f(f)
+            candidates = s_util.uuids_from_f(f)
 
             loaded_events.append((loaded_event, candidates))
 
@@ -169,19 +187,33 @@ class EventStateSaver(save_game.Saver[events.EventState]):
             for event_type, last_trigger in triggers.items():
                 event_state.last_event_trigger[character_id][event_type] = last_trigger
 
-        load_context.register_post_load(event_state, (loaded_events, loaded_actions))
+        load_context.register_post_load(event_state, (loaded_keyed_events, loaded_events, loaded_actions))
 
         return event_state
 
     def post_load(self, event_state:events.EventState, load_context:save_game.LoadContext, context:Any) -> None:
         context_data:tuple[
+            dict[tuple[int, uuid.UUID], tuple[dict[int, int], dict[str, Union[int,float,str,bool]], list[uuid.UUID]]],
             list[tuple[tuple[int, dict[int, int], dict[str, Union[int,float,str,bool]]], list[uuid.UUID]]],
             list[tuple[float, tuple[int, dict[int, int], dict[str, Union[int,float,str,bool]]], tuple[int, uuid.UUID, dict[str, Union[int,float,str,bool]]]]]
         ] = context
-        events, actions = context_data
+        keyed_events, events, actions = context_data
+
+        for (event_type, merge_key), (event_context, event_args, candidates) in keyed_events.items():
+            characters:list[core.Character] = []
+            for entity_id in candidates:
+                entity = load_context.gamestate.entities[entity_id]
+                assert(isinstance(entity, core.Character))
+                characters.append(entity)
+            event_state.keyed_event_queue[(event_type, merge_key)] = (
+                event_context,
+                event_args,
+                set(narrative.CharacterCandidate(c.context, c) for c in characters)
+            )
+
 
         for (event_type, event_context, event_args), candidates in events:
-            characters:list[core.Character] = []
+            characters = []
             for entity_id in candidates:
                 entity = load_context.gamestate.entities[entity_id]
                 assert(isinstance(entity, core.Character))

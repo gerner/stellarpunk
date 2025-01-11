@@ -265,8 +265,9 @@ class AbstractEventManager:
         self,
         characters: Collection[Character],
         event_type: int,
-        context: Mapping[int,int],
+        context: dict[int,int],
         event_args: dict[str, Union[int,float,str,bool]],
+        merge_key: Optional[uuid.UUID]=None,
     ) -> None:
         raise NotImplementedError()
 
@@ -274,7 +275,7 @@ class AbstractEventManager:
         self,
         characters: Iterable[Character],
         event_type: int,
-        context: Mapping[int,int],
+        context: dict[int,int],
         event_args: dict[str, Union[int,float,str,bool]],
     ) -> None:
         raise NotImplementedError()
