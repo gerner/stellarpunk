@@ -23,22 +23,24 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         self.character:Character = None # type: ignore
         self.gamestate = gamestate
         self._intel:set[uuid.UUID] = set()
-        self._intel_by_type:MutableMapping[Type[core.Intel], set[uuid.UUID]] = collections.defaultdict(set)
         self._intel_map:dict[core.IntelMatchCriteria, uuid.UUID] = {}
+
+        self._intel_interests:set[core.IntelMatchCriteria] = set()
 
     def sanity_check(self) -> None:
         intel_count = 0
         entity_intel_count = 0
-        for intel_type, intels in self._intel_by_type.items():
-            for intel_id in intels:
-                intel_count += 1
-                assert intel_id in self._intel
-                intel = self.gamestate.get_entity(intel_id, intel_type)
-                assert intel.entity_id == intel_id
-                match_criteria = intel.match_criteria()
-                assert intel.entity_id == self._intel_map[match_criteria]
+        for intel_id in self._intel:
+            intel_count += 1
+            assert intel_id in self._intel
+            intel = self.gamestate.get_entity(intel_id, core.Intel)
+            assert intel.entity_id == intel_id
+            match_criteria = intel.match_criteria()
+            assert intel.entity_id == self._intel_map[match_criteria]
 
         assert intel_count == len(self._intel)
+
+    # core.IntelObserver
 
     @property
     def observer_id(self) -> uuid.UUID:
@@ -47,16 +49,15 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     def intel_expired(self, intel:core.Intel) -> None:
         self._remove_intel(intel)
 
+
     def _remove_intel(self, old_intel:core.Intel) -> None:
         self._intel.remove(old_intel.entity_id)
-        self._intel_by_type[type(old_intel)].remove(old_intel.entity_id)
         del self._intel_map[old_intel.match_criteria()]
         old_intel.unobserve(self)
 
     def _add_intel(self, intel:core.Intel) -> None:
         intel.observe(self)
         self._intel.add(intel.entity_id)
-        self._intel_by_type[type(intel)].add(intel.entity_id)
         self._intel_map[intel.match_criteria()] = intel.entity_id
 
     def add_intel(self, intel:core.Intel) -> None:
@@ -72,23 +73,42 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
         self._add_intel(intel)
 
-    def intel[T:core.Intel](self, cls:Optional[Type[T]]=None) -> Collection[T]:
-        if cls:
-            return list(self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel_by_type[cls])
-        else:
-            return list(self.gamestate.get_entity(intel_id, core.Intel) for intel_id in self._intel) # type: ignore
+    def intel[T:core.Intel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> Collection[T]:
+        if cls is None:
+            cls = core.Intel # type: ignore
+        assert(cls is not None)
+        if match_criteria in self._intel_map:
+            intel = self._intel_map[match_criteria]
+            assert(isinstance(intel, cls))
+            return [intel]
+
+        return list(x for x in (self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel) if match_criteria.matches(x))
 
     def get_intel[T:core.Intel](self, match_criteria:core.IntelMatchCriteria, cls:Type[T]) -> Optional[T]:
-        # check if we have such intel
-        if match_criteria not in self._intel_map:
-            return None
         # we assume the intel is of the right type
-        #TODO: could you ever have multiple types of intel about the same entity?
-        #   e.g. the location of a Character vs a Character's affiliations
-        intel_id = self._intel_map[match_criteria]
-        intel = self.gamestate.get_entity(intel_id, cls)
-        return intel
+        # check if we have such intel via exact match
+        if match_criteria in self._intel_map:
+            intel_id = self._intel_map[match_criteria]
+            intel = self.gamestate.get_entity(intel_id, cls)
+            return intel
 
+        for intel_id in self._intel:
+            generic_intel = self.gamestate.get_entity(intel_id, core.Intel)
+            if match_criteria.matches(generic_intel):
+                assert(isinstance(generic_intel, cls))
+                return generic_intel
+        return None
+
+    def register_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
+        #TODO: what if we already have corresponding intel?
+        self._intel_interests.add(interest)
+
+    def withdraw_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
+        #TODO: what if two people have the same interest and one withdraws?
+        self._intel_interests.remove(interest)
+
+#TODO: what happens if the associated character dies? or the intel goes away?
+# those cases will cause problems!
 class ExpireIntelTask(core.ScheduledTask):
     @classmethod
     def expire_intel(cls, intel:core.Intel) -> "ExpireIntelTask":
@@ -304,6 +324,129 @@ class SectorHexIntel(core.Intel):
         if not isinstance(other, SectorHexIntel):
             return False
         return self.is_static == other.is_static and self.sector_id == other.sector_id and util.both_isclose(self.hex_loc, other.hex_loc)
+
+
+# Intel Interest Criteria
+
+class IntelPartialCriteria(core.IntelMatchCriteria):
+    """ A type of match criteria that matches many intel """
+    pass
+
+class SectorEntityPartialCriteria(IntelPartialCriteria):
+    def __init__(self, cls:Optional[type]=None, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
+        self.cls = cls
+        self.is_static = is_static
+        self.sector_id = sector_id
+
+    def matches(self, intel:core.Intel) -> bool:
+        if self.cls:
+            if not isinstance(intel, self.cls):
+                return False
+        if not isinstance(intel, SectorEntityIntel):
+            return False
+        if self.is_static is not None and intel.is_static != self.is_static:
+            return False
+        if self.sector_id is not None and intel.sector_id != self.sector_id:
+            return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash((self.cls, self.is_static, self.sector_id))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, SectorEntityPartialCriteria):
+            return False
+        if self.cls != other.cls:
+            return False
+        if self.is_static != other.is_static:
+            return False
+        if self.sector_id != other.sector_id:
+            return False
+        return True
+
+class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
+    def __init__(self, *args:Any, resource:Optional[int]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.resource = resource
+
+    def matches(self, intel:core.Intel) -> bool:
+        if not isinstance(intel, AsteroidIntel):
+            return False
+        if not super().matches(intel):
+            return False
+        if self.resource is not None and intel.resource != self.resource:
+            return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash((super().__hash__(), self.resource))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, AsteroidIntelPartialCriteria):
+            return False
+        if not super().__eq__(other):
+            return False
+        if self.resource != other.resource:
+            return False
+        return True
+
+class SectorHexPartialCriteria(IntelPartialCriteria):
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, is_static:Optional[bool]=None):
+        self.sector_id = sector_id
+        self.is_static = is_static
+
+    def matches(self, intel:core.Intel) -> bool:
+        if not isinstance(intel, SectorHexIntel):
+            return False
+        if self.sector_id and intel.sector_id != self.sector_id:
+            return False
+        if self.is_static is not None and intel.is_static != self.is_static:
+            return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash((self.sector_id, self.is_static))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, SectorHexPartialCriteria):
+            return False
+        if self.sector_id != other.sector_id:
+            return False
+        if self.is_static != other.is_static:
+            return False
+        return True
+
+class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
+    """ Partial criteria matching econ agents for static sector entities """
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[type]=core.SectorEntity) -> None:
+        self.sector_id = sector_id
+        self.underlying_entity_type = underlying_entity_type
+
+    def matches(self, intel:core.Intel) -> bool:
+        if not isinstance(intel, EconAgentIntel):
+            return False
+        if not self.underlying_entity_type == intel.underlying_entity_type:
+            return False
+        assert(issubclass(self.underlying_entity_type, core.SectorEntity))
+        entity = core.Gamestate.gamestate.get_entity(intel.underlying_entity_id, self.underlying_entity_type)
+        if not entity.is_static:
+            return False
+        assert(entity.sector)
+        if self.sector_id and entity.sector.entity_id != self.sector_id:
+            return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash((self.sector_id, self.underlying_entity_type))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, EconAgentSectorEntityPartialCriteria):
+            return False
+        if self.sector_id != other.sector_id:
+            return False
+        if self.underlying_entity_type != other.underlying_entity_type:
+            return False
+        return True
 
 
 # Intel Witness Actions

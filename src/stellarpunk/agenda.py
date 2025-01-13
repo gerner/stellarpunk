@@ -996,3 +996,30 @@ class PlanetManager(EntityOperatorAgendum):
         #TODO: price and budget setting stuff goes here and should run periodically
         pass
 
+class IntelCollectionAgendum(Agendum):
+    """ Behavior for any character to obtain desired intel. """
+    class State(enum.IntEnum):
+        ACTIVE = enum.auto()
+        PASSIVE = enum.auto()
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        self._state = IntelCollectionAgendum.State.PASSIVE
+
+    def act(self) -> None:
+        if self._state == IntelCollectionAgendum.State.PASSIVE:
+            #TODO: opportunistically try to collect desired intel
+            #TODO: if we're a captain, we can briefly preempt current primary
+            # agendum to travel nearby, e.g. dock at nearby station or explore
+            # a sector hex, just don't do this too often
+            #TODO: if we're not a captain we can take TBD passive actions
+            pass
+        elif self._state == IntelCollectionAgendum.State.ACTIVE:
+            #TODO: make big plans for intel collection, travelling, etc.
+            #TODO: if we're a captain we can plan a big trip across the current
+            # sector, or to a far away sector
+            #TODO: if we're not a captain we can arrange travel to an
+            # interesting location or station to get intel.
+
+            pass
+        else:
+            raise ValueError(f'intel agendum in unexpected state: {self._state}')

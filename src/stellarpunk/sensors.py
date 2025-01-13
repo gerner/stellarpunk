@@ -253,6 +253,7 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
 
                 if not self._identified and self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
                     if isinstance(self._ship, core.CrewedSectorEntity) and self._ship.captain:
+                        #TODO: what about passengers? should they get this event too?
                         gamestate = core.Gamestate.gamestate
                         gamestate.trigger_event(
                                 [self._ship.captain],
@@ -267,6 +268,7 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
 
                 # let the target know they've been targeted by us
                 if notify_target and self._sensor_manager.detected(self._ship, self._target):
+                    #TODO: what about passengers? should they get this event too?
                     candidates:list[core.Character] = list(x for x in (core.captain(self._ship), core.captain(self._target)) if x is not None)
                     if candidates:
                         gamestate = core.Gamestate.gamestate
@@ -484,6 +486,7 @@ class SensorManager(core.AbstractSensorManager):
 
         # trigger an event that we've done the scan
         if isinstance(detector, core.CrewedSectorEntity) and detector.captain:
+            #TODO: what about passengers? should they get this event too?
             gamestate = core.Gamestate.gamestate
             gamestate.trigger_event(
                     [detector.captain],

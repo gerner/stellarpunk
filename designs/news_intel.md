@@ -269,6 +269,29 @@ that intel and pre-empt other behavior (e.g. prepending an order to dock at a
 station it's pasing). It could also engage in more directed intel collecting
 behavior if necessary and indicated by other behaviors.
 
+### Passive vs Active Collection
+
+Passive intel collection means we can take minor actions that won't get in the way of other behaviors to get desired intel.
+
+* Making a sensor scan at the current location (if we're a captain)
+* Buying news/intel from the intel market on a station we're already at
+* Docking at a "nearby" station to get various kinds of station intel (if we're a captain)
+* Traveling to a "nearby" unexplored sector hex to get sector entity intel (if we're a captain)
+
+While other behaviors are directing action, we might temporarily pre-empt that
+behavior to opportunistically gather intel that won't risk our other behaviors.
+
+Active intel collection means we can plan major sequences of actions in order to collect desired intel.
+
+* Travelling across a sector to get hex or station intel
+* Travelling to a different sector
+* Arranging travel (if we're not a captain)
+
+Other behaviors can trigger active collection. For instance, if we're a miner
+or a trader and we don't know of any buyers for our goods, we need to learn
+about some. So that behavior needs to indicate appropriate intel interest and
+then trigger active intel collection.
+
 ### Registering desired intel
 
 Lots of different behaviors might indicate interest in particular sorts of
@@ -282,6 +305,14 @@ intel.
   this sector before getting intel on any asteroid)
 * IntelManager coordinates intel interests and whether we should be
   opportunistic or active in intel gathering
+
+Examples:
+* asteroids in a particular sector (or set of sectors)
+* sector hexes in a particular sector (or set of)
+* econ intel for a specific station (or set of)
+* econ intel for stations with a particular resource in a sector (or set of)
+* general sector entity intel for a particular sector (or set of), perhaps of a
+  particular type
 
 Questions:
 * Do characers that aren't captains of ships have intel collecting behavior?

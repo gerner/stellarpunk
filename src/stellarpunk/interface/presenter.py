@@ -558,8 +558,8 @@ class SensorImageManager:
 
         # then check captain's intel
         if isinstance(self.ship, core.CrewedSectorEntity) and self.ship.captain:
-            for se_intel in self.ship.captain.intel_manager.intel(intel.SectorEntityIntel):
-                if se_intel.is_static and se_intel.intel_entity_id not in self._cached_entities:
+            for se_intel in self.ship.captain.intel_manager.intel(intel.SectorEntityPartialCriteria(sector_id=self.ship.sector.entity_id, is_static=True), intel.SectorEntityIntel):
+                if se_intel.intel_entity_id not in self._cached_entities:
                     self._cached_entities[se_intel.entity_id] = self.ship.sector.sensor_manager.target_from_identity(se_intel.create_sensor_identity(), self.ship, se_intel.loc)
 
         remove_ids:set[uuid.UUID] = set()

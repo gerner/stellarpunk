@@ -85,7 +85,7 @@ class AbstractIntelManager:
     @abc.abstractmethod
     def add_intel(self, intel:"Intel") -> None: ...
     @abc.abstractmethod
-    def intel[T:Intel](self, cls:Type[T]) -> Collection[T]: ...
+    def intel[T:Intel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Collection[T]: ...
     @abc.abstractmethod
     def get_intel[T:Intel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Optional[T]: ...
     @abc.abstractmethod
@@ -125,6 +125,7 @@ class AbstractAgendum(abc.ABC):
         self.character:Character = None # type: ignore
         self.logger:AgendumLoggerAdapter = None # type: ignore
         self.paused = False
+        self._is_primary = False
 
     def initialize_agendum(self, character:"Character") -> None:
         self.character = character
@@ -132,6 +133,22 @@ class AbstractAgendum(abc.ABC):
                 self.character,
                 logging.getLogger(util.fullname(self)),
         )
+
+    def is_primary(self) -> bool:
+        return self._is_primary
+
+    def make_primary(self) -> None:
+        self._is_primary = True
+
+    def preempt_primary(self) -> None:
+        assert(self._is_primary)
+        self._is_primary = False
+
+    def find_primary(self) -> Optional["AbstractAgendum"]:
+        for agendum in self.character.agenda:
+            if agendum.is_primary():
+                return agendum
+        return None
 
     def sanity_check(self) -> None:
         assert(self in self.character.agenda)
