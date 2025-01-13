@@ -81,7 +81,19 @@ class Intel(base.Observable[IntelObserver], base.Entity):
         # so destroying here is redundant
         # self.entity_registry.destroy_entity(self)
 
-class AbstractIntelManager:
+class IntelManagerObserver(base.Observer):
+    def intel_added(self, intel_manager:"AbstractIntelManager", intel:"Intel") -> None:
+        """ A piece of intel has been added. """
+        pass
+    def intel_removed(self, intel_manager:"AbstractIntelManager", intel:"Intel") -> None:
+        """ A piece of intel has been removed. the intel may be "dead" """
+        pass
+    def intel_desired(self, intel_manager:"AbstractIntelManager", intel_criteria:"IntelMatchCriteria") -> None:
+        """ Someone desires a particular kind of intel. """
+        pass
+
+
+class AbstractIntelManager(base.Observable[IntelManagerObserver]):
     @abc.abstractmethod
     def add_intel(self, intel:"Intel") -> None: ...
     @abc.abstractmethod
@@ -228,6 +240,7 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         self.intel_manager:AbstractIntelManager = None # type: ignore
 
     def sanity_check(self) -> None:
+        super().sanity_check()
         self.intel_manager.sanity_check()
 
     # base.Observable

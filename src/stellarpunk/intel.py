@@ -25,9 +25,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         self._intel:set[uuid.UUID] = set()
         self._intel_map:dict[core.IntelMatchCriteria, uuid.UUID] = {}
 
-        self._intel_interests:set[core.IntelMatchCriteria] = set()
-
     def sanity_check(self) -> None:
+        assert self.character.intel_manager == self
+
         intel_count = 0
         entity_intel_count = 0
         for intel_id in self._intel:
@@ -40,6 +40,16 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
         assert intel_count == len(self._intel)
 
+    # core.Observable
+
+    @property
+    def observable_id(self) -> uuid.UUID:
+        # we strongly assume there's a 1:1 relationship between intel managers
+        # and characters. this intel manager can be retrieved from gamestate by
+        # finding the corresponding character and getting its intel manager,
+        # which is this object
+        return self.character.entity_id
+
     # core.IntelObserver
 
     @property
@@ -49,6 +59,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     def intel_expired(self, intel:core.Intel) -> None:
         self._remove_intel(intel)
 
+        #TODO: are there other ways intel might be removed?
+        for observer in self.observers:
+            observer.intel_removed(self, intel)
 
     def _remove_intel(self, old_intel:core.Intel) -> None:
         self._intel.remove(old_intel.entity_id)
@@ -72,6 +85,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             self._remove_intel(old_intel)
 
         self._add_intel(intel)
+
+        for observer in self.observers:
+            observer.intel_added(self, intel)
 
     def intel[T:core.Intel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> Collection[T]:
         if cls is None:
@@ -100,12 +116,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         return None
 
     def register_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
-        #TODO: what if we already have corresponding intel?
-        self._intel_interests.add(interest)
+        for observer in self.observers:
+            observer.intel_desired(self, interest)
 
-    def withdraw_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
-        #TODO: what if two people have the same interest and one withdraws?
-        self._intel_interests.remove(interest)
 
 #TODO: what happens if the associated character dies? or the intel goes away?
 # those cases will cause problems!

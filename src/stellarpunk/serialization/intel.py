@@ -2,7 +2,7 @@ import io
 import uuid
 import abc
 import pydoc
-from typing import Any
+from typing import Any, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -12,14 +12,21 @@ from . import save_game, util as s_util, gamestate as s_gamestate
 from stellarpunk import core, intel, util
 
 class IntelManagerSaver(save_game.Saver[intel.IntelManager]):
+    def fetch(self, klass:Type[intel.IntelManager], object_id:uuid.UUID, load_context:save_game.LoadContext) -> intel.IntelManager:
+        intel_manager = load_context.gamestate.get_entity(object_id, core.Character).intel_manager
+        assert(isinstance(intel_manager, intel.IntelManager))
+        return intel_manager
+
     def save(self, intel_manager:intel.IntelManager, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.uuids_to_f(intel_manager._intel, f)
+        # our character field is handled in CharacterSaver
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.IntelManager:
         intel_ids = s_util.uuids_from_f(f)
         intel_manager = intel.IntelManager(load_context.gamestate)
+        # our character field is handled in CharacterSaver
         load_context.register_post_load(intel_manager, intel_ids)
         return intel_manager
 

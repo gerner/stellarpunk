@@ -63,7 +63,11 @@ class Observable[T:Observer](abc.ABC):
     @property
     @abc.abstractmethod
     def observable_id(self) -> uuid.UUID:
-        """ uniquely identifies this observable. e.g. entity_id """
+        """ uniquely identifies this observable in the context of its type.
+
+        e.g. entity_id, this doesn't have to be this object's id, but given the
+        type and this id, it must be possible to find the corresponding object.
+        This is used, e.g. in save/load. """
         ...
 
     @property
@@ -143,7 +147,9 @@ class Entity(abc.ABC):
         return f'{self.short_id()}'
 
     def sanity_check(self) -> None:
-        pass
+        assert(self.entity_registry.get_entity(self.entity_id, type(self)) == self)
+        assert(self.created_at >= 0.)
+        assert(self.created_at <= self.entity_registry.now())
 
 
 class Sprite:

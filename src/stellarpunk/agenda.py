@@ -996,7 +996,7 @@ class PlanetManager(EntityOperatorAgendum):
         #TODO: price and budget setting stuff goes here and should run periodically
         pass
 
-class IntelCollectionAgendum(Agendum):
+class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
     """ Behavior for any character to obtain desired intel. """
     class State(enum.IntEnum):
         ACTIVE = enum.auto()
@@ -1005,7 +1005,36 @@ class IntelCollectionAgendum(Agendum):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         self._state = IntelCollectionAgendum.State.PASSIVE
 
+    # core.IntelManagerObserver
+
+    def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
+        #TODO: we should make note that we want to find such intel
+        pass
+
+
+    # Agendum
+
+    def _start(self) -> None:
+        self.character.intel_manager.observe(self)
+
+    def _stop(self) -> None:
+        self.character.intel_manager.unobserve(self)
+
     def act(self) -> None:
+
+        # first figure out what state we should be in
+        if self._is_primary:
+            assert(self._state == IntelCollectionAgendum.State.ACTIVE)
+        else:
+            primary_agendum = self.find_primary()
+            if primary_agendum is None:
+                self.make_primary()
+                self._state = IntelCollectionAgendum.State.ACTIVE
+            else:
+                # if we're primary our _is_primary flag should be true
+                assert(primary_agendum != self)
+                self._state = IntelCollectionAgendum.State.PASSIVE
+
         if self._state == IntelCollectionAgendum.State.PASSIVE:
             #TODO: opportunistically try to collect desired intel
             #TODO: if we're a captain, we can briefly preempt current primary
