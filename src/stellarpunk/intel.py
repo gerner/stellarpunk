@@ -404,8 +404,19 @@ class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
         return True
 
 class SectorHexPartialCriteria(IntelPartialCriteria):
-    def __init__(self, sector_id:Optional[uuid.UUID]=None, is_static:Optional[bool]=None):
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, is_static:Optional[bool]=None, hex_loc:Optional[npt.NDArray[np.float64]]=None, hex_dist:Optional[float]=None):
+        if hex_loc is not None:
+            if sector_id is None:
+                raise ValueError(f'cannot specify a location without a sector')
+            if hex_dist is None:
+                hex_dist = 0.0
+        else:
+            if hex_dist is not None:
+                raise ValueError(f'cannot specify a dist without a location')
+
         self.sector_id = sector_id
+        self.hex_loc = hex_loc
+        self.hex_dist = hex_dist
         self.is_static = is_static
 
     def matches(self, intel:core.Intel) -> bool:
@@ -415,10 +426,15 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
             return False
         if self.is_static is not None and intel.is_static != self.is_static:
             return False
+        if self.hex_loc is util.axial_distance(self.hex_loc, intel.hex_loc) > self.hex_dist:
+            return False
         return True
 
     def __hash__(self) -> int:
-        return hash((self.sector_id, self.is_static))
+        if self.hex_loc is not None:
+            return hash((self.sector_id, self.is_static, (int(self.hex_loc[0]), int(self.hex_loc[1]))))
+        else:
+            return hash((self.sector_id, self.is_static))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, SectorHexPartialCriteria):
@@ -427,30 +443,49 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
             return False
         if self.is_static != other.is_static:
             return False
+        if not util.both_isclose(self.hex_loc, other.hex_loc):
+            return False
+        if not util.isclose(self.hex_dist, other.hex_dist):
+            return False
         return True
 
 class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     """ Partial criteria matching econ agents for static sector entities """
-    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[type]=core.SectorEntity) -> None:
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity, buy_resources:Optional[list[int]]=None, sell_resources:Optional[list[int]]=None) -> None:
         self.sector_id = sector_id
+        assert(isinstance(underlying_entity_type, type))
+        if not issubclass(underlying_entity_type, core.SectorEntity):
+            raise ValueError(f'{underlying_entity_type=} must be a subclass of core.SectorEntity')
         self.underlying_entity_type = underlying_entity_type
+        self.buy_resources:Optional[list[int]] = buy_resources
+        self.sell_resources:Optional[list[int]] = sell_resources
 
     def matches(self, intel:core.Intel) -> bool:
+        # check stuff about the intel itself
         if not isinstance(intel, EconAgentIntel):
             return False
-        if not self.underlying_entity_type == intel.underlying_entity_type:
+        if self.underlying_entity_type is not None and self.underlying_entity_type != intel.underlying_entity_type:
             return False
+        if self.buy_resources is not None and self.buy_resources != list(intel.buy_offers.keys()):
+            return False
+        if self.sell_resources is not None and self.sell_resources != list(intel.sell_offers.keys()):
+            return False
+
+        # check stuff about the underlying entity
         assert(issubclass(self.underlying_entity_type, core.SectorEntity))
         entity = core.Gamestate.gamestate.get_entity(intel.underlying_entity_id, self.underlying_entity_type)
+        # this partial criteria is only used for static sector entities (i.e.
+        # stations and planets)
         if not entity.is_static:
             return False
+        # static entities should always be in a sector
         assert(entity.sector)
         if self.sector_id and entity.sector.entity_id != self.sector_id:
             return False
         return True
 
     def __hash__(self) -> int:
-        return hash((self.sector_id, self.underlying_entity_type))
+        return hash((self.sector_id, self.underlying_entity_type, self.buy_resources, self.sell_resources))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, EconAgentSectorEntityPartialCriteria):
@@ -458,6 +493,10 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
         if self.sector_id != other.sector_id:
             return False
         if self.underlying_entity_type != other.underlying_entity_type:
+            return False
+        if self.buy_resources != other.buy_resources:
+            return False
+        if self.sell_resources != other.sell_resources:
             return False
         return True
 

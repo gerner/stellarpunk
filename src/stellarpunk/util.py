@@ -999,6 +999,13 @@ def pixel_to_pointy_hex(point:npt.NDArray[np.float64], size:float) -> npt.NDArra
     r = (                        2./3 * point[1]) / size
     return np.array((q,r))
 
+@jit(cache=True, nopython=True, fastmath=True)
+def axial_distance(a:npt.NDArray[np.float64], b:npt.NDArray[np.float64]) -> float:
+    vec = a - b
+    return (abs(vec[0])
+          + abs(vec[0] + vec[1])
+          + abs(vec[1])) / 2.
+
 def hexes_at_hex_dist(k:int, hex_coords:npt.NDArray[np.float64]) -> Collection[npt.NDArray[np.float64]]:
     """ returns all hex coords at hex distance k """
     c = hex_coords.copy()
@@ -1053,8 +1060,8 @@ def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:flo
     d = int(diff_hex[0] - 1)
     assert(d>=0)
 
-    ret = [center_hex]
-    for k in range(d, 0, -1):
+    ret:list[npt.NDArray[np.float64]] = []
+    for k in range(0, d+1):
         ret.extend(hexes_at_hex_dist(k, center_hex))
 
     return ret

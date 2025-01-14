@@ -1181,3 +1181,98 @@ class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
         collected. """
         ...
 
+class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
+    def _candidate_in_sector(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria, sector_id:uuid.UUID) -> Optional[npt.NDArray[np.float64]]:
+        if character.location is not None and character.location.sector is not None and character.location.sector.entity_id == sector_id:
+            sector = character.location.sector
+            loc = character.location.loc
+        else:
+            sector = core.Gamestate.gamestate.get_entity(sector_id, core.Sector)
+            loc = np.array((0.0, 0.0))
+
+        hex_loc = sector.get_hex_coords(loc)
+        # look for hex options in current sector
+
+        # start looking close-ish to where we are, within a sector radius
+        target_loc = hex_loc
+        target_dist = sector.radius / (np.sqrt(3)*sector.hex_size)
+
+        # honor intel criteria's desire of course
+        if intel_criteria.hex_loc is not None:
+            target_loc = intel_criteria.hex_loc
+        if intel_criteria.hex_dist is not None:
+            target_dist = intel_criteria.hex_dist
+
+        candidate_hexes:set[tuple[int, int]] = {(int(x[0]), int(x[1])) for x in util.hexes_within_pixel_dist(target_loc, target_dist, sector.hex_size)}
+
+        # find hexes in the current sector we know about
+        for i in character.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector_id, is_static=intel_criteria.is_static, hex_loc=target_loc, hex_dist=target_dist), intel.SectorHexIntel):
+            hex_key = (int(i.hex_loc[0]), int(i.hex_loc[1]))
+            if hex_key in candidate_hexes:
+                candidate_hexes.remove(hex_key)
+
+        # pick closest remaining candidate
+        candidate = next(iter(sorted(candidate_hexes, key=lambda x: util.axial_distance(x, hex_loc))), None)
+        if candidate is None:
+            return None
+        else:
+            return np.array((float(candidate[0]), float(candidate[1])))
+
+    def estimate_cost(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria) -> Optional[tuple[bool, float]]:
+        # passive => target hex is adjacent to the one we're in right now
+        # cost = time to travel to center of target hex
+        # target hex is closest one where a scan will produce new intel that
+        # will match this partial criteria
+
+        # we can't estimate cost if we don't know where the character is
+        if character.location is None:
+            return None
+        if character.location.sector is None:
+            return None
+
+        # this behavior assumes we're a captain of a ship
+        assert(isinstance(character.location, core.Ship))
+        assert(character.location.captain == character)
+
+        sector = character.location.sector
+        sector_id = sector.entity_id
+
+        if intel_criteria.sector_id is None or intel_criteria.sector_id == sector_id:
+            candidate = self._candidate_in_sector(character, intel_criteria, sector_id)
+            if candidate is not None:
+                candidate_coords = sector.get_coords_from_hex(candidate)
+                loc = character.location.loc
+                hex_loc = sector.get_hex_coords(loc)
+                hex_dist = util.axial_distance(candidate, hex_loc)
+
+                eta = movement.GoToLocation.compute_eta(character.location, candidate_coords)
+                return (hex_dist <= 1, eta)
+
+        # we've already tried to find a hex in the current sector, only
+        # remaining candidates would be outside the current sector
+        if intel_criteria.sector_id is not None and intel_criteria.sector_id == sector_id:
+            return None
+
+        #TODO: find a candidate in another sector
+        return None
+
+    def collect_intel(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria) -> float:
+        # we can't estimate cost if we don't know where the character is
+        if character.location is None:
+            raise ValueError(f'cannot collect intel for {character} not on any ship')
+        if character.location.sector is None:
+            raise ValueError(f'cannot collect intel for {character} not in any sector')
+
+        sector = character.location.sector
+        sector_id = sector.entity_id
+
+        if intel_criteria.sector_id is None or intel_criteria.sector_id == sector_id:
+            candidate = self._candidate_in_sector(character, intel_criteria, sector_id)
+            if candidate is not None:
+                #TODO: collect intel at this candidate
+                # go to that location
+                # do a sensor scan
+                pass
+
+        #TODO: find a candidate in another sector
+        raise ValueError(f'no candidates to collect intel on')

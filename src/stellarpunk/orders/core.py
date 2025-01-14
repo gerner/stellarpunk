@@ -9,7 +9,7 @@ from typing import Optional, Any, Type
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import util, core, effects, econ, events
+from stellarpunk import util, core, effects, econ, events, sensors
 from stellarpunk.core import sector_entity
 from stellarpunk.narrative import director
 from . import movement
@@ -643,3 +643,62 @@ class DockingOrder(core.OrderObserver, core.Order):
             else:
                 self.logger.debug(f'arrival zone empty, beginning final approach')
                 self._add_child(goto_order)
+
+class LocationExploreOrder(core.OrderObserver, core.Order):
+    def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> None:
+        self.sector_id = sector_id
+        self.loc = loc
+
+        self.goto_order:Optional[movement.GoToLocation] = None
+        self.scan_order:Optional[sensors.SensorScanOrder] = None
+
+    # core.OrderObserver
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
+
+    def order_cancel(self, order:core.Order) -> None:
+        if order == self.goto_order:
+            self.goto_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        elif order == self.scan_order:
+            self.scan_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        else:
+            raise ValueError(f'unexpected order event for {order}')
+
+    def order_complete(self, order:core.Order) -> None:
+        if order == self.goto_order:
+            self.goto_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        elif order == self.scan_order:
+            self.scan_order = None
+            # we sucessfully scanned at the, we assume according to act logic
+            # below, correct location. thus we are done.
+            self.complete_order()
+        else:
+            raise ValueError(f'unexpected order event for {order}')
+
+    # core.Order
+
+    def _begin(self) -> None:
+        self._init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc)
+
+    def act(self, dt:float) -> None:
+        assert self.ship.sector
+        if self.ship.sector.entity_id != self.sector_id:
+            #TODO: get to target sector
+            raise ValueError(f'ship must be in the target sector!')
+        elif util.distance(self.ship.loc, self.loc) > self.ship.sector.hex_size:
+            # go to target location
+            assert(self.goto_order is None)
+            self.goto_order = GoToLocation.create_go_to_location(self.loc, self.ship, self.gamestate, surface_distance=self.ship.sector.hex_size/2.0)
+            self.goto_order.observe(self)
+            self._add_child(self.goto_order)
+        else:
+            # do a sensor scan
+            assert(self.scan_order is None)
+            self.scan_order = sensors.SensorScanOrder(self.gamestate)
+            self.scan_order.observe(self)
+            self._add_child(self.scan_order)
