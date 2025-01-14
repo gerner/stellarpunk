@@ -997,58 +997,187 @@ class PlanetManager(EntityOperatorAgendum):
         pass
 
 class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
-    """ Behavior for any character to obtain desired intel. """
+    """ Behavior for any character to obtain desired intel.
+
+    This agendum watches for registered intel interests and operates either
+    passively, without getting in the way of other agenda, or actively, taking
+    full control of the character, to collect that intel.
+
+    It has specialized behavior for each kind of intel to collect."""
+
     class State(enum.IntEnum):
         ACTIVE = enum.auto()
         PASSIVE = enum.auto()
 
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, collection_director:"IntelCollectionDirector", *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._director = collection_director
         self._state = IntelCollectionAgendum.State.PASSIVE
+        self._interests:set[core.IntelMatchCriteria] = set()
+
+        self._preempted_primary:Optional[Agendum] = None
 
     # core.IntelManagerObserver
 
     def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
-        #TODO: we should make note that we want to find such intel
-        pass
-
+        # make note that we want to find such intel
+        assert(intel_manager == self.character.intel_manager)
+        self._interests.add(intel_criteria)
+        # note: we might ask to be scheduled many times here if someone
+        # registers several interests, but the schedule will dedupe
+        self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
     # Agendum
 
     def _start(self) -> None:
         self.character.intel_manager.observe(self)
+        # don't do anything until someone registers an intel interest with us
 
     def _stop(self) -> None:
+        self._interests.clear()
         self.character.intel_manager.unobserve(self)
 
-    def act(self) -> None:
+    def _do_passive_collection(self) -> None:
+        # opportunistically try to collect desired intel
+        #TODO: if we're a captain, we can briefly preempt current primary
+        # agendum to travel nearby, e.g. dock at nearby station or explore
+        # a sector hex, just don't do this too often
+        #TODO: if we're not a captain we can take TBD passive actions
+        cheapest_cost = np.inf
+        cheapest_criteria:Optional[core.IntelMatchCriteria] = None
+        for criteria in self._interests:
+            ret = self._director.estimate_cost(self.character, criteria)
+            if not ret:
+                continue
+            is_active, cost = ret
+            if is_active:
+                continue
+            if cost < cheapest_cost:
+                cheapest_cost = cost
+                cheapest_criteria = criteria
 
-        # first figure out what state we should be in
-        if self._is_primary:
-            assert(self._state == IntelCollectionAgendum.State.ACTIVE)
-        else:
-            primary_agendum = self.find_primary()
-            if primary_agendum is None:
-                self.make_primary()
-                self._state = IntelCollectionAgendum.State.ACTIVE
+        # if there's no intel we can passively collect, bail
+        if not cheapest_criteria:
+            if self._preempted_primary:
+                self._restore_preempted()
+            return
+
+        # preempt current primary so we're not fighting over behavior
+        # ship orders will be preempted by prepending orders
+        # we'll restore the preempted primary the next time we act
+        if self._preempted_primary is None:
+            current_primary = self.find_primary()
+            # must be a current primary, otherwise we'd be in ACTIVE mode
+            assert(current_primary is not None)
+            self._preempted_primary = current_primary # type: ignore
+            current_primary.preempt_primary()
+            current_primary.pause()
+            self.make_primary()
+
+        next_ts = self._director.collect_intel(self.character, cheapest_criteria)
+        self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
+
+    def _do_active_collection(self) -> None:
+        # make big plans for intel collection, travelling, etc.
+        cheapest_cost = np.inf
+        cheapest_criteria:Optional[core.IntelMatchCriteria] = None
+        for criteria in self._interests:
+            ret = self._director.estimate_cost(self.character, criteria)
+            if not ret:
+                continue
+            is_active, cost = ret
+            if cost < cheapest_cost:
+                cheapest_cost = cost
+                cheapest_criteria = criteria
+
+        if cheapest_criteria is None:
+            # this means we have intel interests we cannot collect and no one
+            # else is directing primary character behavior. Seems bad.
+            # perhaps at a later point we will be able to
+            self.logger.info(f'{self.character} has intel interests that we cannot actively satisfy')
+            return
+
+        next_ts = self._director.collect_intel(self.character, cheapest_criteria)
+        self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
+
+    def _restore_preempted(self) -> None:
+        assert(self._preempted_primary)
+        assert(self.is_primary())
+        assert(self._state == IntelCollectionAgendum.State.PASSIVE)
+        self.preempt_primary()
+        self._preempted_primary.make_primary()
+        self._preempted_primary.unpause()
+        self._preempted_primary = None
+
+    def act(self) -> None:
+        # no sense working if we have no intel to collect
+        if len(self._interests) == 0:
+            if self._preempted_primary:
+                self._restore_preempted()
+            return
+
+        if self._preempted_primary is None:
+            # we're not in the middle of a passive collection cycle
+            # figure out what state we should be in based on other agenda
+            if self._is_primary:
+                assert(self._state == IntelCollectionAgendum.State.ACTIVE)
             else:
-                # if we're primary our _is_primary flag should be true
-                assert(primary_agendum != self)
-                self._state = IntelCollectionAgendum.State.PASSIVE
+                primary_agendum = self.find_primary()
+                if primary_agendum is None:
+                    self.make_primary()
+                    self._state = IntelCollectionAgendum.State.ACTIVE
+                else:
+                    # if we're primary our _is_primary flag should be true
+                    assert(primary_agendum != self)
+                    self._state = IntelCollectionAgendum.State.PASSIVE
+        else:
+            # we must be in the middle of a passive collection cycle.
+            #TODO: should we limit how much passive collection we do? as
+            # written we'll just keep collecting all passive intel until there
+            # is none.
+            assert(self._state == IntelCollectionAgendum.State.PASSIVE)
 
         if self._state == IntelCollectionAgendum.State.PASSIVE:
-            #TODO: opportunistically try to collect desired intel
-            #TODO: if we're a captain, we can briefly preempt current primary
-            # agendum to travel nearby, e.g. dock at nearby station or explore
-            # a sector hex, just don't do this too often
-            #TODO: if we're not a captain we can take TBD passive actions
-            pass
+            self._do_passive_collection()
         elif self._state == IntelCollectionAgendum.State.ACTIVE:
-            #TODO: make big plans for intel collection, travelling, etc.
-            #TODO: if we're a captain we can plan a big trip across the current
-            # sector, or to a far away sector
-            #TODO: if we're not a captain we can arrange travel to an
-            # interesting location or station to get intel.
-
-            pass
+            self._do_active_collection()
         else:
             raise ValueError(f'intel agendum in unexpected state: {self._state}')
+
+class IntelCollectionDirector:
+    def __init__(self) -> None:
+        self._gatherers:dict[Type[core.IntelMatchCriteria], IntelGatherer] = {}
+
+    def register_gatherer(self, klass:Type[core.IntelMatchCriteria], gatherer:"IntelGatherer") -> None:
+        self._gatherers[klass] = gatherer
+
+    def estimate_cost(self, character:core.Character, intel_criteria:core.IntelMatchCriteria) -> Optional[tuple[bool, float]]:
+        if type(intel_criteria) not in self._gatherers:
+            return None
+        return self._gatherers[type(intel_criteria)].estimate_cost(character, intel_criteria)
+
+    def collect_intel(self, character:core.Character, intel_criteria:core.IntelMatchCriteria) -> float:
+        assert(type(intel_criteria) not in self._gatherers)
+        return self._gatherers[type(intel_criteria)].collect_intel(character, intel_criteria)
+
+class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
+    def __init__(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    def estimate_cost(self, character:core.Character, intel_criteria:T) -> Optional[tuple[bool, float]]:
+        """ Returns an estimate to collect associated intel, if any.
+
+        returns if we can handle this criteria (Optional), if it's active or
+        passive (bool) and an estimate of the cost to retrieve it in seconds
+        """
+        ...
+
+    @abc.abstractmethod
+    def collect_intel(self, character:core.Character, intel_criteria:T) -> float:
+        """ Begins or continues collecting associated intel
+
+        returns the number of seconds we should check in again if intel is not
+        collected. """
+        ...
+
