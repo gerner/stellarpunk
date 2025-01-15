@@ -61,14 +61,17 @@ class IntelSaver[T: core.Intel](s_gamestate.EntitySaver[T]):
 
     def _save_entity(self, intel:T, f:io.IOBase) -> int:
         bytes_written = 0
+        bytes_written += s_util.uuid_to_f(intel.author_id, f)
         bytes_written += s_util.float_to_f(intel.fresh_until, f)
         bytes_written += s_util.float_to_f(intel.expires_at, f)
         bytes_written += self._save_intel(intel, f)
         return bytes_written
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> T:
+        author_id = s_util.uuid_from_f(f)
         fresh_until = s_util.float_from_f(f)
         expires_at = s_util.float_from_f(f)
         intel = self._load_intel(f, load_context, entity_id)
+        intel.author_id = author_id
         intel.fresh_until = fresh_until
         intel.expires_at = expires_at
         return intel

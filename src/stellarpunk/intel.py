@@ -514,7 +514,7 @@ class IdentifyAsteroidAction(events.Action):
         asteroid = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.Asteroid)
         entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(asteroid.entity_id), AsteroidIntel)
         if not entity_intel or not entity_intel.is_fresh():
-            character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, self.gamestate))
+            character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, self.gamestate, author_id=character.entity_id))
 
 class IdentifyStationAction(events.Action):
     def act(self,
@@ -527,7 +527,7 @@ class IdentifyStationAction(events.Action):
         station = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.Station)
         entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(station.entity_id), StationIntel)
         if not entity_intel or not entity_intel.is_fresh():
-            character.intel_manager.add_intel(StationIntel.create_station_intel(station, self.gamestate))
+            character.intel_manager.add_intel(StationIntel.create_station_intel(station, self.gamestate, author_id=character.entity_id))
 
 class IdentifySectorEntityAction(events.Action):
     def __init__(self, *args:Any, intel_ttl:float=300, **kwargs:Any) -> None:
@@ -548,12 +548,12 @@ class IdentifySectorEntityAction(events.Action):
             #TODO: TravelGate needs its own intel to include where the travel gate goes
             intel:SectorEntityIntel
             if isinstance(sentity, (sector_entity.Station, sector_entity.Planet, sector_entity.TravelGate)):
-                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate)
+                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, author=character.entity_id)
             # otherwise we'll give it some ttl
             else:
                 fresh_until = self.gamestate.timestamp + self.intel_ttl*0.2
                 expires_at = self.gamestate.timestamp + self.intel_ttl
-                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, expires_at=expires_at, fresh_until=fresh_until)
+                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until)
             character.intel_manager.add_intel(intel)
 
 class DockingAction(events.Action):
@@ -577,7 +577,7 @@ class DockingAction(events.Action):
         if not econ_agent_intel or not econ_agent_intel.is_fresh():
             fresh_until = self.gamestate.timestamp + self.econ_intel_ttl*0.2
             expires_at = self.gamestate.timestamp + self.econ_intel_ttl
-            character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, self.gamestate, expires_at=expires_at, fresh_until=fresh_until))
+            character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, self.gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until))
         #TODO: what other intel do we want to create now that we're docked?
 
 class ScanAction(events.Action):

@@ -32,13 +32,14 @@ class IntelObserver(base.Observer):
 class Intel(base.Observable[IntelObserver], base.Entity):
     id_prefix = "INT"
 
-    def __init__(self, *args:Any, expires_at:float=np.inf, fresh_until:Optional[float]=None, **kwargs:Any):
+    def __init__(self, *args:Any, author_id:uuid.UUID=base.OBSERVER_ID_NULL, expires_at:float=np.inf, fresh_until:Optional[float]=None, **kwargs:Any):
         # we set these fields before calling super init because they may be
         # referenced in overriden __str__ calls before we get to initialize
         # them.
         if not fresh_until:
             fresh_until = expires_at
 
+        self.author_id:uuid.UUID = author_id
         self.fresh_until = fresh_until
         self.expires_at = expires_at
         super().__init__(*args, **kwargs)

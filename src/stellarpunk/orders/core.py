@@ -683,9 +683,10 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
     # core.Order
 
     def _begin(self) -> None:
-        self._init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc)
+        self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc)
 
     def act(self, dt:float) -> None:
+        #TODO: is this a safe assert?
         assert self.ship.sector
         if self.ship.sector.entity_id != self.sector_id:
             #TODO: get to target sector

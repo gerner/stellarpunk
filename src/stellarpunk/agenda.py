@@ -1006,12 +1006,14 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
     It has specialized behavior for each kind of intel to collect."""
 
     class State(enum.IntEnum):
+        IDLE = enum.auto()
         ACTIVE = enum.auto()
         PASSIVE = enum.auto()
 
-    def __init__(self, collection_director:"IntelCollectionDirector", *args:Any, **kwargs:Any) -> None:
+    def __init__(self, collection_director:"IntelCollectionDirector", *args:Any, idle_period:float=120.0, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self._director = collection_director
+        self._idle_period = idle_period
         self._state = IntelCollectionAgendum.State.PASSIVE
         self._interests:set[core.IntelMatchCriteria] = set()
 
@@ -1023,26 +1025,41 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         # make note that we want to find such intel
         assert(intel_manager == self.character.intel_manager)
         self._interests.add(intel_criteria)
-        # note: we might ask to be scheduled many times here if someone
-        # registers several interests, but the schedule will dedupe
-        self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+
+        # if we're already passively or actively collecting intel, no sense
+        # interrupting that, so wait for that to finish and we'll get a act
+        # call when that should be complete. at that point we'll consider new
+        # intel needs.
+        if self._state == IntelCollectionAgendum.State.IDLE:
+            # note: we might ask to be scheduled many times here if someone
+            # registers several interests, but the schedule will dedupe
+            self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+
+    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.Intel) -> None:
+        # see if that intel satisfies any of our needs and drop that need.
+        # if it doesn't actually satisfy the root need, they can re-register
+        remove_set:set[core.IntelMatchCriteria] = set()
+        for criteria in self._interests:
+            if criteria.matches(intel):
+                remove_set.add(criteria)
+
+        for criteira in remove_set:
+            self._interests.remove(criteria)
 
     # Agendum
 
+    def _unpause(self) -> None:
+        self._go_idle()
+
     def _start(self) -> None:
         self.character.intel_manager.observe(self)
-        # don't do anything until someone registers an intel interest with us
+        self._go_idle()
 
     def _stop(self) -> None:
-        self._interests.clear()
         self.character.intel_manager.unobserve(self)
 
     def _do_passive_collection(self) -> None:
         # opportunistically try to collect desired intel
-        #TODO: if we're a captain, we can briefly preempt current primary
-        # agendum to travel nearby, e.g. dock at nearby station or explore
-        # a sector hex, just don't do this too often
-        #TODO: if we're not a captain we can take TBD passive actions
         cheapest_cost = np.inf
         cheapest_criteria:Optional[core.IntelMatchCriteria] = None
         for criteria in self._interests:
@@ -1058,16 +1075,22 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
         # if there's no intel we can passively collect, bail
         if not cheapest_criteria:
-            if self._preempted_primary:
-                self._restore_preempted()
+            self._go_idle()
             return
 
         # preempt current primary so we're not fighting over behavior
         # ship orders will be preempted by prepending orders
         # we'll restore the preempted primary the next time we act
         if self._preempted_primary is None:
+            #TODO: we need to be very careful here and not preempt if they are
+            #in the middle of some critical operation (e.g. docked at a station
+            #and not on their ship, in the middle of warping out of sector
+            # which take some time, etc.)
+            # we need some way to "lock" the character, agenda and/or ship
+            # in that case we can just bail and check in again later
+
             current_primary = self.find_primary()
-            # must be a current primary, otherwise we'd be in ACTIVE mode
+            # there must be a current primary, otherwise we'd be in ACTIVE mode
             assert(current_primary is not None)
             self._preempted_primary = current_primary # type: ignore
             current_primary.preempt_primary()
@@ -1075,7 +1098,10 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             self.make_primary()
 
         next_ts = self._director.collect_intel(self.character, cheapest_criteria)
-        self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
+        if next_ts > 0:
+            self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
+        else:
+            self.gamestate.schedule_agendum_immediate(self)
 
     def _do_active_collection(self) -> None:
         # make big plans for intel collection, travelling, etc.
@@ -1095,10 +1121,14 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # else is directing primary character behavior. Seems bad.
             # perhaps at a later point we will be able to
             self.logger.info(f'{self.character} has intel interests that we cannot actively satisfy')
+            self._go_idle()
             return
 
         next_ts = self._director.collect_intel(self.character, cheapest_criteria)
-        self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
+        if next_ts > 0:
+            self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
+        else:
+            self.gamestate.schedule_agendum_immediate(self)
 
     def _restore_preempted(self) -> None:
         assert(self._preempted_primary)
@@ -1109,19 +1139,31 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         self._preempted_primary.unpause()
         self._preempted_primary = None
 
+    def _go_idle(self) -> None:
+        if self._preempted_primary:
+            self._restore_preempted()
+        self._state = IntelCollectionAgendum.State.IDLE
+
+        # we'll wake ourselves up if someone registers an interest, no need to
+        # force a wakeup that will do nothing
+        if len(self._interests) > 0:
+            self.gamestate.schedule_agendum(self.gamestate.timestamp + self._idle_period, self, jitter=1.0)
+
+
     def act(self) -> None:
         # no sense working if we have no intel to collect
         if len(self._interests) == 0:
-            if self._preempted_primary:
-                self._restore_preempted()
+            self._go_idle()
             return
 
         if self._preempted_primary is None:
             # we're not in the middle of a passive collection cycle
             # figure out what state we should be in based on other agenda
+            assert(self._state != IntelCollectionAgendum.State.PASSIVE)
             if self._is_primary:
                 assert(self._state == IntelCollectionAgendum.State.ACTIVE)
             else:
+                assert(self._state == IntelCollectionAgendum.State.IDLE)
                 primary_agendum = self.find_primary()
                 if primary_agendum is None:
                     self.make_primary()
@@ -1162,7 +1204,10 @@ class IntelCollectionDirector:
 
 class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
     def __init__(self) -> None:
-        pass
+        self.gamestate:core.Gamestate = None # type: ignore
+
+    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
+        self.gamestate = gamestate
 
     @abc.abstractmethod
     def estimate_cost(self, character:core.Character, intel_criteria:T) -> Optional[tuple[bool, float]]:
@@ -1177,8 +1222,7 @@ class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
     def collect_intel(self, character:core.Character, intel_criteria:T) -> float:
         """ Begins or continues collecting associated intel
 
-        returns the number of seconds we should check in again if intel is not
-        collected. """
+        returns the timestamp we should check in again. """
         ...
 
 class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
@@ -1187,7 +1231,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
             sector = character.location.sector
             loc = character.location.loc
         else:
-            sector = core.Gamestate.gamestate.get_entity(sector_id, core.Sector)
+            sector = self.gamestate.get_entity(sector_id, core.Sector)
             loc = np.array((0.0, 0.0))
 
         hex_loc = sector.get_hex_coords(loc)
@@ -1230,10 +1274,6 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         if character.location.sector is None:
             return None
 
-        # this behavior assumes we're a captain of a ship
-        assert(isinstance(character.location, core.Ship))
-        assert(character.location.captain == character)
-
         sector = character.location.sector
         sector_id = sector.entity_id
 
@@ -1245,6 +1285,10 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
                 hex_loc = sector.get_hex_coords(loc)
                 hex_dist = util.axial_distance(candidate, hex_loc)
 
+                #TODO: what if we're not a captain? can we take action to travel to some location?
+                # this behavior assumes we're a captain of a ship
+                assert(isinstance(character.location, core.Ship))
+                assert(character.location.captain == character)
                 eta = movement.GoToLocation.compute_eta(character.location, candidate_coords)
                 return (hex_dist <= 1, eta)
 
@@ -1269,10 +1313,17 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         if intel_criteria.sector_id is None or intel_criteria.sector_id == sector_id:
             candidate = self._candidate_in_sector(character, intel_criteria, sector_id)
             if candidate is not None:
-                #TODO: collect intel at this candidate
-                # go to that location
-                # do a sensor scan
-                pass
+                #TODO: what if we're not a captain?
+                # collect intel at this candidate
+                assert(isinstance(character.location, core.Ship))
+                assert(character.location.captain == character)
+                candidate_coords = sector.get_coords_from_hex(candidate)
+                explore_order = ocore.LocationExploreOrder(sector_id, candidate_coords, self.gamestate)
+                character.location.prepend_order(explore_order)
+                return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
 
         #TODO: find a candidate in another sector
+
+        # if we have no candidates we should not have gotten called because we
+        # would not have returned anything from estimate_cost.
         raise ValueError(f'no candidates to collect intel on')

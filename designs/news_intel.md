@@ -269,6 +269,27 @@ that intel and pre-empt other behavior (e.g. prepending an order to dock at a
 station it's pasing). It could also engage in more directed intel collecting
 behavior if necessary and indicated by other behaviors.
 
+### Implementation
+
+* IntelManger has a `register_interest` method that takes an IntelMatchCriteria
+  indicating an interest in such intel
+* IntelCollectionAgendum generically handles intel "interests"
+* That agendum uses a collection director which has registered collectors for
+  each type of interest (IntelMatchCriteria)
+* IntelGatherer has intel/criteria specfic logic to estimate the cost (in time)
+  of collecting intel and logic to actually try to collect it. That logic might
+  trivially advertise a further interest in other intel, e.g. if you want to
+  find more asteroids, you need to explore new unexplored space.
+* Only collect one piece of intel at a time. Greedily go after lowest cost
+  intel. Hope that related intel becomes less expensive (in time) if you've
+  already collected a piece of intel.
+* This framework should work for captains and non-captains. However, the
+  specific cost and collection behavior might be different, but the logic of
+  understanding how to turn an intel need into parameters for a corresponding
+  piece of intel, is likely very similar (e.g. if you want to explore hexes, we
+  need to find a candidate hex to explore, once we've done that we can
+  specialize the way we'll get there.)
+
 ### Passive vs Active Collection
 
 Passive intel collection means we can take minor actions that won't get in the way of other behaviors to get desired intel.
