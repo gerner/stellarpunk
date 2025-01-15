@@ -50,7 +50,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._generator = generator
         self._generator_thread:Optional[threading.Thread] = None
         self._generator_exception:Optional[Exception] = None
-        self._threaded_generation = True
+        self._threaded_generation = False
 
         self._game_saver = game_saver
 
@@ -579,11 +579,23 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
                 return
             self._enter_mode(Mode.CREATE_NEW_GAME)
         def quick_gen() -> None:
+            """ sets up universe generation to be fast, creates a very simple
+            universe. """
+
             self._generator.universe_config.cultures=[self._generator._empty_name_model_culture]
             self._generator.universe_config.num_cultures = [1,1]
             self._generator._load_empty_name_models(self._generator._empty_name_model_culture)
             self.config_options[ConfigOption.NUM_SECTORS].setting = 1
             self.config_options[ConfigOption.NUM_INHABITED_SECTORS].setting = 1
+
+            self._generator.universe_config.production_chain_config.n_ranks=3
+            self._generator.universe_config.production_chain_config.min_per_rank=(2,2,2)
+            self._generator.universe_config.production_chain_config.max_per_rank=(2,2,2)
+            self._generator.universe_config.production_chain_config.min_final_inputs=1
+            self._generator.universe_config.production_chain_config.max_fraction_one_to_one=1.0
+            self._generator.universe_config.production_chain_config.max_fraction_single_input=1.0
+            self._generator.universe_config.production_chain_config.max_fraction_single_output=1.0
+
             self._enter_mode(Mode.CREATE_NEW_GAME)
 
         key_list = list(self._new_game_config_menu.key_list())

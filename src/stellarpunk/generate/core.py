@@ -230,6 +230,48 @@ class UniverseGeneratorObserver(abc.ABC):
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
         pass
 
+class ProductionChainConfig:
+    def __init__(self) -> None:
+        # goods names
+        self.ore_names = config.Settings.generate.ProductionChain.ORE_NAMES
+        self.intermediate_names = config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES
+        self.hightech_names = config.Settings.generate.ProductionChain.HIGHTECH_NAMES
+        self.sink_names = config.Settings.generate.ProductionChain.SINK_NAMES
+
+        # allowed input combos
+        self.sink_inputs = config.Settings.generate.ProductionChain.SINK_INPUTS
+        self.hightech_inputs = config.Settings.generate.ProductionChain.HIGHTECH_INPUTS
+        self.intermediate_inputs = config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS
+
+        # chain toplogy constraints
+        self.n_ranks = config.Settings.generate.ProductionChain.n_ranks
+        self.min_per_rank = config.Settings.generate.ProductionChain.min_per_rank
+        self.max_per_rank = config.Settings.generate.ProductionChain.max_per_rank
+        self.max_outputs = config.Settings.generate.ProductionChain.max_outputs
+        self.max_inputs = config.Settings.generate.ProductionChain.max_inputs
+        self.min_final_inputs = config.Settings.generate.ProductionChain.min_final_inputs
+        self.max_final_inputs = config.Settings.generate.ProductionChain.max_final_inputs
+
+        # input/output ratios
+        self.min_raw_per_processed = config.Settings.generate.ProductionChain.min_raw_per_processed
+        self.max_raw_per_processed = config.Settings.generate.ProductionChain.max_raw_per_processed
+        self.min_input_per_output = config.Settings.generate.ProductionChain.min_input_per_output
+        self.max_input_per_output = config.Settings.generate.ProductionChain.max_input_per_output
+
+        # price constraints
+        self.min_raw_price = config.Settings.generate.ProductionChain.min_raw_price
+        self.max_raw_price = config.Settings.generate.ProductionChain.max_raw_price
+        self.min_markup = config.Settings.generate.ProductionChain.min_markup
+        self.max_markup = config.Settings.generate.ProductionChain.max_markup
+        self.min_final_prices = config.Settings.generate.ProductionChain.min_final_prices
+        self.max_final_prices = config.Settings.generate.ProductionChain.max_final_prices
+
+        # overall structure constraints
+        self.max_fraction_one_to_one = config.Settings.generate.ProductionChain.max_fraction_one_to_one
+        self.max_fraction_single_input = config.Settings.generate.ProductionChain.max_fraction_single_input
+        self.max_fraction_single_output = config.Settings.generate.ProductionChain.max_fraction_single_output
+
+
 class UniverseConfig:
     def __init__(self) -> None:
 
@@ -242,15 +284,7 @@ class UniverseConfig:
         self.max_station_name_words = config.Settings.generate.names.MAX_STATION_NAME_WORDS
         self.max_ship_name_words = config.Settings.generate.names.MAX_SHIP_NAME_WORDS
 
-        # production chain stuff
-        self.ore_names = config.Settings.generate.ProductionChain.ORE_NAMES
-        self.intermediate_names = config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES
-        self.hightech_names = config.Settings.generate.ProductionChain.HIGHTECH_NAMES
-        self.sink_names = config.Settings.generate.ProductionChain.SINK_NAMES
-
-        self.sink_inputs = config.Settings.generate.ProductionChain.SINK_INPUTS
-        self.hightech_inputs = config.Settings.generate.ProductionChain.HIGHTECH_INPUTS
-        self.intermediate_inputs = config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS
+        self.production_chain_config = ProductionChainConfig()
 
         # universe setup
         self.universe_radius = config.Settings.generate.Universe.UNIVERSE_RADIUS
@@ -565,39 +599,39 @@ class UniverseGenerator(core.AbstractGenerator):
 
         assert 3 <= len(ranks) <= 5
 
-        assert ranks[0] <= len(self.universe_config.ore_names)
+        assert ranks[0] <= len(self.universe_config.production_chain_config.ore_names)
         assert ranks[1] == ranks[0], "rank 0 (ores) must have same size as rank 1 (refined ores)"
         if len(ranks) == 5:
-            assert ranks[2] <= len(self.universe_config.intermediate_names)
+            assert ranks[2] <= len(self.universe_config.production_chain_config.intermediate_names)
 
         if len(ranks) >= 4:
-            assert ranks[-2] <= len(self.universe_config.hightech_names)
-        assert ranks[-1] == len(self.universe_config.sink_names)
+            assert ranks[-2] <= len(self.universe_config.production_chain_config.hightech_names)
+        assert ranks[-1] == len(self.universe_config.production_chain_config.sink_names)
 
         # set up product names in reverse order, respecting allowed inputs
-        product_names = list(self.universe_config.sink_names)
+        product_names = list(self.universe_config.production_chain_config.sink_names)
 
         if len(ranks) == 3:
             # ore names don't matter, just assign names
-            ore_ids = self.r.choice(np.arange(len(self.universe_config.ore_names)), size=ranks[0], replace=False)
-            product_names = [self.universe_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.ore_names[x]}' for x in ore_ids] + product_names
+            ore_ids = self.r.choice(np.arange(len(self.universe_config.production_chain_config.ore_names)), size=ranks[0], replace=False)
+            product_names = [self.universe_config.production_chain_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.production_chain_config.ore_names[x]}' for x in ore_ids] + product_names
         else:
             # high tech names matter
-            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], self.universe_config.sink_inputs)
-            product_names = [self.universe_config.hightech_names[x] for x in hightech_ids] + product_names
+            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], self.universe_config.production_chain_config.sink_inputs)
+            product_names = [self.universe_config.production_chain_config.hightech_names[x] for x in hightech_ids] + product_names
 
             if len(ranks) == 4:
                 # ore names don't matter, just assign names
-                ore_ids = self.r.choice(np.arange(len(self.universe_config.ore_names)), size=ranks[0], replace=False)
-                product_names = [self.universe_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.ore_names[x]}' for x in ore_ids] + product_names
+                ore_ids = self.r.choice(np.arange(len(self.universe_config.production_chain_config.ore_names)), size=ranks[0], replace=False)
+                product_names = [self.universe_config.production_chain_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.production_chain_config.ore_names[x]}' for x in ore_ids] + product_names
             else:
                 assert len(ranks) == 5
                 # intermediate and ore names matter
-                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [self.universe_config.hightech_inputs[x] for x in hightech_ids])
-                product_names = [self.universe_config.intermediate_names[x] for x in intermediate_ids] + product_names
+                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [self.universe_config.production_chain_config.hightech_inputs[x] for x in hightech_ids])
+                product_names = [self.universe_config.production_chain_config.intermediate_names[x] for x in intermediate_ids] + product_names
 
-                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [self.universe_config.intermediate_inputs[x] for x in intermediate_ids])
-                product_names = [self.universe_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.ore_names[x]}' for x in ore_ids] + product_names
+                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [self.universe_config.production_chain_config.intermediate_inputs[x] for x in intermediate_ids])
+                product_names = [self.universe_config.production_chain_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.production_chain_config.ore_names[x]}' for x in ore_ids] + product_names
 
         assert len(product_names) == sum(ranks)
         return product_names
@@ -1430,45 +1464,45 @@ class UniverseGenerator(core.AbstractGenerator):
         """
 
         if n_ranks is None:
-            n_ranks = config.Settings.generate.ProductionChain.n_ranks
+            n_ranks = self.universe_config.production_chain_config.n_ranks
         if min_per_rank is None:
-            min_per_rank = config.Settings.generate.ProductionChain.min_per_rank
+            min_per_rank = self.universe_config.production_chain_config.min_per_rank
         if max_per_rank is None:
-            max_per_rank = config.Settings.generate.ProductionChain.max_per_rank
+            max_per_rank = self.universe_config.production_chain_config.max_per_rank
         if max_outputs is None:
-            max_outputs = config.Settings.generate.ProductionChain.max_outputs
+            max_outputs = self.universe_config.production_chain_config.max_outputs
         if max_inputs is None:
-            max_inputs = config.Settings.generate.ProductionChain.max_inputs
+            max_inputs = self.universe_config.production_chain_config.max_inputs
         if min_input_per_output is None:
-            min_input_per_output = config.Settings.generate.ProductionChain.min_input_per_output
+            min_input_per_output = self.universe_config.production_chain_config.min_input_per_output
         if max_input_per_output is None:
-            max_input_per_output = config.Settings.generate.ProductionChain.max_input_per_output
+            max_input_per_output = self.universe_config.production_chain_config.max_input_per_output
         if min_raw_price is None:
-            min_raw_price = config.Settings.generate.ProductionChain.min_raw_price
+            min_raw_price = self.universe_config.production_chain_config.min_raw_price
         if max_raw_price is None:
-            max_raw_price = config.Settings.generate.ProductionChain.max_raw_price
+            max_raw_price = self.universe_config.production_chain_config.max_raw_price
         if min_markup is None:
-            min_markup = config.Settings.generate.ProductionChain.min_markup
+            min_markup = self.universe_config.production_chain_config.min_markup
         if max_markup is None:
-            max_markup = config.Settings.generate.ProductionChain.max_markup
+            max_markup = self.universe_config.production_chain_config.max_markup
         if min_final_inputs is None:
-            min_final_inputs = config.Settings.generate.ProductionChain.min_final_inputs
+            min_final_inputs = self.universe_config.production_chain_config.min_final_inputs
         if max_final_inputs is None:
-            max_final_inputs = config.Settings.generate.ProductionChain.max_final_inputs
+            max_final_inputs = self.universe_config.production_chain_config.max_final_inputs
         if min_final_prices is None:
-            min_final_prices = config.Settings.generate.ProductionChain.min_final_prices
+            min_final_prices = self.universe_config.production_chain_config.min_final_prices
         if max_final_prices is None:
-            max_final_prices = config.Settings.generate.ProductionChain.max_final_prices
+            max_final_prices = self.universe_config.production_chain_config.max_final_prices
         if min_raw_per_processed is None:
-            min_raw_per_processed = config.Settings.generate.ProductionChain.min_raw_per_processed
+            min_raw_per_processed = self.universe_config.production_chain_config.min_raw_per_processed
         if max_raw_per_processed is None:
-            max_raw_per_processed = config.Settings.generate.ProductionChain.max_raw_per_processed
+            max_raw_per_processed = self.universe_config.production_chain_config.max_raw_per_processed
         if max_fraction_one_to_one is None:
-            max_fraction_one_to_one = config.Settings.generate.ProductionChain.max_fraction_one_to_one
+            max_fraction_one_to_one = self.universe_config.production_chain_config.max_fraction_one_to_one
         if max_fraction_single_input is None:
-            max_fraction_single_input = config.Settings.generate.ProductionChain.max_fraction_single_input
+            max_fraction_single_input = self.universe_config.production_chain_config.max_fraction_single_input
         if max_fraction_single_output is None:
-            max_fraction_single_output = config.Settings.generate.ProductionChain.max_fraction_single_output
+            max_fraction_single_output = self.universe_config.production_chain_config.max_fraction_single_output
         if max_tries is None:
             max_tries = self.production_chain_max_tries
 
@@ -1493,6 +1527,7 @@ class UniverseGenerator(core.AbstractGenerator):
                     assign_names,
                 )
             except GenerationError as e:
+                breakpoint()
                 generation_error_cases[e.case] += 1
                 pass
             tries += 1
