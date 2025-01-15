@@ -5,6 +5,7 @@ import logging
 import weakref
 import enum
 import collections
+import itertools
 from collections.abc import Collection, Mapping, MutableMapping, Iterator, Iterable
 from typing import Optional, Any, Union
 
@@ -252,11 +253,12 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
                 self._velocity = np.array(self._target.velocity)
 
                 if not self._identified and self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
-                    if isinstance(self._ship, core.CrewedSectorEntity) and self._ship.captain:
+                    crew = core.crew(self._ship)
+                    if crew:
                         #TODO: what about passengers? should they get this event too?
                         gamestate = core.Gamestate.gamestate
                         gamestate.trigger_event(
-                                [self._ship.captain],
+                                crew,
                                 gamestate.event_manager.e(Events.IDENTIFIED),
                                 {
                                     gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
@@ -269,7 +271,7 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
                 # let the target know they've been targeted by us
                 if notify_target and self._sensor_manager.detected(self._ship, self._target):
                     #TODO: what about passengers? should they get this event too?
-                    candidates:list[core.Character] = list(x for x in (core.captain(self._ship), core.captain(self._target)) if x is not None)
+                    candidates = list(itertools.chain(core.crew(self._ship), core.crew(self._target)))
                     if candidates:
                         gamestate = core.Gamestate.gamestate
                         gamestate.trigger_event(
@@ -477,11 +479,11 @@ class SensorManager(core.AbstractSensorManager):
                         dynamic_hits += 1
 
         # trigger an event that we've done the scan
-        if isinstance(detector, core.CrewedSectorEntity) and detector.captain:
-            #TODO: what about passengers? should they get this event too?
+        crew = core.crew(detector)
+        if crew:
             gamestate = core.Gamestate.gamestate
             gamestate.trigger_event(
-                    [detector.captain],
+                    crew,
                     gamestate.event_manager.e(Events.SCANNED),
                     {
                         gamestate.event_manager.ck(ContextKeys.DETECTOR): detector.short_id_int(),
@@ -490,6 +492,8 @@ class SensorManager(core.AbstractSensorManager):
                         gamestate.event_manager.ck(ContextKeys.DYNAMIC_COUNT): dynamic_hits,
                     },
             )
+
+        return hits
 
     def target(self, target:core.SectorEntity, detector:core.SectorEntity, notify_target:bool=True) -> core.AbstractSensorImage:
         if not self.detected(target, detector):

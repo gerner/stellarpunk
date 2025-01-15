@@ -9,7 +9,7 @@ import datetime
 import itertools
 from dataclasses import dataclass
 from typing import Optional, Any, Union, Type
-from collections.abc import Collection, Mapping, MutableMapping, Sequence, MutableSequence, Iterator
+from collections.abc import Collection, Mapping, MutableMapping, Sequence, MutableSequence, Iterator, Iterable
 
 import numpy as np
 import numpy.typing as npt
@@ -19,7 +19,7 @@ from stellarpunk import util, task_schedule, narrative
 from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable, stellarpunk_version
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
-from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager
+from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager, CrewedSectorEntity
 
 DT_EPSILON = 1.0/120.0
 
@@ -634,3 +634,14 @@ class Gamestate(EntityRegistry):
         event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
         self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)
+
+def captain(craft:SectorEntity) -> Optional[Character]:
+    if isinstance(craft, CrewedSectorEntity) and craft.captain:
+        return craft.captain
+    return None
+
+EMPTY_TUPLE = ()
+def crew(craft:SectorEntity) -> Collection[Character]:
+    if not isinstance(craft, CrewedSectorEntity):
+        return EMPTY_TUPLE
+    return Gamestate.gamestate.characters_by_location[craft.entity_id]
