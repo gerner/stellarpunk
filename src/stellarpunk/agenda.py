@@ -1016,12 +1016,24 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         self._idle_period = idle_period
         self._state = IntelCollectionAgendum.State.PASSIVE
         self._interests:set[core.IntelMatchCriteria] = set()
+        self._source_interests_by_dependency:dict[core.IntelMatchCriteria, core.IntelMatchCriteria] = {}
+        self._source_interests_by_source:dict[core.IntelMatchCriteria, core.IntelMatchCriteria] = {}
 
         self._preempted_primary:Optional[Agendum] = None
 
     # core.IntelManagerObserver
 
-    def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
+    def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]) -> None:
+        if source is not None:
+            # remove the source interest if we have it. we don't want to try to get
+            # that before we get the dependent intel. but we'll keep track to make
+            # sure we eventually get it or try fresh if we satisfy this dependency
+            # without satisfying the source
+            if source in self._interests:
+                self._interests.remove(source)
+            self._source_interests_by_dependency[intel_criteria] = source
+            self._source_interests_by_source[source] = intel_criteria
+
         # make note that we want to find such intel
         assert(intel_manager == self.character.intel_manager)
         self._interests.add(intel_criteria)
@@ -1035,16 +1047,40 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # registers several interests, but the schedule will dedupe
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
+    def _check_dependency_removal(self, dependency:core.IntelMatchCriteria, intel:core.Intel) -> None:
+        # if this intel was a dependency for some other source interest
+        # we need to pull that source back into our regular set of
+        # interests so we can try and collect it again
+        if dependency in self._source_interests_by_dependency:
+            source = self._source_interests_by_dependency[dependency]
+            if not source.matches(intel):
+                # in this case we can keep any further dependnecy chain intact
+                self._interests.add(source)
+            else:
+                # if this itself is a dependency, we need to recursively handle
+                # the dependency chain
+                self._check_dependency_removal(source, intel)
+            del self._source_interests_by_source[source]
+            del self._source_interests_by_dependency[dependency]
+
+
     def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.Intel) -> None:
+        # first see if this satisfies some source criteria
+        remove_sources:set[core.IntelMatchCriteria] = set()
+        for source, dependency in list(self._source_interests_by_source.items()):
+            if source.matches(intel):
+                # we can stop tracking this
+                del self._source_interests_by_source[source]
+                del self._source_interests_by_dependency[dependency]
+                self._check_dependency_removal(source, intel)
+
         # see if that intel satisfies any of our needs and drop that need.
         # if it doesn't actually satisfy the root need, they can re-register
-        remove_set:set[core.IntelMatchCriteria] = set()
-        for criteria in self._interests:
+        for criteria in self._interests.copy():
             if criteria.matches(intel):
-                remove_set.add(criteria)
+                self._interests.remove(criteria)
+                self._check_dependency_removal(criteria, intel)
 
-        for criteira in remove_set:
-            self._interests.remove(criteria)
 
     # Agendum
 
@@ -1188,19 +1224,29 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
 class IntelCollectionDirector:
     def __init__(self) -> None:
-        self._gatherers:dict[Type[core.IntelMatchCriteria], IntelGatherer] = {}
+        self._gatherers:list[tuple[Type[core.IntelMatchCriteria], IntelGatherer]] = []
+
+    def _find_gatherer(self, klass:Type[core.IntelMatchCriteria]) -> Optional["IntelGatherer"]:
+        for criteria_klass, gatherer in self._gatherers:
+            if issubclass(klass, criteria_klass):
+                return gatherer
+        return None
 
     def register_gatherer(self, klass:Type[core.IntelMatchCriteria], gatherer:"IntelGatherer") -> None:
-        self._gatherers[klass] = gatherer
+        # note, gatherers should be registered from most specific to least
+        # specific so we can find the most specific gatherer first
+        self._gatherers.append((klass, gatherer))
 
     def estimate_cost(self, character:core.Character, intel_criteria:core.IntelMatchCriteria) -> Optional[tuple[bool, float]]:
-        if type(intel_criteria) not in self._gatherers:
+        gatherer = self._find_gatherer(type(intel_criteria))
+        if gatherer is None:
             return None
-        return self._gatherers[type(intel_criteria)].estimate_cost(character, intel_criteria)
+        return gatherer.estimate_cost(character, intel_criteria)
 
     def collect_intel(self, character:core.Character, intel_criteria:core.IntelMatchCriteria) -> float:
-        assert(type(intel_criteria) not in self._gatherers)
-        return self._gatherers[type(intel_criteria)].collect_intel(character, intel_criteria)
+        gatherer = self._find_gatherer(type(intel_criteria))
+        assert(gatherer is not None)
+        return gatherer.collect_intel(character, intel_criteria)
 
 class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
     def __init__(self) -> None:
@@ -1327,3 +1373,78 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         # if we have no candidates we should not have gotten called because we
         # would not have returned anything from estimate_cost.
         raise ValueError(f'no candidates to collect intel on')
+
+class SectorEntityIntelGatherer(IntelGatherer[intel.SectorEntityPartialCriteria]):
+    def estimate_cost(self, character:core.Character, intel_criteria:intel.SectorEntityPartialCriteria) -> Optional[tuple[bool, float]]:
+        # we'll just ask for sector hex intel, that's free
+        return (True, 0.0)
+
+    def collect_intel(self, character:core.Character, intel_criteria:intel.SectorEntityPartialCriteria) -> float:
+        sector_hex_criteria = intel.SectorHexPartialCriteria(sector_id=intel_criteria.sector_id, is_static=intel_criteria.is_static)
+        character.intel_manager.register_intel_interest(sector_hex_criteria, source=intel_criteria)
+        return 0.0
+
+class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEntityPartialCriteria]):
+    def _find_candidate(self, character:core.Character, station_criteria:intel.StationIntelPartialCriteria) -> Optional[tuple[float, intel.StationIntel]]:
+        #TODO: handle characters that aren't captains
+        assert(isinstance(character.location, core.Ship))
+        assert(character == character.location.captain)
+        assert(character.location.sector)
+        sector_id = character.location.sector.entity_id
+
+        # find the closest one (number of jumps, distance)
+        travel_cost = np.inf
+        closest_station_intel:Optional[intel.StationIntel] = None
+        for station_intel in character.intel_manager.intel(station_criteria, intel.StationIntel):
+            # make sure we don't have econ agent intel for this station already
+            # we're looking to create new intel
+            #TODO: should this be a freshness thing?
+            if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), core.Intel):
+                continue
+
+            #TODO: handle stations out of sector
+            if station_intel.sector_id != sector_id:
+                continue
+            station = self.gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
+            eta = ocore.DockingOrder.compute_eta(character.location, station)
+            if eta < travel_cost:
+                closest_station_intel = station_intel
+                travel_cost = eta
+
+        if closest_station_intel:
+            return (travel_cost, closest_station_intel)
+        else:
+            return None
+
+    def estimate_cost(self, character:core.Character, intel_criteria:intel.EconAgentSectorEntityPartialCriteria) -> Optional[tuple[bool, float]]:
+        # we'll need to find a matching sector entity to dock at
+        station_criteria = intel.StationIntelPartialCriteria(cls=intel_criteria.underlying_entity_type, sector_id=intel_criteria.sector_id, resources=intel_criteria.sell_resources, inputs=intel_criteria.buy_resources)
+
+        ret = self._find_candidate(character, station_criteria)
+        if ret is not None:
+            travel_cost, closest_station_intel = ret
+            return (travel_cost < 45., travel_cost)
+
+        # if we don't have one, we'll need to find one, but submitting a
+        # request for more intel is free
+        return (True, 0.0)
+
+    def collect_intel(self, character:core.Character, intel_criteria:intel.EconAgentSectorEntityPartialCriteria) -> float:
+        station_criteria = intel.StationIntelPartialCriteria(cls=intel_criteria.underlying_entity_type, sector_id=intel_criteria.sector_id, resources=intel_criteria.sell_resources, inputs=intel_criteria.buy_resources)
+
+        ret = self._find_candidate(character, station_criteria)
+        if ret is None:
+            character.intel_manager.register_intel_interest(station_criteria, source=intel_criteria)
+            return 0.0
+
+        travel_cost, station_intel = ret
+        station = self.gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
+
+        assert(isinstance(character.location, core.Ship))
+        assert(character == character.location.captain)
+        assert(character.location.sector)
+        assert(character.location.sector == station.sector)
+
+        docking_order = ocore.DockingOrder.create_docking_order(station, self.gamestate)
+        character.location.prepend_order(docking_order)
+        return self.gamestate.timestamp + docking_order.estimate_eta() * 1.2

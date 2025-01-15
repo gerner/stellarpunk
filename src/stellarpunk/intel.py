@@ -115,9 +115,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
                 return generic_intel
         return None
 
-    def register_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
+    def register_intel_interest(self, interest:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]) -> None:
         for observer in self.observers:
-            observer.intel_desired(self, interest)
+            observer.intel_desired(self, interest, source=source)
 
 
 #TODO: what happens if the associated character dies? or the intel goes away?
@@ -257,10 +257,10 @@ class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):
 class StationIntel(SectorEntityIntel[sector_entity.Station]):
     @classmethod
     def create_station_intel(cls, station:sector_entity.Station, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "StationIntel":
-        inputs = gamestate.production_chain.inputs_of(station.resource)
+        inputs = set(gamestate.production_chain.inputs_of(station.resource))
         return cls.create_sector_entity_intel(station, gamestate, *args, station.resource, inputs, **kwargs)
 
-    def __init__(self, resource:int, inputs:npt.NDArray[np.int64], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, resource:int, inputs:set[int], *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.inputs = inputs
@@ -378,28 +378,59 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
         return True
 
 class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
-    def __init__(self, *args:Any, resource:Optional[int]=None, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, resources:Optional[set[int]]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.resource = resource
+        self.resources = resources
 
     def matches(self, intel:core.Intel) -> bool:
         if not isinstance(intel, AsteroidIntel):
             return False
         if not super().matches(intel):
             return False
-        if self.resource is not None and intel.resource != self.resource:
+        if self.resources is not None and intel.resource in self.resources:
             return False
         return True
 
     def __hash__(self) -> int:
-        return hash((super().__hash__(), self.resource))
+        return hash((super().__hash__(), self.resources))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, AsteroidIntelPartialCriteria):
             return False
         if not super().__eq__(other):
             return False
-        if self.resource != other.resource:
+        if self.resources != other.resources:
+            return False
+        return True
+
+class StationIntelPartialCriteria(SectorEntityPartialCriteria):
+    def __init__(self, *args:Any, resources:Optional[set[int]]=None, inputs:Optional[set[int]]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.resources = resources
+        self.inputs = inputs
+
+    def matches(self, intel:core.Intel) -> bool:
+        if not isinstance(intel, StationIntel):
+            return False
+        if not super().matches(intel):
+            return False
+        if self.resources is not None and intel.resource in self.resources:
+            return False
+        if self.inputs is not None and len(intel.inputs.intersection(self.inputs)) == 0:
+            return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash((super().__hash__(), self.resources, self.inputs))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, StationIntelPartialCriteria):
+            return False
+        if not super().__eq__(other):
+            return False
+        if self.resources != other.resources:
+            return False
+        if self.inputs != other.inputs:
             return False
         return True
 
@@ -451,24 +482,27 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
 
 class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     """ Partial criteria matching econ agents for static sector entities """
-    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity, buy_resources:Optional[list[int]]=None, sell_resources:Optional[list[int]]=None) -> None:
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity, buy_resources:Optional[set[int]]=None, sell_resources:Optional[set[int]]=None) -> None:
         self.sector_id = sector_id
         assert(isinstance(underlying_entity_type, type))
         if not issubclass(underlying_entity_type, core.SectorEntity):
             raise ValueError(f'{underlying_entity_type=} must be a subclass of core.SectorEntity')
+        self.underlying_entity_id = underlying_entity_id
         self.underlying_entity_type = underlying_entity_type
-        self.buy_resources:Optional[list[int]] = buy_resources
-        self.sell_resources:Optional[list[int]] = sell_resources
+        self.buy_resources = buy_resources
+        self.sell_resources = sell_resources
 
     def matches(self, intel:core.Intel) -> bool:
         # check stuff about the intel itself
         if not isinstance(intel, EconAgentIntel):
             return False
+        if self.underlying_entity_id is not None and self.underlying_entity_id != intel.underlying_entity_id:
+            return False
         if self.underlying_entity_type is not None and self.underlying_entity_type != intel.underlying_entity_type:
             return False
-        if self.buy_resources is not None and self.buy_resources != list(intel.buy_offers.keys()):
+        if self.buy_resources is not None and self.buy_resources != set(intel.buy_offers.keys()):
             return False
-        if self.sell_resources is not None and self.sell_resources != list(intel.sell_offers.keys()):
+        if self.sell_resources is not None and self.sell_resources != set(intel.sell_offers.keys()):
             return False
 
         # check stuff about the underlying entity
@@ -485,12 +519,14 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
         return True
 
     def __hash__(self) -> int:
-        return hash((self.sector_id, self.underlying_entity_type, self.buy_resources, self.sell_resources))
+        return hash((self.sector_id, self.underlying_entity_id, self.underlying_entity_type, self.buy_resources, self.sell_resources))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, EconAgentSectorEntityPartialCriteria):
             return False
         if self.sector_id != other.sector_id:
+            return False
+        if self.underlying_entity_id != other.underlying_entity_id:
             return False
         if self.underlying_entity_type != other.underlying_entity_type:
             return False

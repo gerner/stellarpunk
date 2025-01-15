@@ -89,7 +89,7 @@ class IntelManagerObserver(base.Observer):
     def intel_removed(self, intel_manager:"AbstractIntelManager", intel:"Intel") -> None:
         """ A piece of intel has been removed. the intel may be "dead" """
         pass
-    def intel_desired(self, intel_manager:"AbstractIntelManager", intel_criteria:"IntelMatchCriteria") -> None:
+    def intel_desired(self, intel_manager:"AbstractIntelManager", intel_criteria:"IntelMatchCriteria", source:Optional["IntelMatchCriteria"]) -> None:
         """ Someone desires a particular kind of intel. """
         pass
 
@@ -104,9 +104,8 @@ class AbstractIntelManager(base.Observable[IntelManagerObserver]):
     @abc.abstractmethod
     def sanity_check(self) -> None: ...
 
-    #TODO: some way to ask for asteroids
-    #TODO: some way to ask for buyers (econ agents, or at least some proxy representing our knowledge of the econ agent at that time) and the corresponding locations we can find them at
-    #TODO:
+    @abc.abstractmethod
+    def register_intel_interest(self, interest:IntelMatchCriteria, source:Optional[IntelMatchCriteria]) -> None: ...
 
 class AgendumLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, character:"Character", *args:Any, **kwargs:Any):
