@@ -50,7 +50,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._generator = generator
         self._generator_thread:Optional[threading.Thread] = None
         self._generator_exception:Optional[Exception] = None
-        self._threaded_generation = False
+        self._threaded_generation = True
 
         self._game_saver = game_saver
 
@@ -109,8 +109,10 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
     def _generate_universe(self) -> None:
         self.interface.log_message("generating a universe...")
+        start_time = time.perf_counter()
         gamestate = self._generator.generate_universe()
-        self.interface.log_message("new universe created")
+        end_time = time.perf_counter()
+        self.interface.log_message(f'new universe created in {end_time-start_time:.2f}s.')
         gamestate.force_pause(self)
         # the gamestate will get sent to people via an event on universe
         # generator

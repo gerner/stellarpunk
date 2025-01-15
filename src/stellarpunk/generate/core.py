@@ -23,6 +23,7 @@ import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ, config, events, sensors, intel
 from stellarpunk.core import combat, sector_entity
+from stellarpunk.agenda import intel as aintel
 from . import markov
 
 RESOURCE_REL_SHIP = 0
@@ -724,9 +725,10 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models[culture] = markov.MarkovModel(romanize=False)
 
 
-    def pre_initialize(self, event_manager:events.EventManager, empty_name_model_culture:Optional[str]=None) -> None:
+    def pre_initialize(self, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, empty_name_model_culture:Optional[str]=None) -> None:
         self.event_manager = event_manager
         self.event_manager.register_context_keys(ContextKeys, "generate")
+        self.intel_director = intel_director
         self._prepare_sprites()
         self._prepare_projectile_spawn_pattern()
 
@@ -1527,9 +1529,7 @@ class UniverseGenerator(core.AbstractGenerator):
                     assign_names,
                 )
             except GenerationError as e:
-                breakpoint()
                 generation_error_cases[e.case] += 1
-                pass
             tries += 1
             if tries in self._production_chain_ticks:
                 for observer in self._observers:
@@ -2173,6 +2173,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self.gamestate = core.Gamestate()
         self.gamestate.event_manager = self.event_manager
         self.gamestate.event_manager.initialize_gamestate(events.EventState(), self.gamestate)
+        self.intel_director.initialize_gamestate(self.gamestate)
 
         self.gamestate.generator = self
         self.gamestate.random = self.r

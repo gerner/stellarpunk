@@ -20,6 +20,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import util, sim, core, narrative, generate, econ, events
+from stellarpunk.agenda import intel as aintel
 from stellarpunk.serialization import util as s_util
 
 SAVE_FORMAT_VERSION = "0.1.0"
@@ -250,7 +251,7 @@ class GameSaver(SaverObserver):
 
     Organizes configuration and dispatches to various sorts of save logic. """
 
-    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, *args:Any, debug:bool=True, **kwargs:Any) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, *args:Any, debug:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -269,6 +270,7 @@ class GameSaver(SaverObserver):
         # we'll need these as part of saving and loading
         self.generator = generator
         self.event_manager = event_manager
+        self.intel_director = intel_director
 
         self._observers:weakref.WeakSet[GameSaverObserver] = weakref.WeakSet()
 
@@ -534,8 +536,9 @@ class GameSaver(SaverObserver):
 
             # we created the gamestate so it's our responsibility to set its
             # event manager and post_initialize it
-            self.logger.debug("initializing event manager")
+            self.logger.debug("initializing event manager, etc.")
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
+            self.intel_director.initialize_gamestate(gamestate)
 
             self.logger.debug("sanity checking loaded gamestate")
             gamestate.sanity_check()

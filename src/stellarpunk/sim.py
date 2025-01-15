@@ -15,6 +15,7 @@ import cymunk # type: ignore
 
 from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors, intel
 from stellarpunk.core import combat, sector_entity
+from stellarpunk.agenda import intel as aintel
 from stellarpunk.interface import ui_util, manager as interface_manager
 from stellarpunk.serialization import (
     save_game, econ as s_econ,
@@ -474,8 +475,16 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             ticktime = now - starttime
             self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
-def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, debug:bool=True) -> save_game.GameSaver:
-    sg = save_game.GameSaver(generator, event_manager, debug=debug)
+def initialize_intel_director() -> aintel.IntelCollectionDirector:
+    intel_director = aintel.IntelCollectionDirector()
+    intel_director.register_gatherer(intel.SectorHexPartialCriteria, aintel.SectorHexIntelGatherer())
+    intel_director.register_gatherer(intel.SectorEntityPartialCriteria, aintel.SectorEntityIntelGatherer())
+    intel_director.register_gatherer(intel.EconAgentSectorEntityPartialCriteria, aintel.EconAgentSectorEntityIntelGatherer())
+
+    return intel_director
+
+def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, debug:bool=True) -> save_game.GameSaver:
+    sg = save_game.GameSaver(generator, event_manager, intel_director, debug=debug)
 
     # top level stuff
     sg.register_saver(events.EventState, s_events.EventStateSaver(sg))
@@ -602,12 +611,13 @@ def main() -> None:
         events.register_events(event_manager)
         sensors.pre_initialize(event_manager)
         intel.pre_initialize(event_manager)
+        intel_director = initialize_intel_director()
 
         generator = generate.UniverseGenerator()
-        sg = initialize_save_game(generator, event_manager)
+        sg = initialize_save_game(generator, event_manager, intel_director)
         ui = context_stack.enter_context(interface_manager.InterfaceManager(generator, sg))
 
-        generator.pre_initialize(event_manager)
+        generator.pre_initialize(event_manager, intel_director)
 
         ui_util.initialize()
         ui.pre_initialize(event_manager)

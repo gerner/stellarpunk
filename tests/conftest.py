@@ -5,6 +5,7 @@ import cymunk # type: ignore
 import numpy as np
 
 from stellarpunk import core, sim, generate, interface, sensors, events, intel, config
+from stellarpunk.agenda import intel as aintel
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
 @pytest.fixture
@@ -19,6 +20,10 @@ def event_manager() -> events.EventManager:
     return em
 
 @pytest.fixture
+def intel_director() -> aintel.IntelCollectionDirector:
+    return sim.initialize_intel_director()
+
+@pytest.fixture
 def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventManager) -> Generator[core.Gamestate, None, None]:
     gamestate = core.Gamestate()
     gamestate.econ_logger = econ_logger
@@ -28,10 +33,10 @@ def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventMa
     gamestate.sanity_check_effects()
 
 @pytest.fixture
-def generator(event_manager:events.EventManager, gamestate:core.Gamestate) -> generate.UniverseGenerator:
+def generator(event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, gamestate:core.Gamestate) -> generate.UniverseGenerator:
     ug = generate.UniverseGenerator(seed=0)
     ug.gamestate = gamestate
-    ug.pre_initialize(event_manager, empty_name_model_culture="test")
+    ug.pre_initialize(event_manager, intel_director, empty_name_model_culture="test")
     gamestate.random = ug.r
     gamestate.generator = ug
     gamestate.production_chain = ug.generate_chain(

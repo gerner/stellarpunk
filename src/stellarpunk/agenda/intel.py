@@ -240,6 +240,11 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
 class IntelCollectionDirector:
     def __init__(self) -> None:
+        # a list of match criteria type, intel gatherer pairs where each
+        # gatherer can find intel matching crtieria of that type.
+        # this is sorted so the most specific types come first (e.g.
+        # AsteroidIntelPartialCriteria before SectorEntityPartialCriteria, the
+        # first is a more specific subclass of the other)
         self._gatherers:list[tuple[Type[core.IntelMatchCriteria], IntelGatherer]] = []
 
     def _find_gatherer(self, klass:Type[core.IntelMatchCriteria]) -> Optional["IntelGatherer"]:
@@ -247,6 +252,10 @@ class IntelCollectionDirector:
             if issubclass(klass, criteria_klass):
                 return gatherer
         return None
+
+    def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
+        for _, gatherer in self._gatherers:
+            gatherer.initialize_gamestate(gamestate)
 
     def register_gatherer(self, klass:Type[core.IntelMatchCriteria], gatherer:"IntelGatherer") -> None:
         # note, gatherers should be registered from most specific to least
