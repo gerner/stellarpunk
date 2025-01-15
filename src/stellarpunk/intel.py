@@ -584,7 +584,7 @@ class IdentifySectorEntityAction(events.Action):
             #TODO: TravelGate needs its own intel to include where the travel gate goes
             intel:SectorEntityIntel
             if isinstance(sentity, (sector_entity.Station, sector_entity.Planet, sector_entity.TravelGate)):
-                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, author=character.entity_id)
+                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, author_id=character.entity_id)
             # otherwise we'll give it some ttl
             else:
                 fresh_until = self.gamestate.timestamp + self.intel_ttl*0.2

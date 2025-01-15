@@ -292,7 +292,12 @@ behavior if necessary and indicated by other behaviors.
 
 ### Passive vs Active Collection
 
-Passive intel collection means we can take minor actions that won't get in the way of other behaviors to get desired intel.
+Passive intel collection means we can take minor actions that won't get in the
+way of other behaviors to get desired intel. It's really important that we not
+interrupt uninterruptable behaviors or effects. For instance, we should not
+interrupt an ongoing mining effect.
+
+This may make passive collection a bad idea.
 
 * Making a sensor scan at the current location (if we're a captain)
 * Buying news/intel from the intel market on a station we're already at

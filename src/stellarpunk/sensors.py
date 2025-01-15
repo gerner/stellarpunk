@@ -452,17 +452,7 @@ class SensorManager(core.AbstractSensorManager):
     def detected(self, target:core.SectorEntity, detector:core.SectorEntity) -> bool:
         return self.compute_target_profile(target, detector) > self.compute_effective_threshold(detector)
 
-    #def spatial_query(self, detector:core.SectorEntity, bbox:Tuple[float, float, float, float]) -> Iterator[core.SectorEntity]:
-    #    for hit in self.sector.spatial_query(bbox):
-    #        if self.detected(hit, detector):
-    #            yield hit
-
-    #def spatial_point(self, detector:core.SectorEntity, point:Union[Tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[core.SectorEntity]:
-    #    for hit in self.sector.spatial_point(point, max_dist):
-    #        if self.detected(hit, detector):
-    #            yield hit
-
-    def scan(self, detector:core.SectorEntity) -> Iterator[core.AbstractSensorImage]:
+    def scan(self, detector:core.SectorEntity) -> Iterable[core.AbstractSensorImage]:
         """ Scans the sector for detectable sensor images
 
         This does not notify targets of being targeted. Instead any targets of
@@ -471,12 +461,14 @@ class SensorManager(core.AbstractSensorManager):
 
         This is an expensive operation. It has to touch every sector entity in
         the sector. So don't do this too often.  """
+
         static_hits = 0
         dynamic_hits = 0
+        hits:list[core.AbstractSensorImage] = []
         for hit in self.sector.entities.values():
             if self.detected(hit, detector):
                 target = self.target(hit, detector, notify_target=False)
-                yield target
+                hits.append(target)
                 if target.identified:
                     target_entity = core.Gamestate.gamestate.get_entity(target.identity.entity_id, target.identity.object_type)
                     if target_entity.is_static:

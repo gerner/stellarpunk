@@ -155,6 +155,7 @@ class Gamestate(EntityRegistry):
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
 
+        # Universe State
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:dict[uuid.UUID, Sector] = {}
         self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
@@ -165,30 +166,31 @@ class Gamestate(EntityRegistry):
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
 
+        self.starfield:list[StarfieldLayer] = []
+        self.sector_starfield:list[StarfieldLayer] = []
+        self.portrait_starfield:list[StarfieldLayer] = []
+
+
         #TODO: this feels janky, but I do need a way to find the EconAgent
         # representing a station if I want to trade with it.
         #TODO: how do we keep this up to date?
         # collection of EconAgents, by uuid of the entity they represent
         self.econ_agents:dict[uuid.UUID, EconAgent] = {}
         self.agent_to_entity:dict[uuid.UUID, Entity] = {}
-
         self.econ_logger:AbstractEconDataLogger = AbstractEconDataLogger()
 
+        # convenience access to characters, dupicates stuff in self.entities
         self.characters:dict[uuid.UUID, Character] = {}
-
-        # priority queue of order items in form (scheduled timestamp, agendum)
-        self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
-
-        # priority queue of effects
-        self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
-
-        # priority queue of agenda items in form (scheduled timestamp, agendum)
-        self._agenda_schedule:task_schedule.TaskSchedule[AbstractAgendum] = task_schedule.TaskSchedule()
-
-        self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
-
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
+        # priority queue of various behaviors (scheduled timestamp, item)
+        # ship orders, sector effects, character agenda and generic tasks
+        self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
+        self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
+        self._agenda_schedule:task_schedule.TaskSchedule[AbstractAgendum] = task_schedule.TaskSchedule()
+        self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
+
+        # Time keeping
         self.base_date = datetime.datetime(2234, 4, 3)
         # this is so 40 hours of gameplay => 4 years of gametime
         # 4 years is long enough to accomplish a lot and 40 hours seems like a
@@ -196,7 +198,6 @@ class Gamestate(EntityRegistry):
         #TODO: put this in configuration and save/load it
         self.game_secs_per_sec = 876.
         self.timestamp = 0.
-
         self.ticks = 0
 
         self.one_tick = False
@@ -207,17 +208,16 @@ class Gamestate(EntityRegistry):
 
         self.counters = [0.] * len(Counters)
 
-        self.starfield:list[StarfieldLayer] = []
-        self.sector_starfield:list[StarfieldLayer] = []
-        self.portrait_starfield:list[StarfieldLayer] = []
-
-        # list for in iterator appends
-        # set for destroying exactly once
+        # House keeping state for cleanup, event deduping
+        # list allows in iterator appends
+        # set allows destroying exactly once
         self.entity_destroy_list:list[Entity] = []
         self.entity_destroy_set:set[Entity] = set()
-
         self.last_colliders:set[str] = set()
 
+        # We maintain gamestate as a singleton for convenient access to the
+        # "current" global gamestate
+        #TODO: maintain this class field externally and not in the constructor?
         if Gamestate.gamestate is not None:
             self.logger.info(f'replacing existing gamestate current: {Gamestate.gamestate.ticks} ticks and {Gamestate.gamestate.timestamp} game secs with {len(Gamestate.gamestate.entities)} entities')
         #    raise ValueError()
