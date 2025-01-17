@@ -86,7 +86,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # registers several interests, but the schedule will dedupe
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
-    def _check_dependency_removal(self, dependency:core.IntelMatchCriteria, intel:core.Intel) -> None:
+    def _check_dependency_removal(self, dependency:core.IntelMatchCriteria, intel:core.AbstractIntel) -> None:
         # if this intel was a dependency for some other source interest
         # we need to pull that source back into our regular set of
         # interests so we can try and collect it again
@@ -103,7 +103,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             del self._source_interests_by_dependency[dependency]
 
 
-    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.Intel) -> None:
+    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
         # first see if this satisfies some source criteria
         remove_sources:set[core.IntelMatchCriteria] = set()
         for source, dependency in list(self._source_interests_by_source.items()):
@@ -469,7 +469,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             # make sure we don't have econ agent intel for this station already
             # we're looking to create new intel
             #TODO: should this be a freshness thing?
-            if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), core.Intel):
+            if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), core.AbstractIntel):
                 continue
 
             #TODO: handle stations out of sector

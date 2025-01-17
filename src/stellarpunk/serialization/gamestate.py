@@ -117,8 +117,10 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         bytes_written += s_util.debug_string_w("task schedule", f)
         bytes_written += s_util.size_to_f(gamestate._task_schedule.size(), f)
         for (timestamp, task) in gamestate._task_schedule:
-            bytes_written += s_util.float_to_f(timestamp, f)
-            bytes_written += self.save_game.save_object(task, f, klass=core.ScheduledTask)
+            # some tasks might be invalid, so we don't need to save them
+            if task.is_valid():
+                bytes_written += s_util.float_to_f(timestamp, f)
+                bytes_written += self.save_game.save_object(task, f, klass=core.ScheduledTask)
 
         # starfields
         bytes_written += s_util.debug_string_w("starfields", f)

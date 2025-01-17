@@ -121,6 +121,10 @@ class ScheduledTask(abc.ABC):
         else:
             self.task_id = uuid.uuid4()
 
+    def is_valid(self) -> bool:
+        """ Is this task still valid? helps with book keeping. """
+        return True
+
     @abc.abstractmethod
     def act(self) -> None: ...
 
@@ -497,6 +501,9 @@ class Gamestate(EntityRegistry):
 
     def pop_current_agenda(self) -> Sequence[AbstractAgendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
+
+    def is_task_scheduled(self, task:ScheduledTask) -> bool:
+        return self._task_schedule.is_task_scheduled(task)
 
     def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:
         self.schedule_task(self.timestamp + DT_EPSILON, task, jitter)

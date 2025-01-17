@@ -23,13 +23,13 @@ class Asset(base.Entity):
 
 class IntelMatchCriteria:
     @abc.abstractmethod
-    def matches(self, intel:"Intel") -> bool: ...
+    def matches(self, intel:"AbstractIntel") -> bool: ...
 
 class IntelObserver(base.Observer):
-    def intel_expired(self, intel:"Intel") -> None:
+    def intel_expired(self, intel:"AbstractIntel") -> None:
         pass
 
-class Intel(base.Observable[IntelObserver], base.Entity):
+class AbstractIntel(base.Observable[IntelObserver], base.Entity):
     id_prefix = "INT"
 
     def __init__(self, *args:Any, author_id:uuid.UUID=base.OBSERVER_ID_NULL, expires_at:float=np.inf, fresh_until:Optional[float]=None, **kwargs:Any):
@@ -51,7 +51,10 @@ class Intel(base.Observable[IntelObserver], base.Entity):
     def match_criteria(self) -> IntelMatchCriteria: ...
 
     def sanity_check(self) -> None:
-        pass
+        super().sanity_check()
+        self.author_id != base.OBSERVER_ID_NULL
+        self.fresh_until > 0.0
+        self.expires_at > 0.0
 
     @property
     def observable_id(self) -> uuid.UUID:
@@ -64,7 +67,7 @@ class Intel(base.Observable[IntelObserver], base.Entity):
         if len(self.observers) == 0:
             self.entity_registry.destroy_entity(self)
 
-    def matches(self, other:"Intel") -> bool:
+    def matches(self, other:"AbstractIntel") -> bool:
         return False
 
     def is_valid(self) -> bool:
@@ -83,10 +86,10 @@ class Intel(base.Observable[IntelObserver], base.Entity):
         # self.entity_registry.destroy_entity(self)
 
 class IntelManagerObserver(base.Observer):
-    def intel_added(self, intel_manager:"AbstractIntelManager", intel:"Intel") -> None:
+    def intel_added(self, intel_manager:"AbstractIntelManager", intel:"AbstractIntel") -> None:
         """ A piece of intel has been added. """
         pass
-    def intel_removed(self, intel_manager:"AbstractIntelManager", intel:"Intel") -> None:
+    def intel_removed(self, intel_manager:"AbstractIntelManager", intel:"AbstractIntel") -> None:
         """ A piece of intel has been removed. the intel may be "dead" """
         pass
     def intel_desired(self, intel_manager:"AbstractIntelManager", intel_criteria:"IntelMatchCriteria", source:Optional["IntelMatchCriteria"]) -> None:
@@ -96,11 +99,11 @@ class IntelManagerObserver(base.Observer):
 
 class AbstractIntelManager(base.Observable[IntelManagerObserver]):
     @abc.abstractmethod
-    def add_intel(self, intel:"Intel") -> None: ...
+    def add_intel(self, intel:"AbstractIntel") -> None: ...
     @abc.abstractmethod
-    def intel[T:Intel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Collection[T]: ...
+    def intel[T:AbstractIntel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Collection[T]: ...
     @abc.abstractmethod
-    def get_intel[T:Intel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Optional[T]: ...
+    def get_intel[T:AbstractIntel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Optional[T]: ...
     @abc.abstractmethod
     def sanity_check(self) -> None: ...
 

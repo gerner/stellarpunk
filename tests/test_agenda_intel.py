@@ -108,13 +108,13 @@ def test_passive_collection(gamestate, generator, ship, intel_director, testui, 
             self._preempt_count = 0
             self._pause_count = 0
             self._unpause_count = 0
-            self._added_intels:list[core.Intel] = []
+            self._added_intels:list[core.AbstractIntel] = []
 
         @property
         def observer_id(self) -> uuid.UUID:
             return core.OBSERVER_ID_NULL
 
-        def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.Intel) -> None:
+        def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
             assert(intel_manager == character.intel_manager)
             self._added_intels.append(intel)
 
@@ -246,7 +246,7 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
         def __init__(self) -> None:
             super().__init__()
             self._interests:set[core.IntelMatchCriteria] = set()
-            self._added_intels:list[core.Intel] = []
+            self._added_intels:list[core.AbstractIntel] = []
 
         @property
         def observer_id(self) -> uuid.UUID:
@@ -255,7 +255,7 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
         def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]) -> None:
             self._interests.add(intel_criteria)
 
-        def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.Intel) -> None:
+        def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
             assert intel_manager == character.intel_manager
             self._added_intels.append(intel)
 

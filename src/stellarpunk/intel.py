@@ -11,6 +11,53 @@ from stellarpunk import core, events, sensors, util
 #TODO: sector_entity shouldn't be in core
 from stellarpunk.core import sector_entity
 
+class Intel(core.AbstractIntel):
+    @classmethod
+    def create_intel[T:Intel](cls:Type[T], *args:Any, **kwargs:Any) -> T:
+        obj = cls(*args, _check_flag=True, **kwargs)
+        if obj.expires_at < np.inf:
+            obj.expire_task = ExpireIntelTask.expire_intel(obj)
+        return obj
+
+    def __init__(self, *args:Any, _check_flag:bool=False, **kwargs:Any) -> None:
+        assert(_check_flag)
+        super().__init__(*args, **kwargs)
+        self.expire_task:Optional[ExpireIntelTask] = None
+
+    def _unobserve(self, observer:core.IntelObserver) -> None:
+        super()._unobserve(observer)
+        if len(self.observers) == 0 and self.expire_task:
+            core.Gamestate.gamestate.unschedule_task(self.expire_task)
+            self.expire_task = None
+
+    def sanity_check(self) -> None:
+        super().sanity_check()
+        assert len(self.observers) > 0
+        if self.expires_at < np.inf:
+            # we should have an expiration task and it should be scheduled
+            # if we have already expired, or all observers dropped us, we
+            # should be gone from the entity store and no one should be sanity
+            # checking us.
+            assert self.expire_task
+            assert core.Gamestate.gamestate.is_task_scheduled(self.expire_task)
+        if not self.expires_at < np.inf:
+            assert self.expire_task is None
+
+class ExpireIntelTask(core.ScheduledTask):
+    @classmethod
+    def expire_intel(cls, intel:core.AbstractIntel) -> "ExpireIntelTask":
+        task = ExpireIntelTask()
+        task.intel = intel
+        core.Gamestate.gamestate.schedule_task(intel.expires_at, task)
+        return task
+
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.intel:core.AbstractIntel = None # type: ignore
+
+    def act(self) -> None:
+        self.intel.expire()
+
 class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     """ Manages known intel and creates intel items for a character. """
     @classmethod
@@ -33,7 +80,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         for intel_id in self._intel:
             intel_count += 1
             assert intel_id in self._intel
-            intel = self.gamestate.get_entity(intel_id, core.Intel)
+            intel = self.gamestate.get_entity(intel_id, core.AbstractIntel)
             assert intel.entity_id == intel_id
             match_criteria = intel.match_criteria()
             assert intel.entity_id == self._intel_map[match_criteria]
@@ -56,25 +103,25 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     def observer_id(self) -> uuid.UUID:
         return self.character.entity_id
 
-    def intel_expired(self, intel:core.Intel) -> None:
+    def intel_expired(self, intel:core.AbstractIntel) -> None:
         self._remove_intel(intel)
 
         #TODO: are there other ways intel might be removed?
         for observer in self.observers:
             observer.intel_removed(self, intel)
 
-    def _remove_intel(self, old_intel:core.Intel) -> None:
+    def _remove_intel(self, old_intel:core.AbstractIntel) -> None:
         self._intel.remove(old_intel.entity_id)
         del self._intel_map[old_intel.match_criteria()]
         old_intel.unobserve(self)
 
-    def _add_intel(self, intel:core.Intel) -> None:
+    def _add_intel(self, intel:core.AbstractIntel) -> None:
         intel.observe(self)
         self._intel.add(intel.entity_id)
         self._intel_map[intel.match_criteria()] = intel.entity_id
 
-    def add_intel(self, intel:core.Intel) -> None:
-        old_intel:Optional[core.Intel] = self.get_intel(intel.match_criteria(), type(intel))
+    def add_intel(self, intel:core.AbstractIntel) -> None:
+        old_intel:Optional[core.AbstractIntel] = self.get_intel(intel.match_criteria(), type(intel))
 
         # if we already have fresh matching intel
         if old_intel and old_intel.created_at > intel.created_at:
@@ -84,31 +131,23 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             # theirs is better, drop ours
             self._remove_intel(old_intel)
 
-        if intel.author_id == self.character.entity_id:
-            # we're authoring it, so we are responsible for it
-            #TODO: this assumes we'll only ever add this intel once. but
-            # couldn't we sahre it, remove it and then add it again (for some
-            # unknown reason) in that case we'll double schedule the expiration
-            if intel.expires_at < np.inf:
-                self.gamestate.schedule_task(intel.expires_at, ExpireIntelTask.expire_intel(intel))
-
         self._add_intel(intel)
 
         for observer in self.observers:
             observer.intel_added(self, intel)
 
-    def intel[T:core.Intel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> Collection[T]:
+    def intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> Collection[T]:
         if cls is None:
-            cls = core.Intel # type: ignore
+            cls = core.AbstractIntel # type: ignore
         assert(cls is not None)
         if match_criteria in self._intel_map:
             intel = self._intel_map[match_criteria]
             assert(isinstance(intel, cls))
             return [intel]
 
-        return list(x for x in (self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel if match_criteria.matches(self.gamestate.get_entity(intel_id, core.Intel))))
+        return list(x for x in (self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel if match_criteria.matches(self.gamestate.get_entity(intel_id, core.AbstractIntel))))
 
-    def get_intel[T:core.Intel](self, match_criteria:core.IntelMatchCriteria, cls:Type[T]) -> Optional[T]:
+    def get_intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Type[T]) -> Optional[T]:
         # we assume the intel is of the right type
         # check if we have such intel via exact match
         if match_criteria in self._intel_map:
@@ -117,7 +156,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             return intel
 
         for intel_id in self._intel:
-            generic_intel = self.gamestate.get_entity(intel_id, core.Intel)
+            generic_intel = self.gamestate.get_entity(intel_id, core.AbstractIntel)
             if match_criteria.matches(generic_intel):
                 assert(isinstance(generic_intel, cls))
                 return generic_intel
@@ -128,33 +167,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             observer.intel_desired(self, interest, source=source)
 
 
-# note: these tasks might become redundant if a piece of intel is dropped by
-# everyone that ever had it. in that case it's already been removed from the
-# entity registry. calling expire will do nothing because there are no
-# observers left to receive the intel_expired event
-# it's unfortunate that we couldn't unschedule the task when we dropped the
-# last observer, but ScheduledTask instances only live in the task queue and
-# there's no good place to hang on to something so we can unschedule it.
-# at least when we load we can tell that this is happening and just not reload
-# those tasks
-
-class ExpireIntelTask(core.ScheduledTask):
-    @classmethod
-    def expire_intel(cls, intel:core.Intel) -> "ExpireIntelTask":
-        task = ExpireIntelTask()
-        task.intel = intel
-        return task
-
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.intel:core.Intel = None # type: ignore
-
-    def act(self) -> None:
-        self.intel.expire()
-
 class TrivialMatchCriteria(core.IntelMatchCriteria):
-    def matches(self, other:core.Intel) -> bool:
-        assert(isinstance(other, core.Intel))
+    def matches(self, other:core.AbstractIntel) -> bool:
+        assert(isinstance(other, core.AbstractIntel))
         return True
 
 class EntityIntelMatchCriteria(core.IntelMatchCriteria):
@@ -169,12 +184,12 @@ class EntityIntelMatchCriteria(core.IntelMatchCriteria):
             return False
         return self.entity_id == other.entity_id
 
-    def matches(self, other:core.Intel) -> bool:
+    def matches(self, other:core.AbstractIntel) -> bool:
         if not isinstance(other, EntityIntel):
             return False
         return other.intel_entity_id == self.entity_id
 
-class EntityIntel[T:core.Entity](core.Intel):
+class EntityIntel[T:core.Entity](Intel):
     def __init__(self, intel_entity_id:uuid.UUID, id_prefix:str, intel_entity_short_id:str, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
         # we need to set these fields before the super constructor because we
         # override __str__ which might be called in a super constructor
@@ -191,7 +206,7 @@ class EntityIntel[T:core.Entity](core.Intel):
     def match_criteria(self) -> core.IntelMatchCriteria:
         return EntityIntelMatchCriteria(self.intel_entity_id)
 
-    def matches(self, other:core.Intel) -> bool:
+    def matches(self, other:core.AbstractIntel) -> bool:
         if not isinstance(other, EntityIntel):
             return False
         return other.intel_entity_id == self.intel_entity_id
@@ -216,7 +231,7 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
         id_prefix = entity.id_prefix
         entity_short_id = entity.short_id()
         entity_class = type(entity)
-        intel = cls(*args, sector_id, loc, radius, is_static, entity_id, id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
+        intel = cls.create_intel(*args, sector_id, loc, radius, is_static, entity_id, id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
 
         return intel
 
@@ -289,7 +304,7 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
         entity_id_prefix = econ_agent.id_prefix
         entity_short_id = econ_agent.short_id()
         entity_class = type(econ_agent)
-        agent_intel = EconAgentIntel(entity_id, entity_id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
+        agent_intel = cls.create_intel(entity_id, entity_id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
         #TODO: econ agents are not always associated with sector entities!
         underlying_entity = gamestate.agent_to_entity[entity_id]
         agent_intel.underlying_entity_type = type(underlying_entity)
@@ -333,12 +348,12 @@ class SectorHexMatchCriteria(core.IntelMatchCriteria):
             return False
         return self.is_static == other.is_static and self.sector_id == other.sector_id and util.both_isclose(self.hex_loc, other.hex_loc)
 
-    def matches(self, intel:"core.Intel") -> bool:
+    def matches(self, intel:"core.AbstractIntel") -> bool:
         if not isinstance(intel, SectorHexIntel):
             return False
         return self.is_static == intel.is_static and self.sector_id == intel.sector_id and util.both_isclose(self.hex_loc, intel.hex_loc)
 
-class SectorHexIntel(core.Intel):
+class SectorHexIntel(Intel):
     def __init__(self, sector_id:uuid.UUID, hex_loc:npt.NDArray[np.float64], is_static:bool, entity_count:int, type_counts:dict[Type[core.SectorEntity],int], *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.sector_id = sector_id
@@ -350,7 +365,7 @@ class SectorHexIntel(core.Intel):
     def match_criteria(self) -> core.IntelMatchCriteria:
         return SectorHexMatchCriteria(self.sector_id, self.hex_loc, self.is_static)
 
-    def matches(self, other:core.Intel) -> bool:
+    def matches(self, other:core.AbstractIntel) -> bool:
         if not isinstance(other, SectorHexIntel):
             return False
         return self.is_static == other.is_static and self.sector_id == other.sector_id and util.both_isclose(self.hex_loc, other.hex_loc)
@@ -368,7 +383,7 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
         self.is_static = is_static
         self.sector_id = sector_id
 
-    def matches(self, intel:core.Intel) -> bool:
+    def matches(self, intel:core.AbstractIntel) -> bool:
         if self.cls:
             if not isinstance(intel, self.cls):
                 return False
@@ -399,7 +414,7 @@ class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
         super().__init__(*args, **kwargs)
         self.resources = resources
 
-    def matches(self, intel:core.Intel) -> bool:
+    def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, AsteroidIntel):
             return False
         if not super().matches(intel):
@@ -426,7 +441,7 @@ class StationIntelPartialCriteria(SectorEntityPartialCriteria):
         self.resources = resources
         self.inputs = inputs
 
-    def matches(self, intel:core.Intel) -> bool:
+    def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, StationIntel):
             return False
         if not super().matches(intel):
@@ -467,7 +482,7 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
         self.hex_dist = hex_dist
         self.is_static = is_static
 
-    def matches(self, intel:core.Intel) -> bool:
+    def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, SectorHexIntel):
             return False
         if self.sector_id and intel.sector_id != self.sector_id:
@@ -513,7 +528,7 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
         self.buy_resources = buy_resources
         self.sell_resources = sell_resources
 
-    def matches(self, intel:core.Intel) -> bool:
+    def matches(self, intel:core.AbstractIntel) -> bool:
         # check stuff about the intel itself
         if not isinstance(intel, EconAgentIntel):
             return False
@@ -671,12 +686,12 @@ class ScanAction(events.Action):
             static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
             s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
             if not s_intel or not s_intel.is_fresh():
-                static_intel[util.int_coords(hex_coords)] = SectorHexIntel(sector.entity_id, hex_coords, True, 0, {}, self.gamestate, expires_at=static_expires_at, fresh_until=static_fresh_until)
+                static_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, True, 0, {}, self.gamestate, expires_at=static_expires_at, fresh_until=static_fresh_until)
 
             dynamic_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, False)
             d_intel = character.intel_manager.get_intel(dynamic_criteria, SectorHexIntel)
             if not d_intel or not d_intel.is_fresh():
-                dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel(sector.entity_id, hex_coords, False, 0, {}, self.gamestate, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
+                dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, False, 0, {}, self.gamestate, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
 
         # iterate over all the sensor images we've got accumulating info for
         # the hex they lie in, if it's within range

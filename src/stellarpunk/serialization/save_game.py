@@ -35,6 +35,7 @@ class LoadContext:
         self.generator:generate.UniverseGenerator = sg.generator
         self.gamestate:core.Gamestate = None # type: ignore
         self.references:set[Any] = set()
+        self.ephemeral_fetch_store:dict[uuid.UUID, Any] = dict()
         self._post_loads:list[tuple[Any, Any]] = []
         self._sanity_checks:list[tuple[Any, Any]] = []
         self._observer_sanity_checks:list[tuple[core.Observable, list[tuple[str, uuid.UUID]]]] = []
@@ -48,6 +49,15 @@ class LoadContext:
         this way these objects will stay alive until this LoadContext goes away
         """
         self.references.add(obj)
+
+    def store(self, object_id:uuid.UUID, obj:Any) -> None:
+        """ hang on to an object for later fetch during this load cycle. """
+        self.ephemeral_fetch_store[object_id] = obj
+
+    def fetch[T](self, object_id:uuid.UUID, klass:Type[T]) -> T:
+        obj = self.ephemeral_fetch_store[object_id]
+        assert(isinstance(obj, klass))
+        return obj
 
     def register_post_load(self, obj:Any, context:Any) -> None:
         self._post_loads.append((obj, context))
