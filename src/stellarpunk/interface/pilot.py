@@ -480,6 +480,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
                     raise command_input.UserError("must provide a valid ratio to set max thrust to")
                 if thrust_ratio < 0.0 or thrust_ratio > 1.0:
                     raise command_input.UserError("must choose a ratio between 0 and 1")
+                #TODO: we should really not monkey with the ship's max thrust
+                # there is nothing that will set it back to the real max
                 self.ship.max_thrust = self.ship.max_base_thrust * thrust_ratio
             self.interface.log_message(f'max thrust: {util.human_si_scale(self.ship.max_thrust, "N")}')
 

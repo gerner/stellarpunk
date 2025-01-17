@@ -477,6 +477,9 @@ class Gamestate(EntityRegistry):
     def pop_current_effects(self) -> Sequence[AbstractEffect]:
         return self._effect_schedule.pop_current_tasks(self.timestamp)
 
+    def is_agendum_scheduled(self, agendum:AbstractAgendum) -> bool:
+        return self._agenda_schedule.is_task_scheduled(agendum)
+
     def schedule_agendum_immediate(self, agendum:AbstractAgendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + DT_EPSILON, agendum, jitter)
 

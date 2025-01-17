@@ -51,6 +51,7 @@ def generator(event_manager:events.EventManager, intel_director:aintel.IntelColl
     e = {k:v for k,v in config.Events.items() if "group" in v and v["group"] == "intel"}
     event_manager.pre_initialize(e)
     event_manager.initialize_gamestate(events.EventState(), gamestate)
+    intel_director.initialize_gamestate(gamestate)
 
     return ug
 

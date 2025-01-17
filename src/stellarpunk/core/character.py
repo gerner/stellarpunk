@@ -152,18 +152,24 @@ class AbstractAgendum(abc.ABC):
     def make_primary(self) -> None:
         self._is_primary = True
 
-    def preempt_primary(self) -> None:
-        assert(self._is_primary)
+    def relinquish_primary(self) -> None:
         self._is_primary = False
 
-    def find_primary(self) -> Optional["AbstractAgendum"]:
-        for agendum in self.character.agenda:
-            if agendum.is_primary():
-                return agendum
-        return None
+    def preempt_primary(self) -> bool:
+        """ Request that this agendum relinquish primary status. """
+        assert(self._is_primary)
+        if self._preempt_primary():
+            self.relinquish_primary()
+            return True
+        else:
+            return False
 
     def sanity_check(self) -> None:
         assert(self in self.character.agenda)
+
+    def _preempt_primary(self) -> bool:
+        # by default always deny preemption.
+        return False
 
     def _start(self) -> None:
         pass
@@ -181,10 +187,12 @@ class AbstractAgendum(abc.ABC):
         self._start()
 
     def unpause(self) -> None:
+        assert(self.paused)
         self.paused = False
         self._unpause()
 
     def pause(self) -> None:
+        assert(not self.paused)
         self.paused = True
         self._pause()
 
@@ -277,6 +285,12 @@ class Character(base.Observable[CharacterObserver], base.Entity):
     def remove_agendum(self, agendum:AbstractAgendum) -> None:
         self.agenda.remove(agendum)
         agendum.unregister()
+
+    def find_primary_agendum(self) -> Optional["AbstractAgendum"]:
+        for agendum in self.agenda:
+            if agendum.is_primary():
+                return agendum
+        return None
 
 class AbstractEventManager:
     def e(self, event_id: enum.IntEnum) -> int:

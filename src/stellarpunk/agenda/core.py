@@ -40,6 +40,8 @@ class Agendum(core.AbstractAgendum, abc.ABC):
         assert(self.stopped_at < 0.0 or self.stopped_at == self.gamestate.timestamp)
         self._stop()
         self.stopped_at = self.gamestate.timestamp
+        if self.is_primary():
+            self.relinquish_primary()
         self.gamestate.unschedule_agendum(self)
 
 
@@ -88,6 +90,7 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.enable_threat_response = enable_threat_response
         self.threat_response:Optional[combat.FleeOrder] = None
         self._start_transponder = start_transponder
+        self._preempted_primary:Optional[core.AbstractAgendum] = None
 
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
@@ -100,30 +103,51 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.craft.sensor_settings.set_transponder(self._start_transponder)
 
     def _stop(self) -> None:
-        super()._stop()
+        if self.threat_response:
+            self.threat_response.cancel_order()
+            self.threat_response = None
         self.craft.captain = None
-        #TODO: kill other EOAs?
+
+    def _pause(self) -> None:
+        if self.threat_response:
+            self.threat_response.cancel_order()
+            self.threat_response = None
+
+        self.relinquish_primary()
+        if self._preempted_primary:
+            self._preempted_primary.make_primary()
+            self._preempted_primary.unpause()
+            self._preempted_primary = None
+
 
     def sanity_check(self) -> None:
         super().sanity_check()
         if self.threat_response:
             assert self.threat_response.order_id in self.gamestate.orders
             assert not self.threat_response.is_complete()
+        if self._preempted_primary:
+            assert self.is_primary()
+            assert not self._preempted_primary.is_primary()
+            assert self._preempted_primary.paused
 
     # core.OrderObserver
     def order_complete(self, order:core.Order) -> None:
         if order == self.threat_response:
             self.threat_response = None
-            for a in self.character.agenda:
-                if isinstance(a, EntityOperatorAgendum):
-                    a.unpause()
+            self.relinquish_primary()
+            if self._preempted_primary:
+                self._preempted_primary.make_primary()
+                self._preempted_primary.unpause()
+                self._preempted_primary = None
 
     def order_cancel(self, order:core.Order) -> None:
         if order == self.threat_response:
             self.threat_response = None
-            for a in self.character.agenda:
-                if isinstance(a, EntityOperatorAgendum):
-                    a.unpause()
+            self.relinquish_primary()
+            if self._preempted_primary:
+                self._preempted_primary.make_primary()
+                self._preempted_primary.unpause()
+                self._preempted_primary = None
 
     # core.SectorEntityObserver
     def entity_targeted(self, craft:core.SectorEntity, threat:core.SectorEntity) -> None:
@@ -134,25 +158,29 @@ class CaptainAgendum(core.OrderObserver, EntityOperatorAgendum):
 
         # ignore if we're already handling threats
         if self.threat_response:
+            assert(self.is_primary())
             return
 
-        # determine in threat is hostile
+        # determine if threat is hostile
         hostile = combat.is_hostile(self.craft, threat)
         # decide how to proceed:
         if not hostile:
             return
-        # if first threat, pause other ship-operating activities (agenda), start fleeing
-        self.logger.debug(f'{self.craft.short_id} initiating defensive maneuvers against threat {threat}')
-        #TODO: is it weird for one agendum to manipulate another?
-        for a in self.character.agenda:
-            if isinstance(a, EntityOperatorAgendum):
-                a.pause()
 
-        # engage in defense
-        if self.threat_response:
-            threat_image = self.craft.sector.sensor_manager.target(threat, craft)
-            self.threat_response.add_threat(threat_image)
-            return
+        # we need to be primary to take these actions
+        current_primary = self.character.find_primary_agendum()
+        if current_primary:
+            if not current_primary.preempt_primary():
+                #TODO: should we force a pause? lots of stuff can be forced to
+                # cancel current orders and such
+                self.logger.info(f'{self.craft} hostile targeted, but cannot become primary to take defensive maneuvers')
+                return
+            current_primary.pause()
+            self._preempted_primary = current_primary
+        self.make_primary()
+
+        # engage defense
+        self.logger.debug(f'{self.craft.short_id} initiating defensive maneuvers against threat {threat}')
         assert(isinstance(self.craft, core.Ship))
         self.threat_response = combat.FleeOrder.create_flee_order(self.craft, self.gamestate)
         self.threat_response.observe(self)

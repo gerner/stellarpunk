@@ -300,14 +300,21 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         #TODO: worry about other people harvesting asteroids
         return target
 
+    def _preempt_primary(self) -> bool:
+        #TODO: decide if we want to relinquish being primary
+        return False
+
     def _start(self) -> None:
-        super()._start()
+        current_primary = self.character.find_primary_agendum()
+        if current_primary:
+            raise ValueError(f'cannot start {self} because there is already a primary agendum {current_primary}')
         assert self.state == MiningAgendum.State.IDLE
+        self.make_primary()
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
     def _unpause(self) -> None:
-        super()._unpause()
         assert self.state == MiningAgendum.State.IDLE
+        assert self.is_primary()
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
     def _pause(self) -> None:
@@ -603,14 +610,21 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         if not self.paused:
             self.gamestate.schedule_agendum_immediate(self)
 
+    def _preempt_primary(self) -> bool:
+        #TODO: decide if we want to relinquish being primary
+        return False
+
     def _start(self) -> None:
-        super()._start()
+        current_primary = self.character.find_primary_agendum()
+        if current_primary:
+            raise ValueError(f'cannot start {self} because there is already a primary agendum {current_primary}')
         assert self.state == TradingAgendum.State.IDLE
+        self.make_primary()
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
     def _unpause(self) -> None:
-        super()._unpause()
         assert self.state == TradingAgendum.State.IDLE
+        assert self.is_primary()
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
 
     def _pause(self) -> None:
@@ -742,6 +756,13 @@ class StationManager(EntityOperatorAgendum):
             self.gamestate,
         )
 
+    def _preempt_primary(self) -> bool:
+        # we can always be preempted. Well resume production on unpause
+        return True
+
+    def _unpause(self) -> None:
+        self.gamestate.schedule_agendum_immediate(self)
+
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point
         self.craft.captain = self.character
@@ -832,6 +853,13 @@ class PlanetManager(EntityOperatorAgendum):
             self.gamestate.production_chain,
             self.gamestate
         )
+
+    def _preempt_primary(self) -> bool:
+        # we can always be preempted. Well resume production on unpause
+        return True
+
+    def _unpause(self) -> None:
+        self.gamestate.schedule_agendum_immediate(self)
 
     def _start(self) -> None:
         # become captain before underlying start so we'll be captain by that point

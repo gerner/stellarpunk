@@ -98,7 +98,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             assert(isinstance(intel, cls))
             return [intel]
 
-        return list(x for x in (self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel) if match_criteria.matches(x))
+        return list(x for x in (self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel if match_criteria.matches(self.gamestate.get_entity(intel_id, core.Intel))))
 
     def get_intel[T:core.Intel](self, match_criteria:core.IntelMatchCriteria, cls:Type[T]) -> Optional[T]:
         # we assume the intel is of the right type
@@ -115,7 +115,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
                 return generic_intel
         return None
 
-    def register_intel_interest(self, interest:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]) -> None:
+    def register_intel_interest(self, interest:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]=None) -> None:
         for observer in self.observers:
             observer.intel_desired(self, interest, source=source)
 
@@ -135,6 +135,11 @@ class ExpireIntelTask(core.ScheduledTask):
 
     def act(self) -> None:
         self.intel.expire()
+
+class TrivialMatchCriteria(core.IntelMatchCriteria):
+    def matches(self, other:core.Intel) -> bool:
+        assert(isinstance(other, core.Intel))
+        return True
 
 class EntityIntelMatchCriteria(core.IntelMatchCriteria):
     def __init__(self, entity_id:uuid.UUID) -> None:
@@ -457,7 +462,7 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
             return False
         if self.is_static is not None and intel.is_static != self.is_static:
             return False
-        if self.hex_loc is util.axial_distance(self.hex_loc, intel.hex_loc) > self.hex_dist:
+        if self.hex_loc is not None and util.axial_distance(self.hex_loc, intel.hex_loc) > self.hex_dist:
             return False
         return True
 
@@ -474,9 +479,13 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
             return False
         if self.is_static != other.is_static:
             return False
-        if not util.both_isclose(self.hex_loc, other.hex_loc):
+        if self.hex_loc is None != other.hex_loc is None:
             return False
-        if not util.isclose(self.hex_dist, other.hex_dist):
+        elif self.hex_loc is not None and util.both_isclose(self.hex_loc, other.hex_loc):
+            return False
+        if self.hex_dist is None != other.hex_dist is None:
+            return False
+        elif self.hex_dist is not None and not util.isclose(self.hex_dist, other.hex_dist):
             return False
         return True
 

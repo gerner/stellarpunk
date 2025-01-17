@@ -44,6 +44,8 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         else:
             raise Exception("no docking time, but also no mining effect")
 
+    def is_cancellable(self) -> bool:
+        return self.mining_effect is None
 
     def _begin(self) -> None:
         self.init_eta = (
@@ -139,6 +141,9 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
     def _cancel(self) -> None:
         if self.transfer_effect:
             self.transfer_effect.cancel_effect()
+
+    def is_cancellable(self) -> bool:
+        return self.transfer_effect is None
 
     @property
     def observer_id(self) -> uuid.UUID:
@@ -394,6 +399,9 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         # get into position and then some time of acceleration "out of system"
         self.init_eta = GoToLocation.compute_eta(self.ship, self.target_gate.loc) + 5
 
+    def is_cancellable(self) -> bool:
+        return self.warp_out is None and self.warp_in is None
+
     # core.EffectObserver
     @property
     def observer_id(self) -> uuid.UUID:
@@ -646,6 +654,7 @@ class DockingOrder(core.OrderObserver, core.Order):
 
 class LocationExploreOrder(core.OrderObserver, core.Order):
     def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.sector_id = sector_id
         self.loc = loc
 
@@ -700,6 +709,6 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
         else:
             # do a sensor scan
             assert(self.scan_order is None)
-            self.scan_order = sensors.SensorScanOrder(self.gamestate)
+            self.scan_order = sensors.SensorScanOrder.create_order(self.ship, self.gamestate)
             self.scan_order.observe(self)
             self._add_child(self.scan_order)

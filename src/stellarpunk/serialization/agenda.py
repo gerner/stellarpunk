@@ -22,6 +22,8 @@ class AgendumSaver[T:agenda.Agendum](save_game.Saver[T], abc.ABC):
         bytes_written += s_util.uuid_to_f(obj.character.entity_id, f)
         bytes_written += s_util.float_to_f(obj.started_at, f)
         bytes_written += s_util.float_to_f(obj.stopped_at, f)
+        bytes_written += s_util.bool_to_f(obj.paused, f)
+        bytes_written += s_util.bool_to_f(obj._is_primary, f)
         bytes_written += s_util.debug_string_w("type specific", f)
         bytes_written += self._save_agendum(obj, f)
         return bytes_written
@@ -32,10 +34,14 @@ class AgendumSaver[T:agenda.Agendum](save_game.Saver[T], abc.ABC):
         character_id = s_util.uuid_from_f(f)
         started_at = s_util.float_from_f(f)
         stopped_at = s_util.float_from_f(f)
+        paused = s_util.bool_from_f(f)
+        is_primary = s_util.bool_from_f(f)
         s_util.debug_string_r("type specific", f)
         (agendum, extra_context) = self._load_agendum(f, load_context, agenda_id)
         agendum.started_at = started_at
         agendum.stopped_at = stopped_at
+        agendum.paused = paused
+        agendum._is_primary = is_primary
         load_context.gamestate.register_agendum(agendum)
 
         load_context.register_post_load(agendum, (character_id, extra_context))
@@ -61,6 +67,7 @@ class CaptainAgendumSaver(AgendumSaver[agenda.CaptainAgendum]):
         else:
             bytes_written += s_util.bool_to_f(False, f)
         bytes_written += s_util.bool_to_f(obj._start_transponder, f)
+        bytes_written += s_util.optional_uuid_to_f(obj._preempted_primary.agenda_id if obj._preempted_primary else None, f)
         return bytes_written
 
     def _load_agendum(self, f:io.IOBase, load_context:save_game.LoadContext, agenda_id:uuid.UUID) -> tuple[agenda.CaptainAgendum, Any]:
@@ -71,20 +78,24 @@ class CaptainAgendumSaver(AgendumSaver[agenda.CaptainAgendum]):
         if has_threat_response:
             threat_response_id = s_util.uuid_from_f(f)
         start_transponder = s_util.bool_from_f(f)
+        preempted_primary_id = s_util.optional_uuid_from_f(f)
 
         captain_agendum = agenda.CaptainAgendum(load_context.gamestate, enable_threat_response=enable_threat_response, start_transponder=start_transponder, agenda_id=agenda_id, _check_flag=True)
 
-        return captain_agendum, (ship_id, threat_response_id)
+        return captain_agendum, (ship_id, threat_response_id, preempted_primary_id)
 
     def _post_load_agendum(self, obj:agenda.CaptainAgendum, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, Optional[uuid.UUID]] = context
-        ship_id, threat_response_id = context_data
+        context_data:tuple[uuid.UUID, Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        ship_id, threat_response_id, preempted_primary_id = context_data
         craft = load_context.gamestate.entities[ship_id]
         assert(isinstance(craft, core.Ship))
         obj.craft = craft
 
         if threat_response_id:
             obj.threat_response = load_context.gamestate.get_order(threat_response_id, combat.FleeOrder)
+
+        if preempted_primary_id:
+            obj._preempted_primary = load_context.gamestate.get_agendum(preempted_primary_id, core.AbstractAgendum)
 
 class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
     def _save_agendum(self, obj:agenda.MiningAgendum, f:io.IOBase) -> int:
