@@ -84,6 +84,14 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             # theirs is better, drop ours
             self._remove_intel(old_intel)
 
+        if intel.author_id == self.character.entity_id:
+            # we're authoring it, so we are responsible for it
+            #TODO: this assumes we'll only ever add this intel once. but
+            # couldn't we sahre it, remove it and then add it again (for some
+            # unknown reason) in that case we'll double schedule the expiration
+            if intel.expires_at < np.inf:
+                self.gamestate.schedule_task(intel.expires_at, ExpireIntelTask.expire_intel(intel))
+
         self._add_intel(intel)
 
         for observer in self.observers:
@@ -120,8 +128,16 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             observer.intel_desired(self, interest, source=source)
 
 
-#TODO: what happens if the associated character dies? or the intel goes away?
-# those cases will cause problems!
+# note: these tasks might become redundant if a piece of intel is dropped by
+# everyone that ever had it. in that case it's already been removed from the
+# entity registry. calling expire will do nothing because there are no
+# observers left to receive the intel_expired event
+# it's unfortunate that we couldn't unschedule the task when we dropped the
+# last observer, but ScheduledTask instances only live in the task queue and
+# there's no good place to hang on to something so we can unschedule it.
+# at least when we load we can tell that this is happening and just not reload
+# those tasks
+
 class ExpireIntelTask(core.ScheduledTask):
     @classmethod
     def expire_intel(cls, intel:core.Intel) -> "ExpireIntelTask":
@@ -201,10 +217,6 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
         entity_short_id = entity.short_id()
         entity_class = type(entity)
         intel = cls(*args, sector_id, loc, radius, is_static, entity_id, id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
-
-        # schedule this intel to expire only once per shared intel
-        if intel.expires_at < np.inf:
-            gamestate.schedule_task(intel.expires_at, ExpireIntelTask.expire_intel(intel))
 
         return intel
 
