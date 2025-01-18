@@ -30,7 +30,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         super().__init__(*args, **kwargs)
         self._director = collection_director
         self._idle_period = idle_period
-        self._state = IntelCollectionAgendum.State.PASSIVE
+        self._state = IntelCollectionAgendum.State.IDLE
         self._interests:set[core.IntelMatchCriteria] = set()
         self._immediate_interest:Optional[core.IntelMatchCriteria] = None
 
@@ -61,7 +61,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
     def observer_id(self) -> uuid.UUID:
         return self.agenda_id
 
-    def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]) -> None:
+    def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]=None) -> None:
         if source is not None:
             # remove the source interest if we have it. we don't want to try to get
             # that before we get the dependent intel. but we'll keep track to make
@@ -246,6 +246,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
 
     def act(self) -> None:
+        if self.paused:
+            return
         # no sense working if we have no intel to collect
         if len(self._interests) == 0:
             self._go_idle()

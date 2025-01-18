@@ -1,11 +1,12 @@
 import numpy as np
 
 from stellarpunk import econ, agenda
+from stellarpunk.agenda import intel as aintel
 
 from . import write_history
 
 @write_history
-def test_mining_agendum(gamestate, generator, sector, testui, simulator):
+def test_mining_agendum(intel_director, gamestate, generator, sector, testui, simulator):
     # a ship and a station to sell at
     resource = 0
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
@@ -14,7 +15,6 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     #station resource needs to be one that consumes resource 0
     station_resource = np.where(gamestate.production_chain.adj_matrix[resource] > 0)[0][0]
     station = generator.spawn_station(sector, 5000, 0, resource=station_resource)
-    sector.radius = 3000.
     asteroid = generator.spawn_asteroid(sector, 0, 5000, resource, 12.5e2)
 
     ship_owner = generator.spawn_character(ship)
@@ -22,6 +22,7 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     ship.captain = ship_owner
     mining_agendum = agenda.MiningAgendum.create_mining_agendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
+    ship_owner.add_agendum(aintel.IntelCollectionAgendum.create_agendum(ship_owner, intel_director, gamestate))
 
     station_owner = generator.spawn_character(station)
     station_owner.take_ownership(station)
@@ -45,7 +46,7 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     mining_agendum.max_trips = 2
     testui.agenda.append(mining_agendum)
     testui.margin_neighbors = [ship]
-    testui.eta = 200
+    testui.eta = 2000#200
 
     simulator.run()
 
@@ -77,7 +78,6 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     #station resource needs to be one that consumes resource 0
     station_resource = np.where(gamestate.production_chain.adj_matrix[resource] > 0)[0][0]
     station = generator.spawn_station(sector, 5000, 0, resource=station_resource)
-    sector.radius = 3000.
     asteroid = generator.spawn_asteroid(sector, 0, 5000, resource, 12.5e2)
 
     # make sure owner has enough for 1.5 batches

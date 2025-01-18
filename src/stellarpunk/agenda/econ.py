@@ -182,7 +182,7 @@ def choose_station_to_sell_to(
 MINING_SLEEP_TIME = 60.
 TRADING_SLEEP_TIME = 60.
 
-class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
+class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperatorAgendum):
     """ Managing a ship for mining.
 
     Operates as a state machine as we mine asteroids and sell the resources to
@@ -231,10 +231,18 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.far_hexes:set[tuple[int, int]] = set()
         self.nearby_stations:set[uuid.UUID] = set()
 
+        self._pending_intel_interest:Optional[core.IntelMatchCriteria] = None
+
     def initialize_mining_agendum(self, allowed_stations:Optional[list[core.SectorEntity]] = None) -> None:
         assert(isinstance(self.craft, core.Ship))
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
         self.allowed_stations = allowed_stations
+
+    # core.OrderObserver
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.agenda_id
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -251,8 +259,7 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
             raise ValueError("got order_complete in wrong state {self.state}")
 
         self.state = MiningAgendum.State.IDLE
-        if not self.paused:
-            self.gamestate.schedule_agendum_immediate(self)
+        self.gamestate.schedule_agendum_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
         if self.state == MiningAgendum.State.MINING:
@@ -265,8 +272,20 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
             raise ValueError("got order_cancel in wrong state {self.state}")
 
         self.state = MiningAgendum.State.IDLE
-        if not self.paused:
-            self.gamestate.schedule_agendum_immediate(self)
+        self.gamestate.schedule_agendum_immediate(self)
+
+    # core.IntelManagerObserver
+
+    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
+        # check if this is intel we've been waiting for
+        if self._pending_intel_interest and self._pending_intel_interest.matches(intel):
+            assert not self.is_primary()
+            assert self.state == MiningAgendum.State.IDLE
+            # we can wake up, taking primary and try going back to work
+            # note, we can't take primary right now, but we'll be able to do
+            # that when we act
+            self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+
 
     def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
         if self.craft.sector is None:
@@ -276,17 +295,13 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         nearest_dist = np.inf
         distances = []
         candidates = []
-        for hit in self.craft.sector.spatial_point(self.craft.loc):
-            if not isinstance(hit, sector_entity.Asteroid):
+        for a in self.character.intel_manager.intel(intel.AsteroidIntelPartialCriteria(resources=frozenset(self.allowed_resources)), intel.AsteroidIntel):
+            #TODO: handle out of sector mining
+            if a.sector_id != self.craft.sector.entity_id:
                 continue
-            if hit.resource not in self.allowed_resources:
-                continue
-            if hit.cargo[hit.resource] <= 0:
-                continue
-
-            dist = util.distance(self.craft.loc, hit.loc)
-            distances.append(dist)
-            candidates.append(hit)
+            if a.amount > 0.:
+                candidates.append(a)
+                distances.append(util.distance(self.craft.loc, a.loc))
 
         if len(candidates) == 0:
             return None
@@ -295,9 +310,9 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         p = 1.0 / np.array(distances)
         p = p / p.sum()
         idx = self.gamestate.random.choice(len(candidates), 1, p=p)[0]
-        target = candidates[idx]
-
-        #TODO: worry about other people harvesting asteroids
+        #TODO: we should not directly retrieve the asteroid, and use the intel
+        # or maybe a sensor image of the intel
+        target = self.gamestate.get_entity(candidates[idx].intel_entity_id, sector_entity.Asteroid)
         return target
 
     def _preempt_primary(self) -> bool:
@@ -311,6 +326,7 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         assert self.state == MiningAgendum.State.IDLE
         self.make_primary()
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
+        self.character.intel_manager.observe(self)
 
     def _unpause(self) -> None:
         assert self.state == MiningAgendum.State.IDLE
@@ -334,6 +350,7 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         elif self.state == MiningAgendum.State.TRADING:
             assert self.transfer_order is not None
             self.transfer_order.cancel_order()
+        self.character.intel_manager.unobserve(self)
 
     def _do_selling(self) -> None:
         assert(isinstance(self.craft, core.Ship))
@@ -370,9 +387,12 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
 
         target = self._choose_asteroid()
         if target is None:
-            #TODO: notify someone?
+            self._pending_intel_interest = intel.AsteroidIntelPartialCriteria(resources=frozenset(self.allowed_resources))
+            self.character.intel_manager.register_intel_interest(self._pending_intel_interest)
             self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.craft.sector}, sleeping...')
-            self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
+            # we cannot mine until we learn of some asteroids (via intel_added)
+            self.state = MiningAgendum.State.IDLE
+            self.relinquish_primary()
             return
 
         #TODO: choose amount to harvest
@@ -496,6 +516,23 @@ class MiningAgendum(core.OrderObserver, EntityOperatorAgendum):
         return self.max_trips >= 0 and self.round_trips >= self.max_trips
 
     def act(self) -> None:
+        if self.paused:
+            return
+
+        if self._pending_intel_interest:
+            # we must have been sleeping, waiting for intel and now we might
+            # have what we need
+            # we had relinquished primary so intel collection could work
+            # they might be done, or might not, let's see
+            assert not self.is_primary()
+            if self.character.find_primary_agendum():
+                # sleep some more
+                self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
+                return
+
+            # take back control
+            self.make_primary()
+            self._pending_intel_interest = None
 
         #TODO: periodically wake up and check if there's nearby asteroids or
         # stations that we don't have good econ intel for
@@ -593,8 +630,7 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
 
         # go back into idle state to start things off again
         self.state = TradingAgendum.State.IDLE
-        if not self.paused:
-            self.gamestate.schedule_agendum_immediate(self)
+        self.gamestate.schedule_agendum_immediate(self)
 
     def order_cancel(self, order:core.Order) -> None:
         if self.state == TradingAgendum.State.BUYING:
@@ -607,8 +643,7 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
             raise ValueError("got order_cancel in wrong state {self.state}")
 
         self.state = TradingAgendum.State.IDLE
-        if not self.paused:
-            self.gamestate.schedule_agendum_immediate(self)
+        self.gamestate.schedule_agendum_immediate(self)
 
     def _preempt_primary(self) -> bool:
         #TODO: decide if we want to relinquish being primary

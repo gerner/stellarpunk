@@ -481,7 +481,7 @@ class Sector(base.Entity):
         self.hex_size = hex_size
 
         # one standard deviation
-        self.radius = radius
+        self._radius = radius
 
         # a "culture" for the sector which helps with consistent naming
         self.culture = culture
@@ -502,6 +502,10 @@ class Sector(base.Entity):
         self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
+
+    @property
+    def radius(self) -> float:
+        return self._radius
 
     def get_hex_coords(self, coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         return util.axial_round(util.pixel_to_pointy_hex(coords, self.hex_size))

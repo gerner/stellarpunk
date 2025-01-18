@@ -378,16 +378,13 @@ class IntelPartialCriteria(core.IntelMatchCriteria):
     pass
 
 class SectorEntityPartialCriteria(IntelPartialCriteria):
-    def __init__(self, cls:Optional[type]=None, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
+    def __init__(self, cls:Type[SectorEntityIntel]=SectorEntityIntel, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
         self.cls = cls
         self.is_static = is_static
         self.sector_id = sector_id
 
     def matches(self, intel:core.AbstractIntel) -> bool:
-        if self.cls:
-            if not isinstance(intel, self.cls):
-                return False
-        if not isinstance(intel, SectorEntityIntel):
+        if not isinstance(intel, self.cls):
             return False
         if self.is_static is not None and intel.is_static != self.is_static:
             return False
@@ -410,16 +407,17 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
         return True
 
 class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
-    def __init__(self, *args:Any, resources:Optional[set[int]]=None, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, resources:Optional[frozenset[int]]=None, cls:Type[AsteroidIntel]=AsteroidIntel, **kwargs:Any) -> None:
+        kwargs["cls"] = cls
+        kwargs["is_static"] = True
         super().__init__(*args, **kwargs)
         self.resources = resources
 
     def matches(self, intel:core.AbstractIntel) -> bool:
-        if not isinstance(intel, AsteroidIntel):
-            return False
         if not super().matches(intel):
             return False
-        if self.resources is not None and intel.resource in self.resources:
+        assert(isinstance(intel, AsteroidIntel))
+        if self.resources is not None and intel.resource not in self.resources:
             return False
         return True
 
@@ -436,7 +434,7 @@ class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
         return True
 
 class StationIntelPartialCriteria(SectorEntityPartialCriteria):
-    def __init__(self, *args:Any, resources:Optional[set[int]]=None, inputs:Optional[set[int]]=None, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, resources:Optional[frozenset[int]]=None, inputs:Optional[frozenset[int]]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.resources = resources
         self.inputs = inputs
@@ -518,7 +516,7 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
 
 class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     """ Partial criteria matching econ agents for static sector entities """
-    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity, buy_resources:Optional[set[int]]=None, sell_resources:Optional[set[int]]=None) -> None:
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity, buy_resources:Optional[frozenset[int]]=None, sell_resources:Optional[frozenset[int]]=None) -> None:
         self.sector_id = sector_id
         assert(isinstance(underlying_entity_type, type))
         if not issubclass(underlying_entity_type, core.SectorEntity):
@@ -614,6 +612,8 @@ class IdentifySectorEntityAction(events.Action):
             action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
         sentity = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), core.SectorEntity)
+        assert(not isinstance(sentity, sector_entity.Asteroid))
+        assert(not isinstance(sentity, sector_entity.Station))
         entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sentity.entity_id), SectorEntityIntel)
         if not entity_intel or not entity_intel.is_fresh():
             # intel about these select objects

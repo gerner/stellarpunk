@@ -271,6 +271,8 @@ def loadd(
 
         actions:list[director.ActionTemplate] = []
 
+        if len(action_data) == 0:
+            raise ValueError(f'rule {rule_id} had no actions. did you miskey the actions?')
         for act in action_data:
             actions.append(parse_action(rule_id, act, action_ids, action_validators, context_keys))
 

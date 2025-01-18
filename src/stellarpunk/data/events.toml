@@ -152,7 +152,7 @@ _action = "dialog"
 type = "sensors:identified"
 priority = 1
 group = "intel"
-criteria = ["$target.generate:etype_asteroid"]
+criteria = ["$sensors:target.generate:etype_asteroid"]
 [[intel_id_asteroid.actions]]
 _action = "intel:identify_asteroid"
 
@@ -161,8 +161,8 @@ _action = "intel:identify_asteroid"
 type = "sensors:identified"
 priority = 1
 group = "intel"
-criteria = ["$target.generate:etype_station"]
-[[intel_id_asteroid.actions]]
+criteria = ["$sensors:target.generate:etype_station"]
+[[intel_id_station.actions]]
 _action = "intel:identify_station"
 
 #TODO: what about planets?

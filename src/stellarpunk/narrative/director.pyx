@@ -274,6 +274,9 @@ cdef class Event:
         self.entity_context = entity_context
         self.args = args
 
+    def check_flag(self, key:int) -> int:
+        return self.event.event_context[key]
+
 
 class CharacterCandidate:
     def __init__(self, character_context:EventContext, data:Any):
