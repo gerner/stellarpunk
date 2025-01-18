@@ -106,7 +106,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
 
         if obj.allowed_stations:
             bytes_written += s_util.bool_to_f(True, f)
-            bytes_written += s_util.uuids_to_f(list(x.entity_id for x in obj.allowed_stations), f)
+            bytes_written += s_util.uuids_to_f(list(x for x in obj.allowed_stations), f)
         else:
             bytes_written += s_util.bool_to_f(False, f)
 
@@ -148,23 +148,19 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         round_trips = s_util.int_from_f(f)
         max_trips = s_util.int_from_f(f, signed=True)
 
-        a = agenda.MiningAgendum(load_context.gamestate, allowed_resources=allowed_resources, agenda_id=agenda_id, _check_flag=True)
+        a = agenda.MiningAgendum(load_context.gamestate, allowed_resources=allowed_resources, agenda_id=agenda_id, allowed_stations=allowed_stations, _check_flag=True)
         a.state = agenda.MiningAgendum.State(state)
         a.round_trips = round_trips
         a.max_trips = max_trips
 
-        return a, (ship_id, agent_id, allowed_stations, mining_order_id, transfer_order_id)
+        return a, (ship_id, agent_id, mining_order_id, transfer_order_id)
 
     def _post_load_agendum(self, obj:agenda.MiningAgendum, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID, Optional[list[uuid.UUID]], Optional[uuid.UUID], Optional[uuid.UUID]] = context
-        ship_id, agent_id, allowed_station_ids, mining_order_id, transfer_order_id = context_data
+        context_data:tuple[uuid.UUID, uuid.UUID, Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        ship_id, agent_id, mining_order_id, transfer_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
 
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
-
-        if allowed_station_ids:
-            allowed_stations = list(load_context.gamestate.get_entity(x, core.SectorEntity) for x in allowed_station_ids)
-            obj.allowed_stations = allowed_stations
 
         if mining_order_id:
             mining_order = load_context.gamestate.orders[mining_order_id]
@@ -191,7 +187,7 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
 
         if obj.sell_to_stations:
             bytes_written += s_util.bool_to_f(True, f)
-            bytes_written += s_util.uuids_to_f(list(x.entity_id for x in obj.sell_to_stations), f)
+            bytes_written += s_util.uuids_to_f(obj.sell_to_stations, f)
         else:
             bytes_written += s_util.bool_to_f(False, f)
 
@@ -237,16 +233,16 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         trade_trips = s_util.int_from_f(f)
         max_trips = s_util.int_from_f(f, signed=True)
 
-        a = agenda.TradingAgendum(load_context.gamestate, allowed_goods=allowed_goods, agenda_id=agenda_id, _check_flag=True)
+        a = agenda.TradingAgendum(load_context.gamestate, allowed_goods=allowed_goods, agenda_id=agenda_id, sell_to_stations=sell_to_stations, _check_flag=True)
         a.state = agenda.TradingAgendum.State(state)
         a.trade_trips = trade_trips
         a.max_trips = max_trips
 
-        return a, (ship_id, agent_id, buy_from_stations, sell_to_stations, buy_order_id, sell_order_id)
+        return a, (ship_id, agent_id, buy_from_stations, buy_order_id, sell_order_id)
 
     def _post_load_agendum(self, obj:agenda.TradingAgendum, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID, Optional[list[uuid.UUID]], Optional[list[uuid.UUID]], Optional[uuid.UUID], Optional[uuid.UUID]] = context
-        ship_id, agent_id, buy_from_station_ids, sell_to_station_ids, buy_order_id, sell_order_id = context_data
+        context_data:tuple[uuid.UUID, uuid.UUID, Optional[list[uuid.UUID]], Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        ship_id, agent_id, buy_from_station_ids, buy_order_id, sell_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
 
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
@@ -254,10 +250,6 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         if buy_from_station_ids:
             buy_from_stations = list(load_context.gamestate.get_entity(x, core.SectorEntity) for x in buy_from_station_ids)
             obj.buy_from_stations = buy_from_stations
-
-        if sell_to_station_ids:
-            sell_to_stations = list(load_context.gamestate.get_entity(x, core.SectorEntity) for x in sell_to_station_ids)
-            obj.sell_to_stations = sell_to_stations
 
         if buy_order_id:
             buy_order = load_context.gamestate.orders[buy_order_id]

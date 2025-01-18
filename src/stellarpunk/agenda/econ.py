@@ -52,46 +52,51 @@ def possible_buys(
     return buys
 
 def possible_sales(
+        character:core.Character,
         gamestate:core.Gamestate,
         ship:core.SectorEntity,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
-        allowed_stations:Optional[list[core.SectorEntity]],
+        allowed_stations:Optional[list[uuid.UUID]],
         ) -> Mapping[int, list[tuple[float, float, core.SectorEntity]]]:
     assert ship.sector is not None
     # figure out possible sales by resource
     sales:collections.defaultdict[int, list[tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
-    sale_hits:Iterable[core.SectorEntity]
-    if allowed_stations is None:
-        sale_hits = ship.sector.spatial_point(ship.loc)
-    else:
-        sale_hits = allowed_stations
-    for hit in sale_hits:
-        if not isinstance(hit, sector_entity.Station):
+    sale_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
+
+    for econ_agent_intel in character.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(ship_agent.sell_resources()).intersection(allowed_resources)), intel.EconAgentIntel):
+        if allowed_stations is not None and econ_agent_intel.intel_entity_id not in allowed_stations:
             continue
-        agent = gamestate.econ_agents[hit.entity_id]
-        for resource in agent.buy_resources():
-            price = agent.buy_price(resource)
-            if not econ.trade_valid(agent, ship_agent, resource, price, 1.):
+        # get the corresponding station intel so we know where to go
+        #TODO: what about planets?
+        station_intel = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(econ_agent_intel.underlying_entity_id), intel.StationIntel)
+        if not station_intel:
+            continue
+        sale_hits.append((econ_agent_intel, station_intel))
+
+    for econ_agent_intel, station_intel in sale_hits:
+        for resource, (price, amount) in econ_agent_intel.buy_offers.items():
+            assert ship_agent.inventory(resource) > 0.
+            if amount < 1.:
                 continue
 
+            #TODO: we should not reaching into gamestate for the actual station
+            station = gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
             sales[resource].append((
-                agent.buy_price(resource),
-                min(
-                    np.floor(agent.budget(resource)/agent.buy_price(resource)),
-                    ship_agent.inventory(resource),
-                ),
-                hit,
+                price,
+                min(amount, ship_agent.inventory(resource)),
+                station,
             ))
     return sales
 
 def choose_station_to_buy_from(
+        character:core.Character,
         gamestate:core.Gamestate,
         ship:core.Ship,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         buy_from_stations:Optional[list[core.SectorEntity]],
-        sell_to_stations:Optional[list[core.SectorEntity]]
+        sell_to_stations:Optional[list[uuid.UUID]]
         ) -> Optional[tuple[int, sector_entity.Station, core.EconAgent, float, float]]:
 
     if ship.sector is None:
@@ -110,7 +115,7 @@ def choose_station_to_buy_from(
     buys = possible_buys(gamestate, ship, ship_agent, allowed_resources, buy_from_stations)
 
     # find sales, assuming we can acquire whatever resource we need
-    sales = possible_sales(gamestate, ship, econ.YesAgent(gamestate.production_chain), allowed_resources, sell_to_stations)
+    sales = possible_sales(character, gamestate, ship, econ.YesAgent(gamestate.production_chain), allowed_resources, sell_to_stations)
 
     #best_profit_per_time = 0.
     #best_trade:Optional[tuple[int, core.Station, core.EconAgent]] = None
@@ -141,11 +146,12 @@ def choose_station_to_buy_from(
         return t
 
 def choose_station_to_sell_to(
+        character:core.Character,
         gamestate:core.Gamestate,
         ship:core.Ship,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
-        sell_to_stations:Optional[list[core.SectorEntity]]
+        sell_to_stations:Optional[list[uuid.UUID]]
         ) -> Optional[tuple[int, sector_entity.Station, core.EconAgent]]:
     """ Choose a station to sell goods from ship to """
 
@@ -160,7 +166,7 @@ def choose_station_to_sell_to(
     #TODO: what if no stations seem to trade the resources we have?
     #TODO: what if no stations seem to trade any allowed resources?
 
-    sales = possible_sales(gamestate, ship, ship_agent, allowed_resources, sell_to_stations)
+    sales = possible_sales(character, gamestate, ship, ship_agent, allowed_resources, sell_to_stations)
 
     best_profit_per_time = 0.
     best_trade:Optional[tuple[int, sector_entity.Station, core.EconAgent]] = None
@@ -195,15 +201,16 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         COMPLETE = enum.auto()
 
     @classmethod
-    def create_mining_agendum[T:MiningAgendum](cls:Type[T], *args:Any, allowed_stations:Optional[list[core.SectorEntity]]=None, **kwargs:Any) -> T:
+    def create_mining_agendum[T:MiningAgendum](cls:Type[T], *args:Any, **kwargs:Any) -> T:
         a = cls.create_eoa(*args, **kwargs)
-        a.initialize_mining_agendum(allowed_stations)
+        a.initialize_mining_agendum()
         return a
 
     def __init__(
         self,
         *args: Any,
         allowed_resources: Optional[list[int]] = None,
+        allowed_stations:Optional[list[uuid.UUID]] = None,
         **kwargs: Any
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -213,7 +220,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             allowed_resources = list(range(self.gamestate.production_chain.ranks[0]))
         self.allowed_resources = allowed_resources
 
-        self.allowed_stations:Optional[list[core.SectorEntity]] = None
+        self.allowed_stations:Optional[list[uuid.UUID]] = None
 
         # state machine to keep track of what we're doing
         self.state:MiningAgendum.State = MiningAgendum.State.IDLE
@@ -233,10 +240,9 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         self._pending_intel_interest:Optional[core.IntelMatchCriteria] = None
 
-    def initialize_mining_agendum(self, allowed_stations:Optional[list[core.SectorEntity]] = None) -> None:
+    def initialize_mining_agendum(self) -> None:
         assert(isinstance(self.craft, core.Ship))
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
-        self.allowed_stations = allowed_stations
 
     # core.OrderObserver
 
@@ -357,13 +363,17 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         # if we've got resources to sell, find a station to sell to
 
         sell_station_ret = choose_station_to_sell_to(
+                self.character,
                 self.gamestate, self.craft, self.agent,
                 self.allowed_resources, self.allowed_stations,
         )
         if sell_station_ret is None:
+            self._pending_intel_interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_resources))
+            self.character.intel_manager.register_intel_interest(self._pending_intel_interest)
             self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.craft.cargo[self.allowed_resources] > 0.)}). Sleeping...')
-            sleep_jitter = self.gamestate.random.uniform(high=MINING_SLEEP_TIME)
-            self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME/2 + sleep_jitter, self)
+            # we cannot trade until we find a station that buys our cargo
+            self.state = MiningAgendum.State.IDLE
+            self.relinquish_primary()
             return
 
         resource, station, station_agent = sell_station_ret
@@ -574,16 +584,16 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
             cls:Type[T],
             *args:Any,
             buy_from_stations: Optional[list[core.SectorEntity]] = None,
-            sell_to_stations: Optional[list[core.SectorEntity]] = None,
             **kwargs:Any
     ) -> T:
         a = cls.create_eoa(*args, **kwargs)
-        a.initialize_trading_agendum(buy_from_stations, sell_to_stations)
+        a.initialize_trading_agendum(buy_from_stations)
         return a
 
     def __init__(self,
         *args: Any,
-        allowed_goods: Optional[list[int]] = None,
+        allowed_goods:Optional[list[int]]=None,
+        sell_to_stations:Optional[list[uuid.UUID]]=None,
         **kwargs:Any
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -596,7 +606,7 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.allowed_goods = allowed_goods
 
         self.buy_from_stations:Optional[list[core.SectorEntity]] = None
-        self.sell_to_stations:Optional[list[core.SectorEntity]] = None
+        self.sell_to_stations = sell_to_stations
 
         self.buy_order:Optional[ocore.TradeCargoFromStation] = None
         self.sell_order:Optional[ocore.TradeCargoToStation] = None
@@ -607,7 +617,7 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
     def initialize_trading_agendum(
             self,
             buy_from_stations: Optional[list[core.SectorEntity]] = None,
-            sell_to_stations: Optional[list[core.SectorEntity]] = None,
+            sell_to_stations: Optional[list[uuid.UUID]] = None,
     ) -> None:
         assert(isinstance(self.craft, core.Ship))
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
@@ -686,9 +696,11 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
     def _buy_goods(self) -> None:
         assert(isinstance(self.craft, core.Ship))
         buy_station_ret = choose_station_to_buy_from(
+                self.character,
                 self.gamestate, self.craft, self.agent,
                 self.allowed_goods,
                 self.buy_from_stations, self.sell_to_stations)
+
         if buy_station_ret is None:
             self.state = TradingAgendum.State.SLEEP_NO_SALES
             self.logger.debug(f'cannot find a valid trade for my trade goods. Sleeping...')
@@ -719,6 +731,7 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         assert(isinstance(self.craft, core.Ship))
 
         sell_station_ret = choose_station_to_sell_to(
+                self.character,
                 self.gamestate, self.craft, self.agent,
                 self.allowed_goods, self.sell_to_stations,
         )

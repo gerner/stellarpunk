@@ -10,7 +10,8 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from stellarpunk import core, sim, orders, interface, util, generate
+from stellarpunk import core, sim, orders, interface, util, generate, intel
+from stellarpunk.core import sector_entity
 from stellarpunk.orders import steering
 
 def write_history(func):
@@ -134,6 +135,19 @@ def history_from_file(fname, generator, sector, gamestate, load_ct:bool=True):
         for entry, ship in order_entries:
             order_from_history(entry, ship, gamestate, load_ct)
     return entities
+
+def add_sector_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate) -> None:
+    #TODO: fresh/expires
+    intel.add_sector_scan_intel(detector, sector, character, gamestate)
+    for entity in sector.entities.values():
+        if isinstance(entity, sector_entity.Asteroid):
+            intel.add_asteroid_intel(entity, character, gamestate)
+        elif isinstance(entity, sector_entity.Station):
+            intel.add_station_intel(entity, character, gamestate)
+            if entity.entity_id in gamestate.econ_agents:
+                intel.add_econ_agent_intel(gamestate.econ_agents[entity.entity_id], character, gamestate)
+        else:
+            intel.add_sector_entity_intel(entity, character, gamestate)
 
 @dataclass
 class LoggedTransaction:

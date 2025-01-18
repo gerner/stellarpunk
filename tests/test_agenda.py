@@ -3,7 +3,7 @@ import numpy as np
 from stellarpunk import econ, agenda
 from stellarpunk.agenda import intel as aintel
 
-from . import write_history
+from . import write_history, add_sector_intel
 
 @write_history
 def test_mining_agendum(intel_director, gamestate, generator, sector, testui, simulator):
@@ -22,7 +22,8 @@ def test_mining_agendum(intel_director, gamestate, generator, sector, testui, si
     ship.captain = ship_owner
     mining_agendum = agenda.MiningAgendum.create_mining_agendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
-    ship_owner.add_agendum(aintel.IntelCollectionAgendum.create_agendum(ship_owner, intel_director, gamestate))
+    intel_agendum = aintel.IntelCollectionAgendum.create_agendum(ship_owner, intel_director, gamestate)
+    ship_owner.add_agendum(intel_agendum)
 
     station_owner = generator.spawn_character(station)
     station_owner.take_ownership(station)
@@ -46,7 +47,7 @@ def test_mining_agendum(intel_director, gamestate, generator, sector, testui, si
     mining_agendum.max_trips = 2
     testui.agenda.append(mining_agendum)
     testui.margin_neighbors = [ship]
-    testui.eta = 2000#200
+    testui.eta = 200
 
     simulator.run()
 
@@ -109,6 +110,10 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     testui.agenda.append(mining_agendum)
     testui.margin_neighbors = [ship]
     testui.eta = 200
+
+    #TODO: should we actually test that intel gathering works for trading?
+    # setup station and econ agent intel
+    add_sector_intel(ship, sector, ship_owner, gamestate)
 
     simulator.run()
 
@@ -183,12 +188,16 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     assert consumer_agent.buy_price(resource) > gamestate.production_chain.prices[resource]
     assert consumer_initial_balance >= consumer_agent.buy_price(resource) * trader_capacity * 2
 
+    #TODO: should we actually test that intel gathering works for trading?
+    # setup station and econ agent intel
+    add_sector_intel(ship, sector, ship_owner, gamestate)
+
     # check that buys and sales all make sense
     buys = agenda.possible_buys(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
     assert len(buys) == 1
     assert len(buys[resource]) == 1
     assert buys[resource][0][2] == station_producer
-    sales = agenda.possible_sales(gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+    sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
     assert len(sales[resource]) == 1
     assert sales[resource][0][2] == station_consumer
     assert sales[resource][0][0] > buys[resource][0][0]
@@ -196,7 +205,7 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
     assert set(producer_agent.sell_resources()).intersection(set(consumer_agent.buy_resources())) == set((resource,))
 
-    buy_ret = agenda.choose_station_to_buy_from(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
+    buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
     assert buy_ret is not None
     assert buy_ret[0] == resource
     assert buy_ret[1] == station_producer

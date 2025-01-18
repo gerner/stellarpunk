@@ -11,7 +11,7 @@ from stellarpunk.orders import steering, movement
 from stellarpunk.core import sector_entity, combat
 from stellarpunk.serialization import util as s_util
 
-from . import write_history
+from . import write_history, add_sector_intel
 
 def test_to_int():
     with tempfile.TemporaryFile() as fp:
@@ -142,6 +142,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     ship_owner = generator.spawn_character(ship, balance=initial_balance)
     ship_owner.take_ownership(ship)
     ship.captain = ship_owner
+
     trading_agendum = agenda.TradingAgendum.create_trading_agendum(ship, ship_owner, gamestate)
     trading_agendum.max_trips=2
     trader_agent = trading_agendum.agent
@@ -174,12 +175,15 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     assert consumer_agent.buy_price(resource) > gamestate.production_chain.prices[resource]
     assert consumer_initial_balance >= consumer_agent.buy_price(resource) * trader_capacity * 2
 
+    # setup station and econ agent intel
+    add_sector_intel(ship, sector, ship_owner, gamestate)
+
     # check that buys and sales all make sense
     buys = agenda.possible_buys(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
     assert len(buys) == 1
     assert len(buys[resource]) == 1
     assert buys[resource][0][2] == station_producer
-    sales = agenda.possible_sales(gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+    sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
     assert len(sales[resource]) == 1
     assert sales[resource][0][2] == station_consumer
     assert sales[resource][0][0] > buys[resource][0][0]
@@ -187,7 +191,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
     assert set(producer_agent.sell_resources()).intersection(set(consumer_agent.buy_resources())) == set((resource,))
 
-    buy_ret = agenda.choose_station_to_buy_from(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
+    buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
     assert buy_ret is not None
     assert buy_ret[0] == resource
     assert buy_ret[1] == station_producer

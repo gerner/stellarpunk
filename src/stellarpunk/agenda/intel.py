@@ -510,6 +510,9 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             return 0.0
 
         travel_cost, station_intel = ret
+        #TODO: we should not reach into gamestate here and use the intel or a
+        # sensor image or something instead
+
         station = self.gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
 
         assert(isinstance(character.location, core.Ship))
@@ -517,8 +520,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
         assert(character.location.sector)
         assert(character.location.sector == station.sector)
 
-        docking_order = ocore.DockingOrder.create_docking_order(station, self.gamestate)
+        docking_order = ocore.DockingOrder.create_docking_order(station, character.location, self.gamestate)
         #TODO: should we keep track of this order and cancel it if necessary?
         character.location.prepend_order(docking_order)
-        return self.gamestate.timestamp + docking_order.estimate_eta() * 1.2
-
+        return self.gamestate.timestamp + ocore.DockingOrder.compute_eta(character.location, station) * 1.2

@@ -403,10 +403,10 @@ class ShipTraderAgent(core.EconAgent):
         return self.character
 
     def buy_resources(self) -> Collection:
-        return EMPTY_TUPLE
+        return range(self.ship.cargo.shape[0])
 
     def sell_resources(self) -> Collection:
-        return EMPTY_TUPLE
+        return np.flatnonzero(self.ship.cargo)
 
     def buy_price(self, resource:int) -> float:
         return np.inf

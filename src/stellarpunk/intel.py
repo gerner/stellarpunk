@@ -378,13 +378,15 @@ class IntelPartialCriteria(core.IntelMatchCriteria):
     pass
 
 class SectorEntityPartialCriteria(IntelPartialCriteria):
-    def __init__(self, cls:Type[SectorEntityIntel]=SectorEntityIntel, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
+    def __init__(self, cls:Type[core.SectorEntity]=core.SectorEntity, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
         self.cls = cls
         self.is_static = is_static
         self.sector_id = sector_id
 
     def matches(self, intel:core.AbstractIntel) -> bool:
-        if not isinstance(intel, self.cls):
+        if not isinstance(intel, SectorEntityIntel):
+            return False
+        if not issubclass(intel.intel_entity_type, self.cls):
             return False
         if self.is_static is not None and intel.is_static != self.is_static:
             return False
@@ -407,8 +409,8 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
         return True
 
 class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
-    def __init__(self, *args:Any, resources:Optional[frozenset[int]]=None, cls:Type[AsteroidIntel]=AsteroidIntel, **kwargs:Any) -> None:
-        kwargs["cls"] = cls
+    def __init__(self, *args:Any, resources:Optional[frozenset[int]]=None, **kwargs:Any) -> None:
+        kwargs["cls"] = sector_entity.Asteroid
         kwargs["is_static"] = True
         super().__init__(*args, **kwargs)
         self.resources = resources
@@ -516,7 +518,13 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
 
 class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     """ Partial criteria matching econ agents for static sector entities """
-    def __init__(self, sector_id:Optional[uuid.UUID]=None, underlying_entity_id:Optional[uuid.UUID]=None, underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity, buy_resources:Optional[frozenset[int]]=None, sell_resources:Optional[frozenset[int]]=None) -> None:
+    def __init__(self,
+            sector_id:Optional[uuid.UUID]=None,
+            underlying_entity_id:Optional[uuid.UUID]=None,
+            underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity,
+            buy_resources:Optional[frozenset[int]]=None,
+            sell_resources:Optional[frozenset[int]]=None,
+    ) -> None:
         self.sector_id = sector_id
         assert(isinstance(underlying_entity_type, type))
         if not issubclass(underlying_entity_type, core.SectorEntity):
@@ -532,11 +540,11 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
             return False
         if self.underlying_entity_id is not None and self.underlying_entity_id != intel.underlying_entity_id:
             return False
-        if self.underlying_entity_type is not None and self.underlying_entity_type != intel.underlying_entity_type:
+        if self.underlying_entity_type is not None and not issubclass(intel.underlying_entity_type, self.underlying_entity_type):
             return False
-        if self.buy_resources is not None and self.buy_resources != set(intel.buy_offers.keys()):
+        if self.buy_resources is not None and len(self.buy_resources.intersection(intel.buy_offers.keys())) == 0:
             return False
-        if self.sell_resources is not None and self.sell_resources != set(intel.sell_offers.keys()):
+        if self.sell_resources is not None and len(self.sell_resources.intersection(intel.sell_offers.keys())) == 0:
             return False
 
         # check stuff about the underlying entity
@@ -571,6 +579,94 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
         return True
 
 
+# helpers to create intel
+def add_asteroid_intel(asteroid:sector_entity.Asteroid, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+    entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(asteroid.entity_id), AsteroidIntel)
+    if not entity_intel or not entity_intel.is_fresh():
+        character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
+        return True
+    else:
+        return False
+
+def add_station_intel(station:sector_entity.Station, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+    entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(station.entity_id), StationIntel)
+    if not entity_intel or not entity_intel.is_fresh():
+        character.intel_manager.add_intel(StationIntel.create_station_intel(station, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
+        return True
+    else:
+        return False
+
+def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None) -> bool:
+    entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sentity.entity_id), SectorEntityIntel)
+    if not entity_intel or not entity_intel.is_fresh():
+        # intel about these select objects
+        #TODO: TravelGate needs its own intel to include where the travel gate goes
+        intel:SectorEntityIntel
+        if sentity.is_static:
+            intel = SectorEntityIntel.create_sector_entity_intel(sentity, gamestate, author_id=character.entity_id, fresh_until=static_fresh_until, expires_at=static_expires_at)
+        # otherwise we'll give it some ttl
+        else:
+            intel = SectorEntityIntel.create_sector_entity_intel(sentity, gamestate, author_id=character.entity_id, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
+        character.intel_manager.add_intel(intel)
+        return True
+    else:
+        return False
+
+def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+    econ_agent_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(agent.entity_id), EconAgentIntel)
+    if not econ_agent_intel or not econ_agent_intel.is_fresh():
+        character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until))
+        return True
+    else:
+        return False
+
+def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None) -> None:
+    # figure out the set of hexes that are relevant
+    passive_range, thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
+    sector_hexes = util.hexes_within_pixel_dist(detector.loc, passive_range, sector.hex_size)
+
+    # eliminate hexes we already have good intel for
+    # and create a dict from hex coord to info about the hex
+    static_intel:dict[tuple[int, int], SectorHexIntel] = {}
+    dynamic_intel:dict[tuple[int, int], SectorHexIntel] = {}
+    for hex_coords in sector_hexes:
+        static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
+        s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
+        if not s_intel or not s_intel.is_fresh():
+            static_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, True, 0, {}, gamestate, expires_at=static_expires_at, fresh_until=static_fresh_until)
+
+        dynamic_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, False)
+        d_intel = character.intel_manager.get_intel(dynamic_criteria, SectorHexIntel)
+        if not d_intel or not d_intel.is_fresh():
+            dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, False, 0, {}, gamestate, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
+
+    # iterate over all the sensor images we've got accumulating info for
+    # the hex they lie in, if it's within range
+    for image in detector.sensor_settings.images:
+        if not image.identified:
+            continue
+
+        h_coords = util.int_coords(util.axial_round(util.pixel_to_pointy_hex(image.loc, sector.hex_size)))
+
+        if image.identity.is_static:
+            intels = static_intel
+        else:
+            intels = dynamic_intel
+
+        if h_coords in static_intel:
+            intels[h_coords].entity_count += 1
+            type_name = image.identity.object_type
+            if type_name in intels[h_coords].type_counts:
+                intels[h_coords].type_counts[type_name] += 1
+            else:
+                intels[h_coords].type_counts[type_name] = 1
+
+    for s_intel in static_intel.values():
+        character.intel_manager.add_intel(s_intel)
+    for d_intel in dynamic_intel.values():
+        character.intel_manager.add_intel(d_intel)
+
+
 # Intel Witness Actions
 
 class IdentifyAsteroidAction(events.Action):
@@ -582,9 +678,8 @@ class IdentifyAsteroidAction(events.Action):
             action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
         asteroid = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.Asteroid)
-        entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(asteroid.entity_id), AsteroidIntel)
-        if not entity_intel or not entity_intel.is_fresh():
-            character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, self.gamestate, author_id=character.entity_id))
+        #TODO: expiration?
+        add_asteroid_intel(asteroid, character, self.gamestate)
 
 class IdentifyStationAction(events.Action):
     def act(self,
@@ -595,9 +690,8 @@ class IdentifyStationAction(events.Action):
             action_args: Mapping[str, Union[int,float,str,bool]]
     ) -> None:
         station = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.Station)
-        entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(station.entity_id), StationIntel)
-        if not entity_intel or not entity_intel.is_fresh():
-            character.intel_manager.add_intel(StationIntel.create_station_intel(station, self.gamestate, author_id=character.entity_id))
+        #TODO: expiration?
+        add_station_intel(station, character, self.gamestate)
 
 class IdentifySectorEntityAction(events.Action):
     def __init__(self, *args:Any, intel_ttl:float=300, **kwargs:Any) -> None:
@@ -614,19 +708,10 @@ class IdentifySectorEntityAction(events.Action):
         sentity = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), core.SectorEntity)
         assert(not isinstance(sentity, sector_entity.Asteroid))
         assert(not isinstance(sentity, sector_entity.Station))
-        entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sentity.entity_id), SectorEntityIntel)
-        if not entity_intel or not entity_intel.is_fresh():
-            # intel about these select objects
-            #TODO: TravelGate needs its own intel to include where the travel gate goes
-            intel:SectorEntityIntel
-            if isinstance(sentity, (sector_entity.Station, sector_entity.Planet, sector_entity.TravelGate)):
-                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, author_id=character.entity_id)
-            # otherwise we'll give it some ttl
-            else:
-                fresh_until = self.gamestate.timestamp + self.intel_ttl*0.2
-                expires_at = self.gamestate.timestamp + self.intel_ttl
-                intel = SectorEntityIntel.create_sector_entity_intel(sentity, self.gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until)
-            character.intel_manager.add_intel(intel)
+        fresh_until = self.gamestate.timestamp + self.intel_ttl*0.2
+        expires_at = self.gamestate.timestamp + self.intel_ttl
+        #TODO: should "static" sector entities have expiration?
+        add_sector_entity_intel(sentity, character, self.gamestate, dynamic_fresh_until=fresh_until, dynamic_expires_at=expires_at)
 
 class DockingAction(events.Action):
     def __init__(self, *args:Any, econ_intel_ttl:float=300.0, **kwargs:Any) -> None:
@@ -645,11 +730,9 @@ class DockingAction(events.Action):
         # first make some econ agent intel to record resources and prices at
         # this station
         agent = self.gamestate.econ_agents[station.entity_id]
-        econ_agent_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(agent.entity_id), EconAgentIntel)
-        if not econ_agent_intel or not econ_agent_intel.is_fresh():
-            fresh_until = self.gamestate.timestamp + self.econ_intel_ttl*0.2
-            expires_at = self.gamestate.timestamp + self.econ_intel_ttl
-            character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, self.gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until))
+        fresh_until = self.gamestate.timestamp + self.econ_intel_ttl*0.2
+        expires_at = self.gamestate.timestamp + self.econ_intel_ttl
+        add_econ_agent_intel(agent, character, self.gamestate, fresh_until=fresh_until, expires_at=expires_at)
         #TODO: what other intel do we want to create now that we're docked?
 
 class ScanAction(events.Action):
@@ -669,56 +752,12 @@ class ScanAction(events.Action):
         detector = core.Gamestate.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.DETECTOR), core.CrewedSectorEntity)
         assert(character == detector.captain)
 
-        #TODO: figure out the set of hexes that are relevant
-        passive_range, thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
-        sector_hexes = util.hexes_within_pixel_dist(detector.loc, passive_range, sector.hex_size)
-
-        # eliminate hexes we already have good intel for
-        # and create a dict from hex coord to info about the hex
-        static_intel:dict[tuple[int, int], SectorHexIntel] = {}
-        dynamic_intel:dict[tuple[int, int], SectorHexIntel] = {}
         static_fresh_until = self.gamestate.timestamp + self.static_intel_ttl*0.2
         static_expires_at = self.gamestate.timestamp + self.static_intel_ttl
         dynamic_fresh_until = self.gamestate.timestamp + self.dynamic_intel_ttl*0.2
         dynamic_expires_at = self.gamestate.timestamp + self.dynamic_intel_ttl
 
-        for hex_coords in sector_hexes:
-            static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
-            s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
-            if not s_intel or not s_intel.is_fresh():
-                static_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, True, 0, {}, self.gamestate, expires_at=static_expires_at, fresh_until=static_fresh_until)
-
-            dynamic_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, False)
-            d_intel = character.intel_manager.get_intel(dynamic_criteria, SectorHexIntel)
-            if not d_intel or not d_intel.is_fresh():
-                dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, False, 0, {}, self.gamestate, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
-
-        # iterate over all the sensor images we've got accumulating info for
-        # the hex they lie in, if it's within range
-        for image in detector.sensor_settings.images:
-            if not image.identified:
-                continue
-
-            h_coords = util.int_coords(util.axial_round(util.pixel_to_pointy_hex(image.loc, sector.hex_size)))
-
-            if image.identity.is_static:
-                intels = static_intel
-            else:
-                intels = dynamic_intel
-
-            if h_coords in static_intel:
-                intels[h_coords].entity_count += 1
-                type_name = image.identity.object_type
-                if type_name in intels[h_coords].type_counts:
-                    intels[h_coords].type_counts[type_name] += 1
-                else:
-                    intels[h_coords].type_counts[type_name] = 1
-
-        for s_intel in static_intel.values():
-            character.intel_manager.add_intel(s_intel)
-        for d_intel in dynamic_intel.values():
-            character.intel_manager.add_intel(d_intel)
-
+        add_sector_scan_intel(detector, sector, character, self.gamestate, static_fresh_until=static_fresh_until, static_expires_at=static_expires_at, dynamic_fresh_until=dynamic_fresh_until, dynamic_expires_at=dynamic_expires_at)
 
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_action(IdentifyAsteroidAction(), "identify_asteroid", "intel")
