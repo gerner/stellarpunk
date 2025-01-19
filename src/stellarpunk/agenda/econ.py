@@ -17,6 +17,7 @@ from stellarpunk.orders import movement
 from .core import EntityOperatorAgendum
 
 def possible_buys(
+        character:core.Character,
         gamestate:core.Gamestate,
         ship:core.SectorEntity,
         ship_agent:core.EconAgent,
@@ -26,29 +27,28 @@ def possible_buys(
     assert ship.sector is not None
     # figure out possible buys by resource
     buys:collections.defaultdict[int, list[tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
-    buy_hits:Iterable[core.SectorEntity]
-    if buy_from_stations is None:
-        buy_hits = ship.sector.spatial_point(ship.loc)
-    else:
-        buy_hits = buy_from_stations
-    for hit in buy_hits:
-        if not isinstance(hit, sector_entity.Station):
-            continue
-        agent = gamestate.econ_agents[hit.entity_id]
-        for resource in agent.sell_resources():
-            if resource not in allowed_resources:
-                continue
-            price = agent.sell_price(resource)
-            if not (price < np.inf):
-                continue
-            if not econ.trade_valid(ship_agent, agent, resource, price, 1.):
-                continue
+    buy_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
 
-            buys[resource].append((
-                agent.sell_price(resource),
-                agent.inventory(resource),
-                hit,
-            ))
+    for econ_agent_intel in character.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(ship_agent.buy_resources()).intersection(allowed_resources)), intel.EconAgentIntel):
+        if buy_from_stations is not None and econ_agent_intel.intel_entity_id not in buy_from_stations:
+            continue
+        # get the corresponding station intel so we know where to go
+        #TODO: what about planets?
+        station_intel = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(econ_agent_intel.underlying_entity_id), intel.StationIntel)
+        if not station_intel:
+            continue
+        buy_hits.append((econ_agent_intel, station_intel))
+
+    for econ_agent_intel, station_intel in buy_hits:
+        for resource, (price, amount) in econ_agent_intel.sell_offers.items():
+            if amount < 1.:
+                continue
+            assert price < np.inf
+
+            #TODO: we should not reaching into gamestate for the actual station
+            station = gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
+            buys[resource].append((price, amount, station))
+
     return buys
 
 def possible_sales(
@@ -110,9 +110,7 @@ def choose_station_to_buy_from(
     # transfer time = buy transfer + sell transfer
     # travel time  = time to buy + time to sell
 
-    #TODO: how to get prices and stations without magically having global knowledge?
-
-    buys = possible_buys(gamestate, ship, ship_agent, allowed_resources, buy_from_stations)
+    buys = possible_buys(character, gamestate, ship, ship_agent, allowed_resources, buy_from_stations)
 
     # find sales, assuming we can acquire whatever resource we need
     sales = possible_sales(character, gamestate, ship, econ.YesAgent(gamestate.production_chain), allowed_resources, sell_to_stations)
@@ -125,6 +123,8 @@ def choose_station_to_buy_from(
         for ((buy_price, buy_amount, buy_station), (sale_price, sale_amount, sale_station)) in itertools.product(buys[resource], sales[resource]):
             amount = min(buy_amount, sale_amount)
             profit = (sale_price - buy_price)*amount
+            if profit < 0.:
+                continue
             transfer_time = ocore.TradeCargoFromStation.transfer_rate() * amount + ocore.TradeCargoToStation.transfer_rate() * amount
             travel_time = movement.GoToLocation.compute_eta(ship, buy_station.loc) + movement.GoToLocation.compute_eta(ship, sale_station.loc, starting_loc=buy_station.loc)
 
@@ -195,10 +195,18 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
     relevant stations. """
 
     class State(enum.IntEnum):
+        # we're in between mine/sell cycles
         IDLE = enum.auto()
+        # we're actively pursuing an asteroid
         MINING = enum.auto()
+        # we're actively pursuing a sale to station
         TRADING = enum.auto()
+        # we're done with all our work
         COMPLETE = enum.auto()
+        # we're sleeping, waiting for a mine/sell opportunity
+        SLEEP = enum.auto()
+        # we're trying to become the primary agendum
+        WAIT_PRIMARY = enum.auto()
 
     @classmethod
     def create_mining_agendum[T:MiningAgendum](cls:Type[T], *args:Any, **kwargs:Any) -> T:
@@ -283,13 +291,17 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
     # core.IntelManagerObserver
 
     def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
+        # either we're not sleeping or we're waiting on some specific kind of intel
+        assert self.state != MiningAgendum.State.SLEEP or self._pending_intel_interest
         # check if this is intel we've been waiting for
         if self._pending_intel_interest and self._pending_intel_interest.matches(intel):
             assert not self.is_primary()
-            assert self.state == MiningAgendum.State.IDLE
+            assert self.state == MiningAgendum.State.SLEEP
+            self._pending_intel_interest = None
             # we can wake up, taking primary and try going back to work
             # note, we can't take primary right now, but we'll be able to do
             # that when we act
+            self.state = MiningAgendum.State.WAIT_PRIMARY
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
 
@@ -368,11 +380,12 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
                 self.allowed_resources, self.allowed_stations,
         )
         if sell_station_ret is None:
+            #TODO: we could also mine something else instead
             self._pending_intel_interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_resources))
             self.character.intel_manager.register_intel_interest(self._pending_intel_interest)
             self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.craft.cargo[self.allowed_resources] > 0.)}). Sleeping...')
             # we cannot trade until we find a station that buys our cargo
-            self.state = MiningAgendum.State.IDLE
+            self.state = MiningAgendum.State.SLEEP
             self.relinquish_primary()
             return
 
@@ -401,7 +414,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             self.character.intel_manager.register_intel_interest(self._pending_intel_interest)
             self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.craft.sector}, sleeping...')
             # we cannot mine until we learn of some asteroids (via intel_added)
-            self.state = MiningAgendum.State.IDLE
+            self.state = MiningAgendum.State.SLEEP
             self.relinquish_primary()
             return
 
@@ -529,20 +542,20 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         if self.paused:
             return
 
-        if self._pending_intel_interest:
+        if not self.is_primary():
+            assert self.state == MiningAgendum.State.WAIT_PRIMARY
             # we must have been sleeping, waiting for intel and now we might
             # have what we need
             # we had relinquished primary so intel collection could work
             # they might be done, or might not, let's see
-            assert not self.is_primary()
+            assert self._pending_intel_interest is None
             if self.character.find_primary_agendum():
-                # sleep some more
+                # sleep some more hoping whoever is primary will relinquish
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
                 return
-
             # take back control
             self.make_primary()
-            self._pending_intel_interest = None
+            self.state = MiningAgendum.State.IDLE
 
         #TODO: periodically wake up and check if there's nearby asteroids or
         # stations that we don't have good econ intel for
@@ -569,15 +582,21 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         else:
             self._do_intel()
 
-class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
+class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperatorAgendum):
 
     class State(enum.IntEnum):
+        # we're between buy/sell cycles
         IDLE = enum.auto()
+        # we're actively buying a good we think we can sell
         BUYING = enum.auto()
+        # we're actively selling a good
         SELLING = enum.auto()
+        # we're done with all our work
         COMPLETE = enum.auto()
-        SLEEP_NO_BUYS = enum.auto()
-        SLEEP_NO_SALES = enum.auto()
+        # we're waiting on a buy/sell opportunity
+        SLEEP = enum.auto()
+        # we're trying to become the primary agendum
+        WAIT_PRIMARY = enum.auto()
 
     @classmethod
     def create_trading_agendum[T:TradingAgendum](
@@ -611,6 +630,8 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.buy_order:Optional[ocore.TradeCargoFromStation] = None
         self.sell_order:Optional[ocore.TradeCargoToStation] = None
 
+        self._pending_intel_interests:set[core.IntelMatchCriteria] = set()
+
         self.trade_trips = 0
         self.max_trips = -1
 
@@ -623,6 +644,8 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
         self.buy_from_stations = buy_from_stations
         self.sell_to_stations = sell_to_stations
+
+    # core.OrderObserver
 
     def order_begin(self, order:core.Order) -> None:
         pass
@@ -655,6 +678,31 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         self.state = TradingAgendum.State.IDLE
         self.gamestate.schedule_agendum_immediate(self)
 
+    # core.IntelManagerObserver
+
+    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
+        # either we're not sleeping or we have some intel interest we're waiting on
+        assert self.state != TradingAgendum.State.SLEEP or self._pending_intel_interests
+        # check if this is intel we've been waiting for
+        matches:list[core.IntelMatchCriteria] = []
+        for interest in self._pending_intel_interests:
+            if interest.matches(intel):
+                matches.append(interest)
+
+        for match in matches:
+            self._pending_intel_interests.remove(match)
+
+        # we might have already woken up because of some other match
+        if self.state == TradingAgendum.State.SLEEP and matches:
+            assert not self.is_primary()
+            # we can wake up, taking primary and try going back to work
+            # note, we can't take primary right now, but we'll be able to do
+            # that when we act
+            self.state = TradingAgendum.State.WAIT_PRIMARY
+            self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+
+    # Agendum
+
     def _preempt_primary(self) -> bool:
         #TODO: decide if we want to relinquish being primary
         return False
@@ -666,6 +714,7 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         assert self.state == TradingAgendum.State.IDLE
         self.make_primary()
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
+        self.character.intel_manager.observe(self)
 
     def _unpause(self) -> None:
         assert self.state == TradingAgendum.State.IDLE
@@ -689,9 +738,47 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         elif self.state == TradingAgendum.State.SELLING:
             assert self.sell_order is not None
             self.sell_order.cancel_order()
+        self.character.intel_manager.unobserve(self)
 
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.trade_trips >= self.max_trips
+
+    def _register_interests(self) -> None:
+        #TODO: prioritize these somehow
+        # we need a buy/sell pair. cases:
+        # * a buyer for a good we have
+        # * a buyer for a known good that's sold
+        # * a seller for a known good that's bought
+        # * any buyer or seller for allowed goods
+
+        buys = possible_buys(
+                self.character,
+                self.gamestate, self.craft, self.agent,
+                self.allowed_goods, self.buy_from_stations
+        )
+        sales = possible_sales(
+                self.character,
+                self.gamestate, self.craft, self.agent,
+                self.allowed_goods, self.sell_to_stations,
+        )
+        known_sold_resources = buys.keys()
+        known_bought_resources = sales.keys()
+
+        # buyer for our goods (if we have any)
+        if np.sum(np.take(self.craft.cargo, self.allowed_goods)) > 0.:
+            self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_goods)))
+        # buyer for known sold good
+        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(known_sold_resources).intersection(self.allowed_goods)))
+        # seller for known bought goods
+        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(known_bought_resources).intersection(self.allowed_goods)))
+
+        # any buyers or sellers
+        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(self.allowed_goods)))
+        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(self.allowed_goods)))
+
+        for interest in self._pending_intel_interests:
+            self.character.intel_manager.register_intel_interest(interest)
+
 
     def _buy_goods(self) -> None:
         assert(isinstance(self.craft, core.Ship))
@@ -702,10 +789,11 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
                 self.buy_from_stations, self.sell_to_stations)
 
         if buy_station_ret is None:
-            self.state = TradingAgendum.State.SLEEP_NO_SALES
+            self._register_interests()
             self.logger.debug(f'cannot find a valid trade for my trade goods. Sleeping...')
-            sleep_jitter = self.gamestate.random.uniform(high=TRADING_SLEEP_TIME)
-            self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME/2 + sleep_jitter, self)
+            # we cannot mine until we learn of some allowed buy/sell pair
+            self.state = TradingAgendum.State.SLEEP
+            self.relinquish_primary()
             return
         resource, station, station_agent, est_profit, est_time = buy_station_ret
         assert station_agent.sell_price(resource) < np.inf
@@ -765,7 +853,20 @@ class TradingAgendum(core.OrderObserver, EntityOperatorAgendum):
         return True
 
     def act(self) -> None:
-        assert self.state in [TradingAgendum.State.IDLE, TradingAgendum.State.SLEEP_NO_BUYS, TradingAgendum.State.SLEEP_NO_SALES]
+        if self.paused:
+            return
+
+        if not self.is_primary():
+            assert self.state == TradingAgendum.State.WAIT_PRIMARY
+            if self.character.find_primary_agendum():
+                # sleep some more hoping whoever is primary will relinquish
+                self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME, self, jitter=1.0)
+                return
+            # take back control
+            self.make_primary()
+            self.state = TradingAgendum.State.IDLE
+
+        assert self.state == TradingAgendum.State.IDLE
 
         if self.is_complete():
             self.state = TradingAgendum.State.COMPLETE

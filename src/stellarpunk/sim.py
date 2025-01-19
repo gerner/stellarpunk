@@ -334,8 +334,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             total_idle_mining_agenda = 0
             total_trading_agenda = 0
             total_idle_trading_agenda = 0
-            total_snob_trading_agenda = 0
-            total_snos_trading_agenda = 0
+            total_sleep_trading_agenda = 0
+            total_wp_trading_agenda = 0
             for character in self.gamestate.characters.values():
                 for agendum in character.agenda:
                     total_agenda += 1
@@ -347,13 +347,13 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
                         total_trading_agenda += 1
                         if agendum.state == agenda.TradingAgendum.State.IDLE:
                             total_idle_trading_agenda += 1
-                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_BUYS:
-                            total_snob_trading_agenda += 1
-                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_SALES:
-                            total_snos_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.SLEEP:
+                            total_sleep_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.WAIT_PRIMARY:
+                            total_wp_trading_agenda += 1
 
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
-            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda} snob: {total_snob_trading_agenda} snos: {total_snos_trading_agenda}')
+            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda} sleep: {total_sleep_trading_agenda} wp: {total_wp_trading_agenda}')
             self.gamestate.log_econ()
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
