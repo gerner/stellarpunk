@@ -279,16 +279,21 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     # 0. econ agent interest
     # 1. sector entity interest
     # 2. sector hex interest
-    # 3. back sector entity interest with econ agent interest as a source
+    # 3. back same sector entity interest with econ agent interest as a source
+    # 4. back to a new sector hex interest
     saw_active = False
     saw_interest_ea = False
     interest_ea = None
+    interest_ea_objs = set()
     saw_interest_se = False
     interest_se = None
+    interest_se_objs = set()
     saw_interest_sh = False
     interest_sh = None
+    interest_sh_objs = set()
+    stage = 0
     def tick_callback():
-        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh
+        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh, interest_ea_objs, interest_se_objs, interest_sh_objs, stage
         character.intel_manager.sanity_check()
 
         current_interest = next(iter(intel_agendum._interests))
@@ -299,14 +304,36 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
             assert len(intel_agendum._interests) == 1
             saw_interest_ea = True
             interest_ea = current_interest
+            assert stage == 0
+            interest_ea_objs.add(id(current_interest))
         elif isinstance(current_interest, intel.SectorEntityPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_se = True
+            if stage == 0:
+                assert len(interest_se_objs) == 0
+                assert len(interest_sh_objs) == 0
+                stage = 1
+            elif stage == 2:
+                assert len(interest_se_objs) == 1
+                assert len(interest_sh_objs) == 1
+                stage = 3
             interest_se = current_interest
+            interest_se_objs.add(id(current_interest))
+            assert stage in [1,3]
         elif isinstance(current_interest, intel.SectorHexPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_sh = True
+            if stage == 1:
+                assert len(interest_se_objs) == 1
+                assert len(interest_sh_objs) == 0
+                stage = 2
+            elif stage == 3:
+                assert len(interest_se_objs) == 1
+                assert len(interest_sh_objs) == 1
+                stage = 4
+            interest_sh_objs.add(id(current_interest))
             interest_sh = current_interest
+            assert stage in [2,4]
 
         if intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE and len(interest_observer._added_intels) > 0:
             testui.done = True
@@ -316,6 +343,11 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     testui.eta = 5.0
 
     simulator.run()
+
+    assert stage == 4
+    assert len(interest_ea_objs) == 1
+    assert len(interest_se_objs) == 1
+    assert len(interest_sh_objs) == 2
 
     assert interest_ea
     assert interest_se
