@@ -181,7 +181,7 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
 
         if obj.buy_from_stations:
             bytes_written += s_util.bool_to_f(True, f)
-            bytes_written += s_util.uuids_to_f(list(x.entity_id for x in obj.buy_from_stations), f)
+            bytes_written += s_util.uuids_to_f(obj.buy_from_stations, f)
         else:
             bytes_written += s_util.bool_to_f(False, f)
 
@@ -233,23 +233,19 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         trade_trips = s_util.int_from_f(f)
         max_trips = s_util.int_from_f(f, signed=True)
 
-        a = agenda.TradingAgendum(load_context.gamestate, allowed_goods=allowed_goods, agenda_id=agenda_id, sell_to_stations=sell_to_stations, _check_flag=True)
+        a = agenda.TradingAgendum(load_context.gamestate, allowed_goods=allowed_goods, agenda_id=agenda_id, buy_from_stations=buy_from_stations, sell_to_stations=sell_to_stations, _check_flag=True)
         a.state = agenda.TradingAgendum.State(state)
         a.trade_trips = trade_trips
         a.max_trips = max_trips
 
-        return a, (ship_id, agent_id, buy_from_stations, buy_order_id, sell_order_id)
+        return a, (ship_id, agent_id, buy_order_id, sell_order_id)
 
     def _post_load_agendum(self, obj:agenda.TradingAgendum, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID, Optional[list[uuid.UUID]], Optional[uuid.UUID], Optional[uuid.UUID]] = context
-        ship_id, agent_id, buy_from_station_ids, buy_order_id, sell_order_id = context_data
+        context_data:tuple[uuid.UUID, uuid.UUID, Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        ship_id, agent_id, buy_order_id, sell_order_id = context_data
         obj.craft = load_context.gamestate.get_entity(ship_id, core.Ship)
 
         obj.agent = load_context.gamestate.get_entity(agent_id, econ.ShipTraderAgent)
-
-        if buy_from_station_ids:
-            buy_from_stations = list(load_context.gamestate.get_entity(x, core.SectorEntity) for x in buy_from_station_ids)
-            obj.buy_from_stations = buy_from_stations
 
         if buy_order_id:
             buy_order = load_context.gamestate.orders[buy_order_id]

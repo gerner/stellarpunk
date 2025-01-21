@@ -282,23 +282,31 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     # 3. back sector entity interest with econ agent interest as a source
     saw_active = False
     saw_interest_ea = False
+    interest_ea = None
     saw_interest_se = False
+    interest_se = None
     saw_interest_sh = False
+    interest_sh = None
     def tick_callback():
-        nonlocal saw_active, saw_interest_ea, saw_interest_se, saw_interest_sh
+        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh
         character.intel_manager.sanity_check()
+
+        current_interest = next(iter(intel_agendum._interests))
 
         if intel_agendum._state == aintel.IntelCollectionAgendum.State.ACTIVE:
             saw_active = True
-        if isinstance(next(iter(intel_agendum._interests)), intel.EconAgentSectorEntityPartialCriteria):
+        if isinstance(current_interest, intel.EconAgentSectorEntityPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_ea = True
-        if isinstance(next(iter(intel_agendum._interests)), intel.SectorEntityPartialCriteria):
+            interest_ea = current_interest
+        elif isinstance(current_interest, intel.SectorEntityPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_se = True
-        if isinstance(next(iter(intel_agendum._interests)), intel.SectorHexPartialCriteria):
+            interest_se = current_interest
+        elif isinstance(current_interest, intel.SectorHexPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_sh = True
+            interest_sh = current_interest
 
         if intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE and len(interest_observer._added_intels) > 0:
             testui.done = True
@@ -309,15 +317,35 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
 
     simulator.run()
 
+    assert interest_ea
+    assert interest_se
+    assert interest_sh
+
     # at the end we should have seen interests: econ agent, station, sector hex
-    # we should still have that full chain of interests
+    # we should still have that full chain of interests, including the None source
     # the current interest should be unsatisfiable
-    assert len(interest_observer._interests) == 3
-    assert criteria in interest_observer._interests
+    assert len(intel_agendum._source_interests_by_source) == 3
+
+    assert interest_sh in intel_agendum._interests
     assert len(intel_agendum._interests) == 1
-    assert next(iter(intel_agendum._interests)) in intel_agendum._source_interests_by_dependency
-    assert len(intel_agendum._source_interests_by_source) == 2
-    assert criteria in intel_agendum._source_interests_by_source
+    assert len(intel_agendum._source_interests_by_source[interest_sh]) == 0
+
+    assert interest_se in intel_agendum._source_interests_by_dependency[interest_sh]
+    assert len(intel_agendum._source_interests_by_dependency[interest_sh]) == 1
+    assert interest_sh in intel_agendum._source_interests_by_source[interest_se]
+    assert len(intel_agendum._source_interests_by_source[interest_se]) == 1
+
+    assert interest_ea in intel_agendum._source_interests_by_dependency[interest_se]
+    assert len(intel_agendum._source_interests_by_dependency[interest_se]) == 1
+    assert interest_se in intel_agendum._source_interests_by_source[interest_ea]
+    assert len(intel_agendum._source_interests_by_source[interest_ea]) == 1
+
+    assert None in intel_agendum._source_interests_by_dependency[interest_ea]
+    assert len(intel_agendum._source_interests_by_dependency[interest_ea]) == 1
+    assert interest_ea in intel_agendum._source_interests_by_source[None]
+    assert len(intel_agendum._source_interests_by_source[None]) == 1
+
+    assert criteria == interest_ea
 
     # this is basically asking us to find sector hexes in a different sector
     # but there are no other sectors in this test, so this will never be satisfiable

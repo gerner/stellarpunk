@@ -40,19 +40,21 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         self._immediate_interest_count = 0
         self._immediate_interests_satisfied = 0
 
-        #TODO: this implies a many:1 relationship between sources and dependencies
-        # should this be many to many?
-        self._source_interests_by_dependency:collections.defaultdict[core.IntelMatchCriteria, set[core.IntelMatchCriteria]] = collections.defaultdict(set)
-        self._source_interests_by_source:dict[core.IntelMatchCriteria, core.IntelMatchCriteria] = {}
+        # source/depdnency many:many relationship, including the None source
+        self._source_interests_by_dependency:collections.defaultdict[core.IntelMatchCriteria, set[Optional[core.IntelMatchCriteria]]] = collections.defaultdict(set)
+        self._source_interests_by_source:collections.defaultdict[Optional[core.IntelMatchCriteria], set[core.IntelMatchCriteria]] = collections.defaultdict(set)
 
         self._preempted_primary:Optional[core.AbstractAgendum] = None
 
     def sanity_check(self) -> None:
         for dependency, sources in self._source_interests_by_dependency.items():
             for source in sources:
-                assert self._source_interests_by_source[source] == dependency
-        for source, dependency in self._source_interests_by_source.items():
-            assert source in self._source_interests_by_dependency[dependency]
+                assert dependency in self._source_interests_by_source[source]
+        for source, dependencies in self._source_interests_by_source.items():
+            if source is None:
+                continue
+            for dependency in dependencies:
+                assert source in self._source_interests_by_dependency[dependency]
 
         if self._preempted_primary:
             assert self.is_primary()
@@ -70,30 +72,28 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         return self.agenda_id
 
     def intel_desired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]=None) -> None:
-        if source is not None:
-            # this new desire is triggered because we actually want this source
-            # kind of intel. We need to track that because looking for source
-            # directly is not productive any more
-            # once the dependency is achieved, we can start looking for the
-            # source again
+        # this new desire is triggered because we actually want this source
+        # kind of intel. We need to track that because looking for source
+        # directly is not productive any more
+        # once the dependency is achieved, we can start looking for the
+        # source again
+        # we explicitly model the None source for the purposes of explicitly
+        # tracking if a piece of intel is needed independently and thus always
+        # knowing if a piece of intel is still needed
 
-            # one interest can be a dependency of several sources. once we
-            # satisfy the dependency, all sources should be re-examined
+        # one interest can be a dependency of several sources. once we
+        # satisfy the dependency, all sources should be re-examined
 
-            # a dependency can end up being a source of further dependencies
+        # a dependency can end up being a source of further dependencies
 
-            # a source should not show up with different dependencies.
-            #TODO: can a source show up with different dependencies?
-            assert source not in self._source_interests_by_source
-
-            # remove the source interest if we have it. we don't want to try to get
-            # that before we get the dependent intel. but we'll keep track to make
-            # sure we eventually get it or try fresh if we satisfy this dependency
-            # without satisfying the source
-            if source in self._interests:
-                self._interests.remove(source)
-            self._source_interests_by_dependency[intel_criteria].add(source)
-            self._source_interests_by_source[source] = intel_criteria
+        # remove the source interest if we have it. we don't want to try to
+        # get that before we get the dependent intel. but we'll keep track
+        # to make sure we eventually get it or try fresh if we satisfy this
+        # dependency without satisfying the source
+        if source and source in self._interests:
+            self._interests.remove(source)
+        self._source_interests_by_dependency[intel_criteria].add(source)
+        self._source_interests_by_source[source].add(intel_criteria)
 
         # make note that we want to find such intel, if we haven't already
         assert(intel_manager == self.character.intel_manager)
@@ -101,8 +101,12 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             self._interests.add(intel_criteria)
             self._interests_advertised += 1
 
+        # immediate interest is this source, track the dependency instead
+        if source and source == self._immediate_interest:
+            self._immediate_interest = intel_criteria
+
         # if we're already passively or actively collecting intel, no sense
-        # interrupting that, so wait for that to finish and we'll get a act
+        # interrupting that, so wait for that to finish and we'll get an act
         # call when that should be complete. at that point we'll consider new
         # intel needs.
         if self._state == IntelCollectionAgendum.State.IDLE:
@@ -110,67 +114,116 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # registers several interests, but the schedule will dedupe
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
-    def _check_dependency_removal(self, dependency:core.IntelMatchCriteria, intel:core.AbstractIntel) -> None:
-        # this dependency is satisfied, pull all corresponding sources back
-        # into core interest set, unless immediately satisfied (in which case
-        # recurse)
+    def _remove_interest(self, interest:core.IntelMatchCriteria) -> None:
+        # prec: interest was an interest we were tracking with at least the None source, possibly others
+        # postc: any sources that dependended on interest are directly tracked
+        # postc: any depdendencies of only interest are removed
+        # postc: interest is removed
 
-        if dependency in self._source_interests_by_dependency:
-            while self._source_interests_by_dependency[dependency]:
-                source = self._source_interests_by_dependency[dependency].pop()
-                # either the source is satisfied or we need to track directly
-                # in both cases we can nuke it from source bookkeeping
-                del self._source_interests_by_source[source]
+        # this interest is no longer needed, pull all corresponding sources back
+        # into core interest set and eliminate all dependencies
+        # if any of those sources are satisfied, recursively remove them
 
-                if not source.matches(intel):
-                    self._interests_satisfied += 1
-                    # in this case we can keep any further dependnecy chain intact
-                    self._interests.add(source)
-                else:
-                    # if this itself is a dependency, we need to recursively handle
-                    # the dependency chain
-                    self._check_dependency_removal(source, intel)
+        # if this has already been removed, just bail
+        if interest not in self._source_interests_by_dependency:
+            assert interest not in self._interests
+            assert interest not in self._source_interests_by_source
+            return
 
-            del self._source_interests_by_dependency[dependency]
+        # stop tracking directly if we are
+        if interest in self._interests:
+            self._interests.remove(interest)
 
-    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
-        # first see if this satisfies some source criteria
-        matching_sources:list[tuple[core.IntelMatchCriteria, core.IntelMatchCriteria]] = []
-        for source, dependency in list(self._source_interests_by_source.items()):
-            if source.matches(intel):
-                self._interests_satisfied += 1
-                matching_sources.append((source, dependency))
+        # stop tracking dependencies if no other sources are counting on them
+        if interest in self._source_interests_by_source:
+            while self._source_interests_by_source[interest]:
+                dependency = self._source_interests_by_source[interest].pop()
+                self._source_interests_by_dependency[dependency].remove(interest)
+                if not self._source_interests_by_dependency[dependency]:
+                    self._remove_interest(dependency)
+                # otherwise this dependency has some other source so keep it
+            # nuke the record that we were ever a source
+            del self._source_interests_by_source[interest]
 
-        for source, dependency in matching_sources:
-            # we can stop tracking this
+        # start directly tracking sources
+        # we definitely have a source, even if it's the None source
+        assert interest in self._source_interests_by_dependency
+        while self._source_interests_by_dependency[interest]:
+            source = self._source_interests_by_dependency[interest].pop()
+            if source is None:
+                # we won't do anything with the None source except remove
+                # interest as a dependency
+                self._source_interests_by_source[None].remove(interest)
+                continue
+            # nuke all this sources dependencies since we're going to directly
+            # track it again.
+            while self._source_interests_by_source[source]:
+                other_dependency = self._source_interests_by_source[source].pop()
+                if other_dependency == interest:
+                    continue
+                self._remove_interest(other_dependency)
             del self._source_interests_by_source[source]
-            self._source_interests_by_dependency[dependency].remove(source)
-            if len(self._source_interests_by_dependency[dependency]) == 0:
-                del self._source_interests_by_dependency[dependency]
-            self._check_dependency_removal(source, intel)
+            # re-add it as a direct interest
+            self._interests.add(source)
 
-        # see if that intel satisfies any of our needs and drop that need.
-        # if it doesn't actually satisfy the root need, they can re-register
-        for criteria in self._interests.copy():
-            if criteria.matches(intel):
+        # nuke the record that we were ever a dependency
+        del self._source_interests_by_dependency[interest]
+
+    def intel_added(self, intel_manager:core.AbstractIntelManager, intel_item:core.AbstractIntel) -> None:
+        # prec: intel_item is known
+        # postc: any interests, directly tracked or not, that match intel_item are removed
+        # postc: any unneeded dependencies are removed
+        # postc: any sources who have at least one satisfied dependencies are directly tracked
+
+        matching_interests:list[core.IntelMatchCriteria] = []
+        for interest in self._source_interests_by_source.keys():
+            if interest is None:
+                continue
+            if interest.matches(intel_item):
                 self._interests_satisfied += 1
-                self._interests.remove(criteria)
-                self._check_dependency_removal(criteria, intel)
+                matching_interests.append(interest)
 
+        # first remove all the matching source interests
+        # this might move some matching sources to self._interests
+        for interest in matching_interests:
+            self._remove_interest(interest)
+
+        for interest in self._interests:
+            if interest.matches(intel_item):
+                self._interests_satisfied += 1
+                matching_interests.append(interest)
+
+        # now remove matching direct interests
+        # there cannot be any matching source interests at this point. we would
+        # have matched them above.
+        for interest in matching_interests:
+            self._remove_interest(interest)
+
+
+        # if we have no interests left
         if len(self._interests) == 0:
-            assert self._immediate_interest is None or self._immediate_interest.matches(intel)
+            assert self._immediate_interest is None or self._immediate_interest.matches(intel_item)
             self._immediate_interests_satisfied += 1
             self._immediate_interest = None
             self._go_idle()
 
         # if we just gained intel that satisfies one of our immediate interests
-        if self._immediate_interest and self._immediate_interest.matches(intel):
+        elif self._immediate_interest and self._immediate_interest.matches(intel_item):
             self._immediate_interests_satisfied += 1
             self._immediate_interest = None
+            # keep collecting more intel (passively or actively)
+            assert self._state in [IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE]
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
+        # otherwise this was an incidental added intel, not one we're actively
+        # working on, so no need to reschedule ourselves
 
     # Agendum
+
+    def _preempt_primary(self) -> bool:
+        # we can be preempted, we'll just interrupt our current collection
+        self._go_idle()
+        return True
 
     def _unpause(self) -> None:
         self._go_idle()
@@ -276,6 +329,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             self._restore_preempted()
         elif self.is_primary():
             self.relinquish_primary()
+        self._immediate_interest = None
         self._state = IntelCollectionAgendum.State.IDLE
 
         # we'll wake ourselves up if someone registers an interest, no need to

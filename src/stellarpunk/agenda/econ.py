@@ -22,14 +22,18 @@ def possible_buys(
         ship:core.SectorEntity,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
-        buy_from_stations:Optional[list[core.SectorEntity]],
+        buy_from_stations:Optional[list[uuid.UUID]],
         ) -> Mapping[int, list[tuple[float, float, core.SectorEntity]]]:
     assert ship.sector is not None
     # figure out possible buys by resource
     buys:collections.defaultdict[int, list[tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
     buy_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
 
-    for econ_agent_intel in character.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(ship_agent.buy_resources()).intersection(allowed_resources)), intel.EconAgentIntel):
+    resources = frozenset(ship_agent.buy_resources()).intersection(allowed_resources)
+    if len(resources) == 0:
+        return buys
+
+    for econ_agent_intel in character.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(sell_resources=resources), intel.EconAgentIntel):
         if buy_from_stations is not None and econ_agent_intel.intel_entity_id not in buy_from_stations:
             continue
         # get the corresponding station intel so we know where to go
@@ -64,7 +68,11 @@ def possible_sales(
     sales:collections.defaultdict[int, list[tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
     sale_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
 
-    for econ_agent_intel in character.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(ship_agent.sell_resources()).intersection(allowed_resources)), intel.EconAgentIntel):
+    resources = frozenset(ship_agent.sell_resources()).intersection(allowed_resources)
+    if len(resources) == 0:
+        return sales
+
+    for econ_agent_intel in character.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(buy_resources=resources), intel.EconAgentIntel):
         if allowed_stations is not None and econ_agent_intel.intel_entity_id not in allowed_stations:
             continue
         # get the corresponding station intel so we know where to go
@@ -95,7 +103,7 @@ def choose_station_to_buy_from(
         ship:core.Ship,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
-        buy_from_stations:Optional[list[core.SectorEntity]],
+        buy_from_stations:Optional[list[uuid.UUID]],
         sell_to_stations:Optional[list[uuid.UUID]]
         ) -> Optional[tuple[int, sector_entity.Station, core.EconAgent, float, float]]:
 
@@ -184,9 +192,9 @@ def choose_station_to_sell_to(
     assert best_trade is None or best_profit_per_time > 0.
     return best_trade
 
-# how long to wait, idle if we can't do work
-MINING_SLEEP_TIME = 60.
-TRADING_SLEEP_TIME = 60.
+# how long to wait while trying to acquire primary agenda position
+MINING_SLEEP_TIME = 10.
+TRADING_SLEEP_TIME = 10.
 
 class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperatorAgendum):
     """ Managing a ship for mining.
@@ -573,6 +581,8 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         if self.is_complete():
             self.state = MiningAgendum.State.COMPLETE
+            #TODO: should we give up primary? should we stop ourselves?
+            # this is mostly a state for test purposes
             return
 
         if np.any(self.craft.cargo[self.allowed_resources] > 0.):
@@ -602,16 +612,16 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
     def create_trading_agendum[T:TradingAgendum](
             cls:Type[T],
             *args:Any,
-            buy_from_stations: Optional[list[core.SectorEntity]] = None,
             **kwargs:Any
     ) -> T:
         a = cls.create_eoa(*args, **kwargs)
-        a.initialize_trading_agendum(buy_from_stations)
+        a.initialize_trading_agendum()
         return a
 
     def __init__(self,
         *args: Any,
         allowed_goods:Optional[list[int]]=None,
+        buy_from_stations:Optional[list[uuid.UUID]]=None,
         sell_to_stations:Optional[list[uuid.UUID]]=None,
         **kwargs:Any
     ) -> None:
@@ -624,26 +634,23 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             allowed_goods = list(range(self.gamestate.production_chain.ranks[0], self.gamestate.production_chain.ranks.cumsum()[-2]))
         self.allowed_goods = allowed_goods
 
-        self.buy_from_stations:Optional[list[core.SectorEntity]] = None
+        self.buy_from_stations = buy_from_stations
         self.sell_to_stations = sell_to_stations
 
         self.buy_order:Optional[ocore.TradeCargoFromStation] = None
         self.sell_order:Optional[ocore.TradeCargoToStation] = None
 
+        # known economic state, and our effort to expand that
         self._pending_intel_interests:set[core.IntelMatchCriteria] = set()
+        self._known_sold_resources:frozenset[int] = frozenset()
+        self._known_bought_resources:frozenset[int] = frozenset()
 
         self.trade_trips = 0
         self.max_trips = -1
 
-    def initialize_trading_agendum(
-            self,
-            buy_from_stations: Optional[list[core.SectorEntity]] = None,
-            sell_to_stations: Optional[list[uuid.UUID]] = None,
-    ) -> None:
+    def initialize_trading_agendum(self) -> None:
         assert(isinstance(self.craft, core.Ship))
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
-        self.buy_from_stations = buy_from_stations
-        self.sell_to_stations = sell_to_stations
 
     # core.OrderObserver
 
@@ -680,13 +687,13 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
     # core.IntelManagerObserver
 
-    def intel_added(self, intel_manager:core.AbstractIntelManager, intel:core.AbstractIntel) -> None:
+    def intel_added(self, intel_manager:core.AbstractIntelManager, intel_item:core.AbstractIntel) -> None:
         # either we're not sleeping or we have some intel interest we're waiting on
         assert self.state != TradingAgendum.State.SLEEP or self._pending_intel_interests
         # check if this is intel we've been waiting for
         matches:list[core.IntelMatchCriteria] = []
         for interest in self._pending_intel_interests:
-            if interest.matches(intel):
+            if interest.matches(intel_item):
                 matches.append(interest)
 
         for match in matches:
@@ -743,13 +750,21 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
     def is_complete(self) -> bool:
         return self.max_trips >= 0 and self.trade_trips >= self.max_trips
 
+    def _register_interest(self, interest:core.IntelMatchCriteria) -> None:
+        if interest not in self._pending_intel_interests:
+            self._pending_intel_interests.add(interest)
+            self.character.intel_manager.register_intel_interest(interest)
+
     def _register_interests(self) -> None:
-        #TODO: prioritize these somehow
         # we need a buy/sell pair. cases:
         # * a buyer for a good we have
         # * a buyer for a known good that's sold
         # * a seller for a known good that's bought
         # * any buyer or seller for allowed goods
+
+        # we operate in two phases:
+        # fresh: look for anything that might be useful
+        # delta: we've learned something new, try to exploit that
 
         buys = possible_buys(
                 self.character,
@@ -761,24 +776,56 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
                 self.gamestate, self.craft, self.agent,
                 self.allowed_goods, self.sell_to_stations,
         )
-        known_sold_resources = buys.keys()
-        known_bought_resources = sales.keys()
+        known_sold_resources = frozenset(buys.keys()).intersection(self.allowed_goods)
+        known_bought_resources = frozenset(sales.keys()).intersection(self.allowed_goods)
 
+        # if we have new buy/sell knowledge since the last time we looked,
+        # just try to exploit that (e.g. find buyer for newly known sold good)
+        # failing that, look for everything
+        delta_sold = known_sold_resources - self._known_sold_resources
+        delta_bought = known_bought_resources - self._known_bought_resources
+        self._known_sold_resources = known_sold_resources
+        self._known_bought_resources = known_bought_resources
+
+        if delta_sold or delta_bought:
+            self._register_delta_interests(delta_sold, delta_bought)
+        else:
+            self._register_fresh_interests()
+
+    def _register_delta_interests(self, delta_sold:frozenset[int], delta_bought:frozenset[int]) -> None:
+        #TODO: multi-sector?
+        # seek buyers for delta_sold resources
+        if delta_sold:
+            interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=delta_sold)
+            self._register_interest(interest)
+        if delta_bought:
+            interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=delta_bought)
+            self._register_interest(interest)
+
+
+        # seek sellers for delta_bought resources
+
+    def _register_fresh_interests(self) -> None:
+        #TODO: multi-sector?
         # buyer for our goods (if we have any)
         if np.sum(np.take(self.craft.cargo, self.allowed_goods)) > 0.:
-            self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_goods)))
+            interest:core.IntelMatchCriteria = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_goods))
+            self._register_interest(interest)
         # buyer for known sold good
-        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(known_sold_resources).intersection(self.allowed_goods)))
+        if len(self._known_sold_resources) > 0:
+            interst = intel.EconAgentSectorEntityPartialCriteria(buy_resources=self._known_sold_resources)
+            self._register_interest(interest)
+
         # seller for known bought goods
-        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(known_bought_resources).intersection(self.allowed_goods)))
+        if len(self._known_bought_resources) > 0:
+            interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=self._known_bought_resources)
+            self._register_interest(interest)
 
         # any buyers or sellers
-        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(self.allowed_goods)))
-        self._pending_intel_interests.add(intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(self.allowed_goods)))
-
-        for interest in self._pending_intel_interests:
-            self.character.intel_manager.register_intel_interest(interest)
-
+        interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(self.allowed_goods))
+        self._register_interest(interest)
+        interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(self.allowed_goods))
+        self._register_interest(interest)
 
     def _buy_goods(self) -> None:
         assert(isinstance(self.craft, core.Ship))
@@ -858,7 +905,9 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
         if not self.is_primary():
             assert self.state == TradingAgendum.State.WAIT_PRIMARY
-            if self.character.find_primary_agendum():
+            current_primary = self.character.find_primary_agendum()
+            # try and grab back primary
+            if current_primary and not current_primary.preempt_primary():
                 # sleep some more hoping whoever is primary will relinquish
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME, self, jitter=1.0)
                 return

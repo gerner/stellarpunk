@@ -168,8 +168,11 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
 
 class TrivialMatchCriteria(core.IntelMatchCriteria):
+    def __init__(self, *args:Any, cls:Type[core.AbstractIntel]=core.AbstractIntel, **kwargs:Any):
+        self.cls = cls
     def matches(self, other:core.AbstractIntel) -> bool:
-        assert(isinstance(other, core.AbstractIntel))
+        if not isinstance(other, self.cls):
+            return False
         return True
 
 class EntityIntelMatchCriteria(core.IntelMatchCriteria):
@@ -383,6 +386,16 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
         self.is_static = is_static
         self.sector_id = sector_id
 
+    def __str__(self) -> str:
+        items = []
+        if self.cls:
+            items.append(f'cls={self.cls}')
+        if self.is_static is not None:
+            items.append(f'is_static={self.is_static}')
+        if self.sector_id:
+            items.append(f'sector_id={self.sector_id}')
+        return f'{util.fullname(self)} {", ".join(items)}'
+
     def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, SectorEntityIntel):
             return False
@@ -413,7 +426,21 @@ class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
         kwargs["cls"] = sector_entity.Asteroid
         kwargs["is_static"] = True
         super().__init__(*args, **kwargs)
+        if resources is not None and len(resources) == 0:
+            raise ValueError(f'resources must be non-empty if present')
         self.resources = resources
+
+    def __str__(self) -> str:
+        items = []
+        if self.cls:
+            items.append(f'cls={self.cls}')
+        if self.is_static is not None:
+            items.append(f'is_static={self.is_static}')
+        if self.sector_id:
+            items.append(f'sector_id={self.sector_id}')
+        if self.resources:
+            items.append(f'resources={self.resources}')
+        return f'{util.fullname(self)} {", ".join(items)}'
 
     def matches(self, intel:core.AbstractIntel) -> bool:
         if not super().matches(intel):
@@ -438,15 +465,33 @@ class AsteroidIntelPartialCriteria(SectorEntityPartialCriteria):
 class StationIntelPartialCriteria(SectorEntityPartialCriteria):
     def __init__(self, *args:Any, resources:Optional[frozenset[int]]=None, inputs:Optional[frozenset[int]]=None, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        if resources is not None and len(resources) == 0:
+            raise ValueError(f'resources must be non-empty if present')
+        if inputs is not None and len(inputs) == 0:
+            raise ValueError(f'inputs must be non-empty if present')
         self.resources = resources
         self.inputs = inputs
+
+    def __str__(self) -> str:
+        items = []
+        if self.cls:
+            items.append(f'cls={self.cls}')
+        if self.is_static is not None:
+            items.append(f'is_static={self.is_static}')
+        if self.sector_id:
+            items.append(f'sector_id={self.sector_id}')
+        if self.resources:
+            items.append(f'resources={self.resources}')
+        if self.inputs:
+            items.append(f'inputs={self.inputs}')
+        return f'{util.fullname(self)} {", ".join(items)}'
 
     def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, StationIntel):
             return False
         if not super().matches(intel):
             return False
-        if self.resources is not None and intel.resource in self.resources:
+        if self.resources is not None and intel.resource not in self.resources:
             return False
         if self.inputs is not None and len(intel.inputs.intersection(self.inputs)) == 0:
             return False
@@ -481,6 +526,18 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
         self.hex_loc = hex_loc
         self.hex_dist = hex_dist
         self.is_static = is_static
+
+    def __str__(self) -> str:
+        items = []
+        if self.sector_id:
+            items.append(f'sector_id={self.sector_id}')
+        if self.hex_loc is not None:
+            items.append(f'hex_loc={self.hex_loc}')
+        if self.hex_dist is not None:
+            items.append(f'hex_dist={self.hex_dist}')
+        if self.is_static is not None:
+            items.append(f'is_static={self.is_static}')
+        return f'{util.fullname(self)} {", ".join(items)}'
 
     def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, SectorHexIntel):
@@ -531,8 +588,27 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
             raise ValueError(f'{underlying_entity_type=} must be a subclass of core.SectorEntity')
         self.underlying_entity_id = underlying_entity_id
         self.underlying_entity_type = underlying_entity_type
+        if buy_resources is not None and len(buy_resources) == 0:
+            raise ValueError(f'buy_resources must be non-empty if present')
+        if sell_resources is not None and len(sell_resources) == 0:
+            raise ValueError(f'sell_resources must be non-empty if present')
         self.buy_resources = buy_resources
         self.sell_resources = sell_resources
+
+    def __str__(self) -> str:
+        items = []
+        if self.sector_id:
+            items.append(f'sector_id={self.sector_id}')
+        if self.underlying_entity_id:
+            items.append(f'underlying_entity_id={self.underlying_entity_id}')
+        if self.underlying_entity_type:
+            items.append(f'underlying_entity_type={self.underlying_entity_type}')
+        if self.buy_resources:
+            items.append(f'buy_resources={self.buy_resources}')
+        if self.sell_resources:
+            items.append(f'sell_resources={self.sell_resources}')
+        return f'{util.fullname(self)} {",".join(items)}'
+
 
     def matches(self, intel:core.AbstractIntel) -> bool:
         # check stuff about the intel itself
