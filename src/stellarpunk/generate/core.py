@@ -324,6 +324,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.event_manager:events.EventManager = None # type: ignore
         self.gamestate:Optional[core.Gamestate] = None
+        self.intel_director:intel.IntelCollectionDirector = None # type: ignore
 
         #TODO: should we just use the one on gamestate? They should always be
         # the same thing anyway
@@ -1127,6 +1128,12 @@ class UniverseGenerator(core.AbstractGenerator):
                     character,
                     self.gamestate
                 ))
+                character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
+                    character,
+                    self.intel_director,
+                    self.gamestate
+                ))
+                #TODO: add some intel about mining
             elif asset in trading_ships:
                 character.add_agendum(agenda.CaptainAgendum.create_eoa(
                     asset,
@@ -1138,7 +1145,13 @@ class UniverseGenerator(core.AbstractGenerator):
                     character,
                     self.gamestate
                 ))
+                character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
+                    character,
+                    self.intel_director,
+                    self.gamestate
+                ))
                 character.balance += 5e3
+                #TODO: add some intel about trading
             else:
                 raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
         elif isinstance(asset, sector_entity.Station):

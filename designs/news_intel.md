@@ -71,7 +71,17 @@ Questions:
     * Who's the captain and TBD properties like allegances/relationships
     * Other TBD parameters (perhaps combat parameters like armament)
 
-How do we gain detailed intel about the sector entity? docking =? resources bought/sold and prices. Comms => captain? maybe just getting a strong enough sensor reading?
+How do we gain detailed intel about the sector entity? docking =? resources
+bought/sold and prices. Comms => captain? maybe just getting a strong enough
+sensor reading?
+
+### Universe Generation/Starting Intel
+
+Traders/Miners should have some intel about asteroids/stations of interest, but
+not perfect intel. They should stil seek out some intel and the intel they have
+might expire soon. In particular, their initial intel should be geographically
+plausible, i.e. clustered in a few spots of interest. Some traders/miners might
+not have enough or any useful intel.
 
 # News
 

@@ -138,6 +138,7 @@ def history_from_file(fname, generator, sector, gamestate, load_ct:bool=True):
 
 def add_sector_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate) -> None:
     #TODO: fresh/expires
+    images = sector.sensor_manager.scan(detector)
     intel.add_sector_scan_intel(detector, sector, character, gamestate)
     for entity in sector.entities.values():
         if isinstance(entity, sector_entity.Asteroid):

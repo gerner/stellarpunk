@@ -346,11 +346,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         return False
 
     def _start(self) -> None:
-        current_primary = self.character.find_primary_agendum()
-        if current_primary:
-            raise ValueError(f'cannot start {self} because there is already a primary agendum {current_primary}')
-        assert self.state == MiningAgendum.State.IDLE
-        self.make_primary()
+        self.state = MiningAgendum.State.WAIT_PRIMARY
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
         self.character.intel_manager.observe(self)
 
@@ -563,6 +559,8 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
                 return
             # take back control
             self.make_primary()
+            assert isinstance(self.craft, core.Ship)
+            self.craft.clear_orders()
             self.state = MiningAgendum.State.IDLE
 
         #TODO: periodically wake up and check if there's nearby asteroids or
@@ -573,11 +571,6 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         # at them
 
         assert self.state == MiningAgendum.State.IDLE
-
-        # do a scan of our current location. this will get us intel about the
-        # sector and entities within it that we can see
-        assert(self.craft.sector)
-        self.craft.sector.sensor_manager.scan(self.craft)
 
         if self.is_complete():
             self.state = MiningAgendum.State.COMPLETE
@@ -715,11 +708,7 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         return False
 
     def _start(self) -> None:
-        current_primary = self.character.find_primary_agendum()
-        if current_primary:
-            raise ValueError(f'cannot start {self} because there is already a primary agendum {current_primary}')
-        assert self.state == TradingAgendum.State.IDLE
-        self.make_primary()
+        self.state = TradingAgendum.State.WAIT_PRIMARY
         self.gamestate.schedule_agendum_immediate(self, jitter=5.)
         self.character.intel_manager.observe(self)
 
@@ -913,6 +902,8 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
                 return
             # take back control
             self.make_primary()
+            assert isinstance(self.craft, core.Ship)
+            self.craft.clear_orders()
             self.state = TradingAgendum.State.IDLE
 
         assert self.state == TradingAgendum.State.IDLE

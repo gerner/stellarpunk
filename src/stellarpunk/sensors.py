@@ -580,10 +580,19 @@ class SensorManager(core.AbstractSensorManager):
 
 class SensorScanOrder(core.Order):
     """ Has the ship do a sensor scan and nothing else. """
+    def __init__(self, *args:Any, images_ttl:float=0.5, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.images:Optional[Collection[core.AbstractSensorImage]] = None
+        self.images_ttl = images_ttl
+
     def act(self, dt: float) -> None:
-        assert(self.ship.sector)
-        self.ship.sector.sensor_manager.scan(self.ship)
-        self.complete_order()
+        if self.images is not None:
+            self.complete_order()
+        else:
+            assert(self.ship.sector)
+            # we need to keep these images alive for a few ticks
+            self.images = list(self.ship.sector.sensor_manager.scan(self.ship))
+            self.gamestate.schedule_order(self.gamestate.timestamp + self.images_ttl, self)
 
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_events(Events, "sensors")

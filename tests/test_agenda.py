@@ -199,7 +199,7 @@ def test_basic_trading(intel_director, gamestate, generator, sector, testui, sim
     # now actually run trading in the simulator
     # note: it'll take a little while to collect all the relevant intel
     # necessary to do a trade (perhaps a couple of minutes)
-    testui.eta = 200
+    testui.eta = 250
     testui.agenda.append(trading_agendum)
     testui.margin_neighbors = [ship]
     # delay production until after the test will finish

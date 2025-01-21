@@ -696,10 +696,13 @@ def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamesta
     else:
         return False
 
-def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None) -> None:
+def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None, loc:Optional[npt.NDArray[np.float64]]=None, scan_range:Optional[float]=None, images:Optional[Collection[core.AbstractSensorImage]]=None) -> None:
     # figure out the set of hexes that are relevant
-    passive_range, thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
-    sector_hexes = util.hexes_within_pixel_dist(detector.loc, passive_range, sector.hex_size)
+    if scan_range is None:
+        scan_range, _, _ = sector.sensor_manager.sensor_ranges(detector)
+    if loc is None:
+        loc = detector.loc
+    sector_hexes = util.hexes_within_pixel_dist(loc, scan_range, sector.hex_size)
 
     # eliminate hexes we already have good intel for
     # and create a dict from hex coord to info about the hex
@@ -718,7 +721,7 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
 
     # iterate over all the sensor images we've got accumulating info for
     # the hex they lie in, if it's within range
-    for image in detector.sensor_settings.images:
+    for image in images or detector.sensor_settings.images:
         if not image.identified:
             continue
 

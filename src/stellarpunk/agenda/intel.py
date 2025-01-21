@@ -90,8 +90,13 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         # get that before we get the dependent intel. but we'll keep track
         # to make sure we eventually get it or try fresh if we satisfy this
         # dependency without satisfying the source
-        if source and source in self._interests:
-            self._interests.remove(source)
+
+        # immediate interest is this source, track the dependency instead
+        if source:
+            if source == self._immediate_interest:
+                self._immediate_interest = intel_criteria
+            if source in self._interests:
+                self._interests.remove(source)
         self._source_interests_by_dependency[intel_criteria].add(source)
         self._source_interests_by_source[source].add(intel_criteria)
 
@@ -101,9 +106,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             self._interests.add(intel_criteria)
             self._interests_advertised += 1
 
-        # immediate interest is this source, track the dependency instead
-        if source and source == self._immediate_interest:
-            self._immediate_interest = intel_criteria
+        assert self._immediate_interest is None or self._immediate_interest in self._interests
 
         # if we're already passively or actively collecting intel, no sense
         # interrupting that, so wait for that to finish and we'll get an act
@@ -133,6 +136,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         # stop tracking directly if we are
         if interest in self._interests:
             self._interests.remove(interest)
+            if interest == self._immediate_interest:
+                self._immediate_interest = None
 
         # stop tracking dependencies if no other sources are counting on them
         if interest in self._source_interests_by_source:
