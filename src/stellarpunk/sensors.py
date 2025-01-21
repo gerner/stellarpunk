@@ -270,6 +270,8 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
 
                 # let the target know they've been targeted by us
                 if notify_target and self._sensor_manager.detected(self._ship, self._target):
+                    #TODO: this is going to get triggered a lot. should we only
+                    # do it the first time they get targeted?
                     #TODO: what about passengers? should they get this event too?
                     candidates = list(itertools.chain(core.crew(self._ship), core.crew(self._target)))
                     if candidates:

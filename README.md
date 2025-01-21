@@ -71,18 +71,20 @@ accumulate power.
 - [ ] comms and player interaction
 - [ ] handle cargo transfer for owned/directed ship (no cash transfer)
 - [ ] player directed trading
-- [ ] discovering asteroids/stations
+- [x] discovering asteroids/stations
+- [ ] multi-sector trading/mining
 
 ### Intel System
 
 - [x] data model for intel, knowing POIs, knowing prices
 - [x] intel lifecycle: created and added to a character's knowledge, expires or
       somehow goes away
-- [ ] intel used by miners and traders
-- [ ] intel integrated into sensors for identification and physical params
+- [x] intel used by miners and traders
+- [x] intel integrated into sensors for identification and physical params
 - [ ] buying/selling intel
 - [ ] intel is available in intel forums
-- [ ] behavior for gathering intel
+- [x] behavior for gathering intel (captain)
+- [ ] behavior for gathering intel (non-captain)
 - [ ] behavior for distributing intel
 - [ ] intel manager interface for player to see intel
 - [x] intel serialization for save/load
@@ -151,4 +153,5 @@ accumulate power.
 - [ ] good distribution of resources/production facilities
 - [ ] history recording important events
 - [ ] integrating relevant history/bios for characters/universe objects
+- [ ] characters start with some intel/knowledge of sector/universe
 

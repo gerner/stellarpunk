@@ -284,13 +284,13 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     saw_active = False
     saw_interest_ea = False
     interest_ea = None
-    interest_ea_objs = set()
+    interest_ea_objs:set[int] = set()
     saw_interest_se = False
     interest_se = None
-    interest_se_objs = set()
+    interest_se_objs:set[int] = set()
     saw_interest_sh = False
     interest_sh = None
-    interest_sh_objs = set()
+    interest_sh_objs:set[int] = set()
     stage = 0
     def tick_callback():
         nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh, interest_ea_objs, interest_se_objs, interest_sh_objs, stage
