@@ -692,7 +692,7 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
     # core.Order
 
     def _begin(self) -> None:
-        self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc)
+        self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc) + 5.0
 
     def act(self, dt:float) -> None:
         #TODO: is this a safe assert?

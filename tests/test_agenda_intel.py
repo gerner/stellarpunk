@@ -337,6 +337,9 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
 
         if intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE and len(interest_observer._added_intels) > 0:
             testui.done = True
+        elif saw_active:
+            assert intel_agendum._state == aintel.IntelCollectionAgendum.State.ACTIVE
+
 
     testui.tick_callback = tick_callback
     # just make sure we don't run forever

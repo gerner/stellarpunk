@@ -22,7 +22,7 @@ import rtree.index # type: ignore
 import graphviz # type: ignore
 
 from stellarpunk import util, core, orders, agenda, econ, config, events, sensors, intel
-from stellarpunk.core import combat, sector_entity
+from stellarpunk.core import combat, sector_entity, gamestate
 from stellarpunk.agenda import intel as aintel
 from . import markov
 
@@ -1133,7 +1133,6 @@ class UniverseGenerator(core.AbstractGenerator):
                     self.intel_director,
                     self.gamestate
                 ))
-                #TODO: add some intel about mining
             elif asset in trading_ships:
                 character.add_agendum(agenda.CaptainAgendum.create_eoa(
                     asset,
@@ -1151,7 +1150,6 @@ class UniverseGenerator(core.AbstractGenerator):
                     self.gamestate
                 ))
                 character.balance += 5e3
-                #TODO: add some intel about trading
             else:
                 raise ValueError("got a ship that wasn't in mining_ships or trading_ships")
         elif isinstance(asset, sector_entity.Station):
@@ -2172,6 +2170,61 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
+    def generate_intel(self) -> None:
+        """ Adds starting intel for characters """
+        assert self.gamestate
+
+        captains:list[core.Character] = []
+
+        for character in self.gamestate.characters.values():
+            # miners
+            if list(x for x in character.agenda if isinstance(x, agenda.MiningAgendum)):
+                captains.append(character)
+            # traders
+            elif list(x for x in character.agenda if isinstance(x, agenda.TradingAgendum)):
+                captains.append(character)
+
+        #TODO: this is pretty crude. we should seed their knowledge in a more
+        # varied way to create more interest
+
+        # sector hex expiration
+        static_intel_ttl = 3600.
+        dynamic_intel_ttl = 900.
+        static_fresh_until = self.gamestate.timestamp + static_intel_ttl*0.2
+        static_expires_at = self.gamestate.timestamp + static_intel_ttl
+        dynamic_fresh_until = self.gamestate.timestamp + dynamic_intel_ttl*0.2
+        dynamic_expires_at = self.gamestate.timestamp + dynamic_intel_ttl
+
+        # econ agent expiration
+        econ_intel_ttl = 300.
+        econ_fresh_until = self.gamestate.timestamp + econ_intel_ttl*0.2
+        econ_expires_at = self.gamestate.timestamp + econ_intel_ttl
+
+        # sector entity expiration
+        se_intel_ttl = 300.
+        se_fresh_until = self.gamestate.timestamp + se_intel_ttl*0.2
+        se_expires_at = self.gamestate.timestamp + se_intel_ttl
+
+        for captain in captains:
+            detector = captain.location
+            assert isinstance(detector, core.Ship)
+            assert detector.sector
+            sector = detector.sector
+            images = sector.sensor_manager.scan(detector)
+            for character in gamestate.crew(detector):
+                intel.add_sector_scan_intel(detector, sector, character, self.gamestate, static_fresh_until=static_fresh_until, static_expires_at=static_expires_at, dynamic_fresh_until=dynamic_fresh_until, dynamic_expires_at=dynamic_expires_at)
+                for entity in sector.entities.values():
+                    if not detector.sensor_settings.has_image(entity.entity_id):
+                        continue
+                    if isinstance(entity, sector_entity.Asteroid):
+                        intel.add_asteroid_intel(entity, character, self.gamestate, expires_at=se_expires_at, fresh_until=se_fresh_until)
+                    elif isinstance(entity, sector_entity.Station):
+                        intel.add_station_intel(entity, character, self.gamestate, expires_at=se_expires_at, fresh_until=se_fresh_until)
+                        if entity.entity_id in self.gamestate.econ_agents:
+                            intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, expires_at=econ_expires_at, fresh_until=econ_fresh_until)
+                    else:
+                        intel.add_sector_entity_intel(entity, character, self.gamestate, dynamic_expires_at=se_expires_at, dynamic_fresh_until=se_fresh_until)
+
     def estimate_generation_ticks(self) -> int:
         # 10 ticks for production chains
         # 1 tick for starfields
@@ -2237,6 +2290,9 @@ class UniverseGenerator(core.AbstractGenerator):
             mean_uninhabitable_resources=self.universe_config.mean_uninhabitable_resources,
             num_cultures=num_cultures,
         )
+
+        # generate starting intel for characters
+        self.generate_intel()
 
         # generate the player
         for observer in self._observers:

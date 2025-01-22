@@ -179,6 +179,13 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         # postc: any interests, directly tracked or not, that match intel_item are removed
         # postc: any unneeded dependencies are removed
         # postc: any sources who have at least one satisfied dependencies are directly tracked
+        # check if it matches our immediate interest now because we'll clear it
+        # as part of the removal process below
+        if self._immediate_interest and self._immediate_interest.matches(intel_item):
+            matched_immediate = True
+            self._immediate_interests_satisfied += 1
+        else:
+            matched_immediate = False
 
         matching_interests:list[core.IntelMatchCriteria] = []
         for interest in self._source_interests_by_source.keys():
@@ -207,15 +214,14 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
         # if we have no interests left
         if len(self._interests) == 0:
-            assert self._immediate_interest is None or self._immediate_interest.matches(intel_item)
-            self._immediate_interests_satisfied += 1
-            self._immediate_interest = None
+            # we must have cleared our immediate interest
+            # either by matching it directly or making it redundant
+            assert self._immediate_interest is None
             self._go_idle()
 
         # if we just gained intel that satisfies one of our immediate interests
-        elif self._immediate_interest and self._immediate_interest.matches(intel_item):
-            self._immediate_interests_satisfied += 1
-            self._immediate_interest = None
+        # either by matching it directly or making it redundant
+        elif self._immediate_interest is None:
             # keep collecting more intel (passively or actively)
             assert self._state in [IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE]
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
