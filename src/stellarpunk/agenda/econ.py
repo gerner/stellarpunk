@@ -312,6 +312,11 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             self.state = MiningAgendum.State.WAIT_PRIMARY
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
+    def intel_undesired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
+        #TODO: check if we're waiting for this and take appropriate action
+        # we cannot take primary right now, but likely can in the next tick
+        pass
+
 
     def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
         if self.craft.sector is None:
@@ -700,6 +705,12 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             # that when we act
             self.state = TradingAgendum.State.WAIT_PRIMARY
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+
+    def intel_undesired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
+        #TODO: check if we're waiting for this and take appropriate action
+        # we cannot take primary right now, but likely can in the next tick
+        pass
+
 
     # Agendum
 

@@ -159,6 +159,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
                 # we won't do anything with the None source except remove
                 # interest as a dependency
                 self._source_interests_by_source[None].remove(interest)
+                if len(self._source_interests_by_source[None]) == 0:
+                    del self._source_interests_by_source[None]
                 continue
             # nuke all this sources dependencies since we're going to directly
             # track it again.
@@ -311,10 +313,23 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
         if cheapest_criteria is None:
             # this means we have intel interests we cannot collect and no one
-            # else is directing primary character behavior. Seems bad.
-            # perhaps at a later point we will be able to
-            # we should probably discard interests at some point
+            # else is directing primary character behavior.
             self.logger.info(f'{self.character} has intel interests that we cannot actively satisfy')
+            # clear out all intel interests, we will not try to collect them
+            # if someone still wants them, something else needs to happen in
+            # order to collect that intel.
+
+            # do this in a while loop because we'll be pulling source interests
+            # back into interests and we want to remove those too.
+            while self._interests:
+                interest = self._interests.pop()
+                self._remove_interest(interest)
+                # this is how we signal to intel consumers that we will not try
+                # to collect this intel
+                # someone else should try to take back primary agendum and do
+                # something else.
+                self.character.intel_manager.unregister_intel_interest(interest)
+
             self._go_idle()
             return
 

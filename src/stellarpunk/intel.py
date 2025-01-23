@@ -166,6 +166,10 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         for observer in self.observers:
             observer.intel_desired(self, interest, source=source)
 
+    def unregister_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
+        for observer in self.observers:
+            observer.intel_undesired(self, interest)
+
 
 class TrivialMatchCriteria(core.IntelMatchCriteria):
     def __init__(self, *args:Any, cls:Type[core.AbstractIntel]=core.AbstractIntel, **kwargs:Any):

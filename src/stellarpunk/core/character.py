@@ -98,6 +98,12 @@ class IntelManagerObserver(base.Observer):
         """ Someone desires a particular kind of intel. """
         pass
 
+    def intel_undesired(self, intel_manager:"AbstractIntelManager", intel_criteria:"IntelMatchCriteria") -> None:
+        """ a given desire is no longer considered desired.
+
+        could be unsatisfiable."""
+        pass
+
 
 class AbstractIntelManager(base.Observable[IntelManagerObserver]):
     @abc.abstractmethod
@@ -111,6 +117,8 @@ class AbstractIntelManager(base.Observable[IntelManagerObserver]):
 
     @abc.abstractmethod
     def register_intel_interest(self, interest:IntelMatchCriteria, source:Optional[IntelMatchCriteria]=None) -> None: ...
+    @abc.abstractmethod
+    def unregister_intel_interest(self, interest:IntelMatchCriteria) -> None: ...
 
 class AgendumLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, character:"Character", *args:Any, **kwargs:Any):
