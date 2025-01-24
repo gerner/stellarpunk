@@ -219,3 +219,138 @@ class StationIntelSaver(SectorEntityIntelSaver[intel.StationIntel]):
         inputs = set(s_util.ints_from_f(f))
         sector_entity_intel = intel.StationIntel(resource, inputs, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_id_prefix, intel_entity_id_short, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
         return sector_entity_intel, None
+
+# IntelCriteria savers
+
+class EntityIntelMatchCriteriaSaver(save_game.Saver[intel.EntityIntelMatchCriteria]):
+    def save(self, obj:intel.EntityIntelMatchCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(obj.entity_id, f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.EntityIntelMatchCriteria:
+        entity_id = s_util.uuid_from_f(f)
+        obj = intel.EntityIntelMatchCriteria(entity_id)
+        return obj
+
+class SectorHexMatchCriteriaSaver(save_game.Saver[intel.SectorHexMatchCriteria]):
+    def save(self, obj:intel.SectorHexMatchCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(obj.sector_id, f)
+        bytes_written += s_util.float_pair_to_f(obj.hex_loc, f)
+        bytes_written += s_util.bool_to_f(obj.is_static, f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.SectorHexMatchCriteria:
+        sector_id = s_util.uuid_from_f(f)
+        hex_loc = s_util.float_pair_from_f(f)
+        is_static = s_util.bool_from_f(f)
+        obj = intel.SectorHexMatchCriteria(sector_id, hex_loc, is_static)
+        return obj
+
+
+class SectorEntityPartialCriteriaSaver(save_game.Saver[intel.SectorEntityPartialCriteria]):
+    def save(self, obj:intel.SectorEntityPartialCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.to_len_pre_f(util.fullname(obj.cls), f)
+        bytes_written += s_util.optional_obj_to_f(obj.is_static, f, s_util.bool_to_f)
+        bytes_written += s_util.optional_uuid_to_f(obj.sector_id, f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.SectorEntityPartialCriteria:
+        cls_name = s_util.from_len_pre_f(f)
+        cls = pydoc.locate(cls_name)
+        assert isinstance(cls, type)
+        assert issubclass(cls, core.SectorEntity)
+        is_static = s_util.optional_obj_from_f(f, s_util.bool_from_f)
+        sector_id = s_util.optional_uuid_from_f(f)
+        obj = intel.SectorEntityPartialCriteria(cls=cls, is_static=is_static, sector_id=sector_id)
+        return obj
+
+class AsteroidIntelPartialCriteriaSaver(save_game.Saver[intel.AsteroidIntelPartialCriteria]):
+    def save(self, obj:intel.AsteroidIntelPartialCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.to_len_pre_f(util.fullname(obj.cls), f)
+        bytes_written += s_util.optional_obj_to_f(obj.is_static, f, s_util.bool_to_f)
+        bytes_written += s_util.optional_uuid_to_f(obj.sector_id, f)
+        bytes_written += s_util.optional_obj_to_f(obj.resources, f, s_util.ints_to_f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.AsteroidIntelPartialCriteria:
+        cls_name = s_util.from_len_pre_f(f)
+        cls = pydoc.locate(cls_name)
+        assert isinstance(cls, type)
+        assert issubclass(cls, core.SectorEntity)
+        is_static = s_util.optional_obj_from_f(f, s_util.bool_from_f)
+        sector_id = s_util.optional_uuid_from_f(f)
+        resources = s_util.optional_obj_from_f(f, s_util.ints_from_f)
+        obj = intel.AsteroidIntelPartialCriteria(cls=cls, is_static=is_static, sector_id=sector_id, resources=frozenset(resources) if resources else None)
+        return obj
+
+class StationIntelPartialCriteriaSaver(save_game.Saver[intel.StationIntelPartialCriteria]):
+    def save(self, obj:intel.StationIntelPartialCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.to_len_pre_f(util.fullname(obj.cls), f)
+        bytes_written += s_util.optional_obj_to_f(obj.is_static, f, s_util.bool_to_f)
+        bytes_written += s_util.optional_uuid_to_f(obj.sector_id, f)
+        bytes_written += s_util.optional_obj_to_f(obj.resources, f, s_util.ints_to_f)
+        bytes_written += s_util.optional_obj_to_f(obj.inputs, f, s_util.ints_to_f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.StationIntelPartialCriteria:
+        cls_name = s_util.from_len_pre_f(f)
+        cls = pydoc.locate(cls_name)
+        assert isinstance(cls, type)
+        assert issubclass(cls, core.SectorEntity)
+        is_static = s_util.optional_obj_from_f(f, s_util.bool_from_f)
+        sector_id = s_util.optional_uuid_from_f(f)
+        resources = s_util.optional_obj_from_f(f, s_util.ints_from_f)
+        inputs = s_util.optional_obj_from_f(f, s_util.ints_from_f)
+        obj = intel.StationIntelPartialCriteria(cls=cls, is_static=is_static, sector_id=sector_id, resources=frozenset(resources) if resources else None, inputs=frozenset(inputs) if inputs else None)
+        return obj
+
+class SectorHexPartialCriteriaSaver(save_game.Saver[intel.SectorHexPartialCriteria]):
+    def save(self, obj:intel.SectorHexPartialCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.optional_uuid_to_f(obj.sector_id, f)
+        bytes_written += s_util.optional_obj_to_f(obj.hex_loc, f, s_util.float_pair_to_f)
+        bytes_written += s_util.optional_obj_to_f(obj.hex_dist, f, s_util.float_to_f)
+        bytes_written += s_util.optional_obj_to_f(obj.is_static, f, s_util.bool_to_f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.SectorHexPartialCriteria:
+        sector_id = s_util.optional_uuid_from_f(f)
+        hex_loc = s_util.optional_obj_from_f(f, s_util.float_pair_from_f)
+        hex_dist = s_util.optional_obj_from_f(f, s_util.float_from_f)
+        is_static = s_util.optional_obj_from_f(f, s_util.bool_from_f)
+        obj = intel.SectorHexPartialCriteria(sector_id=sector_id, is_static=is_static, hex_loc=hex_loc, hex_dist=hex_dist)
+        return obj
+
+class EconAgentSectorEntityPartialCriteriaSaver(save_game.Saver[intel.EconAgentSectorEntityPartialCriteria]):
+    def save(self, obj:intel.EconAgentSectorEntityPartialCriteria, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.optional_uuid_to_f(obj.sector_id, f)
+        bytes_written += s_util.optional_uuid_to_f(obj.underlying_entity_id, f)
+        bytes_written += s_util.to_len_pre_f(util.fullname(obj.underlying_entity_type), f)
+        bytes_written += s_util.optional_obj_to_f(obj.buy_resources, f, s_util.ints_to_f)
+        bytes_written += s_util.optional_obj_to_f(obj.sell_resources, f, s_util.ints_to_f)
+        return bytes_written
+
+    def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> intel.EconAgentSectorEntityPartialCriteria:
+        sector_id = s_util.optional_uuid_from_f(f)
+        underlying_entity_id = s_util.optional_uuid_from_f(f)
+        cls_name = s_util.from_len_pre_f(f)
+        underlying_entity_type = pydoc.locate(cls_name)
+        assert isinstance(underlying_entity_type, type)
+        assert issubclass(underlying_entity_type, core.SectorEntity)
+        buy_resources = s_util.optional_obj_from_f(f, s_util.ints_from_f)
+        sell_resources = s_util.optional_obj_from_f(f, s_util.ints_from_f)
+        obj = intel.EconAgentSectorEntityPartialCriteria(
+                sector_id=sector_id,
+                underlying_entity_id=underlying_entity_id,
+                underlying_entity_type=underlying_entity_type,
+                buy_resources=frozenset(buy_resources) if buy_resources else None,
+                sell_resources=frozenset(sell_resources) if sell_resources else None
+        )
+        return obj
+

@@ -174,6 +174,20 @@ def fancy_dict_from_f[K, V](f:io.IOBase, s_k:Callable[[io.IOBase], K], s_v:Calla
         ret[k] = v
     return ret
 
+def objs_to_f[T](objs:Collection[T], f:io.IOBase, s_t:Callable[[T, io.IOBase], int]) -> int:
+    bytes_written = 0
+    bytes_written += size_to_f(len(objs), f)
+    for obj in objs:
+        bytes_written += s_t(obj, f)
+    return bytes_written
+
+def objs_from_f[T](f:io.IOBase, s_t:Callable[[io.IOBase], T]) -> list[T]:
+    count = size_from_f(f)
+    objs:list[T] = []
+    for i in range(count):
+        objs.append(s_t(f))
+    return objs
+
 def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
     bytes_written = 0
     bytes_written += size_to_f(len(uuids), f)
@@ -256,6 +270,22 @@ def optional_uuid_from_f(f:io.IOBase) -> Optional[uuid.UUID]:
         return uuid_from_f(f)
     else:
         return None
+
+def optional_obj_to_f[T](obj:Optional[T], f:io.IOBase, s_t:Callable[[T, io.IOBase], int]) -> int:
+    bytes_written = 0
+    if obj is not None:
+        bytes_written += bool_to_f(True, f)
+        bytes_written += s_t(obj, f)
+    else:
+        bytes_written += bool_to_f(False, f)
+    return bytes_written
+
+def optional_obj_from_f[T](f:io.IOBase, s_t:Callable[[io.IOBase], T]) -> Optional[T]:
+    if bool_from_f(f):
+        return s_t(f)
+    else:
+        return None
+
 
 def matrix_to_f(matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]], f:io.IOBase) -> int:
     ret = msgpack.packb(matrix, default = serialize_econ_sim.encode_matrix)

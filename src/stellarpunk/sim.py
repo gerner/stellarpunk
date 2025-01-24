@@ -509,11 +509,23 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(sector_entity.Planet, s_sector_entity.PlanetSaver(sg))
     sg.register_saver(sector_entity.Station, s_sector_entity.StationSaver(sg))
     sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
+
+    # intel
     sg.register_saver(intel.SectorEntityIntel, s_intel.SectorEntityIntelSaver(sg))
     sg.register_saver(intel.AsteroidIntel, s_intel.AsteroidIntelSaver(sg))
     sg.register_saver(intel.StationIntel, s_intel.StationIntelSaver(sg))
     sg.register_saver(intel.EconAgentIntel, s_intel.EconAgentIntelSaver(sg))
     sg.register_saver(intel.SectorHexIntel, s_intel.SectorHexIntelSaver(sg))
+
+    # intel match criteria
+    sg.register_saver(core.IntelMatchCriteria, save_game.DispatchSaver[core.IntelMatchCriteria](sg))
+    sg.register_saver(intel.EntityIntelMatchCriteria, s_intel.EntityIntelMatchCriteriaSaver(sg))
+    sg.register_saver(intel.SectorHexMatchCriteria, s_intel.SectorHexMatchCriteriaSaver(sg))
+    sg.register_saver(intel.SectorEntityPartialCriteria, s_intel.SectorEntityPartialCriteriaSaver(sg))
+    sg.register_saver(intel.AsteroidIntelPartialCriteria, s_intel.AsteroidIntelPartialCriteriaSaver(sg))
+    sg.register_saver(intel.StationIntelPartialCriteria, s_intel.StationIntelPartialCriteriaSaver(sg))
+    sg.register_saver(intel.SectorHexPartialCriteria, s_intel.SectorHexPartialCriteriaSaver(sg))
+    sg.register_saver(intel.EconAgentSectorEntityPartialCriteria, s_intel.EconAgentSectorEntityPartialCriteriaSaver(sg))
 
     # agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))
@@ -522,6 +534,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(agenda.CaptainAgendum, s_agenda.CaptainAgendumSaver(sg))
     sg.register_saver(agenda.TradingAgendum, s_agenda.TradingAgendumSaver(sg))
     sg.register_saver(agenda.MiningAgendum, s_agenda.MiningAgendumSaver(sg))
+    sg.register_saver(aintel.IntelCollectionAgendum, s_agenda.IntelCollectionAgendumSaver(sg))
 
     # orders
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))

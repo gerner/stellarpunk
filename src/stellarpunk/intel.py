@@ -582,7 +582,7 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     def __init__(self,
             sector_id:Optional[uuid.UUID]=None,
             underlying_entity_id:Optional[uuid.UUID]=None,
-            underlying_entity_type:Optional[Type[core.SectorEntity]]=core.SectorEntity,
+            underlying_entity_type:Type[core.SectorEntity]=core.SectorEntity,
             buy_resources:Optional[frozenset[int]]=None,
             sell_resources:Optional[frozenset[int]]=None,
     ) -> None:
@@ -605,8 +605,7 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
             items.append(f'sector_id={self.sector_id}')
         if self.underlying_entity_id:
             items.append(f'underlying_entity_id={self.underlying_entity_id}')
-        if self.underlying_entity_type:
-            items.append(f'underlying_entity_type={self.underlying_entity_type}')
+        items.append(f'underlying_entity_type={self.underlying_entity_type}')
         if self.buy_resources:
             items.append(f'buy_resources={self.buy_resources}')
         if self.sell_resources:
@@ -620,7 +619,7 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
             return False
         if self.underlying_entity_id is not None and self.underlying_entity_id != intel.underlying_entity_id:
             return False
-        if self.underlying_entity_type is not None and not issubclass(intel.underlying_entity_type, self.underlying_entity_type):
+        if not issubclass(intel.underlying_entity_type, self.underlying_entity_type):
             return False
         if self.buy_resources is not None and len(self.buy_resources.intersection(intel.buy_offers.keys())) == 0:
             return False

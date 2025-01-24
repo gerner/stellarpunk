@@ -32,19 +32,23 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         self._director = collection_director
         self._idle_period = idle_period
         self._state = IntelCollectionAgendum.State.IDLE
-        self._interests:set[core.IntelMatchCriteria] = set()
-        self._immediate_interest:Optional[core.IntelMatchCriteria] = None
 
+        # some stats
         self._interests_advertised = 0
         self._interests_satisfied = 0
         self._immediate_interest_count = 0
         self._immediate_interests_satisfied = 0
+
+        # interests we can actively work on
+        self._interests:set[core.IntelMatchCriteria] = set()
+        self._immediate_interest:Optional[core.IntelMatchCriteria] = None
 
         # source/depdnency many:many relationship, including the None source
         self._source_interests_by_dependency:collections.defaultdict[core.IntelMatchCriteria, set[Optional[core.IntelMatchCriteria]]] = collections.defaultdict(set)
         self._source_interests_by_source:collections.defaultdict[Optional[core.IntelMatchCriteria], set[core.IntelMatchCriteria]] = collections.defaultdict(set)
 
         self._preempted_primary:Optional[core.AbstractAgendum] = None
+
 
     def sanity_check(self) -> None:
         for dependency, sources in self._source_interests_by_dependency.items():
@@ -59,11 +63,14 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         if self._preempted_primary:
             assert self.is_primary()
             assert self._state in (IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE)
+            assert self.character.find_primary_agendum() == self
+            assert not self._preempted_primary.is_primary()
         else:
             assert self._state in (IntelCollectionAgendum.State.IDLE, IntelCollectionAgendum.State.ACTIVE)
 
         if self._state in (IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE):
             assert self.is_primary()
+            assert self.character.find_primary_agendum() == self
 
     # core.IntelManagerObserver
 
