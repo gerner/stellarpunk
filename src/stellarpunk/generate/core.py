@@ -174,32 +174,6 @@ class GenerationError(Exception):
         super().__init__(*args, **kwargs)
         self.case = case
 
-def order_fn_null( gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def null_order(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        return core.NullOrder.create_order(ship, gamestate)
-    return null_order
-
-def order_fn_wait(gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def wait_order(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        return orders.WaitOrder.create_wait_order(ship, gamestate)
-    return wait_order
-
-def order_fn_goto_random_station(gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def goto_random_station(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        if ship.sector is None:
-            raise Exception("cannot go to location if ship isn't in a sector")
-        station = gamestate.random.choice(np.array(ship.sector.entities_by_type(sector_entity.Station)))
-        return orders.GoToLocation.goto_entity(station, ship, gamestate)
-    return goto_random_station
-
-def order_fn_disembark_to_random_station(gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        if ship.sector is None:
-            raise Exception("cannot disembark to if ship isn't in a sector")
-        station = gamestate.random.choice(np.array(ship.sector.entities_by_type(sector_entity.Station)))
-        return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
-    return disembark_to_random_station
-
 class GenerationStep(enum.Enum):
     NONE = enum.auto()
     PRODUCTION_CHAIN = enum.auto()
@@ -802,11 +776,8 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:Optional[core.Ship.DefaultOrderSig]=None, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
         assert(self.gamestate)
-
-        if default_order_fn is None:
-            default_order_fn = order_fn_null(self.gamestate)
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.ship.MASS
@@ -852,16 +823,12 @@ class UniverseGenerator(core.AbstractGenerator):
 
         sector.add_entity(ship)
 
-        ship.default_order_fn = default_order_fn
         ship.clear_orders()
 
         return ship
 
-    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:Optional[core.Ship.DefaultOrderSig]=None, entity_id:Optional[uuid.UUID]=None) -> combat.Missile:
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> combat.Missile:
         assert(self.gamestate)
-
-        if default_order_fn is None:
-            default_order_fn = order_fn_null(self.gamestate)
 
         sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
@@ -882,7 +849,6 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id,
         )
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
-        ship.default_order_fn=default_order_fn
 
         self.phys_shape(ship_body, ship, ship_radius)
 
@@ -1274,7 +1240,7 @@ class UniverseGenerator(core.AbstractGenerator):
         mining_ships = set()
         for i in range(num_mining_ships):
             ship_x, ship_y = self.gen_sector_location(sector)
-            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait(self.gamestate))
+            ship = self.spawn_ship(sector, ship_x, ship_y)
             assets.append(ship)
             mining_ships.add(ship)
 
@@ -1287,7 +1253,7 @@ class UniverseGenerator(core.AbstractGenerator):
         trading_ships = set()
         for i in range(num_trading_ships):
             ship_x, ship_y = self.gen_sector_location(sector)
-            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait(self.gamestate))
+            ship = self.spawn_ship(sector, ship_x, ship_y)
             assets.append(ship)
             trading_ships.add(ship)
 
@@ -2077,7 +2043,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
             ship_loc = self.gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
-        ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
+        ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0.)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         assert(self.gamestate.player.character)
@@ -2112,7 +2078,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # spawn the player, character, ship, etc.
         ship_loc = np.array((0., 0.))
-        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0.)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
@@ -2124,7 +2090,7 @@ class UniverseGenerator(core.AbstractGenerator):
         min_dist = 1e5
         max_dist = 1.5e5
         threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=max_dist, occupied_radius=5e2, min_dist=min_dist, strict=True)
-        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
+        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0.)
         character = self.spawn_character(threat)
         character.take_ownership(threat)
         character.add_agendum(agenda.CaptainAgendum.create_eoa(threat, character, self.gamestate, enable_threat_response=False))
@@ -2292,7 +2258,7 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate starting intel for characters
-        self.generate_intel()
+        #self.generate_intel()
 
         # generate the player
         for observer in self._observers:

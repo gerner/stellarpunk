@@ -539,6 +539,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     # orders
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
     sg.register_saver(core.NullOrder, s_order.NullOrderSaver(sg))
+    sg.register_saver(sensors.SensorScanOrder, s_sensors.SensorScanOrderSaver(sg))
 
     # core orders
     sg.register_saver(orders.core.MineOrder, s_order_core.MineOrderSaver(sg))
@@ -548,6 +549,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
     sg.register_saver(orders.core.TravelThroughGate, s_order_core.TravelThroughGateSaver(sg))
     sg.register_saver(orders.core.DockingOrder, s_order_core.DockingOrderSaver(sg))
+    sg.register_saver(orders.core.LocationExploreOrder, s_order_core.LocationExploreOrderSaver(sg))
 
     # steering orders
     sg.register_saver(orders.movement.KillRotationOrder, s_movement.KillRotationOrderSaver(sg))
