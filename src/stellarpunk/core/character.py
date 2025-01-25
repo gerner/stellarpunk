@@ -24,6 +24,8 @@ class Asset(base.Entity):
 class IntelMatchCriteria:
     @abc.abstractmethod
     def matches(self, intel:"AbstractIntel") -> bool: ...
+    def is_exact(self) -> bool:
+        return True
 
 class IntelObserver(base.Observer):
     def intel_expired(self, intel:"AbstractIntel") -> None:

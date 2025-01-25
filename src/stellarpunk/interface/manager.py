@@ -7,8 +7,10 @@ import uuid
 import collections
 import logging
 import time
+import datetime
 from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
+import pyinstrument
 import numpy as np
 
 from stellarpunk import core, interface, generate, util, config, events, narrative
@@ -388,7 +390,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.event_manager = core.AbstractEventManager()
         self.game_saver = sg
 
-        self.profiler:Optional[cProfile.Profile] = None
+        self.profiler:pyinstrument.Profiler = pyinstrument.Profiler()
         self.mouse_on = True
 
     def __enter__(self) -> "InterfaceManager":
@@ -596,12 +598,13 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         def linedemo(args:Sequence[str]) -> None: self.interface.open_view(LineDemo(self.interface), deactivate_views=True)
         def hexgriddemo(args:Sequence[str]) -> None: self.interface.open_view(HexGridDemo(self.interface), deactivate_views=True)
         def profile(args:Sequence[str]) -> None:
-            if self.profiler:
-                self.profiler.disable()
-                pstats.Stats(self.profiler).dump_stats("/tmp/profile.prof")
+            if self.profiler.is_running:
+                session = self.profiler.stop()
+                filename = f'/tmp/stellarpunk-{datetime.datetime.now().strftime("%Y%m%dT%H%M%S")}.pyisession'
+                session.save(filename)
+                self.interface.log_message(f'profile saved to {filename}')
             else:
-                self.profiler = cProfile.Profile()
-                self.profiler.enable()
+                self.profiler.start()
 
         def fast(args:Sequence[str]) -> None:
             _, fast_mode = self.interface.runtime.get_time_acceleration()

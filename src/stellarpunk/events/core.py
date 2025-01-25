@@ -229,7 +229,7 @@ class EventManager(core.AbstractEventManager):
         event_args: dict[str, Union[int,float,str,bool]],
         merge_key: Optional[uuid.UUID]=None,
     ) -> None:
-        candidates = [narrative.CharacterCandidate(c.context, c) for c in characters if self.event_state.last_event_trigger[c.entity_id][event_type] + self.event_throttle_secs < self.gamestate.timestamp]
+        candidates = [narrative.CharacterCandidate(c.context, c) for c in characters]# if self.event_state.last_event_trigger[c.entity_id][event_type] + self.event_throttle_secs < self.gamestate.timestamp]
         self.gamestate.counters[core.Counters.EVENT_CANDIDATES_THROTTLED] += float(len(characters) - len(candidates))
         if len(candidates) == 0:
             self.gamestate.counters[core.Counters.EVENTS_TOTAL_THROTTLED] += 1

@@ -341,6 +341,9 @@ class SensorSettings(core.AbstractSensorSettings):
 
         self._images:weakref.WeakValueDictionary[uuid.UUID, core.AbstractSensorImage] = weakref.WeakValueDictionary()
 
+        self._cached_effective_profile:float = 0.0
+        self._cached_effective_profile_ts:float = -np.inf
+
     def register_image(self, image:core.AbstractSensorImage) -> None:
         self._images[image.identity.entity_id] = image
     def unregister_image(self, image:core.AbstractSensorImage) -> None:
@@ -434,13 +437,16 @@ class SensorManager(core.AbstractSensorManager):
 
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
-        return (
-            config.Settings.sensors.COEFF_MASS * ship.mass +
-            config.Settings.sensors.COEFF_RADIUS * ship.radius +
-            config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
-            config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
-            config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
-        ) * self.sector.weather(ship.loc).sensor_factor
+        if core.Gamestate.gamestate.timestamp > ship.sensor_settings._cached_effective_profile_ts + config.Settings.sensors.EFFECTIVE_PROFILE_CACHE_TTL:
+            ship.sensor_settings._cached_effective_profile_ts = core.Gamestate.gamestate.timestamp
+            ship.sensor_settings._cached_effective_profile = (
+                config.Settings.sensors.COEFF_MASS * ship.mass +
+                config.Settings.sensors.COEFF_RADIUS * ship.radius +
+                config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
+                config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
+                config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
+            ) * self.sector.weather(ship.loc).sensor_factor
+        return ship.sensor_settings._cached_effective_profile
 
     def compute_target_profile(self, target:core.SectorEntity, detector_or_distance_sq:Union[core.SectorEntity, float]) -> float:
         """ computes detector-specific profile of target """

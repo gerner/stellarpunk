@@ -150,16 +150,18 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     def get_intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Type[T]) -> Optional[T]:
         # we assume the intel is of the right type
         # check if we have such intel via exact match
-        if match_criteria in self._intel_map:
-            intel_id = self._intel_map[match_criteria]
-            intel = self.gamestate.get_entity(intel_id, cls)
-            return intel
 
-        for intel_id in self._intel:
-            generic_intel = self.gamestate.get_entity(intel_id, core.AbstractIntel)
-            if match_criteria.matches(generic_intel):
-                assert(isinstance(generic_intel, cls))
-                return generic_intel
+        if match_criteria.is_exact():
+            if match_criteria in self._intel_map:
+                intel_id = self._intel_map[match_criteria]
+                intel = self.gamestate.get_entity(intel_id, cls)
+                return intel
+        else:
+            for intel_id in self._intel:
+                generic_intel = self.gamestate.get_entity(intel_id, core.AbstractIntel)
+                if match_criteria.matches(generic_intel):
+                    assert(isinstance(generic_intel, cls))
+                    return generic_intel
         return None
 
     def register_intel_interest(self, interest:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]=None) -> None:
@@ -382,7 +384,8 @@ class SectorHexIntel(Intel):
 
 class IntelPartialCriteria(core.IntelMatchCriteria):
     """ A type of match criteria that matches many intel """
-    pass
+    def is_exact(self) -> bool:
+        return False
 
 class SectorEntityPartialCriteria(IntelPartialCriteria):
     def __init__(self, cls:Type[core.SectorEntity]=core.SectorEntity, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):

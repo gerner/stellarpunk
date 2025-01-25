@@ -607,8 +607,7 @@ def main() -> None:
         logging.getLogger("numba").level = logging.INFO
         #logging.getLogger("stellarpunk").level = logging.DEBUG
         #logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
-        logging.getLogger("stellarpunk.core.gamestate.DeferredEventManager").level = logging.DEBUG
-        logging.getLogger("stellarpunk.events").level = logging.DEBUG
+        #logging.getLogger("stellarpunk.events").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions

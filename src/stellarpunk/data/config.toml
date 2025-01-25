@@ -439,6 +439,8 @@ AUTOSAVE_PERIOD_SEC = 30.0
     # how much uncertainty we add to the bias after mixing
     COEFF_BIAS_MIX_FACTOR = 0.01
 
+    EFFECTIVE_PROFILE_CACHE_TTL = 0.1
+
 [combat]
     [combat.point_defense]
         ROLL_INTERVAL = 0.5

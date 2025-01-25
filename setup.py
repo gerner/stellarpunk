@@ -99,6 +99,7 @@ setuptools.setup(
         "dtmf @ git+https://github.com/gerner/dtmf@7c02aba",
         "uroman",
         "hashime",
+        "pyinstrument",
     ],
     python_requires='>=3.8',
     entry_points={

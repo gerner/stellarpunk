@@ -194,7 +194,9 @@ def choose_station_to_sell_to(
 
 # how long to wait while trying to acquire primary agenda position
 MINING_SLEEP_TIME = 10.
+MINING_SLEEP_TIME_NO_INTEL = 30.
 TRADING_SLEEP_TIME = 10.
+TRADING_SLEEP_TIME_NO_INTEL = 30.
 
 class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperatorAgendum):
     """ Managing a ship for mining.
@@ -215,6 +217,9 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         SLEEP = enum.auto()
         # we're trying to become the primary agendum
         WAIT_PRIMARY = enum.auto()
+        # we can't get enough intel to do mining
+        NO_INTEL_WAIT_PRIMARY = enum.auto()
+        NO_INTEL = enum.auto()
 
     @classmethod
     def create_mining_agendum[T:MiningAgendum](cls:Type[T], *args:Any, **kwargs:Any) -> T:
@@ -307,9 +312,15 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
     def intel_undesired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
-        #TODO: check if we're waiting for this and take appropriate action
-        # we cannot take primary right now, but likely can in the next tick
-        pass
+        if self._pending_intel_interest and self._pending_intel_interest == intel_criteria:
+            assert not self.is_primary()
+            assert self.state == MiningAgendum.State.SLEEP
+            # we should try taking back primary, but we will not be able to go
+            # back to work.
+            # clear pending_intel_interest avoid an inconsistent state
+            self._pending_intel_interest = None
+            self.state = MiningAgendum.State.NO_INTEL_WAIT_PRIMARY
+            self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
 
     def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
@@ -436,12 +447,11 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             return
 
         if not self.is_primary():
-            assert self.state == MiningAgendum.State.WAIT_PRIMARY
+            assert self.state in (MiningAgendum.State.WAIT_PRIMARY, MiningAgendum.State.NO_INTEL_WAIT_PRIMARY)
             # we must have been sleeping, waiting for intel and now we might
             # have what we need
             # we had relinquished primary so intel collection could work
             # they might be done, or might not, let's see
-            assert self._pending_intel_interest is None
             if self.character.find_primary_agendum():
                 # sleep some more hoping whoever is primary will relinquish
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME, self)
@@ -450,7 +460,18 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             self.make_primary()
             assert isinstance(self.craft, core.Ship)
             self.craft.clear_orders()
-            self.state = MiningAgendum.State.IDLE
+
+            if self.state == MiningAgendum.State.WAIT_PRIMARY:
+                # we successfully discovered what we needed, go back to work
+                self.state = MiningAgendum.State.IDLE
+            else:
+                # we failed to discover what we needed, all we can do is sit
+                # around and try again
+                self.state = MiningAgendum.State.NO_INTEL
+                self._pending_intel_interest = None
+                self.craft.prepend_order(movement.WaitOrder.create_wait_order(self.craft, self.gamestate))
+                self.gamestate.schedule_agendum(self.gamestate.timestamp + MINING_SLEEP_TIME_NO_INTEL, self)
+                return
 
         #TODO: periodically wake up and check if there's nearby asteroids or
         # stations that we don't have good econ intel for
@@ -459,7 +480,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         # if there are stations "nearby" that buy the resources we mine, dock
         # at them
 
-        assert self.state == MiningAgendum.State.IDLE
+        assert self.state in (MiningAgendum.State.IDLE, MiningAgendum.State.NO_INTEL)
 
         if self.is_complete():
             self.state = MiningAgendum.State.COMPLETE
@@ -487,6 +508,9 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         SLEEP = enum.auto()
         # we're trying to become the primary agendum
         WAIT_PRIMARY = enum.auto()
+        # we can't get enough intel to do trading
+        NO_INTEL_WAIT_PRIMARY = enum.auto()
+        NO_INTEL = enum.auto()
 
     @classmethod
     def create_trading_agendum[T:TradingAgendum](
@@ -582,6 +606,9 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         # we might have already woken up because of some other match
         if self.state == TradingAgendum.State.SLEEP and matches:
             assert not self.is_primary()
+            # we don't need to wait on any more intel, try with this
+            # if it isn't enough, we'll ask for more in the next act cycle
+            self._pending_intel_interests.clear()
             # we can wake up, taking primary and try going back to work
             # note, we can't take primary right now, but we'll be able to do
             # that when we act
@@ -589,9 +616,20 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
     def intel_undesired(self, intel_manager:core.AbstractIntelManager, intel_criteria:core.IntelMatchCriteria) -> None:
-        #TODO: check if we're waiting for this and take appropriate action
-        # we cannot take primary right now, but likely can in the next tick
-        pass
+        if intel_criteria in self._pending_intel_interests:
+            # we were waiting on this, but it's unsatisfiable, give up on it.
+            self._pending_intel_interests.remove(intel_criteria)
+
+            if self.state == TradingAgendum.State.SLEEP and len(self._pending_intel_interests) == 0:
+                assert not self.is_primary()
+                # because we're still sleeping we must never have gotten a
+                # piece of intel that woke us up.
+                # this last piece of intel that could have woken us up is
+                # unsatisfiable
+                # we should try taking back primary, but we will not be able to
+                # go back to work.
+                self.state = TradingAgendum.State.NO_INTEL_WAIT_PRIMARY
+                self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
 
     # Agendum
@@ -786,7 +824,7 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             return
 
         if not self.is_primary():
-            assert self.state == TradingAgendum.State.WAIT_PRIMARY
+            assert self.state in (TradingAgendum.State.WAIT_PRIMARY, TradingAgendum.State.NO_INTEL_WAIT_PRIMARY)
             current_primary = self.character.find_primary_agendum()
             # try and grab back primary
             if current_primary and not current_primary.preempt_primary():
@@ -797,7 +835,18 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             self.make_primary()
             assert isinstance(self.craft, core.Ship)
             self.craft.clear_orders()
-            self.state = TradingAgendum.State.IDLE
+
+            if self.state == TradingAgendum.State.WAIT_PRIMARY:
+                # we discovered what we were looking for, try trading again
+                self.state = TradingAgendum.State.IDLE
+            else:
+                # we failed to discover what we needed, all we can do is sit
+                # around and try again
+                self.state = TradingAgendum.State.NO_INTEL
+                self._pending_intel_interests.clear()
+                self.craft.prepend_order(movement.WaitOrder.create_wait_order(self.craft, self.gamestate))
+                self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME_NO_INTEL, self)
+                return
 
         assert self.state == TradingAgendum.State.IDLE
 
