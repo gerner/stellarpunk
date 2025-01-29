@@ -126,7 +126,13 @@ AUTOSAVE_PERIOD_SEC = 30.0
         # mean and std of sector radius in meters
         SECTOR_RADIUS_MEAN = 5e5
         SECTOR_RADIUS_STD = 1e5
-        # max distance between sectors to guarantee a gate connection
+        # size of a "hex" within a sector, a region of exploration, as large as
+        # possible, but small enough that a craft within the sector can
+        # reasonably expect to detect all objects within the hex
+        # this should be approximately half the detection range for objects of
+        # interest
+        SECTOR_HEX_SIZE = 2e5
+        # max distance between sectors to allow a gate connection
         MAX_SECTOR_EDGE_LENGTH = 2e8
 
         # how many total sectors
@@ -137,6 +143,10 @@ AUTOSAVE_PERIOD_SEC = 30.0
         MEAN_HABITABLE_RESOURCES = 1e9
         # how many resources available in uninhabited sectors
         MEAN_UNINHABITABLE_RESOURCES = 1e7
+
+        STATION_FACTOR = 2.5
+        MINING_SHIP_FACTOR = 0.67
+        TRADING_SHIP_FACTOR = 0.17
 
         # how many distinct cultures should be represented in the universe?
         # maybe on order of sqrt(NUM_SECTORS)?
@@ -428,6 +438,8 @@ AUTOSAVE_PERIOD_SEC = 30.0
     COEFF_BIAS_VELOCITY = 1e3
     # how much uncertainty we add to the bias after mixing
     COEFF_BIAS_MIX_FACTOR = 0.01
+
+    EFFECTIVE_PROFILE_CACHE_TTL = 0.1
 
 [combat]
     [combat.point_defense]

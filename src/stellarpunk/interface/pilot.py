@@ -305,6 +305,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         # stuff in the sector (for debugging)
         self.draw_cymunk_shapes = False
 
+        self.draw_hexes = False
+
     def make_order_observer(self,
         begin: Optional[Callable[[core.Order], None]] = None,
         complete: Optional[Callable[[core.Order], None]] = None,
@@ -478,6 +480,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
                     raise command_input.UserError("must provide a valid ratio to set max thrust to")
                 if thrust_ratio < 0.0 or thrust_ratio > 1.0:
                     raise command_input.UserError("must choose a ratio between 0 and 1")
+                #TODO: we should really not monkey with the ship's max thrust
+                # there is nothing that will set it back to the real max
                 self.ship.max_thrust = self.ship.max_base_thrust * thrust_ratio
             self.interface.log_message(f'max thrust: {util.human_si_scale(self.ship.max_thrust, "N")}')
 
@@ -488,6 +492,9 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
         def only_draw_cymunk(args:Sequence[str]) -> None:
             self.draw_cymunk_shapes = not self.draw_cymunk_shapes
+
+        def draw_hexes(args:Sequence[str]) -> None:
+            self.draw_hexes = not self.draw_hexes
 
         return [
             self.bind_command("orders", show_orders),
@@ -509,6 +516,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             self.bind_command("max_thrust", max_thrust),
             self.bind_command("mouse_pos", mouse_pos),
             self.bind_command("cymunk_shapes", only_draw_cymunk),
+            self.bind_command("draw_hexes", draw_hexes),
         ]
 
     def _select_target(self, target:Optional[core.AbstractSensorImage]) -> None:
@@ -1062,6 +1070,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
         if self.draw_cymunk_shapes:
             self.presenter.draw_cymunk_shapes()
+        if self.draw_hexes:
+            self.presenter.draw_hexes()
         else:
             self.starfield.draw_starfield(self.viewscreen)
             self.presenter.draw_weather()

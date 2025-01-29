@@ -274,11 +274,22 @@ cdef class Event:
         self.entity_context = entity_context
         self.args = args
 
+    def check_flag(self, key:int) -> int:
+        return self.event.event_context[key]
+
 
 class CharacterCandidate:
     def __init__(self, character_context:EventContext, data:Any):
         self.character_context = character_context
         self.data = data
+
+    def __hash__(self) -> int:
+        return hash(self.data)
+
+    def __eq__(self, other:object) -> bool:
+        if not isinstance(other, CharacterCandidate):
+            return False
+        return self.data == other.data
 
 
 class Action:

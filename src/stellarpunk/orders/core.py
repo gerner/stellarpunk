@@ -9,7 +9,7 @@ from typing import Optional, Any, Type
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import util, core, effects, econ
+from stellarpunk import util, core, effects, econ, events, sensors
 from stellarpunk.core import sector_entity
 from stellarpunk.narrative import director
 from . import movement
@@ -44,6 +44,8 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         else:
             raise Exception("no docking time, but also no mining effect")
 
+    def is_cancellable(self) -> bool:
+        return self.mining_effect is None
 
     def _begin(self) -> None:
         self.init_eta = (
@@ -139,6 +141,9 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
     def _cancel(self) -> None:
         if self.transfer_effect:
             self.transfer_effect.cancel_effect()
+
+    def is_cancellable(self) -> bool:
+        return self.transfer_effect is None
 
     @property
     def observer_id(self) -> uuid.UUID:
@@ -394,6 +399,9 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         # get into position and then some time of acceleration "out of system"
         self.init_eta = GoToLocation.compute_eta(self.ship, self.target_gate.loc) + 5
 
+    def is_cancellable(self) -> bool:
+        return self.warp_out is None and self.warp_in is None
+
     # core.EffectObserver
     @property
     def observer_id(self) -> uuid.UUID:
@@ -593,18 +601,15 @@ class DockingOrder(core.OrderObserver, core.Order):
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
 
     def _complete(self) -> None:
-        pass
-        #if self.ship.captain is not None:
-        #    self.gamestate.trigger_event(
-        #        [self.ship.captain],
-        #        core.EventType.APPROACH_DESTINATION,
-        #        director.context({
-        #            core.ContextKey.DESTINATION: self.target.short_id_int(),
-        #            core.ContextKey.SHIP: self.ship.short_id_int(),
-        #        }),
-        #        self.target,
-        #        self.ship,
-        #    )
+        if self.ship.captain is not None:
+            self.gamestate.trigger_event(
+                [self.ship.captain],
+                self.gamestate.event_manager.e(events.Events.DOCKED),
+                {
+                    self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target.short_id_int(),
+                    self.gamestate.event_manager.ck(events.ContextKeys.SHIP): self.ship.short_id_int(),
+                },
+            )
 
     @property
     def observer_id(self) -> uuid.UUID:
@@ -646,3 +651,64 @@ class DockingOrder(core.OrderObserver, core.Order):
             else:
                 self.logger.debug(f'arrival zone empty, beginning final approach')
                 self._add_child(goto_order)
+
+class LocationExploreOrder(core.OrderObserver, core.Order):
+    def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.sector_id = sector_id
+        self.loc = loc
+
+        self.goto_order:Optional[movement.GoToLocation] = None
+        self.scan_order:Optional[sensors.SensorScanOrder] = None
+
+    # core.OrderObserver
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
+
+    def order_cancel(self, order:core.Order) -> None:
+        if order == self.goto_order:
+            self.goto_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        elif order == self.scan_order:
+            self.scan_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        else:
+            raise ValueError(f'unexpected order event for {order}')
+
+    def order_complete(self, order:core.Order) -> None:
+        if order == self.goto_order:
+            self.goto_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        elif order == self.scan_order:
+            self.scan_order = None
+            # we sucessfully scanned at the, we assume according to act logic
+            # below, correct location. thus we are done.
+            self.complete_order()
+        else:
+            raise ValueError(f'unexpected order event for {order}')
+
+    # core.Order
+
+    def _begin(self) -> None:
+        self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc) + 5.0
+
+    def act(self, dt:float) -> None:
+        #TODO: is this a safe assert?
+        assert self.ship.sector
+        if self.ship.sector.entity_id != self.sector_id:
+            #TODO: get to target sector
+            raise ValueError(f'ship must be in the target sector!')
+        elif util.distance(self.ship.loc, self.loc) > self.ship.sector.hex_size:
+            # go to target location
+            assert(self.goto_order is None)
+            self.goto_order = GoToLocation.create_go_to_location(self.loc, self.ship, self.gamestate, surface_distance=self.ship.sector.hex_size/2.0)
+            self.goto_order.observe(self)
+            self._add_child(self.goto_order)
+        else:
+            # do a sensor scan
+            assert(self.scan_order is None)
+            self.scan_order = sensors.SensorScanOrder.create_order(self.ship, self.gamestate)
+            self.scan_order.observe(self)
+            self._add_child(self.scan_order)

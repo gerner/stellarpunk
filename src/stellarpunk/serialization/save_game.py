@@ -3,6 +3,7 @@ import io
 import os
 import glob
 import abc
+import enum
 import pydoc
 import uuid
 import datetime
@@ -19,6 +20,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import util, sim, core, narrative, generate, econ, events
+from stellarpunk.agenda import intel as aintel
 from stellarpunk.serialization import util as s_util
 
 SAVE_FORMAT_VERSION = "0.1.0"
@@ -33,6 +35,7 @@ class LoadContext:
         self.generator:generate.UniverseGenerator = sg.generator
         self.gamestate:core.Gamestate = None # type: ignore
         self.references:set[Any] = set()
+        self.ephemeral_fetch_store:dict[uuid.UUID, Any] = dict()
         self._post_loads:list[tuple[Any, Any]] = []
         self._sanity_checks:list[tuple[Any, Any]] = []
         self._observer_sanity_checks:list[tuple[core.Observable, list[tuple[str, uuid.UUID]]]] = []
@@ -46,6 +49,15 @@ class LoadContext:
         this way these objects will stay alive until this LoadContext goes away
         """
         self.references.add(obj)
+
+    def store(self, object_id:uuid.UUID, obj:Any) -> None:
+        """ hang on to an object for later fetch during this load cycle. """
+        self.ephemeral_fetch_store[object_id] = obj
+
+    def fetch[T](self, object_id:uuid.UUID, klass:Type[T]) -> T:
+        obj = self.ephemeral_fetch_store[object_id]
+        assert(isinstance(obj, klass))
+        return obj
 
     def register_post_load(self, obj:Any, context:Any) -> None:
         self._post_loads.append((obj, context))
@@ -80,6 +92,14 @@ class LoadContext:
         self.logger.info("sanity checking observers...")
         for obj, context in self._observer_sanity_checks:
             self.save_game.sanity_check_observers(obj, self, context)
+
+class LoadErrorCase(enum.Enum):
+    ABORT = enum.auto()
+
+class LoadError(Exception):
+    def __init__(self, case:LoadErrorCase, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.case = case
 
 class SaverObserver:
     def load_tick(self, saver:"Saver") -> None:
@@ -203,7 +223,7 @@ class NoneSaver(Saver[None]):
         return None
 
 class SaveGame:
-    def __init__(self, save_format_version:str, game_version:str, game_start_version:str, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, game_fingerprint:bytes, game_timestamp:float, game_base_date:datetime.datetime, game_save_count:int, pc_name:str, pc_sector_name:str, filename:str=""):
+    def __init__(self, save_format_version:str, game_version:str, game_start_version:str, debug_flag:bool, save_date:datetime.datetime, estimated_ticks:int, game_fingerprint:bytes, game_timestamp:float, game_base_date:datetime.datetime, game_secs_per_sec:float, game_save_count:int, pc_name:str, pc_sector_name:str, filename:str=""):
         self.filename = filename
         self.save_format_version = SAVE_FORMAT_VERSION
         self.game_version = game_version
@@ -215,10 +235,15 @@ class SaveGame:
         self.game_fingerprint = game_fingerprint
         self.game_timestamp = game_timestamp
         self.game_base_date = game_base_date
+        self.game_secs_per_sec = game_secs_per_sec
         self.game_save_count = game_save_count
 
         self.pc_name = pc_name
         self.pc_sector_name = pc_sector_name
+
+    @property
+    def game_date(self) -> datetime.datetime:
+        return datetime.datetime.fromtimestamp(self.game_base_date.timestamp() + self.game_timestamp*self.game_secs_per_sec)
 
 
 class GameSaverObserver:
@@ -236,7 +261,7 @@ class GameSaver(SaverObserver):
 
     Organizes configuration and dispatches to various sorts of save logic. """
 
-    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, *args:Any, debug:bool=True, **kwargs:Any) -> None:
+    def __init__(self, generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, *args:Any, debug:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
 
@@ -255,6 +280,7 @@ class GameSaver(SaverObserver):
         # we'll need these as part of saving and loading
         self.generator = generator
         self.event_manager = event_manager
+        self.intel_director = intel_director
 
         self._observers:weakref.WeakSet[GameSaverObserver] = weakref.WeakSet()
 
@@ -319,6 +345,7 @@ class GameSaver(SaverObserver):
         bytes_written += s_util.bytes_to_f(gamestate.fingerprint, save_file)
         bytes_written += s_util.float_to_f(gamestate.timestamp, save_file)
         bytes_written += s_util.to_len_pre_f(gamestate.base_date.isoformat(), save_file)
+        bytes_written += s_util.float_to_f(gamestate.game_secs_per_sec, save_file)
         bytes_written += s_util.int_to_f(gamestate.save_count, save_file)
 
         # TODO: will the player always have selected a character and be in a sector?
@@ -348,12 +375,13 @@ class GameSaver(SaverObserver):
         fingerprint = s_util.bytes_from_f(save_file)
         timestamp = s_util.float_from_f(save_file)
         base_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(save_file))
+        game_secs_per_sec = s_util.float_from_f(save_file)
         save_count = s_util.int_from_f(save_file)
 
         pc_name = s_util.from_len_pre_f(save_file)
         pc_sector_name = s_util.from_len_pre_f(save_file)
 
-        return SaveGame(save_format_version, game_version, game_start_version, debug_flag, save_date, estimated_ticks, fingerprint, timestamp, base_date, save_count, pc_name, pc_sector_name)
+        return SaveGame(save_format_version, game_version, game_start_version, debug_flag, save_date, estimated_ticks, fingerprint, timestamp, base_date, game_secs_per_sec, save_count, pc_name, pc_sector_name)
 
     def key_from_class(self, klass:type) -> int:
         return self._class_key_lookup[klass]
@@ -518,11 +546,11 @@ class GameSaver(SaverObserver):
 
             # we created the gamestate so it's our responsibility to set its
             # event manager and post_initialize it
-            self.logger.debug("initializing event manager")
+            self.logger.debug("initializing event manager, etc.")
             gamestate.event_manager.initialize_gamestate(event_state, gamestate)
+            self.intel_director.initialize_gamestate(gamestate)
 
             self.logger.debug("sanity checking loaded gamestate")
-
             gamestate.sanity_check()
 
             self.logger.debug("loading gamestate into generator")

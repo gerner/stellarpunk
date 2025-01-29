@@ -4,18 +4,19 @@ import sys
 import re
 import collections
 import logging
-from typing import Dict, Mapping, List, Union, Any, Callable, Tuple, MutableMapping
+from collections.abc import Mapping, MutableMapping
+from typing import Mapping, Union, Any, Callable, MutableMapping, Optional
 
 import toml # type: ignore
 
 from . import director
 
 INT_RE = re.compile("[0-9]+")
-FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_]*")
+FLAG_RE = re.compile("[a-zA-Z_][a-zA-Z0-9_:]*")
 
 POS_INF = (1<<64)-1
 
-def parse_ref(data: str, context_keys: Mapping[str, int]) -> Tuple[Union[director.IntRef, director.FlagRef, director.EntityRef], int]:
+def parse_ref(data: str, context_keys: Mapping[str, int]) -> tuple[Union[director.IntRef, director.FlagRef, director.EntityRef], int]:
     m = INT_RE.match(data)
     if m:
         return director.IntRef(int(m.group(0))), m.end()
@@ -137,7 +138,7 @@ def parse_action(
     action_validators: Mapping[int, Callable[[Mapping], bool]],
     context_keys: Mapping[str, int],
 ) -> director.ActionTemplate:
-    if not isinstance(act, Dict):
+    if not isinstance(act, dict):
         raise ValueError(f'actions for {rule_id} must be a list of tables')
     if "_action" not in act:
         raise ValueError(f'actions for {rule_id} must all have _action field')
@@ -167,7 +168,7 @@ def loads(
     context_keys: Mapping[str, int],
     action_ids: Mapping[str, int],
     action_validators: Mapping[int, Callable[[Mapping], bool]] = {},
-) -> director.Director:
+) -> list[director.Director]:
     """
     Loads rules from a toml string into a narrative director.
 
@@ -199,7 +200,7 @@ def loadd(
     context_keys: Mapping[str, int],
     action_ids: Mapping[str, int],
     action_validators: Mapping[int, Callable[[Mapping], bool]] = {},
-) -> director.Director:
+) -> list[director.Director]:
     """
     Loads rules from a rule data dict into a narrative director.
 
@@ -220,7 +221,8 @@ def loadd(
     out : narrative.director
         a director instance loaded with rules as parsed from the input
     """
-    rules = collections.defaultdict(list)
+    base_rules = collections.defaultdict(list)
+    rules_by_group:MutableMapping[str, MutableMapping[int, list[director.Rule]]] = collections.defaultdict(lambda: collections.defaultdict(list))
     for rule_id, rule in rule_data.items():
         # get event type this rule subscribes to
         if "type" not in rule:
@@ -234,11 +236,18 @@ def loadd(
             raise ValueError(f'missing or bad priority in rule {rule_id}')
         priority = rule["priority"]
 
+        group:Optional[str] = None
+        if "group" in rule:
+            if isinstance(rule["group"], str):
+                group = rule["group"]
+            else:
+                raise ValueError(f'group must be a string in {rule_id}, got {rule["group"]}')
+
         # find and parse all the various criteria
-        criteria_data: List[str]
+        criteria_data:list[str]
         if "criteria" not in rule:
             criteria_data = []
-        elif not isinstance(rule["criteria"], List):
+        elif not isinstance(rule["criteria"], list):
             raise ValueError(f'criteria for {rule_id} must be a list')
         else:
             criteria_data = rule["criteria"]
@@ -252,26 +261,39 @@ def loadd(
             #    raise ValueError(f'bad criteria for {rule_id}') from e
 
         # find and parse the actions
-        action_data: List[Dict[str, Any]]
+        action_data:list[dict[str, Any]]
         if "actions" not in rule:
             action_data = []
-        elif not isinstance(rule["actions"], List):
+        elif not isinstance(rule["actions"], list):
             raise ValueError(f'actions for {rule_id} must be a list')
         else:
             action_data = rule["actions"]
 
-        actions: List[director.ActionTemplate] = []
+        actions:list[director.ActionTemplate] = []
 
+        if len(action_data) == 0:
+            raise ValueError(f'rule {rule_id} had no actions. did you miskey the actions?')
         for act in action_data:
             actions.append(parse_action(rule_id, act, action_ids, action_validators, context_keys))
 
         # create a rule record
-        rules[event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
+        if not group:
+            base_rules[event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
+        else:
+            rules_by_group[group][event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
 
     # make sure the rules are in priority order
+    sorted_rule_groups:list[MutableMapping[int, list[director.Rule]]] = []
     sorted_rules:MutableMapping[int, list[director.Rule]] = {}
-    for event_type_id, rule_values in rules.items():
-        sorted_rules[event_type_id] = sorted(rule_values, key=lambda x: x.get_priority())
+    for event_type_id, rule_values in base_rules.items():
+        sorted_rules[event_type_id] = sorted(rule_values, key=lambda x: (x.get_priority()))
+    sorted_rule_groups.append(sorted_rules)
 
-    # create and return an event director
-    return director.Director(sorted_rules)
+    for rule_group in rules_by_group.values():
+        sorted_rule_group:MutableMapping[int, list[director.Rule]] = {}
+        for event_type_id, rule_values in rule_group.items():
+            sorted_rule_group[event_type_id] = sorted(rule_values, key=lambda x: (x.get_priority()))
+        sorted_rule_groups.append(sorted_rule_group)
+
+    # create and return event directors, one for each group
+    return list(director.Director(rule_group) for rule_group in sorted_rule_groups)

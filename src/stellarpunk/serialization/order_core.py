@@ -4,7 +4,7 @@ import abc
 import uuid
 from typing import Any, Optional
 
-from stellarpunk import core, effects
+from stellarpunk import core, effects, sensors
 from stellarpunk.core import sector_entity
 from stellarpunk.orders import core as ocore, movement
 from stellarpunk.serialization import util as s_util, save_game, order as s_order
@@ -269,3 +269,31 @@ class DockingOrderSaver(s_order.OrderSaver[ocore.DockingOrder], abc.ABC):
         target = load_context.gamestate.get_entity(target_entity_id, core.SectorEntity)
         order.target = target
         order.eow = core.EntityOrderWatch(order, target)
+
+class LocationExploreOrderSaver(s_order.OrderSaver[ocore.LocationExploreOrder], abc.ABC):
+    def _save_order(self, order:ocore.LocationExploreOrder, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(order.sector_id, f)
+        bytes_written += s_util.float_pair_to_f(order.loc, f)
+        bytes_written += s_util.optional_uuid_to_f(order.goto_order.order_id if order.goto_order else None, f)
+        bytes_written += s_util.optional_uuid_to_f(order.scan_order.order_id if order.scan_order else None, f)
+        return bytes_written
+
+    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[ocore.LocationExploreOrder, Any]:
+        sector_id = s_util.uuid_from_f(f)
+        loc = s_util.float_pair_from_f(f)
+        goto_location_id = s_util.optional_uuid_from_f(f)
+        sensor_scan_id = s_util.optional_uuid_from_f(f)
+
+        order = ocore.LocationExploreOrder(sector_id, loc, load_context.gamestate, _check_flag=True, order_id=order_id)
+
+        return order, (goto_location_id, sensor_scan_id)
+
+    def _post_load_order(self, order:ocore.LocationExploreOrder, load_context:save_game.LoadContext, context:Any) -> None:
+        context_data:tuple[Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        goto_location_id, sensor_scan_id = context_data
+        if goto_location_id:
+            order.goto_order = load_context.gamestate.get_order(goto_location_id, movement.GoToLocation)
+        if sensor_scan_id:
+            order.scan_order = load_context.gamestate.get_order(sensor_scan_id, sensors.SensorScanOrder)
+

@@ -17,13 +17,13 @@ from typing import Optional, List, Dict, MutableMapping, Mapping, Tuple, Sequenc
 
 import numpy as np
 import numpy.typing as npt
-from scipy.spatial import distance # type: ignore
 import cymunk # type: ignore
 import rtree.index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ, config, events, sensors
-from stellarpunk.core import combat, sector_entity
+from stellarpunk import util, core, orders, agenda, econ, config, events, sensors, intel
+from stellarpunk.core import combat, sector_entity, gamestate
+from stellarpunk.agenda import intel as aintel
 from . import markov
 
 RESOURCE_REL_SHIP = 0
@@ -151,6 +151,13 @@ def is_occupied(loc:npt.NDArray[np.float64], prev_locs:Sequence[npt.NDArray[np.f
             return True
     return False
 
+class ContextKeys(enum.IntEnum):
+    ETYPE_ASTEROID = enum.auto()
+    ETYPE_STATION = enum.auto()
+    ETYPE_PLANET = enum.auto()
+    ETYPE_SHIP = enum.auto()
+    ETYPE_MISSILE = enum.auto()
+
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
     INPUT_CONSTRAINTS = enum.auto()
@@ -160,37 +167,12 @@ class GenerationErrorCase(enum.Enum):
     SINGLE_OUTPUT = enum.auto()
     NO_OUTPUTS = enum.auto()
     NO_CHAIN = enum.auto()
+    ABORT = enum.auto()
 
 class GenerationError(Exception):
     def __init__(self, case:GenerationErrorCase, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.case = case
-
-def order_fn_null( gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def null_order(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        return core.NullOrder.create_order(ship, gamestate)
-    return null_order
-
-def order_fn_wait(gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def wait_order(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        return orders.WaitOrder.create_wait_order(ship, gamestate)
-    return wait_order
-
-def order_fn_goto_random_station(gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def goto_random_station(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        if ship.sector is None:
-            raise Exception("cannot go to location if ship isn't in a sector")
-        station = gamestate.random.choice(np.array(ship.sector.entities_by_type(sector_entity.Station)))
-        return orders.GoToLocation.goto_entity(station, ship, gamestate)
-    return goto_random_station
-
-def order_fn_disembark_to_random_station(gamestate:core.Gamestate) -> core.Ship.DefaultOrderSig:
-    def disembark_to_random_station(ship:core.Ship, gamestate:core.Gamestate=gamestate) -> core.Order:
-        if ship.sector is None:
-            raise Exception("cannot disembark to if ship isn't in a sector")
-        station = gamestate.random.choice(np.array(ship.sector.entities_by_type(sector_entity.Station)))
-        return orders.DisembarkToEntity.disembark_to(station, ship, gamestate)
-    return disembark_to_random_station
 
 class GenerationStep(enum.Enum):
     NONE = enum.auto()
@@ -200,6 +182,7 @@ class GenerationStep(enum.Enum):
     INHABITED_SECTORS = enum.auto()
     UNINHABITED_SECTORS = enum.auto()
     PLAYER = enum.auto()
+    INTEL = enum.auto()
 
 class UniverseGeneratorObserver(abc.ABC):
     def estimated_generation_ticks(self, ticks:int) -> None:
@@ -223,6 +206,79 @@ class UniverseGeneratorObserver(abc.ABC):
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
         pass
 
+class ProductionChainConfig:
+    def __init__(self) -> None:
+        # goods names
+        self.ore_names = config.Settings.generate.ProductionChain.ORE_NAMES
+        self.intermediate_names = config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES
+        self.hightech_names = config.Settings.generate.ProductionChain.HIGHTECH_NAMES
+        self.sink_names = config.Settings.generate.ProductionChain.SINK_NAMES
+
+        # allowed input combos
+        self.sink_inputs = config.Settings.generate.ProductionChain.SINK_INPUTS
+        self.hightech_inputs = config.Settings.generate.ProductionChain.HIGHTECH_INPUTS
+        self.intermediate_inputs = config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS
+
+        # chain toplogy constraints
+        self.n_ranks = config.Settings.generate.ProductionChain.n_ranks
+        self.min_per_rank = config.Settings.generate.ProductionChain.min_per_rank
+        self.max_per_rank = config.Settings.generate.ProductionChain.max_per_rank
+        self.max_outputs = config.Settings.generate.ProductionChain.max_outputs
+        self.max_inputs = config.Settings.generate.ProductionChain.max_inputs
+        self.min_final_inputs = config.Settings.generate.ProductionChain.min_final_inputs
+        self.max_final_inputs = config.Settings.generate.ProductionChain.max_final_inputs
+
+        # input/output ratios
+        self.min_raw_per_processed = config.Settings.generate.ProductionChain.min_raw_per_processed
+        self.max_raw_per_processed = config.Settings.generate.ProductionChain.max_raw_per_processed
+        self.min_input_per_output = config.Settings.generate.ProductionChain.min_input_per_output
+        self.max_input_per_output = config.Settings.generate.ProductionChain.max_input_per_output
+
+        # price constraints
+        self.min_raw_price = config.Settings.generate.ProductionChain.min_raw_price
+        self.max_raw_price = config.Settings.generate.ProductionChain.max_raw_price
+        self.min_markup = config.Settings.generate.ProductionChain.min_markup
+        self.max_markup = config.Settings.generate.ProductionChain.max_markup
+        self.min_final_prices = config.Settings.generate.ProductionChain.min_final_prices
+        self.max_final_prices = config.Settings.generate.ProductionChain.max_final_prices
+
+        # overall structure constraints
+        self.max_fraction_one_to_one = config.Settings.generate.ProductionChain.max_fraction_one_to_one
+        self.max_fraction_single_input = config.Settings.generate.ProductionChain.max_fraction_single_input
+        self.max_fraction_single_output = config.Settings.generate.ProductionChain.max_fraction_single_output
+
+
+class UniverseConfig:
+    def __init__(self) -> None:
+
+        # names and cultures
+        self.empty_name_model_culture = ""
+        self.name_model_location = config.Settings.generate.names.NAME_MODEL_LOCATION
+        self.num_cultures = config.Settings.generate.Universe.NUM_CULTURES
+        self.cultures = config.Settings.generate.Universe.CULTURES
+        self.max_sector_name_words = config.Settings.generate.names.MAX_SECTOR_NAME_WORDS
+        self.max_station_name_words = config.Settings.generate.names.MAX_STATION_NAME_WORDS
+        self.max_ship_name_words = config.Settings.generate.names.MAX_SHIP_NAME_WORDS
+
+        self.production_chain_config = ProductionChainConfig()
+
+        # universe setup
+        self.universe_radius = config.Settings.generate.Universe.UNIVERSE_RADIUS
+        self.sector_radius_mean = config.Settings.generate.Universe.SECTOR_RADIUS_MEAN
+        self.sector_radius_std = config.Settings.generate.Universe.SECTOR_RADIUS_STD
+        self.max_sector_edge_length = config.Settings.generate.Universe.MAX_SECTOR_EDGE_LENGTH
+
+        self.num_sectors = config.Settings.generate.Universe.NUM_SECTORS
+        self.num_habitable_sectors = config.Settings.generate.Universe.NUM_HABITABLE_SECTORS
+        self.mean_habitable_resources = config.Settings.generate.Universe.MEAN_HABITABLE_RESOURCES
+        self.mean_uninhabitable_resources = config.Settings.generate.Universe.MEAN_UNINHABITABLE_RESOURCES
+
+
+        self.station_factor = config.Settings.generate.Universe.STATION_FACTOR
+        self.mining_ship_factor = config.Settings.generate.Universe.MINING_SHIP_FACTOR
+        self.trading_ship_factor = config.Settings.generate.Universe.TRADING_SHIP_FACTOR
+
+
 class UniverseGenerator(core.AbstractGenerator):
     @staticmethod
     def viz_product_name_graph(names:List[List[str]], edges:List[List[List[int]]]) -> graphviz.Graph:
@@ -243,6 +299,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         self.event_manager:events.EventManager = None # type: ignore
         self.gamestate:Optional[core.Gamestate] = None
+        self.intel_director:intel.IntelCollectionDirector = None # type: ignore
 
         #TODO: should we just use the one on gamestate? They should always be
         # the same thing anyway
@@ -267,7 +324,7 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models:MutableMapping[str, markov.MarkovModel] = {}
         self._ship_name_model:markov.MarkovModel = markov.MarkovModel(roman_numerals=True)
 
-        self._cultures = config.Settings.generate.Universe.CULTURES
+        self.universe_config = UniverseConfig()
         self._culture_map:Mapping[uuid.UUID, str]
         self._empty_name_model_culture = "_ignore_culture_"
 
@@ -409,9 +466,9 @@ class UniverseGenerator(core.AbstractGenerator):
         name = ""
         tries = 0
         max_tries = 10
-        while (not name or len(name.split()) > config.Settings.generate.names.MAX_SECTOR_NAME_WORDS) and tries < max_tries:
+        while (not name or len(name.split()) > self.universe_config.max_sector_name_words) and tries < max_tries:
             name = self._sector_name_models[culture].generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -419,9 +476,9 @@ class UniverseGenerator(core.AbstractGenerator):
         name = ""
         tries = 0
         max_tries = 10
-        while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
+        while (not name or len(name.split()) > self.universe_config.max_station_name_words) and tries < max_tries:
             name = self._station_name_models[culture].generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -429,9 +486,9 @@ class UniverseGenerator(core.AbstractGenerator):
         name = ""
         tries = 0
         max_tries = 10
-        while (not name or len(name.split()) > config.Settings.generate.names.MAX_STATION_NAME_WORDS) and tries < max_tries:
+        while (not name or len(name.split()) > self.universe_config.max_station_name_words) and tries < max_tries:
             name = self._station_name_models[culture].generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -439,9 +496,9 @@ class UniverseGenerator(core.AbstractGenerator):
         name = ""
         tries = 0
         max_tries = 10
-        while (not name or len(name.split()) > config.Settings.generate.names.MAX_SHIP_NAME_WORDS) and tries < max_tries:
+        while (not name or len(name.split()) > self.universe_config.max_ship_name_words) and tries < max_tries:
             name = self._ship_name_model.generate(self.r)
-            assert(culture == "test" or name != "")
+            assert(culture == self._empty_name_model_culture or name != "")
             tries+=1
         return name
 
@@ -519,39 +576,39 @@ class UniverseGenerator(core.AbstractGenerator):
 
         assert 3 <= len(ranks) <= 5
 
-        assert ranks[0] <= len(config.Settings.generate.ProductionChain.ORE_NAMES)
+        assert ranks[0] <= len(self.universe_config.production_chain_config.ore_names)
         assert ranks[1] == ranks[0], "rank 0 (ores) must have same size as rank 1 (refined ores)"
         if len(ranks) == 5:
-            assert ranks[2] <= len(config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES)
+            assert ranks[2] <= len(self.universe_config.production_chain_config.intermediate_names)
 
         if len(ranks) >= 4:
-            assert ranks[-2] <= len(config.Settings.generate.ProductionChain.HIGHTECH_NAMES)
-        assert ranks[-1] == len(config.Settings.generate.ProductionChain.SINK_NAMES)
+            assert ranks[-2] <= len(self.universe_config.production_chain_config.hightech_names)
+        assert ranks[-1] == len(self.universe_config.production_chain_config.sink_names)
 
         # set up product names in reverse order, respecting allowed inputs
-        product_names = list(config.Settings.generate.ProductionChain.SINK_NAMES)
+        product_names = list(self.universe_config.production_chain_config.sink_names)
 
         if len(ranks) == 3:
             # ore names don't matter, just assign names
-            ore_ids = self.r.choice(np.arange(len(config.Settings.generate.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
-            product_names = [config.Settings.generate.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {config.Settings.generate.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+            ore_ids = self.r.choice(np.arange(len(self.universe_config.production_chain_config.ore_names)), size=ranks[0], replace=False)
+            product_names = [self.universe_config.production_chain_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.production_chain_config.ore_names[x]}' for x in ore_ids] + product_names
         else:
             # high tech names matter
-            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], config.Settings.generate.ProductionChain.SINK_INPUTS)
-            product_names = [config.Settings.generate.ProductionChain.HIGHTECH_NAMES[x] for x in hightech_ids] + product_names
+            hightech_ids = self._assign_names(adj_matrix[-(ranks[-2]+ranks[-1]):-ranks[-1], -ranks[-1]:], self.universe_config.production_chain_config.sink_inputs)
+            product_names = [self.universe_config.production_chain_config.hightech_names[x] for x in hightech_ids] + product_names
 
             if len(ranks) == 4:
                 # ore names don't matter, just assign names
-                ore_ids = self.r.choice(np.arange(len(config.Settings.generate.ProductionChain.ORE_NAMES)), size=ranks[0], replace=False)
-                product_names = [config.Settings.generate.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {config.Settings.generate.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+                ore_ids = self.r.choice(np.arange(len(self.universe_config.production_chain_config.ore_names)), size=ranks[0], replace=False)
+                product_names = [self.universe_config.production_chain_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.production_chain_config.ore_names[x]}' for x in ore_ids] + product_names
             else:
                 assert len(ranks) == 5
                 # intermediate and ore names matter
-                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [config.Settings.generate.ProductionChain.HIGHTECH_INPUTS[x] for x in hightech_ids])
-                product_names = [config.Settings.generate.ProductionChain.INTERMEDIATE_NAMES[x] for x in intermediate_ids] + product_names
+                intermediate_ids = self._assign_names(adj_matrix[sum(ranks[:2]):sum(ranks[:3]), sum(ranks[:3]):sum(ranks[:4])], [self.universe_config.production_chain_config.hightech_inputs[x] for x in hightech_ids])
+                product_names = [self.universe_config.production_chain_config.intermediate_names[x] for x in intermediate_ids] + product_names
 
-                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [config.Settings.generate.ProductionChain.INTERMEDIATE_INPUTS[x] for x in intermediate_ids])
-                product_names = [config.Settings.generate.ProductionChain.ORE_NAMES[x] for x in ore_ids] + [f'Refined {config.Settings.generate.ProductionChain.ORE_NAMES[x]}' for x in ore_ids] + product_names
+                ore_ids = self._assign_names(adj_matrix[ranks[0]:sum(ranks[0:2]), sum(ranks[0:2]):sum(ranks[0:3])], [self.universe_config.production_chain_config.intermediate_inputs[x] for x in intermediate_ids])
+                product_names = [self.universe_config.production_chain_config.ore_names[x] for x in ore_ids] + [f'Refined {self.universe_config.production_chain_config.ore_names[x]}' for x in ore_ids] + product_names
 
         assert len(product_names) == sum(ranks)
         return product_names
@@ -614,25 +671,25 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def _load_name_models(self, culture_filter:Optional[List[str]]=None) -> None:
         self.logger.info(f'loading name model for ships')
-        self._ship_name_model.load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, "shipnames.mmodel.gz"))
+        self._ship_name_model.load(os.path.join(self.universe_config.name_model_location, "shipnames.mmodel.gz"))
 
         self.logger.info(f'loading name models')
 
         loaded_cultures = 0
-        for culture in culture_filter if culture_filter is not None else config.Settings.generate.Universe.CULTURES:
+        for culture in culture_filter if culture_filter is not None else self.universe_config.cultures:
             if culture == self._empty_name_model_culture:
                 continue
-            assert(culture in config.Settings.generate.Universe.CULTURES)
+            assert(culture in self.universe_config.cultures)
             self.logger.info(f'loading name models for culture {culture}')
-            self._sector_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'sectors.{culture}.mmodel.gz'))
-            self._station_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'stations.{culture}.mmodel.gz'))
-            self._first_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'firstnames.{culture}.mmodel.gz'))
-            self._last_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(config.Settings.generate.names.NAME_MODEL_LOCATION, f'lastnames.{culture}.mmodel.gz'))
+            self._sector_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(self.universe_config.name_model_location, f'sectors.{culture}.mmodel.gz'))
+            self._station_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(self.universe_config.name_model_location, f'stations.{culture}.mmodel.gz'))
+            self._first_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(self.universe_config.name_model_location, f'firstnames.{culture}.mmodel.gz'))
+            self._last_name_models[culture] = markov.MarkovModel(romanize=True).load(os.path.join(self.universe_config.name_model_location, f'lastnames.{culture}.mmodel.gz'))
             for observer in self._observers:
                 observer.generation_tick()
             loaded_cultures += 1
 
-        for _ in range(loaded_cultures, config.Settings.generate.Universe.NUM_CULTURES[1]):
+        for _ in range(loaded_cultures, self.universe_config.num_cultures[1]):
             for observer in self._observers:
                 observer.generation_tick()
 
@@ -644,15 +701,17 @@ class UniverseGenerator(core.AbstractGenerator):
         self._last_name_models[culture] = markov.MarkovModel(romanize=False)
 
 
-    def pre_initialize(self, event_manager:events.EventManager, empty_name_model_culture:Optional[str]=None) -> None:
+    def pre_initialize(self, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, empty_name_model_culture:Optional[str]=None) -> None:
         self.event_manager = event_manager
+        self.event_manager.register_context_keys(ContextKeys, "generate")
+        self.intel_director = intel_director
         self._prepare_sprites()
         self._prepare_projectile_spawn_pattern()
 
         if empty_name_model_culture:
             self._empty_name_model_culture = empty_name_model_culture
             self._load_empty_name_models(empty_name_model_culture)
-            self._cultures = {}
+            self.universe_config.cultures = []
         #else: load culture models during universe generation
 
     def spawn_station(self, sector:core.Sector, x:float, y:float, resource:Optional[int]=None, entity_id:Optional[uuid.UUID]=None, batches_on_hand:int=0) -> sector_entity.Station:
@@ -680,6 +739,7 @@ class UniverseGenerator(core.AbstractGenerator):
             description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
         )
         station.resource = resource
+        station.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_STATION), 1)
 
         station.cargo[resource] += min(self.gamestate.production_chain.batch_sizes[resource] * batches_on_hand, station.cargo_capacity)
         assert station.cargo.sum() <= station.cargo_capacity
@@ -708,6 +768,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
+        planet.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_PLANET), 1)
 
         self.phys_shape(planet_body, planet, planet_radius)
         planet.mass = config.Settings.generate.SectorEntities.planet.MASS
@@ -716,13 +777,15 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:Optional[core.Ship.DefaultOrderSig]=None, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None, initial_transponder:bool=True) -> core.Ship:
         assert(self.gamestate)
 
-        if default_order_fn is None:
-            default_order_fn = order_fn_null(self.gamestate)
+        max_sensor_power = config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER
+        initial_sensor_power = None
+        if initial_sensor_power_ratio is not None:
+            initial_sensor_power = initial_sensor_power_ratio * max_sensor_power
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=max_sensor_power, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT, initial_sensor_power=initial_sensor_power, initial_transponder=initial_transponder)
         ship_mass = config.Settings.generate.SectorEntities.ship.MASS
         ship_radius = config.Settings.generate.SectorEntities.ship.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
@@ -737,8 +800,10 @@ class UniverseGenerator(core.AbstractGenerator):
             sensor_settings,
             self.gamestate,
             self._gen_ship_name(sector.culture),
+            is_static=False,
             entity_id=entity_id
         )
+        ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_SHIP), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
 
@@ -764,18 +829,19 @@ class UniverseGenerator(core.AbstractGenerator):
 
         sector.add_entity(ship)
 
-        ship.default_order_fn = default_order_fn
         ship.clear_orders()
 
         return ship
 
-    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, default_order_fn:Optional[core.Ship.DefaultOrderSig]=None, entity_id:Optional[uuid.UUID]=None) -> combat.Missile:
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None) -> combat.Missile:
         assert(self.gamestate)
 
-        if default_order_fn is None:
-            default_order_fn = order_fn_null(self.gamestate)
+        max_sensor_power = config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER
+        initial_sensor_power = None
+        if initial_sensor_power_ratio is not None:
+            initial_sensor_power = initial_sensor_power_ratio * max_sensor_power
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=max_sensor_power, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT, initial_sensor_power=initial_sensor_power, initial_transponder=False)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
         ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.missile.MAX_THRUST
@@ -790,9 +856,10 @@ class UniverseGenerator(core.AbstractGenerator):
             sensor_settings,
             self.gamestate,
             self._gen_ship_name(sector.culture),
+            is_static=False,
             entity_id=entity_id,
         )
-        ship.default_order_fn=default_order_fn
+        ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
 
@@ -823,7 +890,7 @@ class UniverseGenerator(core.AbstractGenerator):
     def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> sector_entity.Projectile:
         assert(self.gamestate)
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT, initial_sensor_power=0.0)
         ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
         ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.projectile.MAX_THRUST
@@ -838,6 +905,7 @@ class UniverseGenerator(core.AbstractGenerator):
             sensor_settings,
             self.gamestate,
             self._gen_ship_name(sector.culture),
+            is_static=False,
             entity_id=entity_id
         )
 
@@ -932,6 +1000,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self._gen_asteroid_name(sector.culture),
             entity_id=entity_id
         )
+        asteroid.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_ASTEROID), 1)
 
         self.phys_shape(body, asteroid, asteroid_radius)
         asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
@@ -992,16 +1061,18 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def spawn_character(self, location:core.SectorEntity, balance:float=10e3) -> core.Character:
         assert(self.gamestate)
-
         assert location.sector
-        character = core.Character(
+        intel_manager = intel.IntelManager.create_intel_manager(self.gamestate)
+        character = core.Character.create_character(
             self._choose_portrait(),
+            intel_manager,
             self.gamestate,
             name=self._gen_character_name(location.sector.culture),
             home_sector_id=location.sector.entity_id,
         )
         character.location = location
         character.balance = balance
+        intel_manager.character = character
         self.gamestate.add_character(character)
         return character
 
@@ -1034,6 +1105,11 @@ class UniverseGenerator(core.AbstractGenerator):
                     character,
                     self.gamestate
                 ))
+                character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
+                    character,
+                    self.intel_director,
+                    self.gamestate
+                ))
             elif asset in trading_ships:
                 character.add_agendum(agenda.CaptainAgendum.create_eoa(
                     asset,
@@ -1043,6 +1119,11 @@ class UniverseGenerator(core.AbstractGenerator):
                 character.add_agendum(agenda.TradingAgendum.create_trading_agendum(
                     asset,
                     character,
+                    self.gamestate
+                ))
+                character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
+                    character,
+                    self.intel_director,
                     self.gamestate
                 ))
                 character.balance += 5e3
@@ -1083,9 +1164,12 @@ class UniverseGenerator(core.AbstractGenerator):
         for i in range(1, len(slices)-1):
             raw_needs = raw_needs @ pchain.adj_matrix[slices[i], slices[i+1]]
 
+        hex_size = config.Settings.generate.Universe.SECTOR_HEX_SIZE
+
         sector = core.Sector(
             np.array([x, y]),
             radius,
+            hex_size,
             cymunk.Space(),
             self.gamestate,
             self._gen_sector_name(culture),
@@ -1109,7 +1193,8 @@ class UniverseGenerator(core.AbstractGenerator):
         # random number of fields per resource
         # random sizes
         # random allocation to each that sums to desired total
-        num_stations = int((self.gamestate.production_chain.ranks.sum() - self.gamestate.production_chain.ranks[0])*2.5)
+        station_factor = self.universe_config.station_factor
+        num_stations = int((self.gamestate.production_chain.ranks.sum() - self.gamestate.production_chain.ranks[0])*station_factor)
         resources_to_generate = raw_needs[:,RESOURCE_REL_STATION] *  self.r.uniform(num_stations, 2*num_stations)
         #resources_to_generate += raw_needs[:,RESOURCE_REL_SHIP] * 100
         #resources_to_generate += raw_needs[:,RESOURCE_REL_CONSUMER] * 100*100
@@ -1159,19 +1244,19 @@ class UniverseGenerator(core.AbstractGenerator):
         assets.append(planet)
 
         # some factor mining ships for every refinery
-        mining_ship_factor = 2./3.
+        mining_ship_factor = self.universe_config.mining_ship_factor
         num_mining_ships = int(agent_goods[:,self.gamestate.production_chain.ranks.cumsum()[0]:self.gamestate.production_chain.ranks.cumsum()[1]].sum() * mining_ship_factor)
 
         self.logger.debug(f'adding {num_mining_ships} mining ships to sector {sector.short_id()}')
         mining_ships = set()
         for i in range(num_mining_ships):
             ship_x, ship_y = self.gen_sector_location(sector)
-            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait(self.gamestate))
+            ship = self.spawn_ship(sector, ship_x, ship_y)
             assets.append(ship)
             mining_ships.add(ship)
 
         # some factor trading ships as there are station -> station trade routes
-        trade_ship_factor = 1./6.
+        trade_ship_factor = self.universe_config.trading_ship_factor
         trade_routes_by_good = ((self.gamestate.production_chain.adj_matrix > 0).sum(axis=1))
         num_trading_ships = int((trade_routes_by_good[np.newaxis,:] * agent_goods).sum() * trade_ship_factor)
         self.logger.debug(f'adding {num_trading_ships} trading ships to sector {sector.short_id()}')
@@ -1179,7 +1264,7 @@ class UniverseGenerator(core.AbstractGenerator):
         trading_ships = set()
         for i in range(num_trading_ships):
             ship_x, ship_y = self.gen_sector_location(sector)
-            ship = self.spawn_ship(sector, ship_x, ship_y, default_order_fn=order_fn_wait(self.gamestate))
+            ship = self.spawn_ship(sector, ship_x, ship_y)
             assets.append(ship)
             trading_ships.add(ship)
 
@@ -1247,9 +1332,11 @@ class UniverseGenerator(core.AbstractGenerator):
         assert(self.gamestate)
 
         culture = self._gen_sector_culture(x, y, entity_id)
+        hex_size = config.Settings.generate.Universe.SECTOR_HEX_SIZE
         sector = core.Sector(
             np.array([x, y]),
             radius,
+            hex_size,
             cymunk.Space(),
             self.gamestate,
             self._gen_sector_name(culture),
@@ -1367,45 +1454,45 @@ class UniverseGenerator(core.AbstractGenerator):
         """
 
         if n_ranks is None:
-            n_ranks = config.Settings.generate.ProductionChain.n_ranks
+            n_ranks = self.universe_config.production_chain_config.n_ranks
         if min_per_rank is None:
-            min_per_rank = config.Settings.generate.ProductionChain.min_per_rank
+            min_per_rank = self.universe_config.production_chain_config.min_per_rank
         if max_per_rank is None:
-            max_per_rank = config.Settings.generate.ProductionChain.max_per_rank
+            max_per_rank = self.universe_config.production_chain_config.max_per_rank
         if max_outputs is None:
-            max_outputs = config.Settings.generate.ProductionChain.max_outputs
+            max_outputs = self.universe_config.production_chain_config.max_outputs
         if max_inputs is None:
-            max_inputs = config.Settings.generate.ProductionChain.max_inputs
+            max_inputs = self.universe_config.production_chain_config.max_inputs
         if min_input_per_output is None:
-            min_input_per_output = config.Settings.generate.ProductionChain.min_input_per_output
+            min_input_per_output = self.universe_config.production_chain_config.min_input_per_output
         if max_input_per_output is None:
-            max_input_per_output = config.Settings.generate.ProductionChain.max_input_per_output
+            max_input_per_output = self.universe_config.production_chain_config.max_input_per_output
         if min_raw_price is None:
-            min_raw_price = config.Settings.generate.ProductionChain.min_raw_price
+            min_raw_price = self.universe_config.production_chain_config.min_raw_price
         if max_raw_price is None:
-            max_raw_price = config.Settings.generate.ProductionChain.max_raw_price
+            max_raw_price = self.universe_config.production_chain_config.max_raw_price
         if min_markup is None:
-            min_markup = config.Settings.generate.ProductionChain.min_markup
+            min_markup = self.universe_config.production_chain_config.min_markup
         if max_markup is None:
-            max_markup = config.Settings.generate.ProductionChain.max_markup
+            max_markup = self.universe_config.production_chain_config.max_markup
         if min_final_inputs is None:
-            min_final_inputs = config.Settings.generate.ProductionChain.min_final_inputs
+            min_final_inputs = self.universe_config.production_chain_config.min_final_inputs
         if max_final_inputs is None:
-            max_final_inputs = config.Settings.generate.ProductionChain.max_final_inputs
+            max_final_inputs = self.universe_config.production_chain_config.max_final_inputs
         if min_final_prices is None:
-            min_final_prices = config.Settings.generate.ProductionChain.min_final_prices
+            min_final_prices = self.universe_config.production_chain_config.min_final_prices
         if max_final_prices is None:
-            max_final_prices = config.Settings.generate.ProductionChain.max_final_prices
+            max_final_prices = self.universe_config.production_chain_config.max_final_prices
         if min_raw_per_processed is None:
-            min_raw_per_processed = config.Settings.generate.ProductionChain.min_raw_per_processed
+            min_raw_per_processed = self.universe_config.production_chain_config.min_raw_per_processed
         if max_raw_per_processed is None:
-            max_raw_per_processed = config.Settings.generate.ProductionChain.max_raw_per_processed
+            max_raw_per_processed = self.universe_config.production_chain_config.max_raw_per_processed
         if max_fraction_one_to_one is None:
-            max_fraction_one_to_one = config.Settings.generate.ProductionChain.max_fraction_one_to_one
+            max_fraction_one_to_one = self.universe_config.production_chain_config.max_fraction_one_to_one
         if max_fraction_single_input is None:
-            max_fraction_single_input = config.Settings.generate.ProductionChain.max_fraction_single_input
+            max_fraction_single_input = self.universe_config.production_chain_config.max_fraction_single_input
         if max_fraction_single_output is None:
-            max_fraction_single_output = config.Settings.generate.ProductionChain.max_fraction_single_output
+            max_fraction_single_output = self.universe_config.production_chain_config.max_fraction_single_output
         if max_tries is None:
             max_tries = self.production_chain_max_tries
 
@@ -1431,7 +1518,6 @@ class UniverseGenerator(core.AbstractGenerator):
                 )
             except GenerationError as e:
                 generation_error_cases[e.case] += 1
-                pass
             tries += 1
             if tries in self._production_chain_ticks:
                 for observer in self._observers:
@@ -1681,7 +1767,7 @@ class UniverseGenerator(core.AbstractGenerator):
     ) -> Mapping[uuid.UUID, str]:
         # choose some seed sectors
 
-        cultures = list(self._cultures)
+        cultures = list(self.universe_config.cultures)
         culture_map:MutableMapping[int, str] = {}
         # distances from seed
         distances:MutableMapping[int, Mapping[int, float]] = {}
@@ -1713,7 +1799,7 @@ class UniverseGenerator(core.AbstractGenerator):
             # choose most remote sector from any current seed sector
             i = int(min_dists.argmax())
             # seed sectors should appear with dist 0
-            assert(i not in culture_map)
+            assert(i not in culture_map or self.universe_config.num_sectors == 1)
 
         uncultured_sectors = set(i for i in range(len(sector_coords)) if i not in culture_map)
 
@@ -1782,7 +1868,7 @@ class UniverseGenerator(core.AbstractGenerator):
             )
 
         # set up connectivity between sectors
-        distances = distance.squareform(distance.pdist(sector_coords))
+        distances = util.pairwise_distances(sector_coords)#distance.squareform(distance.pdist(sector_coords))
         sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
 
         # index of bboxes for edges
@@ -1968,7 +2054,7 @@ class UniverseGenerator(core.AbstractGenerator):
         ship_loc = refinery.loc
         while not 5e2 < util.distance(ship_loc, refinery.loc) < 1e3:
             ship_loc = self.gen_sector_location(refinery.sector, center=refinery.loc, radius=2e3, occupied_radius=5e2)
-        ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
+        ship = self.spawn_ship(refinery.sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0.)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         assert(self.gamestate.player.character)
@@ -2003,7 +2089,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # spawn the player, character, ship, etc.
         ship_loc = np.array((0., 0.))
-        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., initial_sensor_power_ratio=0.0)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
@@ -2015,7 +2101,7 @@ class UniverseGenerator(core.AbstractGenerator):
         min_dist = 1e5
         max_dist = 1.5e5
         threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=max_dist, occupied_radius=5e2, min_dist=min_dist, strict=True)
-        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., default_order_fn=order_fn_wait(self.gamestate))
+        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., initial_sensor_power_ratio=0.0)
         character = self.spawn_character(threat)
         character.take_ownership(threat)
         character.add_agendum(agenda.CaptainAgendum.create_eoa(threat, character, self.gamestate, enable_threat_response=False))
@@ -2034,17 +2120,16 @@ class UniverseGenerator(core.AbstractGenerator):
         sector.add_region(region_outer)
         sector.add_region(region_inner)
 
-
     def generate_starfields(self) -> None:
         assert(self.gamestate)
 
         self.logger.info(f'generating universe_starfield...')
         self.gamestate.starfield = generate_starfield(
             self.r,
-            radius=4*config.Settings.generate.Universe.UNIVERSE_RADIUS,
+            radius=4*self.universe_config.universe_radius,
             desired_stars_per_char=(4/80.)**2,
-            min_zoom=config.Settings.generate.Universe.UNIVERSE_RADIUS/80.,
-            max_zoom=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN/80*8,
+            min_zoom=self.universe_config.universe_radius/80.,
+            max_zoom=self.universe_config.sector_radius_mean/80*8,
             layer_zoom_step=0.25,
         )
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.starfield)} universe stars in {len(self.gamestate.starfield)} layers')
@@ -2052,29 +2137,116 @@ class UniverseGenerator(core.AbstractGenerator):
         self.logger.info(f'generating sector starfield...')
         self.gamestate.sector_starfield = generate_starfield(
             self.r,
-            radius=8*config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
+            radius=8*self.universe_config.sector_radius_mean,
             desired_stars_per_char=(3/80.)**2,
-            min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
+            min_zoom=(6*self.universe_config.sector_radius_std+self.universe_config.sector_radius_mean)/80,
             max_zoom=config.Settings.generate.SectorEntities.ship.RADIUS*2,
             layer_zoom_step=0.25,
         )
 
         self.logger.info(f'generated {sum(x.num_stars for x in self.gamestate.sector_starfield)} sector stars in {len(self.gamestate.sector_starfield)} layers')
 
+    def generate_intel(self) -> None:
+        """ Adds starting intel for characters """
+        assert self.gamestate
+
+        captains:list[core.Character] = []
+
+        for character in self.gamestate.characters.values():
+            # miners
+            if list(x for x in character.agenda if isinstance(x, agenda.MiningAgendum)):
+                captains.append(character)
+            # traders
+            elif list(x for x in character.agenda if isinstance(x, agenda.TradingAgendum)):
+                captains.append(character)
+
+        #TODO: this is pretty crude. we should seed their knowledge in a more
+        # varied way to create more interest
+
+        # sector hex expiration
+        static_intel_ttl = 3600.
+        dynamic_intel_ttl = 900.
+        static_fresh_until = self.gamestate.timestamp + static_intel_ttl*0.2
+        static_expires_at = self.gamestate.timestamp + static_intel_ttl
+        dynamic_fresh_until = self.gamestate.timestamp + dynamic_intel_ttl*0.2
+        dynamic_expires_at = self.gamestate.timestamp + dynamic_intel_ttl
+
+        # econ agent expiration
+        econ_intel_ttl = 300.
+        econ_fresh_until = self.gamestate.timestamp + econ_intel_ttl*0.2
+        econ_expires_at = self.gamestate.timestamp + econ_intel_ttl
+
+        # sector entity expiration
+        se_intel_ttl = 300.
+        se_fresh_until = self.gamestate.timestamp + se_intel_ttl*0.2
+        se_expires_at = self.gamestate.timestamp + se_intel_ttl
+
+        def intel_ttl(max_val:float, k_f:str="fresh_until", k_e:str="expires_at") -> dict[str, float]:
+            assert self.gamestate
+            loss = self.r.uniform(high=max_val)
+            return {
+                k_f: self.gamestate.timestamp+max(max_val*0.2 - loss, 0.0),
+                k_e: self.gamestate.timestamp+max_val-loss,
+            }
+
+        last_tick_i = 0
+        if len(captains) > 10:
+            tick_increment = len(captains) // 10
+        else:
+            tick_increment = 1
+
+        for i, captain in enumerate(captains):
+            detector = captain.location
+            assert isinstance(detector, core.Ship)
+            assert detector.sector
+            sector = detector.sector
+            images = sector.sensor_manager.scan(detector)
+            for character in gamestate.crew(detector):
+                scan_expiration_args:dict[str, Any] = {**intel_ttl(static_expires_at, k_f="static_fresh_until", k_e="static_expires_at"), **intel_ttl(dynamic_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at")}
+                intel.add_sector_scan_intel(detector, sector, character, self.gamestate, **scan_expiration_args)
+                for entity in sector.entities.values():
+                    if not detector.sensor_settings.has_image(entity.entity_id):
+                        continue
+                    image = detector.sensor_settings.get_image(entity.entity_id)
+                    if not image.identified:
+                        continue
+                    if isinstance(entity, sector_entity.Asteroid):
+                        intel.add_asteroid_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
+                    elif isinstance(entity, sector_entity.Station):
+                        intel.add_station_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
+                        if entity.entity_id in self.gamestate.econ_agents:
+                            intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, **intel_ttl(econ_expires_at))
+                    else:
+                        intel.add_sector_entity_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at"))
+
+            current_tick_i = (i+1) // tick_increment
+            if current_tick_i > last_tick_i:
+                last_tick_i = current_tick_i
+                for observer in self._observers:
+                    observer.generation_tick()
+
+        while last_tick_i < 10:
+            for observer in self._observers:
+                observer.generation_tick()
+            last_tick_i += 1
+
+
     def estimate_generation_ticks(self) -> int:
         # 10 ticks for production chains
         # 1 tick for starfields
         # each culture model + up to max cultures
         # each sector
-        # 1 tick for player
+        # 1 tick for intel
+        # 10 ticks for intel
         self._production_chain_ticks = set(np.linspace(1, self.production_chain_max_tries, num=10, dtype=int))
-        return len(self._production_chain_ticks) + 1 + config.Settings.generate.Universe.NUM_CULTURES[1] + config.Settings.generate.Universe.NUM_SECTORS + 1
+        return len(self._production_chain_ticks) + 1 + self.universe_config.num_cultures[1] + self.universe_config.num_sectors + 1 + 10
 
     def generate_universe(self) -> core.Gamestate:
         self.logger.info(f'generating a universe...')
         self.gamestate = core.Gamestate()
         self.gamestate.event_manager = self.event_manager
         self.gamestate.event_manager.initialize_gamestate(events.EventState(), self.gamestate)
+        self.intel_director.initialize_gamestate(self.gamestate)
 
         self.gamestate.generator = self
         self.gamestate.random = self.r
@@ -2082,11 +2254,11 @@ class UniverseGenerator(core.AbstractGenerator):
 
         #TODO: should have a generation tick for this
         self.logger.info(f'generating sprite starfield...')
-        min_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.
-        max_zoom = config.Settings.generate.Universe.UNIVERSE_RADIUS/48.*0.25
+        min_zoom = self.universe_config.universe_radius/48.
+        max_zoom = self.universe_config.universe_radius/48.*0.25
         sprite_starfields = generate_starfield(
             self.r,
-            radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
+            radius=self.universe_config.universe_radius,
             desired_stars_per_char=(4/80.)**2*3.,
             min_zoom=min_zoom,
             max_zoom=max_zoom,
@@ -2095,7 +2267,7 @@ class UniverseGenerator(core.AbstractGenerator):
         )
         self.gamestate.portrait_starfield = sprite_starfields
 
-        num_cultures = int(self.r.integers(*config.Settings.generate.Universe.NUM_CULTURES, endpoint=True)) # type: ignore
+        num_cultures = int(self.r.integers(*self.universe_config.num_cultures, endpoint=True)) # type: ignore
 
         #TODO: janky!
         estimated_ticks = self.estimate_generation_ticks()
@@ -2115,23 +2287,28 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # generate sectors
         sector_ids, habitable_mask = self.generate_sectors(
-            universe_radius=config.Settings.generate.Universe.UNIVERSE_RADIUS,
-            num_sectors=config.Settings.generate.Universe.NUM_SECTORS,
-            sector_radius=config.Settings.generate.Universe.SECTOR_RADIUS_MEAN,
-            sector_radius_std=config.Settings.generate.Universe.SECTOR_RADIUS_STD,
-            max_sector_edge_length=config.Settings.generate.Universe.MAX_SECTOR_EDGE_LENGTH,
-            n_habitable_sectors=config.Settings.generate.Universe.NUM_HABITABLE_SECTORS,
-            mean_habitable_resources=config.Settings.generate.Universe.MEAN_HABITABLE_RESOURCES,
-            mean_uninhabitable_resources=config.Settings.generate.Universe.MEAN_UNINHABITABLE_RESOURCES,
+            universe_radius=self.universe_config.universe_radius,
+            num_sectors=self.universe_config.num_sectors,
+            sector_radius=self.universe_config.sector_radius_mean,
+            sector_radius_std=self.universe_config.sector_radius_std,
+            max_sector_edge_length=self.universe_config.max_sector_edge_length,
+            n_habitable_sectors=self.universe_config.num_habitable_sectors,
+            mean_habitable_resources=self.universe_config.mean_habitable_resources,
+            mean_uninhabitable_resources=self.universe_config.mean_uninhabitable_resources,
             num_cultures=num_cultures,
         )
+
+        # generate starting intel for characters
+        for observers in self._observers:
+            observer.generation_step(GenerationStep.INTEL)
+        self.generate_intel()
 
         # generate the player
         for observer in self._observers:
             observer.generation_step(GenerationStep.PLAYER)
             observer.generation_tick()
-        #self.generate_player()
-        self.generate_player_for_combat_test(sector_ids, habitable_mask)
+        self.generate_player()
+        #self.generate_player_for_combat_test(sector_ids, habitable_mask)
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
         self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')

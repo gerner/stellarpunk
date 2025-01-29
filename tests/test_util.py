@@ -82,3 +82,72 @@ def test_segment_intersects_rect():
             (0.5, -1.5, 4.0, 0.5),
             (0.0, 0.0, 2.0, 2.0)
     )
+
+def test_hex_to_pixel():
+    assert all(np.array((0.,0.)) == util.pointy_hex_to_pixel(np.array((0., 0.)), 100.))
+    assert util.both_isclose(
+            np.array((np.sqrt(3)*100.,0.)),
+            util.pointy_hex_to_pixel(np.array((1., 0.)), 100.)
+    )
+    assert util.both_isclose(
+            np.array((2.*np.sqrt(3)*100.,0.)),
+            util.pointy_hex_to_pixel(np.array((2., 0.)), 100.)
+    )
+    assert util.both_isclose(
+            np.array((-10.*np.sqrt(3)*100.,0.)),
+            util.pointy_hex_to_pixel(np.array((-10., 0.)), 100.)
+    )
+
+    assert util.both_isclose(
+            np.array((np.sqrt(3)*100./2., 3./2.*100.)),
+            util.pointy_hex_to_pixel(np.array((0., 1.)), 100.)
+    )
+    assert util.both_isclose(
+            np.array((5.*np.sqrt(3)*100./2., 5.*3./2*100.)),
+            util.pointy_hex_to_pixel(np.array((0., 5.)), 100.)
+    )
+    assert util.both_isclose(
+            np.array((-15.*np.sqrt(3)*100./2., -15.*3./2*100.)),
+            util.pointy_hex_to_pixel(np.array((0., -15.)), 100.)
+    )
+
+
+    assert util.both_isclose(
+            np.array((-105.*np.sqrt(3)*100. + 25.*np.sqrt(3)/2.*100., 25.*3./2.*100.)),
+            util.pointy_hex_to_pixel(np.array((-105., 25.)), 100.)
+    )
+
+def test_pixel_to_hex():
+    assert all(np.array((0.,0.)) == util.pixel_to_pointy_hex(np.array((0., 0.)), 100.))
+
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((np.sqrt(3)*100.,0.)), 100.),
+            np.array((1., 0.))
+    )
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((2.*np.sqrt(3)*100.,0.)), 100.),
+            np.array((2., 0.))
+    )
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((-10.*np.sqrt(3)*100.,0.)), 100.),
+            np.array((-10., 0.))
+    )
+
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((np.sqrt(3)*100./2., 3./2.*100.)), 100.),
+            np.array((0., 1.))
+    )
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((5.*np.sqrt(3)*100./2., 5.*3./2*100.)), 100.),
+            np.array((0., 5.))
+    )
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((-15.*np.sqrt(3)*100./2., -15.*3./2*100.)), 100.),
+            np.array((0., -15.))
+    )
+
+
+    assert util.both_isclose(
+            util.pixel_to_pointy_hex(np.array((-105.*np.sqrt(3)*100. + 25.*np.sqrt(3)/2.*100., 25.*3./2.*100.)), 100.),
+            np.array((-105., 25.))
+    )

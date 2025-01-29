@@ -2,13 +2,15 @@ import io
 import json
 import uuid
 import struct
-from collections.abc import Collection
-from typing import Union, Callable, Optional, Union
+import pydoc
+from collections.abc import Collection, Mapping
+from typing import Union, Callable, Optional, Union, Type
 
 import numpy as np
 import numpy.typing as npt
 import msgpack # type: ignore
 
+from stellarpunk import util
 from stellarpunk.serialization import serialize_econ_sim
 
 def size_to_bytes(x:int) -> bytes:
@@ -31,6 +33,15 @@ def int_to_f(x:int, f:io.IOBase, blen:int=4, signed:bool=False) -> int:
 
 def int_from_f(f:io.IOBase, blen:int=4, signed:bool=False) -> int:
     return int.from_bytes(f.read(blen), byteorder="big", signed=signed)
+
+
+def uint64_to_f(x:int, f:io.IOBase) -> int:
+    return int_to_f(x, f, blen=8)
+
+def uint64_from_f(f:io.IOBase) -> int:
+    return int_from_f(f, blen=8)
+
+
 
 def bytes_to_f(b:bytes, f:io.IOBase, blen:int=4) -> int:
     prefix = len(b).to_bytes(blen)
@@ -94,6 +105,17 @@ def primitive_from_f(f:io.IOBase, slen:int=2, ilen:int=4) -> Union[int,float,str
     else:
         raise ValueError(f'got unexpected type {type_code=}')
 
+def type_to_f(t:type, f:io.IOBase) -> int:
+    type_name = util.fullname(t)
+    return to_len_pre_f(type_name, f)
+
+def type_from_f[T](f:io.IOBase, superclass:Type[T]) -> type:
+    type_name = from_len_pre_f(f)
+    t = pydoc.locate(type_name)
+    assert(isinstance(t, type))
+    assert(issubclass(t, superclass))
+    return t
+
 def ints_to_f(seq:Collection[int], f:io.IOBase, blen:int=4, signed:bool=False) -> int:
     bytes_written = 0
     bytes_written += size_to_f(len(seq), f)
@@ -135,13 +157,36 @@ def float_pair_from_f(f:io.IOBase) -> npt.NDArray[np.float64]:
     y = float_from_f(f)
     return np.array((x, y))
 
-def fancy_dict_to_f[K, V](d:dict[K, V], f:io.IOBase, k:Callable[[K, io.IOBase], int], v:Callable[[V, io.IOBase], int]) -> int:
+def fancy_dict_to_f[K, V](d:Mapping[K, V], f:io.IOBase, s_k:Callable[[K, io.IOBase], int], s_v:Callable[[V, io.IOBase], int]) -> int:
     bytes_written = 0
+    bytes_written += size_to_f(len(d), f)
+    for k,v in d.items():
+        bytes_written += s_k(k, f)
+        bytes_written += s_v(v, f)
     return bytes_written
 
-def fancy_dict_from_f[K, V](f:io.IOBase, k:Callable[[io.IOBase], K], v:Callable[[io.IOBase], V]) -> dict[K, V]:
+def fancy_dict_from_f[K, V](f:io.IOBase, s_k:Callable[[io.IOBase], K], s_v:Callable[[io.IOBase], V]) -> dict[K, V]:
     ret:dict[K, V] = {}
+    count = size_from_f(f)
+    for i in range(count):
+        k = s_k(f)
+        v = s_v(f)
+        ret[k] = v
     return ret
+
+def objs_to_f[T](objs:Collection[T], f:io.IOBase, s_t:Callable[[T, io.IOBase], int]) -> int:
+    bytes_written = 0
+    bytes_written += size_to_f(len(objs), f)
+    for obj in objs:
+        bytes_written += s_t(obj, f)
+    return bytes_written
+
+def objs_from_f[T](f:io.IOBase, s_t:Callable[[io.IOBase], T]) -> list[T]:
+    count = size_from_f(f)
+    objs:list[T] = []
+    for i in range(count):
+        objs.append(s_t(f))
+    return objs
 
 def uuids_to_f(uuids:Collection[uuid.UUID], f:io.IOBase) -> int:
     bytes_written = 0
@@ -226,10 +271,27 @@ def optional_uuid_from_f(f:io.IOBase) -> Optional[uuid.UUID]:
     else:
         return None
 
+def optional_obj_to_f[T](obj:Optional[T], f:io.IOBase, s_t:Callable[[T, io.IOBase], int]) -> int:
+    bytes_written = 0
+    if obj is not None:
+        bytes_written += bool_to_f(True, f)
+        bytes_written += s_t(obj, f)
+    else:
+        bytes_written += bool_to_f(False, f)
+    return bytes_written
+
+def optional_obj_from_f[T](f:io.IOBase, s_t:Callable[[io.IOBase], T]) -> Optional[T]:
+    if bool_from_f(f):
+        return s_t(f)
+    else:
+        return None
+
+
 def matrix_to_f(matrix:Union[npt.NDArray[np.float64], npt.NDArray[np.int64]], f:io.IOBase) -> int:
     ret = msgpack.packb(matrix, default = serialize_econ_sim.encode_matrix)
-    size_to_f(len(ret), f)
-    return f.write(ret)
+    bytes_written = size_to_f(len(ret), f)
+    bytes_written += f.write(ret)
+    return bytes_written
 
 def matrix_from_f(f:io.IOBase) -> npt.NDArray:
     count = size_from_f(f)

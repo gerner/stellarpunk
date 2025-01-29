@@ -4,7 +4,7 @@ import pydoc
 from typing import Any, Optional
 
 from stellarpunk import core, sensors, util
-from stellarpunk.serialization import save_game, util as s_util
+from stellarpunk.serialization import save_game, util as s_util, order as s_order
 
 class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
     def save(self, sensor_settings:sensors.SensorSettings, f:io.IOBase) -> int:
@@ -97,6 +97,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         bytes_written += s_util.to_len_pre_f(sensor_image._identity.id_prefix, f)
         bytes_written += s_util.to_len_pre_f(sensor_image._identity.short_id, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.radius, f)
+        bytes_written += s_util.bool_to_f(sensor_image._identity.is_static, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.angle, f)
 
         bytes_written += s_util.debug_string_w("basic fields", f)
@@ -130,6 +131,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         id_prefix = s_util.from_len_pre_f(f)
         short_id = s_util.from_len_pre_f(f)
         radius = s_util.float_from_f(f)
+        is_static = s_util.bool_from_f(f)
         angle = s_util.float_from_f(f)
 
         s_util.debug_string_r("basic fields", f)
@@ -155,7 +157,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         object_type = pydoc.locate(object_type_str)
         assert(isinstance(object_type, type))
         assert(issubclass(object_type, core.SectorEntity))
-        identity = core.SensorIdentity(None, object_type, id_prefix, target_id, short_id, radius)
+        identity = core.SensorIdentity(None, object_type, id_prefix, target_id, short_id, radius, is_static)
         identity.angle = angle
         sensor_image = sensors.SensorImage(identity)
 
@@ -187,3 +189,38 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
 
         sector = load_context.gamestate.get_entity(sector_id, core.Sector)
         sensor_image._sensor_manager = sector.sensor_manager
+
+class SensorScanOrderSaver(s_order.OrderSaver[sensors.SensorScanOrder]):
+    def _save_order(self, order:sensors.SensorScanOrder, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.float_to_f(order.images_ttl, f)
+        bytes_written += s_util.float_to_f(order.init_sensor_power_ratio, f)
+        bytes_written += s_util.float_to_f(order.sensor_power_ratio, f)
+        if order.images is None:
+            bytes_written += s_util.bool_to_f(False, f)
+        else:
+            bytes_written += s_util.bool_to_f(True, f)
+            bytes_written += s_util.uuids_to_f(list(x.identity.entity_id for x in order.images), f)
+        return bytes_written
+
+    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[sensors.SensorScanOrder, Any]:
+        images_ttl = s_util.float_from_f(f)
+        init_sensor_power_ratio = s_util.float_from_f(f)
+        sensor_power_ratio = s_util.float_from_f(f)
+        has_image_ids = s_util.bool_from_f(f)
+        if has_image_ids:
+            image_ids = s_util.uuids_from_f(f)
+        else:
+            image_ids = None
+
+        order = sensors.SensorScanOrder(load_context.gamestate, images_ttl=images_ttl, _check_flag=True, order_id=order_id)
+        order.init_sensor_power_ratio = init_sensor_power_ratio
+        order.sensor_power_ratio = sensor_power_ratio
+
+        return order, image_ids
+
+    def _post_load_order(self, order:sensors.SensorScanOrder, load_context:save_game.LoadContext, extra_context:Any) -> None:
+        image_ids:Optional[list[uuid.UUID]] = extra_context
+        if image_ids is None:
+            return
+        order.images = list(order.ship.sensor_settings.get_image(image_id) for image_id in image_ids)

@@ -143,6 +143,55 @@ criteria = ["$contacter.is_player"]
 [[player_contact.actions]]
 _action = "dialog"
 
+
+# Intel
+# all of these are non-terminal with priority 0 so they always go off and do
+# not interfer with other narrative event rules.
+
+[intel_id_asteroid]
+type = "sensors:identified"
+priority = 1
+group = "intel"
+criteria = ["$sensors:target.generate:etype_asteroid"]
+[[intel_id_asteroid.actions]]
+_action = "intel:identify_asteroid"
+
+#TODO: what about planets?
+[intel_id_station]
+type = "sensors:identified"
+priority = 1
+group = "intel"
+criteria = ["$sensors:target.generate:etype_station"]
+[[intel_id_station.actions]]
+_action = "intel:identify_station"
+
+#TODO: what about planets?
+[intel_docked_station]
+type = "docked"
+priority = 1
+group = "intel"
+criteria = ["$target.generate:etype_station"]
+[[intel_docked_station.actions]]
+_action = "intel:witness_docking"
+
+# fallback sector_entity_identification
+[intel_id_sector_entity]
+type = "sensors:identified"
+priority = 2
+group = "intel"
+criteria = []
+[[intel_id_sector_entity.actions]]
+_action = "intel:identify_sector_entity"
+
+# sensor scan
+[intel_sensor_scan]
+type = "sensors:scanned"
+priority = 1
+group = "intel"
+criteria = []
+[[intel_sensor_scan.actions]]
+_action = "intel:witness_scan"
+
 #[player_open_dialog]
 #type = "dialog"
 #priority = 0

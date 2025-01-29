@@ -12,8 +12,11 @@ import curses
 import re
 import collections
 import uuid
+import itertools
+import threading
+import contextlib
 import types
-from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection
+from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator
 
 import numpy as np
 import numpy.typing as npt
@@ -196,6 +199,15 @@ def magnitude(x:float, y:float) -> float:
 def distance(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
     return magnitude((s - t)[0], (s - t)[1])
 
+def pairwise_distances(coordinates:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    # coords is of shape num_sectors, 2, values are are x,y coords
+    # want to return 2d matrix of shape num_sectors, num_sectors, values are distances
+    distances = np.zeros((coordinates.shape[0], coordinates.shape[0]))
+    distances += np.inf
+    for (idx_a,a),(idx_b,b) in itertools.product(enumerate(coordinates), enumerate(coordinates)):
+        distances[idx_a][idx_b] = distance(a,b)
+    return distances
+
 @jit(cache=True, nopython=True, fastmath=True)
 def bearing(s:npt.NDArray[np.float64], t:npt.NDArray[np.float64]) -> float:
     course = t - s
@@ -285,6 +297,7 @@ def intersects(a:Tuple[float, float, float, float], b:Tuple[float, float, float,
 
     return not (a[2] < b[0] or b[2] < a[0] or a[3] < b[1] or b[3] < a[1])
 
+#@jit(cache=True, nopython=True, fastmath=True)
 def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tuple[float, float, float, float]) -> Optional[Tuple[float, float, float, float]]:
     """ returns the subsegment that overlaps rect or None if no overlap. """
     # left and right sides
@@ -299,17 +312,18 @@ def segment_intersects_rect(segment:Tuple[float, float, float, float], rect:Tupl
     if len(subsegment) == 2:
         return tuple(x for p in subsegment for x in p) # type: ignore
     elif len(subsegment) == 1:
-        if rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
+        if rect[0] <= segment[0] and segment[0] <= rect[2] and rect[1] <= segment[1] and segment[1] <= rect[3]:
             return (subsegment[0][0], subsegment[0][1], segment[0], segment[1])
         else:
             # the other point better be in the rect
-            assert rect[0] < segment[2] and segment[2] < rect[2] and rect[1] < segment[3] and segment[3] < rect[3]
+            assert rect[0] <= segment[2] and segment[2] <= rect[2] and rect[1] <= segment[3] and segment[3] <= rect[3]
             return (subsegment[0][0], subsegment[0][1], segment[2], segment[3])
     elif rect[0] < segment[0] and segment[0] < rect[2] and rect[1] < segment[1] and segment[1] < rect[3]:
         return segment
     else:
         return None
 
+@jit(cache=True, nopython=True, fastmath=True)
 def segments_intersect(a:Tuple[float, float, float, float], b:Tuple[float, float, float, float]) -> Optional[Tuple[float, float]]:
     """ returns true iff segments a and b intersect. """
     # inspired by https://stackoverflow.com/a/565282/553580
@@ -392,9 +406,19 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
-def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None) -> drawille.Canvas:
+def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None, bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+
     if canvas is None:
         canvas = drawille.Canvas()
+
+    # truncate the line if necessary
+    if bbox is not None:
+        segment = segment_intersects_rect((start[0], start[1], end[0], end[1]), bbox)
+        if segment is None:
+            return canvas
+        start = segment[0:2]
+        end = segment[2:4]
+
     course = np.array(end) - np.array(start)
     distance = np.linalg.norm(course)
     if distance == 0:
@@ -714,11 +738,12 @@ def make_rectangle_canvas(rect:Tuple[float, float, float, float], meters_per_cha
         y += step
     return c
 
-def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[np.float64]|Sequence[float]]], meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[np.float64]|Sequence[float]]], meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
     if step is None:
         step = 2
 
-    c = drawille.Canvas()
+    if c is None:
+        c = drawille.Canvas()
 
     if len(vertices) == 0:
         return c
@@ -800,6 +825,97 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
 
     return c
 
+def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+    """ Draws right half of a regular hexagon, center to point distance size.
+
+    This is useful when drawing a tessalating hex pattern. Each hex draws its
+    right half. Together this creates a complete, non-overlapping hex grid. """
+
+    if step is None:
+        step = 2. * meters_per_char_x
+
+    if c is None:
+        c = drawille.Canvas()
+
+    assert(size > 0)
+
+    # top right segment
+    start = (0.+offset_x, size+offset_y)
+    end = (np.sqrt(3.)/2.*size+offset_x, size/2.+offset_y)
+    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "1.s")
+    #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "1.e")
+    # right segment
+    start = end
+    end = (np.sqrt(3.)/2.*size+offset_x, -size/2.+offset_y)
+    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "2.s")
+    #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "2.e")
+
+    # bottom right segment
+    start = end
+    end = (0+offset_x, -size+offset_y)
+    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "3.s")
+    #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "3.e")
+
+    #c.set_text(*sector_to_drawille(offset_x, offset_y, meters_per_char_x, meters_per_char_y), "X")
+
+    return c
+
+def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+    """ makes a pointy hex grid filling bbox. """
+    c = drawille.Canvas()
+    if bbox is None:
+        return c
+
+    # start with hex containing upper left of perspective
+    pixel_loc = np.array((bbox[0]-offset_x, bbox[1]-offset_y))
+    hex_loc = axial_round(pixel_to_pointy_hex(pixel_loc, size))
+    # back up to the left by one hex
+    hex_loc[0] -= 1.
+    pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+
+    hex_pairs = 0
+    row_pairs = 0
+    # draw pairs of lines until hex center is size distance outside bottom edge
+    #logger.info(f'bbox: {bbox}')
+    #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
+    while(pixel_loc[1]+offset_y < bbox[3]+size):
+        # draw pairs of hexes (q, r) and (q-1, r+1) until second hex center is outside the right edge
+        #logger.info(f'considering hex pair pixel: {hex_loc} {pixel_loc}')
+        row_start = hex_loc.copy()
+        while(pixel_loc[0]+offset_x < bbox[2]):
+            # draw first, upper left hex
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # debugging:
+            #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.a {hex_loc}')
+
+            # draw second, lower right hex
+            hex_loc[1] += 1
+            pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # debugging:
+            #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.b {hex_loc}')
+
+            # set up next pair of hexes: rewind to first hex and move right
+            hex_loc[0]+=1
+            hex_loc[1]-=1
+            pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+            hex_pairs += 1
+            #logger.info(f'considering hex pair pixel: {hex_loc} {pixel_loc}')
+
+        # set up next pair of lines:
+        # move down and to the right and down and to the left
+        hex_loc = row_start
+        hex_loc[0] -= 1
+        hex_loc[1] += 2
+        pixel_loc = pointy_hex_to_pixel(hex_loc, size)
+        row_pairs += 1
+        #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
+
+    return c
+
 def choose_argmax(rnd: np.random.Generator, a:npt.NDArray[Any]) -> int:
     flatnonzero = np.flatnonzero(a == a.max())
     if len(flatnonzero) > 1:
@@ -838,6 +954,118 @@ def update_vema(value_estimate:float | npt.NDArray[np.float64], volume_estimate:
     value_estimate = alpha * value_estimate + (1-alpha) * value
     volume_estimate = alpha * volume_estimate + (1-alpha) * volume
     return (value_estimate, volume_estimate)
+
+# Hex functions
+# all of these are courtesey https://www.redblobgames.com/grids/hexagons/
+
+@jit(cache=True, nopython=True, fastmath=True)
+def cube_to_axial(cube:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    return cube[:2].copy()
+
+@jit(cache=True, nopython=True, fastmath=True)
+def axial_to_cube(coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    return np.array((coords[0], coords[1], -coords[0]-coords[1]))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def cube_round(frac:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    coords = np.round(frac)
+    coords_diff = np.abs(coords - frac)
+
+    if coords_diff[0] > coords_diff[1] and coords_diff[0] > coords_diff[2]:
+        coords[0] = -coords[1]-coords[2]
+    elif coords_diff[1] > coords_diff[2]:
+        coords[1] = -coords[0]-coords[2]
+    else:
+        coords[2] = -coords[0]-coords[1]
+
+    return coords
+
+@jit(cache=True, nopython=True, fastmath=True)
+def axial_round(coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    return cube_to_axial(cube_round(axial_to_cube(coords)))
+
+def int_coords(coords:npt.NDArray[np.float64]) -> tuple[int, int]:
+    return (int(coords[0]), int(coords[1]))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def pointy_hex_to_pixel(coords:npt.NDArray[np.float64], size:float) -> npt.NDArray[np.float64]:
+    x = size * (np.sqrt(3) * coords[0]  +  np.sqrt(3)/2 * coords[1])
+    y = size * (                         3./2 * coords[1])
+    return np.array((x, y))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def pixel_to_pointy_hex(point:npt.NDArray[np.float64], size:float) -> npt.NDArray[np.float64]:
+    q = (np.sqrt(3)/3 * point[0]  -  1./3 * point[1]) / size
+    r = (                        2./3 * point[1]) / size
+    return np.array((q,r))
+
+@jit(cache=True, nopython=True, fastmath=True)
+def axial_distance(a:npt.NDArray[np.float64], b:npt.NDArray[np.float64]) -> float:
+    vec = a - b
+    return (abs(vec[0])
+          + abs(vec[0] + vec[1])
+          + abs(vec[1])) / 2.
+
+def hexes_at_hex_dist(k:int, hex_coords:npt.NDArray[np.float64]) -> Collection[npt.NDArray[np.float64]]:
+    """ returns all hex coords at hex distance k """
+    c = hex_coords.copy()
+    if k == 0:
+        return [c]
+    c[0] -= k
+    # start with empty ret, we'll get the current c at the very end
+    ret = []
+    # move in sq+ direction
+    for _ in range(k):
+        c[0] += 1
+        c[1] -= 1
+        ret.append(c.copy())
+    # move in q+ direction
+    for _ in range(k):
+        c[0] += 1
+        ret.append(c.copy())
+    # move in r+ direction
+    for _ in range(k):
+        c[1] += 1
+        ret.append(c.copy())
+    # move in sq- direction
+    for _ in range(k):
+        c[0] -= 1
+        c[1] += 1
+        ret.append(c.copy())
+    # move in q- direction
+    for _ in range(k):
+        c[0] -= 1
+        ret.append(c.copy())
+    # move in r- direction
+    for _ in range(k):
+        c[1] -= 1
+        ret.append(c.copy())
+
+    return ret
+
+
+def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:float) -> Collection[npt.NDArray[np.float64]]:
+    """ returns all hex coords for hexes contained completely within pixel dist
+    of pixel coords. """
+
+    # determine k, the largest integral hex distance that is wholly within dist
+    center_hex = axial_round(pixel_to_pointy_hex(coords, size))
+    coords = pointy_hex_to_pixel(center_hex, size)
+    outside_coords = np.array((coords[0]-dist, coords[1]))
+    outside_hex = axial_round(pixel_to_pointy_hex(outside_coords, size))
+    if both_isclose(outside_hex, center_hex):
+        return []
+
+    diff_hex = center_hex - outside_hex
+    d = int(diff_hex[0] - 1)
+    assert(d>=0)
+
+    ret:list[npt.NDArray[np.float64]] = []
+    for k in range(0, d+1):
+        ret.extend(hexes_at_hex_dist(k, center_hex))
+
+    return ret
+
 
 class NiceScale:
     """ Produces a "nice" scale for a range that looks good to a human.
@@ -925,3 +1153,15 @@ class PDBManager:
             self.logger.info(f'handling exception {e} {m}')
             print(m.__repr__(), file=sys.stderr)
             pdb.post_mortem(tb)
+
+class TimeoutLock(object):
+    """ Allows acquiring a Lock with a timeout in a context manager """
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    @contextlib.contextmanager
+    def acquire(self, blocking:bool=True, timeout:float=-1) -> Generator[bool, None, None]:
+        result = self._lock.acquire(blocking=blocking, timeout=timeout)
+        yield result
+        if result:
+            self._lock.release()

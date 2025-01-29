@@ -256,6 +256,11 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
         self.child_orders.appendleft(order)
         self.ship.prepend_order(order, begin=begin)
 
+    def is_cancellable(self) -> bool:
+        # orders should always be cancellable, this more indicates if it would
+        # be inconvenient to cancel at this moment.
+        return True
+
     def to_history(self) -> dict:
         return {"o": self.o_name}
 

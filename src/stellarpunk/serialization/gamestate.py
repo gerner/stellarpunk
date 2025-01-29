@@ -21,6 +21,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         bytes_written += s_util.debug_string_w("simple fields", f)
         bytes_written += s_util.random_state_to_f(gamestate.random, f)
         bytes_written += s_util.to_len_pre_f(gamestate.base_date.isoformat(), f)
+        bytes_written += s_util.float_to_f(gamestate.game_secs_per_sec, f)
         bytes_written += s_util.float_to_f(gamestate.timestamp, f)
         #bytes_written += s_util.float_to_f(gamestate.desired_dt, f)
         # no need to save dt, we should reload with desired dt
@@ -116,8 +117,10 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         bytes_written += s_util.debug_string_w("task schedule", f)
         bytes_written += s_util.size_to_f(gamestate._task_schedule.size(), f)
         for (timestamp, task) in gamestate._task_schedule:
-            bytes_written += s_util.float_to_f(timestamp, f)
-            bytes_written += self.save_game.save_object(task, f, klass=core.ScheduledTask)
+            # some tasks might be invalid, so we don't need to save them
+            if task.is_valid():
+                bytes_written += s_util.float_to_f(timestamp, f)
+                bytes_written += self.save_game.save_object(task, f, klass=core.ScheduledTask)
 
         # starfields
         bytes_written += s_util.debug_string_w("starfields", f)
@@ -153,6 +156,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         s_util.debug_string_r("simple fields", f)
         gamestate.random = s_util.random_state_from_f(f)
         gamestate.base_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(f))
+        gamestate.game_secs_per_sec = s_util.float_from_f(f)
         gamestate.timestamp = s_util.float_from_f(f)
         #gamestate.desired_dt = s_util.float_from_f(f)
         #gamestate.dt = gamestate.desired_dt
@@ -430,5 +434,5 @@ class NoneEntitySaver(EntitySaver[core.Entity]):
     def _save_entity(self, entity:core.Entity, f:io.IOBase) -> int:
         return 0
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Entity:
-        return core.Entity(load_context.gamestate, entity_id=entity_id)
+        return core.Entity(load_context.gamestate, created_at=0.0, entity_id=entity_id)
 

@@ -7,11 +7,15 @@ import uuid
 import collections
 import logging
 import time
+import datetime
+import io
+import functools
 from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
+import pyinstrument
 import numpy as np
 
-from stellarpunk import core, interface, generate, util, config, events, narrative
+from stellarpunk import core, interface, generate, util, config, events, narrative, intel
 from stellarpunk.core import sector_entity
 from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events
 from stellarpunk.serialization import save_game
@@ -128,7 +132,7 @@ class KeyDemo(interface.View):
         if key in self.curses_keys:
             curses_key = self.curses_keys[key]
 
-        self.interface.log_message(f'pressed {key} {print_view} {curses_key} at {core.Gamestate.gamestate.ticks}')
+        self.interface.log_message(f'pressed {key} {print_view} {curses_key}')
 
         return True
 
@@ -199,7 +203,7 @@ class PolygonDemo(interface.View):
 
     def update_display(self) -> None:
         self.interface.viewscreen.erase()
-        self.interface.viewscreen.addstr(0, 35, "CIRCLE DEMO")
+        self.interface.viewscreen.addstr(0, 35, "POLYGON DEMO")
 
         # make a rectangle
         c = util.make_rectangle_canvas(self.bbox, 1, 2)
@@ -248,6 +252,171 @@ class PolygonDemo(interface.View):
         return True
 
 
+class LineDemo(interface.View):
+    """ Testing tool showing a line drawn on the screen inside a bounding box
+
+    Useful for debugging the drawing logic. """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.scale = 15.
+        self.start =(-self.scale, -self.scale)
+        self.end = (self.scale, self.scale)
+        self.bbox = (-1.5*self.scale, -1.5*self.scale, 1.5*self.scale, 1.5*self.scale)
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "HEX GRID DEMO")
+
+        # make a rectangle
+        c = util.make_rectangle_canvas(self.bbox, 1, 2)
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        # make a line
+        c = util.drawille_line(self.start, self.end, 1, 2, bbox=self.bbox, )
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        self.interface.viewscreen.addstr(int(self.scale+15), 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == curses.ascii.ESC:
+            self.interface.close_view(self)
+            return True
+        elif key == ord("+"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1]-1, self.bbox[2]+1, self.bbox[3]+1)
+        elif key == ord("-"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1]+1, self.bbox[2]-1, self.bbox[3]-1)
+        elif key == ord("w"):
+            self.bbox = (self.bbox[0], self.bbox[1]-1, self.bbox[2], self.bbox[3]-1)
+        elif key == ord("a"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1], self.bbox[2]-1, self.bbox[3])
+        elif key == ord("s"):
+            self.bbox = (self.bbox[0], self.bbox[1]+1, self.bbox[2], self.bbox[3]+1)
+        elif key == ord("d"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1], self.bbox[2]+1, self.bbox[3])
+
+        elif key == ord("i"):
+            self.start = (self.start[0], self.start[1]-1)
+        elif key == ord("k"):
+            self.start = (self.start[0], self.start[1]+1)
+        elif key == ord("j"):
+            self.start = (self.start[0]-1, self.start[1])
+        elif key == ord("l"):
+            self.start = (self.start[0]+1, self.start[1])
+
+        elif key == ord("I"):
+            self.end = (self.end[0], self.end[1]-1)
+        elif key == ord("K"):
+            self.end = (self.end[0], self.end[1]+1)
+        elif key == ord("J"):
+            self.end = (self.end[0]-1, self.end[1])
+        elif key == ord("L"):
+            self.end = (self.end[0]+1, self.end[1])
+
+        else:
+            return False
+        return True
+
+
+class HexGridDemo(interface.View):
+    """ Testing tool drawing hex grid on the screen inside a bounding box
+
+    Useful for debugging the drawing logic. """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.scale = 15.
+        self.size = self.scale
+        self.bbox = (-1.5*self.scale, -1.5*self.scale, 1.5*self.scale, 1.5*self.scale)
+        self.offset = (0,0)
+
+    def update_display(self) -> None:
+        self.interface.viewscreen.erase()
+        self.interface.viewscreen.addstr(0, 35, "HEX GRID DEMO")
+
+        # make a rectangle
+        c = util.make_rectangle_canvas(self.bbox, 1, 2)
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        # make a polygon
+        c = util.make_pointy_hex_grid_canvas(self.size, 1, 2, bbox=self.bbox, offset_x=self.offset[0], offset_y=self.offset[1])
+
+        assert isinstance(self.viewscreen, interface.Canvas)
+        util.draw_canvas_at(c, self.viewscreen.window, int(self.scale+5), int(self.scale+15), bounds=self.viewscreen_bounds)
+
+        self.interface.viewscreen.addstr(int(self.scale+15), 1, "Press any key to continue")
+        self.interface.refresh_viewscreen()
+
+    def handle_input(self, key: int, dt: float) -> bool:
+        if key == curses.ascii.ESC:
+            self.interface.close_view(self)
+            return True
+        elif key == ord("+"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1]-1, self.bbox[2]+1, self.bbox[3]+1)
+        elif key == ord("-"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1]+1, self.bbox[2]-1, self.bbox[3]-1)
+        elif key == ord(">"):
+            self.size += 1
+        elif key == ord("<"):
+            self.size -= 1
+        elif key == ord("w"):
+            self.bbox = (self.bbox[0], self.bbox[1]-1, self.bbox[2], self.bbox[3]-1)
+        elif key == ord("a"):
+            self.bbox = (self.bbox[0]-1, self.bbox[1], self.bbox[2]-1, self.bbox[3])
+        elif key == ord("s"):
+            self.bbox = (self.bbox[0], self.bbox[1]+1, self.bbox[2], self.bbox[3]+1)
+        elif key == ord("d"):
+            self.bbox = (self.bbox[0]+1, self.bbox[1], self.bbox[2]+1, self.bbox[3])
+        elif key == ord("i"):
+            self.offset = (self.offset[0], self.offset[1]-1)
+        elif key == ord("k"):
+            self.offset = (self.offset[0], self.offset[1]+1)
+        elif key == ord("j"):
+            self.offset = (self.offset[0]-1, self.offset[1])
+        elif key == ord("l"):
+            self.offset = (self.offset[0]+1, self.offset[1])
+        else:
+            return False
+        return True
+
+def dump_characters(gamestate:core.Gamestate, f:io.IOBase) -> None:
+    for character_id in gamestate.characters:
+        character = gamestate.get_entity(character_id, core.Character)
+        home_sector = gamestate.get_entity(character.home_sector_id, core.Sector)
+
+        assets:list[str] = list(str(x) for x in character.assets)
+        agenda:list[str] = list(str(x) for x in character.agenda)
+        intels:list[str] = list(f'{k}:{v}' for k,v in functools.reduce( # type: ignore
+            lambda acc, x: acc+collections.Counter([x]), # type: ignore
+
+            (type(i) for i in character.intel_manager.intel(intel.TrivialMatchCriteria())) # type: ignore
+            ,
+            collections.Counter()
+        ).items())
+
+        character_data:list[str] = []
+
+        character_data.append(str(character_id))
+        character_data.append(str(character))
+        character_data.append(str(character.name))
+        character_data.append(str(home_sector))
+        character_data.append(str(character.balance))
+        character_data.append(str(character.location))
+        if isinstance(character.location, core.Ship):
+            character_data.append(str(character.location.top_order()))
+            character_data.append(str(character.location.current_order()))
+        else:
+            character_data.append(str(None))
+            character_data.append(str(None))
+        character_data.append(str(character.find_primary_agendum()))
+        character_data.append(",".join(assets))
+        character_data.append(",".join(agenda))
+        character_data.append(",".join(intels))
+
+        f.write("\t".join(character_data))
+        f.write("\n")
+
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
     def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -259,7 +428,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.event_manager = core.AbstractEventManager()
         self.game_saver = sg
 
-        self.profiler:Optional[cProfile.Profile] = None
+        self.profiler:pyinstrument.Profiler = pyinstrument.Profiler()
         self.mouse_on = True
 
     def __enter__(self) -> "InterfaceManager":
@@ -454,7 +623,9 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
     def command_list(self) -> Collection[interface.CommandBinding]:
         """ Global commands that should be valid in any context. """
         def fps(args:Sequence[str]) -> None: self.interface.show_fps = not self.interface.show_fps
-        def quit(args:Sequence[str]) -> None: self.interface.runtime.quit()
+        def quit(args:Sequence[str]) -> None:
+            self.interface.close_all_views()
+            self.interface.runtime.quit()
         def raise_exception(args:Sequence[str]) -> None: self.interface.runtime.raise_exception()
         def raise_breakpoint(args:Sequence[str]) -> None: self.interface.runtime.raise_breakpoint()
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
@@ -462,13 +633,16 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
         def circledemo(args:Sequence[str]) -> None: self.interface.open_view(CircleDemo(self.interface), deactivate_views=True)
         def polygondemo(args:Sequence[str]) -> None: self.interface.open_view(PolygonDemo(self.interface), deactivate_views=True)
+        def linedemo(args:Sequence[str]) -> None: self.interface.open_view(LineDemo(self.interface), deactivate_views=True)
+        def hexgriddemo(args:Sequence[str]) -> None: self.interface.open_view(HexGridDemo(self.interface), deactivate_views=True)
         def profile(args:Sequence[str]) -> None:
-            if self.profiler:
-                self.profiler.disable()
-                pstats.Stats(self.profiler).dump_stats("/tmp/profile.prof")
+            if self.profiler.is_running:
+                session = self.profiler.stop()
+                filename = f'/tmp/stellarpunk-{datetime.datetime.now().strftime("%Y%m%dT%H%M%S")}.pyisession'
+                session.save(filename)
+                self.interface.log_message(f'profile saved to {filename}')
             else:
-                self.profiler = cProfile.Profile()
-                self.profiler.enable()
+                self.profiler.start()
 
         def fast(args:Sequence[str]) -> None:
             _, fast_mode = self.interface.runtime.get_time_acceleration()
@@ -618,6 +792,16 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
             self.interface.open_view(startup_view, deactivate_views=True)
 
+        def dump_chars(args:Sequence[str]) -> None:
+            with open("/tmp/stellarpunk.characters", "w") as f:
+                dump_characters(self.gamestate, f)
+
+        def sanity_check(args:Sequence[str]) -> None:
+            start_time = time.perf_counter()
+            self.gamestate.sanity_check()
+            end_time = time.perf_counter()
+            self.interface.log_message(f'sanity check ok in {end_time-start_time:.2f}s')
+
 
         command_list = [
             self.bind_command("raise", raise_exception),
@@ -629,6 +813,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("keydemo", keydemo),
             self.bind_command("circledemo", circledemo),
             self.bind_command("polygondemo", polygondemo),
+            self.bind_command("linedemo", linedemo),
+            self.bind_command("hexgriddemo", hexgriddemo),
             self.bind_command("profile", profile),
             self.bind_command("decrease_fps", decrease_fps),
             self.bind_command("increase_fps", increase_fps),
@@ -659,6 +845,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("debug_collision", debug_collision),
             self.bind_command("save", save_gamestate),
             self.bind_command("menu", menu),
+            self.bind_command("dump_characters", dump_chars),
+            self.bind_command("sanity_check", sanity_check),
         ])
         return command_list
 

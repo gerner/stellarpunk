@@ -11,7 +11,7 @@ from stellarpunk.orders import movement
 from stellarpunk.core import combat
 
 def test_compute_thrust(gamestate, generator, sector):
-    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
 
     # note, there's numerical instability as we approach 11.2 for this distance
     # and these coefficients
@@ -22,8 +22,8 @@ def test_compute_thrust(gamestate, generator, sector):
     assert target_profile == sector.sensor_manager.compute_target_profile(ship, 3e5**2)
 
 def test_missile_attack(gamestate, generator, sector, testui, simulator):
-    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
-    target = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
+    target = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
 
 
     missile:Optional[combat.Missile] = combat.MissileOrder.spawn_missile(ship, gamestate, sector.sensor_manager.target(target, ship))
@@ -97,10 +97,8 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     #  what is non-determinitistic about it???
 
     # simulates an attack run by a single ship on another single ship
-    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0)
-    attacker.sensor_settings._sensor_power = attacker.sensor_settings._max_sensor_power
-    attacker.sensor_settings._last_sensor_power = attacker.sensor_settings._max_sensor_power
-    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=1.0, initial_transponder=False)
+    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
 
     defender_owner = generator.spawn_character(defender)
     defender_owner.take_ownership(defender)

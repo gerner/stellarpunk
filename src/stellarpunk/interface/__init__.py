@@ -253,7 +253,10 @@ class Icons:
 
     @staticmethod
     def culture_attr(culture:str) -> int:
-        return curses.color_pair(Icons.COLOR_CULTURES[config.Settings.generate.Universe.CULTURES.index(culture) % len(Icons.COLOR_CULTURES)])
+        if culture in config.Settings.generate.Universe.CULTURES:
+            return curses.color_pair(Icons.COLOR_CULTURES[config.Settings.generate.Universe.CULTURES.index(culture) % len(Icons.COLOR_CULTURES)])
+        else:
+            return 0
 
 class BasicCanvas:
     def __init__(self, height:int, width:int, y:int, x:int, aspect_ratio:float) -> None:
@@ -457,6 +460,7 @@ class View(abc.ABC):
         self.active = True
         self.fast_render = False
         self.interface = interface
+        self.closed = False
 
     @property
     def viewscreen(self) -> BasicCanvas:
@@ -597,19 +601,25 @@ class AbstractInterface(abc.ABC):
         view.focus()
         self.views.append(view)
 
-    def close_view(self, view:View) -> None:
+    def close_view(self, view:View, skip_focus:bool=False) -> None:
+        if view.closed:
+            # don't double terminate
+            # this allows one code deep path to close a view while the caller
+            # tries to clean itself up (e.g. CommandInput executing a command
+            # that closes the active view)
+            assert(view not in self.views)
+            return
         self.logger.debug(f'closing view {view}')
         assert view in self.views
         self.views.remove(view)
         view.terminate()
-        if len(self.views) > 0:
+        view.closed = True
+        if not skip_focus and len(self.views) > 0:
             self.views[-1].focus()
-        #TODO: else case, other code assumes there's always a view
 
     def close_all_views(self) -> None:
         for view in self.views.copy():
-            self.views.remove(view)
-            view.terminate()
+            self.close_view(view, skip_focus=True)
         assert(len(self.views) == 0)
 
     def swap_view(self, new_view:View, old_view:Optional[View]) -> None:
@@ -674,6 +684,7 @@ class Interface(AbstractInterface):
         super().__init__(*args, **kwargs)
         self.game_saver = game_saver
         self.next_autosave_timestamp = 0.
+        self.next_autosave_real_timestamp = 0.
         self.stdscr:curses.window = None # type: ignore[assignment]
 
         self.desired_fps = Settings.MAX_FPS
@@ -1094,7 +1105,7 @@ class Interface(AbstractInterface):
         #TODO: do I want this to be game seconds or wall seconds?
         #TODO: what about time acceleration?
         #TODO: what about doing a ton of stuff while paused?
-        if self.gamestate.timestamp > self.next_autosave_timestamp:
+        if self.gamestate.timestamp > self.next_autosave_timestamp and time.time() > self.next_autosave_real_timestamp:
             self.log_message('saving game...')
             start_time = time.perf_counter()
             self.game_saver.autosave(self.gamestate)
@@ -1104,6 +1115,7 @@ class Interface(AbstractInterface):
 
     def set_next_autosave_ts(self) -> None:
         self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
+        self.next_autosave_real_timestamp = time.time() + config.Settings.AUTOSAVE_PERIOD_SEC
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()

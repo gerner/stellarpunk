@@ -1,11 +1,12 @@
 import numpy as np
 
 from stellarpunk import econ, agenda
+from stellarpunk.agenda import intel as aintel
 
-from . import write_history
+from . import write_history, add_sector_intel
 
 @write_history
-def test_mining_agendum(gamestate, generator, sector, testui, simulator):
+def test_mining_agendum(intel_director, gamestate, generator, sector, testui, simulator):
     # a ship and a station to sell at
     resource = 0
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
@@ -14,7 +15,6 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     #station resource needs to be one that consumes resource 0
     station_resource = np.where(gamestate.production_chain.adj_matrix[resource] > 0)[0][0]
     station = generator.spawn_station(sector, 5000, 0, resource=station_resource)
-    sector.radius = 3000.
     asteroid = generator.spawn_asteroid(sector, 0, 5000, resource, 12.5e2)
 
     ship_owner = generator.spawn_character(ship)
@@ -22,6 +22,8 @@ def test_mining_agendum(gamestate, generator, sector, testui, simulator):
     ship.captain = ship_owner
     mining_agendum = agenda.MiningAgendum.create_mining_agendum(ship, ship_owner, gamestate)
     ship_owner.add_agendum(mining_agendum)
+    intel_agendum = aintel.IntelCollectionAgendum.create_agendum(ship_owner, intel_director, gamestate)
+    ship_owner.add_agendum(intel_agendum)
 
     station_owner = generator.spawn_character(station)
     station_owner.take_ownership(station)
@@ -77,7 +79,6 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     #station resource needs to be one that consumes resource 0
     station_resource = np.where(gamestate.production_chain.adj_matrix[resource] > 0)[0][0]
     station = generator.spawn_station(sector, 5000, 0, resource=station_resource)
-    sector.radius = 3000.
     asteroid = generator.spawn_asteroid(sector, 0, 5000, resource, 12.5e2)
 
     # make sure owner has enough for 1.5 batches
@@ -110,6 +111,10 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     testui.margin_neighbors = [ship]
     testui.eta = 200
 
+    #TODO: should we actually test that intel gathering works for trading?
+    # setup station and econ agent intel
+    add_sector_intel(ship, sector, ship_owner, gamestate)
+
     simulator.run()
 
     assert mining_agendum.is_complete()
@@ -125,7 +130,7 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     assert np.isclose(station_agent.balance(), station_starting_balance - expected_total_value)
     assert np.isclose(station_agent.budget(0), station_starting_budget - expected_total_value)
 
-def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_logger):
+def test_basic_trading(intel_director, gamestate, generator, sector, testui, simulator, econ_logger):
     # simple setup: trader and two stations
     # one station produces a good, another one consumes it
     # we'll do two trade runs between the two
@@ -156,6 +161,10 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     trader_agent = trading_agendum.agent
     ship_owner.add_agendum(trading_agendum)
 
+    # set up intel agendum so we can find potential buy/sell pairs
+    intel_agendum = aintel.IntelCollectionAgendum.create_agendum(ship_owner, intel_director, gamestate)
+    ship_owner.add_agendum(intel_agendum)
+
     # set up prodcer character, no need to have money on hand
     producer_initial_balance = 0
     producer_owner = generator.spawn_character(station_producer, balance=producer_initial_balance)
@@ -183,37 +192,70 @@ def test_basic_trading(gamestate, generator, sector, testui, simulator, econ_log
     assert consumer_agent.buy_price(resource) > gamestate.production_chain.prices[resource]
     assert consumer_initial_balance >= consumer_agent.buy_price(resource) * trader_capacity * 2
 
-    # check that buys and sales all make sense
-    buys = agenda.possible_buys(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
-    assert len(buys) == 1
-    assert len(buys[resource]) == 1
-    assert buys[resource][0][2] == station_producer
-    sales = agenda.possible_sales(gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
-    assert len(sales[resource]) == 1
-    assert sales[resource][0][2] == station_consumer
-    assert sales[resource][0][0] > buys[resource][0][0]
-
-    assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
-    assert set(producer_agent.sell_resources()).intersection(set(consumer_agent.buy_resources())) == set((resource,))
-
-    buy_ret = agenda.choose_station_to_buy_from(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
-    assert buy_ret is not None
-    assert buy_ret[0] == resource
-    assert buy_ret[1] == station_producer
-
-    # keep track of some info about the expected buy/sale
-    buy_price = buys[resource][0][0]
-    buy_value =  buy_price * trader_capacity
-    sale_price = sales[resource][0][0]
-    sale_value = sale_price * trader_capacity
+    #TODO: should we actually test that intel gathering works for trading?
+    # setup station and econ agent intel
+    #add_sector_intel(ship, sector, ship_owner, gamestate)
 
     # now actually run trading in the simulator
-    testui.eta = 200
+    # note: it'll take a little while to collect all the relevant intel
+    # necessary to do a trade (perhaps a couple of minutes)
+    testui.eta = 250
     testui.agenda.append(trading_agendum)
     testui.margin_neighbors = [ship]
     # delay production until after the test will finish
-    station_consumer.next_batch_time = gamestate.timestamp + 201
+    station_consumer.next_batch_time = gamestate.timestamp + testui.eta + 1.0
+
+    sector.hex_size = sector.radius
+
+    buy_price = None
+    buy_value = None
+    sale_price = None
+    sale_value = None
+    found_trade = False
+    def tick_callback():
+        nonlocal buy_price, buy_value, sale_price, sale_value, found_trade
+        if found_trade:
+            return
+
+        # check if we collected some intel successfully
+        # if we have a trade check some parameters about it
+        buys = agenda.possible_buys(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
+        sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+
+        if len(buys) == 0 or len(sales) == 0:
+            return
+
+        found_trade = True
+        # check that buys and sales all make sense
+        assert len(buys) == 1
+        assert len(buys[resource]) == 1
+        assert buys[resource][0][2] == station_producer
+        assert len(sales[resource]) == 1
+        assert sales[resource][0][2] == station_consumer
+        assert sales[resource][0][0] > buys[resource][0][0]
+
+        assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
+        assert set(producer_agent.sell_resources()).intersection(set(consumer_agent.buy_resources())) == set((resource,))
+
+        buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
+        assert buy_ret is not None
+        assert buy_ret[0] == resource
+        assert buy_ret[1] == station_producer
+
+        # keep track of some info about the expected buy/sale
+        buy_price = buys[resource][0][0]
+        buy_value =  buy_price * trader_capacity
+        sale_price = sales[resource][0][0]
+        sale_value = sale_price * trader_capacity
+
+    testui.tick_callback = tick_callback
+
     simulator.run()
+
+    assert buy_price is not None
+    assert buy_value is not None
+    assert sale_price is not None
+    assert sale_value is not None
 
     assert trading_agendum.is_complete()
 

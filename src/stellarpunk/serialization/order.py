@@ -111,4 +111,3 @@ class NullOrderSaver(OrderSaver[core.NullOrder]):
 
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[core.NullOrder, Any]:
         return (core.NullOrder(load_context.gamestate, _check_flag=True, order_id=order_id), None)
-

@@ -11,7 +11,7 @@ from stellarpunk.orders import steering, movement
 from stellarpunk.core import sector_entity, combat
 from stellarpunk.serialization import util as s_util
 
-from . import write_history
+from . import write_history, add_sector_intel
 
 def test_to_int():
     with tempfile.TemporaryFile() as fp:
@@ -24,8 +24,8 @@ def test_to_int():
         assert v2 == v1
         assert bytes_written == fp.tell()
 
-def test_save_load_registry(event_manager, generator):
-    game_saver = sim.initialize_save_game(generator, event_manager, debug=True)
+def test_save_load_registry(event_manager, intel_director, generator):
+    game_saver = sim.initialize_save_game(generator, event_manager, intel_director, debug=True)
     with tempfile.TemporaryFile() as fp:
         bytes_written = game_saver._save_registry(fp)
         fp.flush()
@@ -35,9 +35,9 @@ def test_save_load_registry(event_manager, generator):
         game_saver._load_registry(fp)
         assert bytes_written == fp.tell()
 
-def test_trivial_gamestate(event_manager, gamestate, generator, player):
+def test_trivial_gamestate(event_manager, intel_director, gamestate, generator, player):
     assert player == gamestate.player
-    game_saver = sim.initialize_save_game(generator, event_manager, debug=True)
+    game_saver = sim.initialize_save_game(generator, event_manager, intel_director, debug=True)
     save_filename = "/tmp/stellarpunk_testfile.stpnk"
     filename = game_saver.save(gamestate, save_filename)
     g2 = game_saver.load(filename)
@@ -53,11 +53,11 @@ def test_trivial_gamestate(event_manager, gamestate, generator, player):
 #    pass
 
 @write_history
-def test_saving_in_goto(ship, player, gamestate, generator, sector, testui, simulator):
+def test_saving_in_goto(ship, player, gamestate, intel_director, generator, sector, testui, simulator):
     target_loc = np.array((8000., -2000.))
     goto_order = orders.GoToLocation.create_go_to_location(target_loc, ship, gamestate)
     ship.prepend_order(goto_order)
-    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, debug=True)
+    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
 
     # set up a tick callback to save and load
     original_ship_id = ship.entity_id
@@ -113,8 +113,8 @@ def test_saving_in_goto(ship, player, gamestate, generator, sector, testui, simu
     assert util.isclose(gamestate.timestamp, 30.699999809264416)
     assert util.isclose(util.distance(ship.loc, target_loc), 1466.2242390081483)
 
-def test_saving_in_basic_trading(player, gamestate, generator, sector, testui, simulator, econ_logger):
-    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, debug=True)
+def test_saving_in_basic_trading(player, gamestate, generator, intel_director, sector, testui, simulator, econ_logger):
+    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
 
     # simple setup: trader and two stations
     # one station produces a good, another one consumes it
@@ -142,6 +142,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, sector, testui, s
     ship_owner = generator.spawn_character(ship, balance=initial_balance)
     ship_owner.take_ownership(ship)
     ship.captain = ship_owner
+
     trading_agendum = agenda.TradingAgendum.create_trading_agendum(ship, ship_owner, gamestate)
     trading_agendum.max_trips=2
     trader_agent = trading_agendum.agent
@@ -174,12 +175,15 @@ def test_saving_in_basic_trading(player, gamestate, generator, sector, testui, s
     assert consumer_agent.buy_price(resource) > gamestate.production_chain.prices[resource]
     assert consumer_initial_balance >= consumer_agent.buy_price(resource) * trader_capacity * 2
 
+    # setup station and econ agent intel
+    add_sector_intel(ship, sector, ship_owner, gamestate)
+
     # check that buys and sales all make sense
-    buys = agenda.possible_buys(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
+    buys = agenda.possible_buys(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
     assert len(buys) == 1
     assert len(buys[resource]) == 1
     assert buys[resource][0][2] == station_producer
-    sales = agenda.possible_sales(gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+    sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
     assert len(sales[resource]) == 1
     assert sales[resource][0][2] == station_consumer
     assert sales[resource][0][0] > buys[resource][0][0]
@@ -187,7 +191,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, sector, testui, s
     assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
     assert set(producer_agent.sell_resources()).intersection(set(consumer_agent.buy_resources())) == set((resource,))
 
-    buy_ret = agenda.choose_station_to_buy_from(gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
+    buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
     assert buy_ret is not None
     assert buy_ret[0] == resource
     assert buy_ret[1] == station_producer
@@ -290,10 +294,14 @@ def test_saving_in_basic_trading(player, gamestate, generator, sector, testui, s
     # this is fragile, but experimentally determined from running this test
     # without save/load. note, there is some variation even without save/load
     assert abs(gamestate.timestamp - 107.06666666666187) < 10.0
-    assert util.distance(ship.loc, np.array([-702.65356445, 3528.47949219])) < 1e1
 
-def test_saving_in_mining(player, gamestate, generator, sector, testui, simulator):
-    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, debug=True)
+    # this is too fragile, but I've checked with/without saving and sometimes
+    # this passes and sometimes it doesn't
+    #TODO: why is this non-deterministic?
+    #assert util.distance(ship.loc, np.array([-702.65356445, 3528.47949219])) < 1e1
+
+def test_saving_in_mining(player, gamestate, generator, intel_director, sector, testui, simulator):
+    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
     # ship and asteroid
     resource = 0
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
@@ -341,16 +349,14 @@ def test_saving_in_mining(player, gamestate, generator, sector, testui, simulato
     # make sure asteroid lost the resources
     assert np.isclose(asteroid.cargo[asteroid.resource], 5e2 - 3.5e2)
 
-def test_saving_during_attack(player, gamestate, generator, sector, testui, simulator):
-    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, debug=True)
+def test_saving_during_attack(player, gamestate, generator, intel_director, sector, testui, simulator):
+    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
     #TODO: this test can be flaky and sometimes keeps running.
     #  what is non-determinitistic about it???
 
     # simulates an attack run by a single ship on another single ship
-    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0)
-    attacker.sensor_settings._sensor_power = attacker.sensor_settings._max_sensor_power
-    attacker.sensor_settings._last_sensor_power = attacker.sensor_settings._max_sensor_power
-    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0, initial_transponder=False, initial_sensor_power_ratio=1.0)
+    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0, initial_transponder=False, initial_sensor_power_ratio=0.0)
 
     defender_owner = generator.spawn_character(defender)
     defender_owner.take_ownership(defender)

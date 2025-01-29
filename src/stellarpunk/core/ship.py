@@ -11,9 +11,7 @@ import cymunk # type: ignore
 
 from . import base, sector, character
 
-class Ship(character.CrewedSectorEntity, character.Asset):
-    DefaultOrderSig:TypeAlias = "Callable[[Ship], base.AbstractOrder]"
-
+class Ship(character.Asset, character.CrewedSectorEntity):
     id_prefix = "SHP"
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -31,8 +29,6 @@ class Ship(character.CrewedSectorEntity, character.Asset):
         self.max_torque = 0.
 
         self._orders: collections.deque[base.AbstractOrder] = collections.deque()
-        self.default_order_fn:Ship.DefaultOrderSig = None # type: ignore
-
 
     def _destroy(self) -> None:
         self._clear_orders()
@@ -87,8 +83,8 @@ class Ship(character.CrewedSectorEntity, character.Asset):
     def set_angular_velocity(self, angular_velocity:float) -> None:
         self.phys.angular_velocity = angular_velocity
 
-    def default_order(self) -> base.AbstractOrder:
-        return self.default_order_fn(self)
+    #def default_order(self) -> base.AbstractOrder:
+    #    return self.default_order_fn(self)
 
     def prepend_order(self, order:base.AbstractOrder, begin:bool=True) -> None:
         co = self.current_order()
@@ -122,7 +118,7 @@ class Ship(character.CrewedSectorEntity, character.Asset):
 
     def clear_orders(self) -> None:
         self._clear_orders()
-        self.prepend_order(self.default_order())
+        #self.prepend_order(self.default_order())
 
     def top_order(self) -> Optional[base.AbstractOrder]:
         current_order = self.current_order()

@@ -298,7 +298,6 @@ class GoToLocation(AbstractSteeringOrder):
         self.init_eta = self.estimate_eta()
 
     def act(self, dt: float) -> None:
-        self.gamestate.breakpoint()
         # make sure we're in the right sector
         if self.ship.sector != self.target_sector:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_sector}')
@@ -482,7 +481,6 @@ class EvadeOrder(AbstractSteeringOrder):
             course_mag = util.magnitude_sq(*course)
             if course_mag == 0:
                 target_velocity = rel_pos / rel_dist * max_speed
-                raise Exception()
             else:
                 course = course / course_mag
                 target_velocity = cymunk.Vec2d(course * max_speed)

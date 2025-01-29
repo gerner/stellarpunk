@@ -13,8 +13,9 @@ from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors
+from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors, intel
 from stellarpunk.core import combat, sector_entity
+from stellarpunk.agenda import intel as aintel
 from stellarpunk.interface import ui_util, manager as interface_manager
 from stellarpunk.serialization import (
     save_game, econ as s_econ,
@@ -30,6 +31,7 @@ from stellarpunk.serialization import (
     order_core as s_order_core,
     movement as s_movement,
     effect as s_effect,
+    intel as s_intel,
 )
 
 TICKS_PER_HIST_SAMPLE = 0#10
@@ -44,7 +46,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         self.generator = generator
         # we create a dummy gamestate immediately, but we get the real one by
         # watching for UniverseGenerator events
-        self.gamestate:core.Gamestate = None #type: ignore
+        self.gamestate:core.Gamestate = None # type: ignore
         self.ui = ui
 
         self.pause_on_collision = False
@@ -196,6 +198,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         self.time_accel_rate = 1.0
         self.fast_mode = False
 
+
         self.gamestate = gamestate
         self.gamestate.game_runtime = self
 
@@ -331,8 +334,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             total_idle_mining_agenda = 0
             total_trading_agenda = 0
             total_idle_trading_agenda = 0
-            total_snob_trading_agenda = 0
-            total_snos_trading_agenda = 0
+            total_sleep_trading_agenda = 0
+            total_wp_trading_agenda = 0
             for character in self.gamestate.characters.values():
                 for agendum in character.agenda:
                     total_agenda += 1
@@ -344,13 +347,13 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
                         total_trading_agenda += 1
                         if agendum.state == agenda.TradingAgendum.State.IDLE:
                             total_idle_trading_agenda += 1
-                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_BUYS:
-                            total_snob_trading_agenda += 1
-                        elif agendum.state == agenda.TradingAgendum.State.SLEEP_NO_SALES:
-                            total_snos_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.SLEEP:
+                            total_sleep_trading_agenda += 1
+                        elif agendum.state == agenda.TradingAgendum.State.WAIT_PRIMARY:
+                            total_wp_trading_agenda += 1
 
             self.logger.info(f'ships: {total_ships} goto orders: {total_goto_orders} ct: {total_orders_with_ct} cac: {total_orders_with_cac} mean_speed: {total_speed/total_ships:.2f} mean_neighbors: {total_neighbors/total_goto_orders if total_goto_orders > 0 else 0.:.2f}')
-            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda} snob: {total_snob_trading_agenda} snos: {total_snos_trading_agenda}')
+            self.logger.info(f'agenda: {total_agenda} mining agenda: {total_mining_agenda} idle: {total_idle_mining_agenda} trading agenda: {total_trading_agenda} idle: {total_idle_trading_agenda} sleep: {total_sleep_trading_agenda} wp: {total_wp_trading_agenda}')
             self.gamestate.log_econ()
 
             self.next_economy_sample = self.gamestate.timestamp + ECONOMY_LOG_PERIOD_SEC
@@ -472,8 +475,16 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             ticktime = now - starttime
             self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
-def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, debug:bool=True) -> save_game.GameSaver:
-    sg = save_game.GameSaver(generator, event_manager, debug=debug)
+def initialize_intel_director() -> aintel.IntelCollectionDirector:
+    intel_director = aintel.IntelCollectionDirector()
+    intel_director.register_gatherer(intel.SectorHexPartialCriteria, aintel.SectorHexIntelGatherer())
+    intel_director.register_gatherer(intel.SectorEntityPartialCriteria, aintel.SectorEntityIntelGatherer())
+    intel_director.register_gatherer(intel.EconAgentSectorEntityPartialCriteria, aintel.EconAgentSectorEntityIntelGatherer())
+
+    return intel_director
+
+def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, debug:bool=True) -> save_game.GameSaver:
+    sg = save_game.GameSaver(generator, event_manager, intel_director, debug=debug)
 
     # top level stuff
     sg.register_saver(events.EventState, s_events.EventStateSaver(sg))
@@ -499,6 +510,23 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(sector_entity.Station, s_sector_entity.StationSaver(sg))
     sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
 
+    # intel
+    sg.register_saver(intel.SectorEntityIntel, s_intel.SectorEntityIntelSaver(sg))
+    sg.register_saver(intel.AsteroidIntel, s_intel.AsteroidIntelSaver(sg))
+    sg.register_saver(intel.StationIntel, s_intel.StationIntelSaver(sg))
+    sg.register_saver(intel.EconAgentIntel, s_intel.EconAgentIntelSaver(sg))
+    sg.register_saver(intel.SectorHexIntel, s_intel.SectorHexIntelSaver(sg))
+
+    # intel match criteria
+    sg.register_saver(core.IntelMatchCriteria, save_game.DispatchSaver[core.IntelMatchCriteria](sg))
+    sg.register_saver(intel.EntityIntelMatchCriteria, s_intel.EntityIntelMatchCriteriaSaver(sg))
+    sg.register_saver(intel.SectorHexMatchCriteria, s_intel.SectorHexMatchCriteriaSaver(sg))
+    sg.register_saver(intel.SectorEntityPartialCriteria, s_intel.SectorEntityPartialCriteriaSaver(sg))
+    sg.register_saver(intel.AsteroidIntelPartialCriteria, s_intel.AsteroidIntelPartialCriteriaSaver(sg))
+    sg.register_saver(intel.StationIntelPartialCriteria, s_intel.StationIntelPartialCriteriaSaver(sg))
+    sg.register_saver(intel.SectorHexPartialCriteria, s_intel.SectorHexPartialCriteriaSaver(sg))
+    sg.register_saver(intel.EconAgentSectorEntityPartialCriteria, s_intel.EconAgentSectorEntityPartialCriteriaSaver(sg))
+
     # agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))
     sg.register_saver(agenda.StationManager, s_agenda.StationManagerSaver(sg))
@@ -506,10 +534,12 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(agenda.CaptainAgendum, s_agenda.CaptainAgendumSaver(sg))
     sg.register_saver(agenda.TradingAgendum, s_agenda.TradingAgendumSaver(sg))
     sg.register_saver(agenda.MiningAgendum, s_agenda.MiningAgendumSaver(sg))
+    sg.register_saver(aintel.IntelCollectionAgendum, s_agenda.IntelCollectionAgendumSaver(sg))
 
     # orders
     sg.register_saver(core.Order, save_game.DispatchSaver[core.Order](sg))
     sg.register_saver(core.NullOrder, s_order.NullOrderSaver(sg))
+    sg.register_saver(sensors.SensorScanOrder, s_sensors.SensorScanOrderSaver(sg))
 
     # core orders
     sg.register_saver(orders.core.MineOrder, s_order_core.MineOrderSaver(sg))
@@ -519,6 +549,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
     sg.register_saver(orders.core.TravelThroughGate, s_order_core.TravelThroughGateSaver(sg))
     sg.register_saver(orders.core.DockingOrder, s_order_core.DockingOrderSaver(sg))
+    sg.register_saver(orders.core.LocationExploreOrder, s_order_core.LocationExploreOrderSaver(sg))
 
     # steering orders
     sg.register_saver(orders.movement.KillRotationOrder, s_movement.KillRotationOrderSaver(sg))
@@ -535,7 +566,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(combat.AttackOrder, s_combat.AttackOrderSaver(sg))
     sg.register_saver(combat.FleeOrder, s_combat.FleeOrderSaver(sg))
 
-    #TODO: effects
+    # effects
     sg.register_saver(core.Effect, save_game.DispatchSaver[core.Effect](sg))
     sg.register_saver(effects.TransferCargoEffect, s_effect.TransferCargoEffectSaver[effects.TransferCargoEffect](sg))
     sg.register_saver(effects.TradeTransferEffect, s_effect.TradeTransferEffectSaver(sg))
@@ -547,6 +578,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     # scheduled tasks (live in Gamestate)
     sg.register_saver(core.ScheduledTask, save_game.DispatchSaver[core.ScheduledTask](sg))
     sg.register_saver(combat.TimedOrderTask, s_combat.TimedOrderTaskSaver(sg))
+    sg.register_saver(intel.ExpireIntelTask, s_intel.ExpireIntelTaskSaver(sg))
 
     # sensor settings (live in SectorEntity)
     sg.register_saver(core.AbstractSensorSettings, s_sensors.SensorSettingsSaver(sg))
@@ -558,6 +590,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
 
     # other stuff
     sg.register_saver(combat.ThreatTracker, s_combat.ThreatTrackerSaver(sg))
+    sg.register_saver(intel.IntelManager, s_intel.IntelManagerSaver(sg))
 
     return sg
 
@@ -574,8 +607,7 @@ def main() -> None:
         logging.getLogger("numba").level = logging.INFO
         #logging.getLogger("stellarpunk").level = logging.DEBUG
         #logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
-        logging.getLogger("stellarpunk.core.gamestate.DeferredEventManager").level = logging.DEBUG
-        logging.getLogger("stellarpunk.events").level = logging.DEBUG
+        #logging.getLogger("stellarpunk.events").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions
@@ -592,12 +624,15 @@ def main() -> None:
 
         event_manager = events.EventManager()
         events.register_events(event_manager)
+        sensors.pre_initialize(event_manager)
+        intel.pre_initialize(event_manager)
+        intel_director = initialize_intel_director()
 
         generator = generate.UniverseGenerator()
-        sg = initialize_save_game(generator, event_manager)
+        sg = initialize_save_game(generator, event_manager, intel_director)
         ui = context_stack.enter_context(interface_manager.InterfaceManager(generator, sg))
 
-        generator.pre_initialize(event_manager)
+        generator.pre_initialize(event_manager, intel_director)
 
         ui_util.initialize()
         ui.pre_initialize(event_manager)

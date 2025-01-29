@@ -32,7 +32,18 @@ class Observer(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def observer_id(self) -> uuid.UUID: ...
+    def observer_id(self) -> uuid.UUID:
+        """ identifies where this observer is coming from
+
+        Does not have to be unique, this is used for debugging to find a source
+        for this observer. Could be an entity_id, even if this Observer is not
+        that entity, as long as knowing that entity_id helps to know how to
+        find this Observer.
+
+        Ideally knowing the type of the observer and this observer_id is enough
+        to uniquely identify the observer, but that's not strictly
+        necessary."""
+        ...
 
     @property
     def observings(self) -> Iterable["Observable"]:
@@ -47,19 +58,34 @@ class Observer(abc.ABC):
 class Observable[T:Observer](abc.ABC):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        self._had_observers = False
         self._observers:weakref.WeakSet[T] = weakref.WeakSet()
 
     @property
     @abc.abstractmethod
-    def observable_id(self) -> uuid.UUID: ...
+    def observable_id(self) -> uuid.UUID:
+        """ uniquely identifies this observable in the context of its type.
+
+        e.g. entity_id, this doesn't have to be this object's id, but given the
+        type and this id, it must be possible to find the corresponding object.
+        This is used, e.g. in save/load. """
+        ...
 
     @property
-    def observers(self) -> Iterable[T]:
+    def observers(self) -> Collection[T]:
         return self._observers
 
+    def _observe(self, observer:T) -> None:
+        pass
+
+    def _unobserve(self, observer:T) -> None:
+        pass
+
     def observe(self, observer:T) -> None:
+        self._had_observers = True
         self._observers.add(observer)
         observer.mark_observing(self)
+        self._observe(observer)
 
     def unobserve(self, observer:T) -> None:
         # allow double unobserve calls. this might happen because, e.g.
@@ -68,6 +94,7 @@ class Observable[T:Observer](abc.ABC):
         if observer in self._observers:
             self._observers.remove(observer)
             observer.unmark_observing(self)
+        self._unobserve(observer)
 
     def clear_observers(self) -> None:
         for observer in self._observers.copy():
@@ -78,16 +105,21 @@ class EntityRegistry(abc.ABC):
     def register_entity(self, entity: "Entity") -> narrative.EventContext: ...
 
     @abc.abstractmethod
+    def destroy_entity(self, entity:"Entity") -> None: ...
+
+    @abc.abstractmethod
     def unregister_entity(self, entity: "Entity") -> None: ...
     @abc.abstractmethod
     def contains_entity(self, entity_id:uuid.UUID) -> bool: ...
     @abc.abstractmethod
     def get_entity[T:"Entity"](self, entity_id:uuid.UUID, klass:Type[T]) -> "Entity": ...
+    @abc.abstractmethod
+    def now(self) -> float: ...
 
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
-    def __init__(self, entity_registry: EntityRegistry, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
+    def __init__(self, entity_registry: EntityRegistry, created_at:Optional[float]=None, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = util.uuid_to_u64(self.entity_id)
 
@@ -96,10 +128,14 @@ class Entity(abc.ABC):
         self.name = name
 
         self.description = description or name
-        self.created_at:float = 0.
+        self.created_at:float = created_at or entity_registry.now()
 
         self.entity_registry = entity_registry
         self.context = self.entity_registry.register_entity(self)
+
+        # sometimes useful for debugging, but very slow
+        #import traceback
+        #self.bt = traceback.format_stack()
 
     def destroy(self) -> None:
         self.entity_registry.unregister_entity(self)
@@ -117,6 +153,11 @@ class Entity(abc.ABC):
 
     def __str__(self) -> str:
         return f'{self.short_id()}'
+
+    def sanity_check(self) -> None:
+        assert(self.entity_registry.get_entity(self.entity_id, type(self)) == self)
+        assert(self.created_at >= 0.)
+        assert(self.created_at <= self.entity_registry.now())
 
 
 class Sprite:
@@ -247,6 +288,8 @@ class AbstractOrder(abc.ABC):
         self.parent_order:Optional[AbstractOrder] = None
         self.child_orders:collections.deque[AbstractOrder] = collections.deque()
 
+    @abc.abstractmethod
+    def is_cancellable(self) -> bool: ...
     @abc.abstractmethod
     def to_history(self) -> dict: ...
     @abc.abstractmethod

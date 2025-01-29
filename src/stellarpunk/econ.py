@@ -91,10 +91,10 @@ class YesAgent(core.EconAgent):
     def get_owner(self) -> core.Character:
         raise NotImplementedError("YesAgent doesn't have an owner")
 
-    def buy_resources(self) -> Collection:
+    def buy_resources(self) -> Collection[int]:
         return self._resources
 
-    def sell_resources(self) -> Collection:
+    def sell_resources(self) -> Collection[int]:
         return self._resources
 
     def buy_price(self, resource:int) -> float:
@@ -140,10 +140,10 @@ class PlayerAgent(core.EconAgent):
         assert(self.player.character)
         return self.player.character
 
-    def buy_resources(self) -> Collection:
+    def buy_resources(self) -> Collection[int]:
         return []
 
-    def sell_resources(self) -> Collection:
+    def sell_resources(self) -> Collection[int]:
         return []
 
     def buy_price(self, resource:int) -> float:
@@ -296,7 +296,7 @@ class StationAgent(core.EconAgent):
     def buy_resources(self) -> Collection[int]:
         return self._buy_resources
 
-    def sell_resources(self) -> Collection:
+    def sell_resources(self) -> Collection[int]:
         return self._sell_resources
 
     def buy_price(self, resource:int) -> float:
@@ -402,11 +402,14 @@ class ShipTraderAgent(core.EconAgent):
     def get_character(self) -> core.Character:
         return self.character
 
-    def buy_resources(self) -> Collection:
-        return EMPTY_TUPLE
+    def buy_resources(self) -> Collection[int]:
+        # let's say we buy everything
+        # this gets used to filter sales we might be interested in
+        return range(self.ship.cargo.shape[0])
 
-    def sell_resources(self) -> Collection:
-        return EMPTY_TUPLE
+    def sell_resources(self) -> Collection[int]:
+        #TODO: should this be everything and let inventory handle zeros?
+        return np.flatnonzero(self.ship.cargo)
 
     def buy_price(self, resource:int) -> float:
         return np.inf

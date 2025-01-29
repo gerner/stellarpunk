@@ -138,7 +138,7 @@ class SectorEntityObserver(base.Observer):
 class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
     """ An entity in space in a sector. """
 
-    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, **kwargs:Any) -> None:
+    def __init__(self, loc:npt.NDArray[np.float64], phys: cymunk.Body, num_products:int, sensor_settings:"AbstractSensorSettings", *args:Any, history_length:int=60*60, is_static:bool=True, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         self.sector:Optional["Sector"] = None
@@ -155,9 +155,12 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         assert(not np.isnan(loc[0]))
         assert(not np.isnan(loc[1]))
 
+        # is this a long-lived, (mostly?) stationary object
+        self.is_static:bool = is_static
+
         phys.position = (loc[0], loc[1])
 
-        # physics simulation entity (we don't manage this, just have a pointer to it)
+        # physics sim entity (we don't manage this, just have a pointer to it)
         self.phys = phys
         self.phys_shape:Any = None
 
@@ -258,24 +261,27 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
-    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None):
+    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None, is_static:Optional[bool]=None):
         if entity:
             self.object_type:Type[SectorEntity]=type(entity)
             self.id_prefix = entity.id_prefix
             self.entity_id = entity.entity_id
             self.short_id = entity.short_id()
             self.radius = entity.radius
+            self.is_static = entity.is_static
         else:
             assert(object_type)
             assert(id_prefix)
             assert(entity_id)
             assert(short_id)
-            assert(radius)
+            assert(radius is not None)
+            assert(is_static is not None)
             self.object_type = object_type
             self.id_prefix = id_prefix
             self.entity_id = entity_id
             self.short_id = short_id
             self.radius = radius
+            self.is_static = is_static
         # must be updated externally
         self.angle = 0.0
 
@@ -376,6 +382,8 @@ class AbstractSensorSettings:
     def effective_thrust(self) -> float: ...
     @abc.abstractmethod
     def effective_threshold(self, sensor_power:Optional[float]=None) -> float: ...
+    @abc.abstractmethod
+    def effective_profile(self, sector:"Sector", craft:SectorEntity) -> float: ...
     @property
     @abc.abstractmethod
     def max_threshold(self) -> float: ...
@@ -409,14 +417,18 @@ class AbstractSensorManager:
     def detected(self, target:SectorEntity, detector:SectorEntity) -> bool:
         return True
 
-    @abc.abstractmethod
-    def spatial_query(self, detector:SectorEntity, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
+    #@abc.abstractmethod
+    #def spatial_query(self, detector:SectorEntity, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]: ...
 
-    @abc.abstractmethod
-    def spatial_point(self, detector:SectorEntity, point:Union[tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
+    #@abc.abstractmethod
+    #def spatial_point(self, detector:SectorEntity, point:Union[tuple[float, float], npt.NDArray[np.float64]], max_dist:Optional[float]=None) -> Iterator[SectorEntity]: ...
 
     @abc.abstractmethod
     def target(self, target:SectorEntity, detector:SectorEntity, notify_target:bool=True) -> AbstractSensorImage: ...
+    @abc.abstractmethod
+    def target_from_identity(self, target_identity:SensorIdentity, detector:SectorEntity, loc:npt.NDArray[np.float64], notify_target:bool=True) -> AbstractSensorImage: ...
+    @abc.abstractmethod
+    def scan(self, detector:SectorEntity) -> Iterable[AbstractSensorImage]: ...
     @abc.abstractmethod
     def sensor_ranges(self, ship:SectorEntity) -> tuple[float, float, float]: ...
     @abc.abstractmethod
@@ -461,16 +473,17 @@ class Sector(base.Entity):
 
     id_prefix = "SEC"
 
-    def __init__(self, loc:npt.NDArray[np.float64], radius:float, space:cymunk.Space, *args: Any, culture:str, **kwargs: Any)->None:
+    def __init__(self, loc:npt.NDArray[np.float64], radius:float, hex_size:float, space:cymunk.Space, *args: Any, culture:str, **kwargs: Any)->None:
         super().__init__(*args, **kwargs)
 
         self.logger = logging.getLogger(util.fullname(self))
 
         # sector's position in the universe
         self.loc = loc
+        self.hex_size = hex_size
 
         # one standard deviation
-        self.radius = radius
+        self._radius = radius
 
         # a "culture" for the sector which helps with consistent naming
         self.culture = culture
@@ -491,6 +504,17 @@ class Sector(base.Entity):
         self._weathers:MutableMapping[int, SectorWeatherRegion] = {}
 
         self.sensor_manager:AbstractSensorManager = None # type: ignore
+
+    @property
+    def radius(self) -> float:
+        return self._radius
+
+    def get_hex_coords(self, coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return util.axial_round(util.pixel_to_pointy_hex(coords, self.hex_size))
+
+    def get_coords_from_hex(self, hex_coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return util.pointy_hex_to_pixel(hex_coords, self.hex_size)
+
 
     def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterator[SectorEntity]:
         for hit in self.space.bb_query(cymunk.BB(*bbox)):

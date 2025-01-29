@@ -13,7 +13,7 @@ import numpy.typing as npt
 from numba import jit # type: ignore
 import rtree.index # type: ignore
 
-from stellarpunk import core, interface, util, effects, config, sensors
+from stellarpunk import core, interface, util, effects, config, sensors, intel
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.orders import steering, collision
 
@@ -487,6 +487,15 @@ class Presenter:
             else:
                 raise ValueError(f'do not know how to draw {type(shape)}')
 
+    def draw_hexes(self) -> None:
+        """ Draws the sector hex grid """
+
+        assert isinstance(self.view.viewscreen, interface.Canvas)
+        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, *self.perspective.meters_per_char, bbox=self.perspective.bbox)
+        s_x, s_y = self.perspective.sector_to_screen(0, 0)
+        util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(23))
+        self.gamestate.breakpoint()
+
     def update(self) -> None:
         pass
 
@@ -503,7 +512,7 @@ class SectorPresenter(Presenter):
 class PilotPresenter(Presenter):
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
-        self.sensor_image_manager = sensors.SensorImageManager(ship, 120.0)
+        self.sensor_image_manager = SensorImageManager(ship, 120.0, 3600.0)
 
     def update(self) -> None:
         self.sensor_image_manager.update()
@@ -516,3 +525,66 @@ class PilotPresenter(Presenter):
     def selected_target_image(self) -> core.AbstractSensorImage:
         assert self.selected_target
         return self.sensor_image_manager.sensor_contacts[self.selected_target]
+
+class SensorImageManager:
+    """ Manages SensorImage instances for a particular ship. """
+    def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float, static_image_ttl:float):
+        self.ship = ship
+
+        self._cached_entities:dict[uuid.UUID, core.AbstractSensorImage] = {}
+        self._cached_entities_by_idx:dict[int, core.AbstractSensorImage]
+        self._cached_entities_ts = -1.
+        self._sensor_image_ttl = sensor_image_ttl
+        self._static_image_ttl = static_image_ttl
+        self._sensor_loc_index = rtree.index.Index()
+
+    @property
+    def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
+        return self._cached_entities
+
+    def spatial_point(self, point:Union[tuple[float, float], npt.NDArray[np.float64]]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.nearest((point[0],point[1], point[0], point[1]), -1)) # type: ignore
+
+    def spatial_query(self, bbox:tuple[float, float, float, float]) -> Iterable[core.AbstractSensorImage]:
+        return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
+
+    def update(self) -> None:
+        assert self.ship.sector
+
+        # first we find all the detectable entities
+        for hit in self.ship.sector.sensor_manager.scan(self.ship):
+            if hit.identity.entity_id not in self._cached_entities:
+                self._cached_entities[hit.identity.entity_id] = hit
+
+        # then check captain's intel
+        if isinstance(self.ship, core.CrewedSectorEntity) and self.ship.captain:
+            for se_intel in self.ship.captain.intel_manager.intel(intel.SectorEntityPartialCriteria(sector_id=self.ship.sector.entity_id, is_static=True), intel.SectorEntityIntel):
+                if se_intel.intel_entity_id not in self._cached_entities:
+                    self._cached_entities[se_intel.entity_id] = self.ship.sector.sensor_manager.target_from_identity(se_intel.create_sensor_identity(), self.ship, se_intel.loc)
+
+        remove_ids:set[uuid.UUID] = set()
+        # then index all those images for retrieval later
+        idx = 0
+        self._sensor_loc_index = rtree.index.Index()
+        self._cached_entities_by_idx = {}
+        for image in self._cached_entities.values():
+            if not image.is_active():
+                remove_ids.add(image.identity.entity_id)
+            elif not image.identity.is_static and image.age > self._sensor_image_ttl:
+                remove_ids.add(image.identity.entity_id)
+            elif image.identity.is_static and image.age > self._static_image_ttl:
+                remove_ids.add(image.identity.entity_id)
+            else:
+                r = image.identity.radius
+                loc = image.loc
+                x,y= loc[0], loc[1]
+                self._sensor_loc_index.insert(
+                    idx,
+                    (x-r, y-r,
+                     x+r, y+r),
+                )
+                self._cached_entities_by_idx[idx] = image
+                idx+=1
+        for entity_id in remove_ids:
+            del self._cached_entities[entity_id]
+

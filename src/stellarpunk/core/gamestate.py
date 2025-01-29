@@ -8,7 +8,8 @@ import collections
 import datetime
 import itertools
 from dataclasses import dataclass
-from typing import Dict, Mapping, MutableMapping, Optional, Any, Iterable, Sequence, MutableSequence, Deque, Tuple, Iterator, Union, Type
+from typing import Optional, Any, Union, Type
+from collections.abc import Collection, Mapping, MutableMapping, Sequence, MutableSequence, Iterator, Iterable
 
 import numpy as np
 import numpy.typing as npt
@@ -18,7 +19,7 @@ from stellarpunk import util, task_schedule, narrative
 from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable, stellarpunk_version
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
-from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager
+from .character import Character, Player, AbstractAgendum, Message, AbstractEventManager, CrewedSectorEntity
 
 DT_EPSILON = 1.0/120.0
 
@@ -57,6 +58,8 @@ class Counters(enum.IntEnum):
     EVENT_ACTIONS_PROCESSED = enum.auto()
     EVENTS_PROCESSED_OOB = enum.auto()
     EVENT_ACTIONS_PROCESSED_OOB = enum.auto()
+    EVENT_CANDIDATES_THROTTLED = enum.auto()
+    EVENTS_TOTAL_THROTTLED = enum.auto()
 
 
 class AbstractGameRuntime:
@@ -68,7 +71,7 @@ class AbstractGameRuntime:
     def get_ticktime(self) -> float:
         return 0.
 
-    def get_time_acceleration(self) -> Tuple[float, bool]:
+    def get_time_acceleration(self) -> tuple[float, bool]:
         """ Get time acceleration parameters. """
         return (1.0, False)
 
@@ -105,9 +108,9 @@ class AbstractGameRuntime:
 
 class AbstractGenerator:
     @abc.abstractmethod
-    def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False)->npt.NDArray[np.float64]: ...
+    def gen_sector_location(self, sector:Sector, occupied_radius:float=2e3, center:Union[tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), radius:Optional[float]=None, strict:bool=False)->npt.NDArray[np.float64]: ...
     @abc.abstractmethod
-    def gen_projectile_location(self, center:Union[Tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> Tuple[npt.NDArray[np.float64],int]: ...
+    def gen_projectile_location(self, center:Union[tuple[float, float],npt.NDArray[np.float64]]=(0.,0.), index:Optional[int]=None) -> tuple[npt.NDArray[np.float64],int]: ...
     @abc.abstractmethod
     def spawn_sector_entity(self, klass:Type, sector:Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> SectorEntity: ...
 
@@ -118,8 +121,15 @@ class ScheduledTask(abc.ABC):
         else:
             self.task_id = uuid.uuid4()
 
+    def is_valid(self) -> bool:
+        """ Is this task still valid? helps with book keeping. """
+        return True
+
     @abc.abstractmethod
     def act(self) -> None: ...
+
+    def sanity_check(self, ts:float) -> None:
+        pass
 
 class Gamestate(EntityRegistry):
     gamestate:"Gamestate" = None # type: ignore
@@ -140,8 +150,8 @@ class Gamestate(EntityRegistry):
         # this will get replaced by the generator's random generator
         self.random = np.random.default_rng()
 
-        self.entities: Dict[uuid.UUID, Entity] = {}
-        self.entities_short: Dict[int, Entity] = {}
+        self.entities: dict[uuid.UUID, Entity] = {}
+        self.entities_short: dict[int, Entity] = {}
         self.entity_context_store = narrative.EntityStore()
 
         # global registry of all orders, effects, agenda
@@ -152,8 +162,9 @@ class Gamestate(EntityRegistry):
         # the production chain of resources (ingredients
         self.production_chain = ProductionChain()
 
+        # Universe State
         # the universe is a set of sectors, indexed by their entity id
-        self.sectors:Dict[uuid.UUID, Sector] = {}
+        self.sectors:dict[uuid.UUID, Sector] = {}
         self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
         self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
         self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
@@ -162,32 +173,38 @@ class Gamestate(EntityRegistry):
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
 
+        self.starfield:list[StarfieldLayer] = []
+        self.sector_starfield:list[StarfieldLayer] = []
+        self.portrait_starfield:list[StarfieldLayer] = []
+
+
         #TODO: this feels janky, but I do need a way to find the EconAgent
         # representing a station if I want to trade with it.
         #TODO: how do we keep this up to date?
         # collection of EconAgents, by uuid of the entity they represent
-        self.econ_agents:Dict[uuid.UUID, EconAgent] = {}
-
+        self.econ_agents:dict[uuid.UUID, EconAgent] = {}
+        self.agent_to_entity:dict[uuid.UUID, Entity] = {}
         self.econ_logger:AbstractEconDataLogger = AbstractEconDataLogger()
 
-        self.characters:Dict[uuid.UUID, Character] = {}
-
-        # priority queue of order items in form (scheduled timestamp, agendum)
-        self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
-
-        # priority queue of effects
-        self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
-
-        # priority queue of agenda items in form (scheduled timestamp, agendum)
-        self._agenda_schedule:task_schedule.TaskSchedule[AbstractAgendum] = task_schedule.TaskSchedule()
-
-        self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
-
+        # convenience access to characters, dupicates stuff in self.entities
+        self.characters:dict[uuid.UUID, Character] = {}
         self.characters_by_location: MutableMapping[uuid.UUID, MutableSequence[Character]] = collections.defaultdict(list)
 
-        self.base_date = datetime.datetime(2234, 4, 3)
-        self.timestamp = 0.
+        # priority queue of various behaviors (scheduled timestamp, item)
+        # ship orders, sector effects, character agenda and generic tasks
+        self._order_schedule:task_schedule.TaskSchedule[AbstractOrder] = task_schedule.TaskSchedule()
+        self._effect_schedule:task_schedule.TaskSchedule[AbstractEffect] = task_schedule.TaskSchedule()
+        self._agenda_schedule:task_schedule.TaskSchedule[AbstractAgendum] = task_schedule.TaskSchedule()
+        self._task_schedule:task_schedule.TaskSchedule[ScheduledTask] = task_schedule.TaskSchedule()
 
+        # Time keeping
+        self.base_date = datetime.datetime(2234, 4, 3)
+        # this is so 40 hours of gameplay => 4 years of gametime
+        # 4 years is long enough to accomplish a lot and 40 hours seems like a
+        # long play session.
+        #TODO: put this in configuration and save/load it
+        self.game_secs_per_sec = 876.
+        self.timestamp = 0.
         self.ticks = 0
 
         self.one_tick = False
@@ -198,17 +215,16 @@ class Gamestate(EntityRegistry):
 
         self.counters = [0.] * len(Counters)
 
-        self.starfield:list[StarfieldLayer] = []
-        self.sector_starfield:list[StarfieldLayer] = []
-        self.portrait_starfield:list[StarfieldLayer] = []
-
-        # list for in iterator appends
-        # set for destroying exactly once
+        # House keeping state for cleanup, event deduping
+        # list allows in iterator appends
+        # set allows destroying exactly once
         self.entity_destroy_list:list[Entity] = []
         self.entity_destroy_set:set[Entity] = set()
-
         self.last_colliders:set[str] = set()
 
+        # We maintain gamestate as a singleton for convenient access to the
+        # "current" global gamestate
+        #TODO: maintain this class field externally and not in the constructor?
         if Gamestate.gamestate is not None:
             self.logger.info(f'replacing existing gamestate current: {Gamestate.gamestate.ticks} ticks and {Gamestate.gamestate.timestamp} game secs with {len(Gamestate.gamestate.entities)} entities')
         #    raise ValueError()
@@ -234,6 +250,9 @@ class Gamestate(EntityRegistry):
         self.entity_context_store.unregister_entity(entity.short_id_int())
         del self.entities[entity.entity_id]
         del self.entities_short[entity.short_id_int()]
+
+    def now(self) -> float:
+        return self.timestamp
 
     def register_order(self, order: AbstractOrder) -> None:
         self.orders[order.order_id] = order
@@ -289,12 +308,18 @@ class Gamestate(EntityRegistry):
         assert(isinstance(entity, klass))
         return entity
 
+    def get_entity_short[T:Entity](self, entity_short_id:int, klass:Type[T]) -> T:
+        entity = self.entities_short[entity_short_id]
+        assert(isinstance(entity, klass))
+        return entity
+
     def sanity_check_entities(self) -> None:
         for k, entity in self.entities.items():
             assert(k == entity.entity_id)
             if isinstance(entity, Observable):
                 for observer in entity.observers:
                     assert entity in observer.observings
+            entity.sanity_check()
 
     def recover_objects[T:tuple](self, objects:T) -> T:
         ret = []
@@ -370,10 +395,13 @@ class Gamestate(EntityRegistry):
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
+        self.agent_to_entity[agent.entity_id] = self.entities[entity_id]
 
     def withdraw_agent(self, entity_id:uuid.UUID) -> None:
         try:
             agent = self.econ_agents.pop(entity_id)
+            assert agent.entity_id in self.agent_to_entity
+            del self.agent_to_entity[agent.entity_id]
             self.destroy_entity(agent)
         except KeyError:
             pass
@@ -456,6 +484,9 @@ class Gamestate(EntityRegistry):
     def pop_current_effects(self) -> Sequence[AbstractEffect]:
         return self._effect_schedule.pop_current_tasks(self.timestamp)
 
+    def is_agendum_scheduled(self, agendum:AbstractAgendum) -> bool:
+        return self._agenda_schedule.is_task_scheduled(agendum)
+
     def schedule_agendum_immediate(self, agendum:AbstractAgendum, jitter:float=0.) -> None:
         self.schedule_agendum(self.timestamp + DT_EPSILON, agendum, jitter)
 
@@ -474,6 +505,9 @@ class Gamestate(EntityRegistry):
     def pop_current_agenda(self) -> Sequence[AbstractAgendum]:
         return self._agenda_schedule.pop_current_tasks(self.timestamp)
 
+    def is_task_scheduled(self, task:ScheduledTask) -> bool:
+        return self._task_schedule.is_task_scheduled(task)
+
     def schedule_task_immediate(self, task:ScheduledTask, jitter:float=0.) -> None:
         self.schedule_task(self.timestamp + DT_EPSILON, task, jitter)
 
@@ -489,6 +523,10 @@ class Gamestate(EntityRegistry):
     def unschedule_task(self, task:ScheduledTask) -> None:
         self._task_schedule.cancel_task(task)
 
+    def sanity_check_tasks(self) -> None:
+        for ts, task in self._task_schedule:
+            task.sanity_check(ts)
+
     def pop_current_task(self) -> Sequence[ScheduledTask]:
         return self._task_schedule.pop_current_tasks(self.timestamp)
 
@@ -498,7 +536,7 @@ class Gamestate(EntityRegistry):
         buyer.buy(product_id, price, amount)
         self.econ_logger.transact(0., product_id, buyer.agent_id, seller.agent_id, price, amount, ticks=self.timestamp)
 
-    def _construct_econ_state(self) -> Tuple[
+    def _construct_econ_state(self) -> tuple[
             npt.NDArray[np.float64], # inventory
             npt.NDArray[np.float64], # balance
             npt.NDArray[np.float64], # buy_prices
@@ -571,7 +609,7 @@ class Gamestate(EntityRegistry):
             # or should it be inf?
             self.max_edge_length = 0.0
 
-    def spatial_query(self, bounds:Tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
+    def spatial_query(self, bounds:tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits # type: ignore
 
@@ -589,39 +627,39 @@ class Gamestate(EntityRegistry):
         self.sanity_check_effects()
         self.sanity_check_agenda()
         self.sanity_check_sectors()
+        self.sanity_check_tasks()
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
-        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp)
+        return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp*self.game_secs_per_sec)
+
     def current_time(self) -> datetime.datetime:
-        #TODO: probably want to decouple telling time from ticks processed
-        # we want missed ticks to slow time, but if we skip time will we
-        # increment the ticks even though we don't process them?
         return self.timestamp_to_datetime(self.timestamp)
-
-    #def exit_startup(self) -> None:
-    #    self.startup_running = False
-
-    #def start_game(self) -> None:
-    #    self.keep_running = True
-
-    #def quit(self) -> None:
-    #    self.startup_running = False
-    #    self.keep_running = False
 
     def trigger_event(
         self,
-        characters: Iterable[Character],
+        characters: Collection[Character],
         event_type: int,
-        context: Mapping[int, int],
+        context: dict[int, int],
         event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
         self.event_manager.trigger_event(characters, event_type, context, event_args)
 
     def trigger_event_immediate(
         self,
-        characters: Iterable[Character],
+        characters: Collection[Character],
         event_type: int,
-        context: Mapping[int, int],
+        context: dict[int, int],
         event_args: dict[str, Union[int,float,str,bool]] = {},
     ) -> None:
         self.event_manager.trigger_event_immediate(characters, event_type, context, event_args)
+
+def captain(craft:SectorEntity) -> Optional[Character]:
+    if isinstance(craft, CrewedSectorEntity) and craft.captain:
+        return craft.captain
+    return None
+
+EMPTY_TUPLE = ()
+def crew(craft:SectorEntity) -> Collection[Character]:
+    if not isinstance(craft, CrewedSectorEntity):
+        return EMPTY_TUPLE
+    return Gamestate.gamestate.characters_by_location[craft.entity_id]
