@@ -49,6 +49,9 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
         self._preempted_primary:Optional[core.AbstractAgendum] = None
 
+    def __str__(self) -> str:
+        return f'{util.fullname(self)} {self._state.name} interests:{len(self._interests)} preempted_primary:{self._preempted_primary}'
+
 
     def sanity_check(self) -> None:
         for dependency, sources in self._source_interests_by_dependency.items():
@@ -296,6 +299,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             self._preempted_primary = current_primary
             current_primary.pause()
             self.make_primary()
+            if isinstance(self.character.location, core.Ship):
+                self.character.location.clear_orders()
 
         self._immediate_interest = cheapest_criteria
         self._immediate_interest_count += 1
@@ -392,6 +397,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
                 primary_agendum = self.character.find_primary_agendum()
                 if primary_agendum is None:
                     self.make_primary()
+                    if isinstance(self.character.location, core.Ship):
+                        self.character.location.clear_orders()
                     self._state = IntelCollectionAgendum.State.ACTIVE
                 else:
                     # if we're primary our _is_primary flag should be true

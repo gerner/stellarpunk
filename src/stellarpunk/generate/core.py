@@ -182,6 +182,7 @@ class GenerationStep(enum.Enum):
     INHABITED_SECTORS = enum.auto()
     UNINHABITED_SECTORS = enum.auto()
     PLAYER = enum.auto()
+    INTEL = enum.auto()
 
 class UniverseGeneratorObserver(abc.ABC):
     def estimated_generation_ticks(self, ticks:int) -> None:
@@ -776,10 +777,15 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None, initial_transponder:bool=True) -> core.Ship:
         assert(self.gamestate)
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT)
+        max_sensor_power = config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER
+        initial_sensor_power = None
+        if initial_sensor_power_ratio is not None:
+            initial_sensor_power = initial_sensor_power_ratio * max_sensor_power
+
+        sensor_settings = sensors.SensorSettings(max_sensor_power=max_sensor_power, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT, initial_sensor_power=initial_sensor_power, initial_transponder=initial_transponder)
         ship_mass = config.Settings.generate.SectorEntities.ship.MASS
         ship_radius = config.Settings.generate.SectorEntities.ship.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
@@ -827,10 +833,15 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
-    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> combat.Missile:
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None) -> combat.Missile:
         assert(self.gamestate)
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT)
+        max_sensor_power = config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER
+        initial_sensor_power = None
+        if initial_sensor_power_ratio is not None:
+            initial_sensor_power = initial_sensor_power_ratio * max_sensor_power
+
+        sensor_settings = sensors.SensorSettings(max_sensor_power=max_sensor_power, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT, initial_sensor_power=initial_sensor_power, initial_transponder=False)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
         ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.missile.MAX_THRUST
@@ -879,7 +890,7 @@ class UniverseGenerator(core.AbstractGenerator):
     def spawn_projectile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None) -> sector_entity.Projectile:
         assert(self.gamestate)
 
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.projectile.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.projectile.SENSOR_INTERCEPT, initial_sensor_power=0.0)
         ship_mass = config.Settings.generate.SectorEntities.projectile.MASS
         ship_radius = config.Settings.generate.SectorEntities.projectile.RADIUS
         max_thrust = config.Settings.generate.SectorEntities.projectile.MAX_THRUST
@@ -2078,7 +2089,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # spawn the player, character, ship, etc.
         ship_loc = np.array((0., 0.))
-        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0.)
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., initial_sensor_power_ratio=0.0)
 
         self.gamestate.player = self.spawn_player(ship, balance=2e3)
         player_character = self.gamestate.player.character
@@ -2090,7 +2101,7 @@ class UniverseGenerator(core.AbstractGenerator):
         min_dist = 1e5
         max_dist = 1.5e5
         threat_loc = self.gen_sector_location(sector, center=ship_loc, radius=max_dist, occupied_radius=5e2, min_dist=min_dist, strict=True)
-        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0.)
+        threat = self.spawn_ship(sector, threat_loc[0], threat_loc[1], v=np.array((0.,0.)), w=0., initial_sensor_power_ratio=0.0)
         character = self.spawn_character(threat)
         character.take_ownership(threat)
         character.add_agendum(agenda.CaptainAgendum.create_eoa(threat, character, self.gamestate, enable_threat_response=False))
@@ -2108,7 +2119,6 @@ class UniverseGenerator(core.AbstractGenerator):
         region_inner = core.SectorWeatherRegion(weather_loc, weather_radius*2*0.8, 0.5)
         sector.add_region(region_outer)
         sector.add_region(region_inner)
-
 
     def generate_starfields(self) -> None:
         assert(self.gamestate)
@@ -2171,34 +2181,65 @@ class UniverseGenerator(core.AbstractGenerator):
         se_fresh_until = self.gamestate.timestamp + se_intel_ttl*0.2
         se_expires_at = self.gamestate.timestamp + se_intel_ttl
 
-        for captain in captains:
+        def intel_ttl(max_val:float, k_f:str="fresh_until", k_e:str="expires_at") -> dict[str, float]:
+            assert self.gamestate
+            loss = self.r.uniform(high=max_val)
+            return {
+                k_f: self.gamestate.timestamp+max(max_val*0.2 - loss, 0.0),
+                k_e: self.gamestate.timestamp+max_val-loss,
+            }
+
+        last_tick_i = 0
+        if len(captains) > 10:
+            tick_increment = len(captains) // 10
+        else:
+            tick_increment = 1
+
+        for i, captain in enumerate(captains):
             detector = captain.location
             assert isinstance(detector, core.Ship)
             assert detector.sector
             sector = detector.sector
             images = sector.sensor_manager.scan(detector)
             for character in gamestate.crew(detector):
-                intel.add_sector_scan_intel(detector, sector, character, self.gamestate, static_fresh_until=static_fresh_until, static_expires_at=static_expires_at, dynamic_fresh_until=dynamic_fresh_until, dynamic_expires_at=dynamic_expires_at)
+                scan_expiration_args:dict[str, Any] = {**intel_ttl(static_expires_at, k_f="static_fresh_until", k_e="static_expires_at"), **intel_ttl(dynamic_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at")}
+                intel.add_sector_scan_intel(detector, sector, character, self.gamestate, **scan_expiration_args)
                 for entity in sector.entities.values():
                     if not detector.sensor_settings.has_image(entity.entity_id):
                         continue
+                    image = detector.sensor_settings.get_image(entity.entity_id)
+                    if not image.identified:
+                        continue
                     if isinstance(entity, sector_entity.Asteroid):
-                        intel.add_asteroid_intel(entity, character, self.gamestate, expires_at=se_expires_at, fresh_until=se_fresh_until)
+                        intel.add_asteroid_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                     elif isinstance(entity, sector_entity.Station):
-                        intel.add_station_intel(entity, character, self.gamestate, expires_at=se_expires_at, fresh_until=se_fresh_until)
+                        intel.add_station_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                         if entity.entity_id in self.gamestate.econ_agents:
-                            intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, expires_at=econ_expires_at, fresh_until=econ_fresh_until)
+                            intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, **intel_ttl(econ_expires_at))
                     else:
-                        intel.add_sector_entity_intel(entity, character, self.gamestate, dynamic_expires_at=se_expires_at, dynamic_fresh_until=se_fresh_until)
+                        intel.add_sector_entity_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at"))
+
+            current_tick_i = (i+1) // tick_increment
+            if current_tick_i > last_tick_i:
+                last_tick_i = current_tick_i
+                for observer in self._observers:
+                    observer.generation_tick()
+
+        while last_tick_i < 10:
+            for observer in self._observers:
+                observer.generation_tick()
+            last_tick_i += 1
+
 
     def estimate_generation_ticks(self) -> int:
         # 10 ticks for production chains
         # 1 tick for starfields
         # each culture model + up to max cultures
         # each sector
-        # 1 tick for player
+        # 1 tick for intel
+        # 10 ticks for intel
         self._production_chain_ticks = set(np.linspace(1, self.production_chain_max_tries, num=10, dtype=int))
-        return len(self._production_chain_ticks) + 1 + self.universe_config.num_cultures[1] + self.universe_config.num_sectors + 1
+        return len(self._production_chain_ticks) + 1 + self.universe_config.num_cultures[1] + self.universe_config.num_sectors + 1 + 10
 
     def generate_universe(self) -> core.Gamestate:
         self.logger.info(f'generating a universe...')
@@ -2258,7 +2299,9 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate starting intel for characters
-        #self.generate_intel()
+        for observers in self._observers:
+            observer.generation_step(GenerationStep.INTEL)
+        self.generate_intel()
 
         # generate the player
         for observer in self._observers:

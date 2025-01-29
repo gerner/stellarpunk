@@ -355,10 +355,8 @@ def test_saving_during_attack(player, gamestate, generator, intel_director, sect
     #  what is non-determinitistic about it???
 
     # simulates an attack run by a single ship on another single ship
-    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0)
-    attacker.sensor_settings._sensor_power = attacker.sensor_settings._max_sensor_power
-    attacker.sensor_settings._last_sensor_power = attacker.sensor_settings._max_sensor_power
-    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
+    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0, initial_transponder=False, initial_sensor_power_ratio=1.0)
+    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0, initial_transponder=False, initial_sensor_power_ratio=0.0)
 
     defender_owner = generator.spawn_character(defender)
     defender_owner.take_ownership(defender)

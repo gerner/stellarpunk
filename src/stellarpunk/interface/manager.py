@@ -8,12 +8,14 @@ import collections
 import logging
 import time
 import datetime
+import io
+import functools
 from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
 import pyinstrument
 import numpy as np
 
-from stellarpunk import core, interface, generate, util, config, events, narrative
+from stellarpunk import core, interface, generate, util, config, events, narrative, intel
 from stellarpunk.core import sector_entity
 from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events
 from stellarpunk.serialization import save_game
@@ -378,6 +380,42 @@ class HexGridDemo(interface.View):
             return False
         return True
 
+def dump_characters(gamestate:core.Gamestate, f:io.IOBase) -> None:
+    for character_id in gamestate.characters:
+        character = gamestate.get_entity(character_id, core.Character)
+        home_sector = gamestate.get_entity(character.home_sector_id, core.Sector)
+
+        assets:list[str] = list(str(x) for x in character.assets)
+        agenda:list[str] = list(str(x) for x in character.agenda)
+        intels:list[str] = list(f'{k}:{v}' for k,v in functools.reduce( # type: ignore
+            lambda acc, x: acc+collections.Counter([x]), # type: ignore
+
+            (type(i) for i in character.intel_manager.intel(intel.TrivialMatchCriteria())) # type: ignore
+            ,
+            collections.Counter()
+        ).items())
+
+        character_data:list[str] = []
+
+        character_data.append(str(character_id))
+        character_data.append(str(character))
+        character_data.append(str(character.name))
+        character_data.append(str(home_sector))
+        character_data.append(str(character.balance))
+        character_data.append(str(character.location))
+        if isinstance(character.location, core.Ship):
+            character_data.append(str(character.location.top_order()))
+            character_data.append(str(character.location.current_order()))
+        else:
+            character_data.append(str(None))
+            character_data.append(str(None))
+        character_data.append(str(character.find_primary_agendum()))
+        character_data.append(",".join(assets))
+        character_data.append(",".join(agenda))
+        character_data.append(",".join(intels))
+
+        f.write("\t".join(character_data))
+        f.write("\n")
 
 class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
     def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver, *args:Any, **kwargs:Any) -> None:
@@ -754,6 +792,16 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
             self.interface.open_view(startup_view, deactivate_views=True)
 
+        def dump_chars(args:Sequence[str]) -> None:
+            with open("/tmp/stellarpunk.characters", "w") as f:
+                dump_characters(self.gamestate, f)
+
+        def sanity_check(args:Sequence[str]) -> None:
+            start_time = time.perf_counter()
+            self.gamestate.sanity_check()
+            end_time = time.perf_counter()
+            self.interface.log_message(f'sanity check ok in {end_time-start_time:.2f}s')
+
 
         command_list = [
             self.bind_command("raise", raise_exception),
@@ -797,6 +845,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.bind_command("debug_collision", debug_collision),
             self.bind_command("save", save_gamestate),
             self.bind_command("menu", menu),
+            self.bind_command("dump_characters", dump_chars),
+            self.bind_command("sanity_check", sanity_check),
         ])
         return command_list
 

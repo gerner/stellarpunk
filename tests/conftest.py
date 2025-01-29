@@ -69,7 +69,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
 
 @pytest.fixture
 def ship(gamestate: core.Gamestate, generator: generate.UniverseGenerator, sector: core.Sector) -> core.Ship:
-    return generator.spawn_ship(sector, 0, 2400, v=np.array((0,0)), w=0, theta=0)
+    return generator.spawn_ship(sector, 0, 2400, v=np.array((0,0)), w=0, theta=0, initial_transponder=True, initial_sensor_power_ratio=1.0)
 
 @pytest.fixture
 def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, ship:core.Ship) -> core.Player:

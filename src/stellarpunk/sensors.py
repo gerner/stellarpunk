@@ -321,15 +321,19 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
         return image
 
 class SensorSettings(core.AbstractSensorSettings):
-    def __init__(self, max_sensor_power:float=0., sensor_intercept:float=100.0) -> None:
+    def __init__(self, max_sensor_power:float=0., sensor_intercept:float=100.0, initial_sensor_power:Optional[float]=None, initial_transponder:bool=True) -> None:
+        if initial_sensor_power is None:
+            initial_sensor_power = max_sensor_power
+        if initial_sensor_power > max_sensor_power or 0.0 > initial_sensor_power:
+            raise ValueError(f'0 must be <= {initial_sensor_power=} <= {max_sensor_power=}')
         self._max_sensor_power = max_sensor_power
         self._sensor_intercept = sensor_intercept
-        self._sensor_power = 0.
-        self._transponder_on = False
+        self._sensor_power = initial_sensor_power
+        self._transponder_on = initial_transponder
         self._thrust = 0.
 
         # keeps track of history on sensor spikes
-        self._last_sensor_power = 0.
+        self._last_sensor_power = self._sensor_power
         self._last_sensor_power_ts = 0.
         self._last_transponder_ts = -np.inf
         self._last_thrust = 0.
@@ -388,6 +392,18 @@ class SensorSettings(core.AbstractSensorSettings):
             effective_sensor_power = self.effective_sensor_power()
         return config.Settings.sensors.COEFF_THRESHOLD / (effective_sensor_power + config.Settings.sensors.COEFF_THRESHOLD/self._sensor_intercept)
 
+    def effective_profile(self, sector:core.Sector, ship:core.SectorEntity) -> float:
+        if core.Gamestate.gamestate.timestamp > self._cached_effective_profile_ts + config.Settings.sensors.EFFECTIVE_PROFILE_CACHE_TTL:
+            self._cached_effective_profile_ts = core.Gamestate.gamestate.timestamp
+            self._cached_effective_profile = (
+                config.Settings.sensors.COEFF_MASS * ship.mass +
+                config.Settings.sensors.COEFF_RADIUS * ship.radius +
+                config.Settings.sensors.COEFF_FORCE * self.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
+                config.Settings.sensors.COEFF_SENSORS * self.effective_sensor_power() +
+                config.Settings.sensors.COEFF_TRANSPONDER * self.effective_transponder()
+            ) * sector.weather(ship.loc).sensor_factor
+        return self._cached_effective_profile
+
     def set_sensors(self, ratio:float) -> None:
         # keep track of spikes in sensors so impact on profile decays with time
         # sensors decay up and down
@@ -437,16 +453,7 @@ class SensorManager(core.AbstractSensorManager):
 
     def compute_effective_profile(self, ship:core.SectorEntity) -> float:
         """ computes the profile  accounting for ship and sector factors """
-        if core.Gamestate.gamestate.timestamp > ship.sensor_settings._cached_effective_profile_ts + config.Settings.sensors.EFFECTIVE_PROFILE_CACHE_TTL:
-            ship.sensor_settings._cached_effective_profile_ts = core.Gamestate.gamestate.timestamp
-            ship.sensor_settings._cached_effective_profile = (
-                config.Settings.sensors.COEFF_MASS * ship.mass +
-                config.Settings.sensors.COEFF_RADIUS * ship.radius +
-                config.Settings.sensors.COEFF_FORCE * ship.sensor_settings.effective_thrust()**config.Settings.sensors.FORCE_EXPONENT +
-                config.Settings.sensors.COEFF_SENSORS * ship.sensor_settings.effective_sensor_power() +
-                config.Settings.sensors.COEFF_TRANSPONDER * ship.sensor_settings.effective_transponder()
-            ) * self.sector.weather(ship.loc).sensor_factor
-        return ship.sensor_settings._cached_effective_profile
+        return ship.sensor_settings.effective_profile(self.sector, ship)
 
     def compute_target_profile(self, target:core.SectorEntity, detector_or_distance_sq:Union[core.SectorEntity, float]) -> float:
         """ computes detector-specific profile of target """
@@ -586,19 +593,36 @@ class SensorManager(core.AbstractSensorManager):
 
 class SensorScanOrder(core.Order):
     """ Has the ship do a sensor scan and nothing else. """
-    def __init__(self, *args:Any, images_ttl:float=0.5, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, images_ttl:float=0.5, sensor_power_ratio:float=1.0, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.images:Optional[Collection[core.AbstractSensorImage]] = None
         self.images_ttl = images_ttl
+        self.init_sensor_power_ratio = 0.0
+        self.sensor_power_ratio = sensor_power_ratio
+        self.images:Optional[Collection[core.AbstractSensorImage]] = None
+
+    def _begin(self) -> None:
+        self.init_sensor_power_ratio = self.ship.sensor_settings.sensor_power / self.ship.sensor_settings.max_sensor_power
+        self.ship.sensor_settings.set_sensors(self.sensor_power_ratio)
+
+    def _complete(self) -> None:
+        self.ship.sensor_settings.set_sensors(self.init_sensor_power_ratio)
+
+    def _cancel(self) -> None:
+        self.ship.sensor_settings.set_sensors(self.init_sensor_power_ratio)
 
     def act(self, dt: float) -> None:
         if self.images is not None:
             self.complete_order()
         else:
-            assert(self.ship.sector)
-            # we need to keep these images alive for a few ticks
-            self.images = list(self.ship.sector.sensor_manager.scan(self.ship))
-            self.gamestate.schedule_order(self.gamestate.timestamp + self.images_ttl, self)
+            if not util.isclose(self.ship.sensor_settings.effective_sensor_power() / self.ship.sensor_settings.max_sensor_power, self.sensor_power_ratio):
+                # wait until our sensors come up to the desired level
+                self.gamestate.schedule_order(self.gamestate.timestamp+1.0, self)
+            else:
+                assert(self.ship.sector)
+                # we need to keep these images alive for a few ticks
+                self.images = list(self.ship.sector.sensor_manager.scan(self.ship))
+                self.ship.sensor_settings.set_sensors(self.init_sensor_power_ratio)
+                self.gamestate.schedule_order(self.gamestate.timestamp + self.images_ttl, self)
 
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_events(Events, "sensors")

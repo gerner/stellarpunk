@@ -128,6 +128,9 @@ class ScheduledTask(abc.ABC):
     @abc.abstractmethod
     def act(self) -> None: ...
 
+    def sanity_check(self, ts:float) -> None:
+        pass
+
 class Gamestate(EntityRegistry):
     gamestate:"Gamestate" = None # type: ignore
     def __init__(self) -> None:
@@ -520,6 +523,10 @@ class Gamestate(EntityRegistry):
     def unschedule_task(self, task:ScheduledTask) -> None:
         self._task_schedule.cancel_task(task)
 
+    def sanity_check_tasks(self) -> None:
+        for ts, task in self._task_schedule:
+            task.sanity_check(ts)
+
     def pop_current_task(self) -> Sequence[ScheduledTask]:
         return self._task_schedule.pop_current_tasks(self.timestamp)
 
@@ -620,6 +627,7 @@ class Gamestate(EntityRegistry):
         self.sanity_check_effects()
         self.sanity_check_agenda()
         self.sanity_check_sectors()
+        self.sanity_check_tasks()
 
     def timestamp_to_datetime(self, timestamp:float) -> datetime.datetime:
         return datetime.datetime.fromtimestamp(self.base_date.timestamp() + timestamp*self.game_secs_per_sec)

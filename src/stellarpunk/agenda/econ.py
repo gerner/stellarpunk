@@ -255,6 +255,9 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         self._pending_intel_interest:Optional[core.IntelMatchCriteria] = None
 
+    def __str__(self) -> str:
+        return f'{util.fullname(self)} {self.state.name}'
+
     def initialize_mining_agendum(self) -> None:
         assert(isinstance(self.craft, core.Ship))
         self.agent = econ.ShipTraderAgent.create_ship_trader_agent(self.craft, self.character, self.gamestate)
@@ -551,6 +554,9 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
         self.trade_trips = 0
         self.max_trips = -1
+
+    def __str__(self) -> str:
+        return f'{util.fullname(self)} {self.state.name}'
 
     def initialize_trading_agendum(self) -> None:
         assert(isinstance(self.craft, core.Ship))

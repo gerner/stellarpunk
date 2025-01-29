@@ -481,7 +481,6 @@ class EvadeOrder(AbstractSteeringOrder):
             course_mag = util.magnitude_sq(*course)
             if course_mag == 0:
                 target_velocity = rel_pos / rel_dist * max_speed
-                raise Exception()
             else:
                 course = course / course_mag
                 target_velocity = cymunk.Vec2d(course * max_speed)

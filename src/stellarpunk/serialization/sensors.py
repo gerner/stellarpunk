@@ -194,6 +194,8 @@ class SensorScanOrderSaver(s_order.OrderSaver[sensors.SensorScanOrder]):
     def _save_order(self, order:sensors.SensorScanOrder, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.float_to_f(order.images_ttl, f)
+        bytes_written += s_util.float_to_f(order.init_sensor_power_ratio, f)
+        bytes_written += s_util.float_to_f(order.sensor_power_ratio, f)
         if order.images is None:
             bytes_written += s_util.bool_to_f(False, f)
         else:
@@ -203,6 +205,8 @@ class SensorScanOrderSaver(s_order.OrderSaver[sensors.SensorScanOrder]):
 
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[sensors.SensorScanOrder, Any]:
         images_ttl = s_util.float_from_f(f)
+        init_sensor_power_ratio = s_util.float_from_f(f)
+        sensor_power_ratio = s_util.float_from_f(f)
         has_image_ids = s_util.bool_from_f(f)
         if has_image_ids:
             image_ids = s_util.uuids_from_f(f)
@@ -210,6 +214,8 @@ class SensorScanOrderSaver(s_order.OrderSaver[sensors.SensorScanOrder]):
             image_ids = None
 
         order = sensors.SensorScanOrder(load_context.gamestate, images_ttl=images_ttl, _check_flag=True, order_id=order_id)
+        order.init_sensor_power_ratio = init_sensor_power_ratio
+        order.sensor_power_ratio = sensor_power_ratio
 
         return order, image_ids
 

@@ -58,6 +58,7 @@ class Observer(abc.ABC):
 class Observable[T:Observer](abc.ABC):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        self._had_observers = False
         self._observers:weakref.WeakSet[T] = weakref.WeakSet()
 
     @property
@@ -81,8 +82,10 @@ class Observable[T:Observer](abc.ABC):
         pass
 
     def observe(self, observer:T) -> None:
+        self._had_observers = True
         self._observers.add(observer)
         observer.mark_observing(self)
+        self._observe(observer)
 
     def unobserve(self, observer:T) -> None:
         # allow double unobserve calls. this might happen because, e.g.
@@ -91,6 +94,7 @@ class Observable[T:Observer](abc.ABC):
         if observer in self._observers:
             self._observers.remove(observer)
             observer.unmark_observing(self)
+        self._unobserve(observer)
 
     def clear_observers(self) -> None:
         for observer in self._observers.copy():
@@ -128,6 +132,10 @@ class Entity(abc.ABC):
 
         self.entity_registry = entity_registry
         self.context = self.entity_registry.register_entity(self)
+
+        # sometimes useful for debugging, but very slow
+        #import traceback
+        #self.bt = traceback.format_stack()
 
     def destroy(self) -> None:
         self.entity_registry.unregister_entity(self)

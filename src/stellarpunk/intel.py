@@ -58,6 +58,12 @@ class ExpireIntelTask(core.ScheduledTask):
     def act(self) -> None:
         self.intel.expire()
 
+    def sanity_check(self, ts:float) -> None:
+        assert self.intel.expires_at < np.inf
+        assert len(self.intel.observers) > 0
+        assert util.isclose(ts, self.intel.expires_at)
+        assert core.Gamestate.gamestate.contains_entity(self.intel.entity_id)
+
 class IntelManager(core.IntelObserver, core.AbstractIntelManager):
     """ Manages known intel and creates intel items for a character. """
     @classmethod
@@ -120,13 +126,13 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         self._intel.add(intel.entity_id)
         self._intel_map[intel.match_criteria()] = intel.entity_id
 
-    def add_intel(self, intel:core.AbstractIntel) -> None:
+    def add_intel(self, intel:core.AbstractIntel) -> bool:
         old_intel:Optional[core.AbstractIntel] = self.get_intel(intel.match_criteria(), type(intel))
 
         # if we already have fresh matching intel
         if old_intel and old_intel.created_at > intel.created_at:
             # ours is better, ignore theirs
-            return
+            return False
         elif old_intel:
             # theirs is better, drop ours
             self._remove_intel(old_intel)
@@ -135,6 +141,8 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
         for observer in self.observers:
             observer.intel_added(self, intel)
+
+        return True
 
     def intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> Collection[T]:
         if cls is None:
@@ -665,7 +673,8 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
 def add_asteroid_intel(asteroid:sector_entity.Asteroid, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(asteroid.entity_id), AsteroidIntel)
     if not entity_intel or not entity_intel.is_fresh():
-        character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
+        ret = character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
+        assert ret
         return True
     else:
         return False
@@ -673,7 +682,8 @@ def add_asteroid_intel(asteroid:sector_entity.Asteroid, character:core.Character
 def add_station_intel(station:sector_entity.Station, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(station.entity_id), StationIntel)
     if not entity_intel or not entity_intel.is_fresh():
-        character.intel_manager.add_intel(StationIntel.create_station_intel(station, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
+        ret = character.intel_manager.add_intel(StationIntel.create_station_intel(station, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
+        assert ret
         return True
     else:
         return False
@@ -689,7 +699,8 @@ def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character,
         # otherwise we'll give it some ttl
         else:
             intel = SectorEntityIntel.create_sector_entity_intel(sentity, gamestate, author_id=character.entity_id, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
-        character.intel_manager.add_intel(intel)
+        ret = character.intel_manager.add_intel(intel)
+        assert ret
         return True
     else:
         return False
@@ -697,7 +708,8 @@ def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character,
 def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
     econ_agent_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(agent.entity_id), EconAgentIntel)
     if not econ_agent_intel or not econ_agent_intel.is_fresh():
-        character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until))
+        ret = character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until))
+        assert ret
         return True
     else:
         return False
@@ -747,9 +759,11 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
                 intels[h_coords].type_counts[type_name] = 1
 
     for s_intel in static_intel.values():
-        character.intel_manager.add_intel(s_intel)
+        ret = character.intel_manager.add_intel(s_intel)
+        assert ret
     for d_intel in dynamic_intel.values():
-        character.intel_manager.add_intel(d_intel)
+        ret = character.intel_manager.add_intel(d_intel)
+        assert ret
 
 
 # Intel Witness Actions
