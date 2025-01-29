@@ -81,7 +81,7 @@ accumulate power.
       somehow goes away
 - [x] intel used by miners and traders
 - [x] miners/traders request intel when they have no available behavior
-- [ ] miners/traders request intel opportunistically
+- [x] miners/traders request intel opportunistically
 - [x] intel integrated into sensors for identification and physical params
 - [ ] buying/selling intel
 - [ ] intel is available in intel forums
@@ -152,7 +152,7 @@ accumulate power.
 
 - [x] basic universe layout (including transit paths)
 - [x] basic sectors layout (asteroids, stations, ships)
-- [ ] traders/miners start with some knowledge of needed econ info
+- [x] traders/miners start with some knowledge of needed econ info
 - [ ] good distribution of resources/production facilities
 - [ ] history recording important events
 - [ ] integrating relevant history/bios for characters/universe objects
