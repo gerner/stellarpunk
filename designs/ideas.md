@@ -1,6 +1,18 @@
 Ideas
 =====
 
+# Stuff for Player to Do
+
+* Mine and sell resources
+* Buy/Sell goods trying to make a profit
+* Transport characters to desired locations. Why?
+    * Characters want to gain intel
+    * Crew need to get from home to work their tour on a station or other craft
+    * Characters specifically created to travel
+* Collect and sell intel, aka explore
+* Hunt and kill (or capture?) a specific bounty (a character)
+* Patrol a sector for another character (or org?)
+
 # News
 
 BBS style information where you get imperfect info.
