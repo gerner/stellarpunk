@@ -134,6 +134,8 @@ accumulate power.
 - [ ] lots of characters including those that aren't ship/station operators
 - [ ] basic character relationship framework
 - [ ] basic/short-term missions and employment
+- [ ] NPCs do missions
+- [ ] Player can create missions
 - [ ] long-term subordinate/employment system, including independent balance
       and depdendent budget
 - [ ] basic background, attributes/traits, overall goals

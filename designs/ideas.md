@@ -1,6 +1,20 @@
 Ideas
 =====
 
+# Projects
+
+ - [ ] sensors in cython
+ - [ ] fuel and/or lifesupport resources + NPC logic to refill it somehow
+ - [ ] multi-sector NPC travel, mining, trading
+ - [ ] make mining and trading not use intel instead of SectorEntities and
+       EconAgents as input params directly (and maybe decide when we can go
+       from intel/sensor image to the actual entity or tell the player it's
+       toast)
+ - [ ] non-captain characters (crew, passengers seeking travel, reporters)
+ - [ ] character/faction relationships inlcluding a framework to hurt/improve
+       relations
+ - [ ] mission system with NPCs posting and  doing missions
+
 # Stuff for Player to Do
 
 * Mine and sell resources
@@ -55,6 +69,22 @@ these are also interactions that affect relationships, give missions or
 bonsues.
 
 Player could be a crew member and not just the captain!
+
+# Missions
+
+* Characters have needs that the player (or any other character) can satisfy:
+    * Mining raw resources for production
+    * Buying goods for production
+    * Deliver goods from one owned station to another
+    * Ferry passengers/crew
+    * Gather intel
+* Defend a sector/sector entity
+* Patrol a sector and enforce "laws" (e.g. no mining, no trading certain goods,
+  defend from pirate attacks)
+* Do piracy (e.g. factions warring on each other, you're a privateer)
+* Bounty hunting
+* Ferry a character, or goods, or intel/news to a location that a player has
+  never been to promote exploration, or through dangerous space
 
 # Characters can do Quests and AI Planning
 
