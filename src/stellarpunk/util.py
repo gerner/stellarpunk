@@ -15,6 +15,7 @@ import uuid
 import itertools
 import threading
 import contextlib
+import heapq
 import types
 from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator
 
@@ -378,6 +379,72 @@ def enclosing_circle(c1:npt.NDArray[np.float64], r1:float, c2:npt.NDArray[np.flo
         y = c1[1] + (R - r1) * dy / dc
 
     return (np.array((x,y)), R)
+
+
+# Graph algorithms
+
+def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
+    """ given adjacency weight matrix, start index, end index, compute
+    distances from start to every node up to end.
+
+    returns tuple:
+        path encoded as node -> parent node mapping
+        distances node -> shortest distance to start
+    """
+    # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
+    d = {start: 0}
+    parent = {start: start}
+    pq = [(0, start)]
+    visited = set()
+    while pq:
+        du, u = heapq.heappop(pq)
+        if u in visited: continue
+        if u == target:
+            break
+        visited.add(u)
+        for v, weight in enumerate(adj[u]):
+            if not weight < math.inf:
+                # inf weight means no edge
+                continue
+            if v not in d or d[v] > du + weight:
+                d[v] = du + weight
+                parent[v] = u
+                heapq.heappush(pq, (d[v], v))
+
+
+    return parent, d
+
+def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    # prim's algorithm to construct a minimum spanning tree
+    # https://en.wikipedia.org/wiki/Prim%27s_algorithm
+    # choose starting vertex arbitrarily
+    V = np.zeros(len(distances), bool)
+    E = np.zeros((len(distances), len(distances)))
+    edge_distances = np.full((len(distances), len(distances)), math.inf)
+    # while some nodes not connected
+    # invariant(s):
+    # V is a mask indicating elements in the tree
+    # E is adjacency matrix representing the tree
+    # distances has distances to nodes in the tree
+    #   with inf distance between nodes already in the tree and self edges
+    V[root_idx] = True
+    while not np.all(V):
+        # choose edge from nodes in tree to node not yet in tree with min dist
+        d = np.copy(distances)
+        # don't choose edges from outside the tree
+        d[~V,:] = np.inf
+        # don't choose edges into the tree
+        d[:,V] = np.inf
+        edge = np.unravel_index(np.argmin(d, axis=None), d.shape)
+        E[edge] = 1.
+        E[edge[1], edge[0]] = 1.
+        V[edge[1]] = True
+        edge_distances[edge] = distances[edge]
+        edge_distances[edge[1], edge[0]] = distances[edge]
+    return E, edge_distances
+
+
+# drawille drawing methods
 
 def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tick_size:int=3) -> drawille.Canvas:
     """ Draws a vector (x,y) on a drawille canvas and returns it.

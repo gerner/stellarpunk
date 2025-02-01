@@ -580,6 +580,9 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
                 )
                 return
             self._enter_mode(Mode.CREATE_NEW_GAME)
+        def create_unthreaded() -> None:
+            self._threaded_generation = False
+            create()
         def quick_gen() -> None:
             """ sets up universe generation to be fast, creates a very simple
             universe. """
@@ -603,6 +606,9 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         key_list = list(self._new_game_config_menu.key_list())
         key_list.extend(self.bind_aliases(
             [ord('q')], quick_gen, help_key="startup_new_game_quick_gen"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord('t')], create_unthreaded, help_key="startup_new_game_unthreaded_gen"
         ))
         key_list.extend(self.bind_aliases(
             [curses.ascii.ESC], cancel, help_key="startup_new_game_cancel"

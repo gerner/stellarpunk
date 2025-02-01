@@ -6,7 +6,6 @@ import importlib.resources
 import itertools
 import enum
 import collections
-import heapq
 import time
 import gzip
 import os
@@ -29,66 +28,6 @@ from . import markov
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
-
-def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
-    """ given adjacency weight matrix, start index, end index, compute
-    distances from start to every node up to end.
-
-    returns tuple:
-        path encoded as node -> parent node mapping
-        distances node -> shortest distance to start
-    """
-    # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
-    d = {start: 0}
-    parent = {start: start}
-    pq = [(0, start)]
-    visited = set()
-    while pq:
-        du, u = heapq.heappop(pq)
-        if u in visited: continue
-        if u == target:
-            break
-        visited.add(u)
-        for v, weight in enumerate(adj[u]):
-            if not weight < math.inf:
-                # inf weight means no edge
-                continue
-            if v not in d or d[v] > du + weight:
-                d[v] = du + weight
-                parent[v] = u
-                heapq.heappush(pq, (d[v], v))
-
-
-    return parent, d
-
-def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    # prim's algorithm to construct a minimum spanning tree
-    # https://en.wikipedia.org/wiki/Prim%27s_algorithm
-    # choose starting vertex arbitrarily
-    V = np.zeros(len(distances), bool)
-    E = np.zeros((len(distances), len(distances)))
-    edge_distances = np.full((len(distances), len(distances)), math.inf)
-    # while some nodes not connected
-    # invariant(s):
-    # V is a mask indicating elements in the tree
-    # E is adjacency matrix representing the tree
-    # distances has distances to nodes in the tree
-    #   with inf distance between nodes already in the tree and self edges
-    V[root_idx] = True
-    while not np.all(V):
-        # choose edge from nodes in tree to node not yet in tree with min dist
-        d = np.copy(distances)
-        # don't choose edges from outside the tree
-        d[~V,:] = np.inf
-        # don't choose edges into the tree
-        d[:,V] = np.inf
-        edge = np.unravel_index(np.argmin(d, axis=None), d.shape)
-        E[edge] = 1.
-        E[edge[1], edge[0]] = 1.
-        V[edge[1]] = True
-        edge_distances[edge] = distances[edge]
-        edge_distances[edge[1], edge[0]] = distances[edge]
-    return E, edge_distances
 
 def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars:int, zoom:float, mu:float, sigma:float) -> core.StarfieldLayer:
 
@@ -1773,7 +1712,7 @@ class UniverseGenerator(core.AbstractGenerator):
         distances:MutableMapping[int, Mapping[int, float]] = {}
         mean_distances = np.zeros(len(sector_ids))
         for i in range(len(sector_ids)):
-            _, d = dijkstra(edge_distances, i, -1)
+            _, d = util.dijkstra(edge_distances, i, -1)
             for dist in d.values():
                 mean_distances[i] += dist
         mean_distances /= len(sector_ids)
@@ -1789,7 +1728,7 @@ class UniverseGenerator(core.AbstractGenerator):
             culture = self.r.choice(cultures)
             culture_map[i] = culture
             cultures.remove(culture)
-            _, d = dijkstra(edge_distances, i, -1)
+            _, d = util.dijkstra(edge_distances, i, -1)
             distances[i] = d
             # we assume the graph is fully connected, so every entry will be
             # overwritten with a non-inf value
@@ -1869,7 +1808,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # set up connectivity between sectors
         distances = util.pairwise_distances(sector_coords)#distance.squareform(distance.pdist(sector_coords))
-        sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
+        sector_edges, edge_distances = util.prims_mst(distances, self.r.integers(0, len(distances)))
 
         # index of bboxes for edges
         edge_id = 0
@@ -1920,7 +1859,7 @@ class UniverseGenerator(core.AbstractGenerator):
                 continue
 
             # do not add edges if the current best distance is not much more
-            p, path_dist = dijkstra(edge_distances, i, j)
+            p, path_dist = util.dijkstra(edge_distances, i, j)
             if path_dist[j] < dist*1.5:
                 continue
 

@@ -144,7 +144,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
         return True
 
-    def intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> Collection[T]:
+    def intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Optional[Type[T]]=None) -> list[T]:
         if cls is None:
             cls = core.AbstractIntel # type: ignore
         assert(cls is not None)
@@ -236,6 +236,105 @@ class EntityIntel[T:core.Entity](Intel):
             assert(entity.short_id() == self.intel_entity_short_id)
             assert(entity.id_prefix == self.intel_entity_id_prefix)
 
+class SectorIntel(EntityIntel[core.Sector]):
+    @property
+    def loc(self) -> npt.NDArray[np.float64]:
+        return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).loc
+    @property
+    def radius(self) -> float:
+        return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).radius
+    @property
+    def culture(self) -> str:
+        return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).culture
+
+    def compute_path(self, source_id:uuid.UUID, character:core.Character) -> Optional[list[tuple["SectorIntel", "TravelGateIntel", "TravelGateIntel", float]]]:
+        """ Computes the shortest known path to this sector
+
+        source_id: starting sector id
+        character: the character whose intel we'll use
+
+        returns: list of edges in the form tuple:
+            source_sector_intel,
+            outbound_gate_intel in source sector,
+            inbound_gate_intel in target sector,
+            edge_distance from source to target
+
+            or None if no known path exists
+        """
+
+        # construct known sector graph in weighted adjacency matrix form
+        sector_intels = character.intel_manager.intel(TrivialMatchCriteria(cls=SectorIntel), SectorIntel)
+        sector_idx_lookup = {x.intel_entity_id: i for i,x in enumerate(sector_intels)}
+        sector_intel_lookup = {x.intel_entity_id: x for x in sector_intels}
+
+        source_idx = sector_idx_lookup.get(source_id)
+        if source_idx is None:
+            raise ValueError(f'{character} has no intel for source sector {source_id}')
+        target_idx = sector_idx_lookup.get(self.intel_entity_id)
+        if target_idx is None:
+            raise ValueError(f'{character} has no intel for target sector {self.intel_entity_id}')
+
+        if source_idx == target_idx:
+            # trivial path to stay here
+            return []
+
+        travel_gate_intels = character.intel_manager.intel(TrivialMatchCriteria(cls=TravelGateIntel), TravelGateIntel)
+        gate_intel_lookup = {(x.sector_id, x.destination_id):x for x in travel_gate_intels}
+
+        adj_matrix = np.ones((len(sector_intels), len(sector_intels))) * np.inf
+        for gate_intel in travel_gate_intels:
+            # model the cost the edge as the cost of travelling from one sector
+            # center to edge plus other sector edge back to center
+
+            # we could be more precise by modelling sector links as nodes and
+            # sector paths between gates as edges
+            # since the cost to travel from sector to sector is actually
+            # incurred while travelling from gate to gate within a sector
+            # but that sounds complicated and this is an easy approximation
+
+            a_idx = sector_idx_lookup[gate_intel.sector_id]
+            b_idx = sector_idx_lookup[gate_intel.destination_id]
+            cost_estimate = sector_intel_lookup[gate_intel.sector_id].radius + sector_intel_lookup[gate_intel.destination_id].radius
+            adj_matrix[a_idx, b_idx] = cost_estimate
+
+        # compute shortest path from source to target, if one
+        path_tree, distance_map = util.dijkstra(adj_matrix, source_idx, target_idx)
+
+        if source_idx not in path_tree:
+            # no path found
+            return None
+
+        # translate route implied by path_tree
+        idx_path:list[int] = []
+        cum_distances:list[float] = []
+        u = target_idx
+        idx_path.append(u)
+        cum_distances.append(distance_map[u])
+        while u != source_idx:
+            u = path_tree[u]
+            idx_path.append(u)
+            cum_distances.append(distance_map[u])
+
+        # compute per-edge distances as cum_dist[i] - cum_dist[i+1]
+        distances = list(a-b for a,b in zip(cum_distances[0:-1], cum_distances[1:]))
+
+        # make from,to pair path and distances in source -> target order
+        idx_path.reverse()
+        idx_path_pairs = zip(idx_path[0:-1], idx_path[1:])
+        distances.reverse()
+
+        # assume travel gate intel in both directions for every step in path
+        sector_path = list(
+            (
+                sector_intels[u],
+                gate_intel_lookup[sector_intels[u].intel_entity_id, sector_intels[v].intel_entity_id],
+                gate_intel_lookup[sector_intels[v].intel_entity_id, sector_intels[u].intel_entity_id],
+                dist
+            ) for (u,v), dist in zip(idx_path_pairs, distances)
+        )
+
+        return sector_path
+
 class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
     @classmethod
     def create_sector_entity_intel[T2:"SectorEntityIntel[T]"](cls:Type[T2], entity:T, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> T2:
@@ -313,6 +412,11 @@ class StationIntel(SectorEntityIntel[sector_entity.Station]):
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.inputs = inputs
+
+class TravelGateIntel(SectorEntityIntel[sector_entity.TravelGate]):
+    def __init__(self, *args:Any, destination_id:uuid.UUID, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.destination_id = destination_id
 
 class EconAgentIntel(EntityIntel[core.EconAgent]):
     @classmethod
