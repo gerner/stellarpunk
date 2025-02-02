@@ -83,7 +83,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
     def generation_step(self, step:generate.GenerationStep) -> None:
         with self._generation_lock.acquire():
-            self.logger.debug(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+            self.logger.info(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
             self._current_generation_step = step
 
     def generation_tick(self) -> None:

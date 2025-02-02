@@ -1,8 +1,12 @@
 """
 Trains markov models for each culture.
 
-These are saved in some location and can be used by stellarpunk to generate 
+These are saved in some location and can be used by stellarpunk to generate
 place, people, ship names.
+
+This assumes the training data is already prepared. That data can be found in
+gdrive and prepared with scripts tools/split_geonames_by_culture.sh and
+tools/split_peoplenames_by_culture.sh
 """
 
 import sys
@@ -75,7 +79,6 @@ def main() -> None:
     # model for ship names
     m = markov.MarkovModel()#n=NGRAM, romanize=True, titleize=True, roman_numerals=True)
     train_save_model(m, SHIP_NAME_FILE, os.path.join(MODELS_DIR, "shipnames.mmodel.gz"))
-    return
     logger.info(f'sample ship: "{m.generate(r)}"')
 
     culture_start_time = time.time()

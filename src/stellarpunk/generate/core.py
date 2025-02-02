@@ -2238,7 +2238,7 @@ class UniverseGenerator(core.AbstractGenerator):
         )
 
         # generate starting intel for characters
-        for observers in self._observers:
+        for observer in self._observers:
             observer.generation_step(GenerationStep.INTEL)
         self.generate_intel()
 

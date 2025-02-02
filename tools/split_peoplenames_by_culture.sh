@@ -8,19 +8,22 @@
 
 set -eu -o pipefail
 
+COUNTRIESCULTURES=/tmp/countriescultures.tsv
+NAMEDATASET=/tmp/name_dataset.zip
+
 LINE_COUNT=4000000
 
-cultures="$(cat countriescultures.tsv | tr -d '\r' | tail -n+2 | cut -f 4 | sort -u)"
+cultures="$(cat ${COUNTRIESCULTURES} | tr -d '\r' | tail -n+2 | cut -f 4 | sort -u)"
 
 for culture in $cultures; do
     echo ${culture}
     country_files=$( \
         LC_ALL=C join <( \
-            unzip -l name_dataset.zip \
+            unzip -l ${NAMEDATASET} \
                 | ag -o 'name_dataset/.*$' \
                 | LC_ALL=C sort \
         ) <( \
-            cat countriescultures.tsv \
+            cat ${COUNTRIESCULTURES} \
                 | tr -d '\r' \
                 | ag ${culture} \
                 | cut -f1 \
@@ -31,9 +34,9 @@ for culture in $cultures; do
     )
     if [ -n "${country_files}" ]; then
         echo ${country_files}
-        unzip -qc name_dataset.zip ${country_files} | tr ',' '\t' | cut -f 1 \
+        unzip -qc ${NAMEDATASET} ${country_files} | tr ',' '\t' | cut -f 1 \
             | shuf -n $LINE_COUNT | gzip -c > firstnames.${culture}.gz
-        unzip -qc name_dataset.zip ${country_files} | tr ',' '\t' | cut -f 2 \
+        unzip -qc ${NAMEDATASET} ${country_files} | tr ',' '\t' | cut -f 2 \
             | shuf -n $LINE_COUNT | gzip -c > lastnames.${culture}.gz
     else
         echo "no matching files"
@@ -42,7 +45,7 @@ done
 
 # this dataset does not represent all countries. see the output of this
 # command for details:
-#  LC_ALL=C join -v1 <(cat countriescultures.tsv | cut -f 1 | sed 's/.*/name_dataset\/data\/&.csv/' | LC_ALL=C sort) <(unzip -l name_dataset.zip | ag -o 'name_dataset/.*' | LC_ALL=C sort) | ag -o '[A-Z]*.csv$' | ag -o '^[A-Z]*' | LC_ALL=C join -t$'\t' - <(cat countriescultures.tsv | LC_ALL=C sort)
+#  LC_ALL=C join -v1 <(cat ${COUNTRIESCULTURES} | cut -f 1 | sed 's/.*/name_dataset\/data\/&.csv/' | LC_ALL=C sort) <(unzip -l ${NAMEDATASET} | ag -o 'name_dataset/.*' | LC_ALL=C sort) | ag -o '[A-Z]*.csv$' | ag -o '^[A-Z]*' | LC_ALL=C join -t$'\t' - <(cat ${COUNTRIESCULTURES} | LC_ALL=C sort)
 # in particular, only fiji exists in oceana. so we'll augment that with names
 # from southeastasia and a small sample from westeurope
 
