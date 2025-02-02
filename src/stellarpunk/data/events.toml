@@ -192,6 +192,14 @@ criteria = []
 [[intel_sensor_scan.actions]]
 _action = "intel:witness_scan"
 
+# enter sector
+[intel_enter_sector]
+type = "enter_sector"
+priority = 1
+group = "intel"
+[[intel_enter_sector.actions]]
+_action = "intel:witness_enter_sector"
+
 #[player_open_dialog]
 #type = "dialog"
 #priority = 0

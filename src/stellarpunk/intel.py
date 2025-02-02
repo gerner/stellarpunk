@@ -869,6 +869,15 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
         ret = character.intel_manager.add_intel(d_intel)
         assert ret
 
+def add_sector_intel(sector:core.Sector, character:core.Character, gamestate:core.Gamestate, fresh_until:float, expires_at:float) -> None:
+    sector_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sector.entity_id), SectorIntel)
+    if sector_intel and sector_intel.is_fresh():
+        return
+
+    sector_intel = SectorIntel.create_intel(sector.entity_id, sector.id_prefix, sector.short_id(), type(sector), gamestate, expires_at=expires_at, fresh_until=fresh_until)
+    ret = character.intel_manager.add_intel(sector_intel)
+    assert(ret)
+
 
 # Intel Witness Actions
 
@@ -962,9 +971,30 @@ class ScanAction(events.Action):
 
         add_sector_scan_intel(detector, sector, character, self.gamestate, static_fresh_until=static_fresh_until, static_expires_at=static_expires_at, dynamic_fresh_until=dynamic_fresh_until, dynamic_expires_at=dynamic_expires_at)
 
+class EnterSectorAction(events.Action):
+    def __init__(self, *args:Any, fresh_ttl:float=np.inf, expires_ttl:float=np.inf, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fresh_ttl = fresh_ttl
+        self.expires_ttl = expires_ttl
+
+    def act(self,
+            character:core.Character,
+            event_type:int,
+            event_context:Mapping[int,int],
+            event_args: MutableMapping[str, Union[int,float,str,bool]],
+            action_args: Mapping[str, Union[int,float,str,bool]]
+    ) -> None:
+        sector = core.Gamestate.gamestate.get_entity_short(self.ck(event_context, events.ContextKeys.TARGET), core.Sector)
+
+        fresh_until = self.gamestate.timestamp + self.fresh_ttl
+        expires_at = self.gamestate.timestamp + self.expires_ttl
+
+        add_sector_intel(sector, character, self.gamestate, fresh_until, expires_at)
+
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_action(IdentifyAsteroidAction(), "identify_asteroid", "intel")
     event_manager.register_action(IdentifyStationAction(), "identify_station", "intel")
     event_manager.register_action(IdentifySectorEntityAction(), "identify_sector_entity", "intel")
     event_manager.register_action(DockingAction(), "witness_docking", "intel")
     event_manager.register_action(ScanAction(), "witness_scan", "intel")
+    event_manager.register_action(EnterSectorAction(), "witness_enter_sector", "intel")

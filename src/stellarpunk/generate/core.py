@@ -2089,9 +2089,18 @@ class UniverseGenerator(core.AbstractGenerator):
         """ Adds starting intel for characters """
         assert self.gamestate
 
+        sector_fresh_until = np.inf
+        sector_expires_at = np.inf
+
         captains:list[core.Character] = []
 
         for character in self.gamestate.characters.values():
+            # add intel for the sector the character is in and their home sector
+            home_sector = self.gamestate.get_entity(character.home_sector_id, core.Sector)
+            intel.add_sector_intel(home_sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
+            if character.location and character.location.sector and home_sector != character.location.sector:
+                intel.add_sector_intel(character.location.sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
+
             # miners
             if list(x for x in character.agenda if isinstance(x, agenda.MiningAgendum)):
                 captains.append(character)

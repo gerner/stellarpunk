@@ -518,6 +518,18 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # move from current sector to destination sector
             self.ship.migrate(self.target_gate.destination)
 
+            crew = core.crew(self.ship)
+            if crew:
+                self.gamestate.trigger_event(
+                    crew,
+                    self.gamestate.event_manager.e(events.Events.ENTER_SECTOR),
+                    {
+                        self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target_gate.destination.short_id_int(),
+                        self.gamestate.event_manager.ck(events.ContextKeys.SHIP): self.ship.short_id_int(),
+                    },
+                )
+
+
             self.warp_in = effects.WarpInEffect.create_warp_in_effect(
                     np.copy(self.ship.loc), self.ship.sector, self.gamestate,
                     observer=self)
@@ -601,9 +613,10 @@ class DockingOrder(core.OrderObserver, core.Order):
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
 
     def _complete(self) -> None:
-        if self.ship.captain is not None:
+        crew = core.crew(self.ship)
+        if crew:
             self.gamestate.trigger_event(
-                [self.ship.captain],
+                crew,
                 self.gamestate.event_manager.e(events.Events.DOCKED),
                 {
                     self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target.short_id_int(),

@@ -122,6 +122,14 @@ class EntityIntelSaver[T: intel.EntityIntel](IntelSaver[T]):
 
         return intel, extra_context
 
+class SectorIntelSaver(EntityIntelSaver[intel.SectorIntel]):
+    def _save_entity_intel(self, intel:intel.SectorIntel, f:io.IOBase) -> int:
+        return 0
+
+    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_short_id:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.SectorIntel, Any]:
+        sector_intel = intel.SectorIntel(intel_entity_id, intel_entity_id_prefix, intel_entity_short_id, intel_entity_type, load_context.gamestate, entity_id=entity_id, _check_flag=True)
+        return sector_intel, None
+
 class SectorHexIntelSaver(IntelSaver[intel.SectorHexIntel]):
     def _save_intel(self, intel:intel.SectorHexIntel, f:io.IOBase) -> int:
         bytes_written = 0

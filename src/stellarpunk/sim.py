@@ -511,6 +511,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
 
     # intel
+    sg.register_saver(intel.SectorIntel, s_intel.SectorIntelSaver(sg))
     sg.register_saver(intel.SectorEntityIntel, s_intel.SectorEntityIntelSaver(sg))
     sg.register_saver(intel.AsteroidIntel, s_intel.AsteroidIntelSaver(sg))
     sg.register_saver(intel.StationIntel, s_intel.StationIntelSaver(sg))
