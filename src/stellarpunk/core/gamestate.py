@@ -641,8 +641,9 @@ class Gamestate(EntityRegistry):
         event_type: int,
         context: dict[int, int],
         event_args: dict[str, Union[int,float,str,bool]] = {},
+        merge_key: Optional[uuid.UUID]=None,
     ) -> None:
-        self.event_manager.trigger_event(characters, event_type, context, event_args)
+        self.event_manager.trigger_event(characters, event_type, context, event_args, merge_key=merge_key)
 
     def trigger_event_immediate(
         self,

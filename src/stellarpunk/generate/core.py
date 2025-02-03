@@ -673,7 +673,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_station_name(sector.culture),
+            name=self._gen_station_name(sector.culture),
             entity_id=entity_id,
             description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
         )
@@ -703,7 +703,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_planet_name(sector.culture),
+            name=self._gen_planet_name(sector.culture),
             entity_id=entity_id
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
@@ -738,7 +738,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(sector.culture),
+            name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id
         )
@@ -794,7 +794,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(sector.culture),
+            name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id,
         )
@@ -843,7 +843,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(sector.culture),
+            name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id
         )
@@ -908,7 +908,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_gate_name(destination, sector.culture),
+            name=self._gen_gate_name(destination, sector.culture),
             entity_id=entity_id
         )
         gate.destination = destination
@@ -936,7 +936,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_asteroid_name(sector.culture),
+            name=self._gen_asteroid_name(sector.culture),
             entity_id=entity_id
         )
         asteroid.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_ASTEROID), 1)
@@ -1111,7 +1111,7 @@ class UniverseGenerator(core.AbstractGenerator):
             hex_size,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(culture),
+            name=self._gen_sector_name(culture),
             entity_id=entity_id,
             culture=culture,
         )
@@ -1278,7 +1278,7 @@ class UniverseGenerator(core.AbstractGenerator):
             hex_size,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(culture),
+            name=self._gen_sector_name(culture),
             entity_id=entity_id,
             culture=culture
         )

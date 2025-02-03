@@ -506,6 +506,7 @@ class SensorManager(core.AbstractSensorManager):
                         gamestate.event_manager.ck(ContextKeys.STATIC_COUNT): static_hits,
                         gamestate.event_manager.ck(ContextKeys.DYNAMIC_COUNT): dynamic_hits,
                     },
+                    merge_key=detector.entity_id,
             )
 
         return hits

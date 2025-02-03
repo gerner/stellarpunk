@@ -1038,6 +1038,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             self.control_order.cancel_order()
         if self.point_defense:
             self.point_defense.cancel_effect()
+        self.presenter.terminate()
 
     def focus(self) -> None:
         super().focus()

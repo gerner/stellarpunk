@@ -69,6 +69,9 @@ class SectorView(interface.PerspectiveObserver, core.SectorEntityObserver, inter
         self.perspective.update_bbox()
         self.interface.reinitialize_screen(name=f'Sector Map of {self.sector.short_id()}')
 
+    def terminate(self) -> None:
+        self.presenter.terminate()
+
     def focus(self) -> None:
         super().focus()
         self.active = True

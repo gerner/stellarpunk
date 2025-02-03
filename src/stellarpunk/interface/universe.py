@@ -204,11 +204,11 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
             name_attr = 0
             if sector == self.selected_sector:
                 name_attr = name_attr | curses.A_STANDOUT
-            self.viewscreen.addstr(s_y, s_x, sector.short_id(), name_attr)
-            self.viewscreen.addstr(s_y+1, s_x, sector.name)
-            self.viewscreen.addstr(s_y+2, s_x, sector.culture, interface.Icons.culture_attr(sector.culture))
-            self.viewscreen.addstr(s_y+3, s_x, f'[ {sector.loc[0]:.2e} {sector.loc[1]:.2e} ]')
-            self.viewscreen.addstr(s_y+4, s_x, f'{len(sector.entities)} objects')
+            self.viewscreen.addstr(s_y, s_x+1, sector.short_id(), name_attr)
+            self.viewscreen.addstr(s_y+1, s_x+1, sector.name)
+            self.viewscreen.addstr(s_y+2, s_x+1, sector.culture, interface.Icons.culture_attr(sector.culture))
+            self.viewscreen.addstr(s_y+3, s_x+1, f'[ {sector.loc[0]:.2e} {sector.loc[1]:.2e} ]')
+            self.viewscreen.addstr(s_y+4, s_x+1, f'{len(sector.entities)} objects')
 
         self.interface.refresh_viewscreen()
 

@@ -609,6 +609,7 @@ def main() -> None:
         #logging.getLogger("stellarpunk").level = logging.DEBUG
         #logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
         #logging.getLogger("stellarpunk.events").level = logging.DEBUG
+        #logging.getLogger("stellarpunk.intel").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions

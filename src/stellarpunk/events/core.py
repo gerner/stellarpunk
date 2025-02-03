@@ -239,19 +239,19 @@ class EventManager(core.AbstractEventManager):
         if merge_key:
             event_key = (event_type, merge_key)
             if event_key in self.event_state.keyed_event_queue:
-                self.logger.debug(f'merging keyed event {self.event_type_lookup[event_type]} ({event_type}) {merge_key=}')
+                #self.logger.debug(f'merging keyed event {self.event_type_lookup[event_type]} ({event_type}) {merge_key=}')
                 existing_context, existing_args, existing_candidates = self.event_state.keyed_event_queue[event_key]
                 existing_context.update(context)
                 existing_args.update(event_args)
                 existing_candidates.update(candidates)
             else:
-                self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type}) {merge_key=}')
+                self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type}) {merge_key=} {candidates}')
                 self.event_state.keyed_event_queue[event_key] = (
                     context, event_args, set(candidates)
                 )
 
         else:
-            self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type})')
+            self.logger.debug(f'enqueuing event {self.event_type_lookup[event_type]} ({event_type}) {candidates}')
             self.event_state.event_queue.append((
                 narrative.Event(
                     event_type,
@@ -342,7 +342,7 @@ class EventManager(core.AbstractEventManager):
     def _do_action(self, event: narrative.Event, action: narrative.Action) -> None:
         s_action = self.actions[action.action_id]
 
-        self.logger.debug(f'processing action {s_action}')
+        self.logger.debug(f'processing action {s_action} for {action.character_candidate.data}')
         s_action.act(
             action.character_candidate.data,
             event.event_type,

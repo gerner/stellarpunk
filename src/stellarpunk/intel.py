@@ -1,3 +1,4 @@
+import logging
 import uuid
 import collections
 import abc
@@ -73,6 +74,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
     def __init__(self, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
+        self.logger = logging.getLogger(util.fullname(self))
         self.character:Character = None # type: ignore
         self.gamestate = gamestate
         self._intel:set[uuid.UUID] = set()
@@ -110,6 +112,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         return self.character.entity_id
 
     def intel_expired(self, intel:core.AbstractIntel) -> None:
+        self.logger.debug(f'{self.character} expired intel {intel}')
         self._remove_intel(intel)
 
         #TODO: are there other ways intel might be removed?
@@ -117,11 +120,13 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             observer.intel_removed(self, intel)
 
     def _remove_intel(self, old_intel:core.AbstractIntel) -> None:
+        self.logger.debug(f'{self.character} removing intel {old_intel}')
         self._intel.remove(old_intel.entity_id)
         del self._intel_map[old_intel.match_criteria()]
         old_intel.unobserve(self)
 
     def _add_intel(self, intel:core.AbstractIntel) -> None:
+        self.logger.debug(f'{self.character} adding intel {intel}')
         intel.observe(self)
         self._intel.add(intel.entity_id)
         self._intel_map[intel.match_criteria()] = intel.entity_id
@@ -135,6 +140,9 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             return False
         elif old_intel:
             # theirs is better, drop ours
+
+            for observer in self.observers:
+                observer.intel_removed(self, old_intel)
             self._remove_intel(old_intel)
 
         self._add_intel(intel)
