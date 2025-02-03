@@ -618,6 +618,7 @@ class SensorImageManager:
         self._sensor_image_ttl = sensor_image_ttl
         self._static_image_ttl = static_image_ttl
         self._sensor_loc_index = rtree.index.Index()
+        self._last_update = -np.inf
 
     @property
     def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
@@ -630,7 +631,10 @@ class SensorImageManager:
         return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
 
     def update(self) -> None:
+        if core.Gamestate.gamestate.timestamp <= self._last_update:
+            return
         assert self.ship.sector
+        self._last_update = core.Gamestate.gamestate.timestamp
 
         # first we find all the detectable entities
         for hit in self.ship.sector.sensor_manager.scan(self.ship):

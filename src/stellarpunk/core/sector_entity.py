@@ -18,6 +18,14 @@ class Planet(character.Asset, character.CrewedSectorEntity):
         super().__init__(*args, **kwargs)
         self.population = 0.
 
+        self._loc = np.array(self.phys.position)
+        self._velocity = np.array(self.phys.velocity)
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return self._loc
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return self._velocity
+
 class Station(character.Asset, character.CrewedSectorEntity):
     id_prefix = "STA"
     def __init__(self, sprite:base.Sprite, *args:Any, **kwargs:Any) -> None:
@@ -29,6 +37,14 @@ class Station(character.Asset, character.CrewedSectorEntity):
 
         self.sprite = sprite
 
+        self._loc = np.array(self.phys.position)
+        self._velocity = np.array(self.phys.velocity)
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return self._loc
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return self._velocity
+
 class Asteroid(sector.SectorEntity):
     id_prefix = "AST"
     def __init__(self, resource:int, amount:float, *args:Any, **kwargs:Any) -> None:
@@ -36,6 +52,13 @@ class Asteroid(sector.SectorEntity):
         self.resource = resource
         self.cargo[self.resource] = amount
 
+        self._loc = np.array(self.phys.position)
+        self._velocity = np.array(self.phys.velocity)
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return self._loc
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return self._velocity
 
 class TravelGate(sector.SectorEntity):
     """ Represents a "gate" to another sector """
@@ -46,6 +69,14 @@ class TravelGate(sector.SectorEntity):
         # radian angle toward the destination
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
+
+        self._loc = np.array(self.phys.position)
+        self._velocity = np.array(self.phys.velocity)
+
+    @property
+    def loc(self) -> npt.NDArray[np.float64]: return self._loc
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]: return self._velocity
 
 class Projectile(sector.SectorEntity):
     id_prefix = "PJT"
