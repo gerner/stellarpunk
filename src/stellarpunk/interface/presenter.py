@@ -507,6 +507,8 @@ class IntelImage(core.AbstractSensorImage):
         self._identity = se_intel.create_sensor_identity()
         self._se_intel = se_intel
 
+    def destroy(self) -> None:
+        pass
     @property
     def age(self) -> float:
         return core.Gamestate.gamestate.timestamp - self._se_intel.created_at

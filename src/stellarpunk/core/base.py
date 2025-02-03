@@ -55,6 +55,11 @@ class Observer(abc.ABC):
     def unmark_observing(self, observed:"Observable") -> None:
         self._observings.remove(observed)
 
+    def clear_observings(self) -> None:
+        for observing in self._observings.copy():
+            # actually removing it from _observings will happen in this call
+            observing.unobserve(self)
+
 class Observable[T:Observer](abc.ABC):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -137,7 +142,11 @@ class Entity(abc.ABC):
         #import traceback
         #self.bt = traceback.format_stack()
 
+    def _destroy(self) -> None:
+        pass
+
     def destroy(self) -> None:
+        self._destroy()
         self.entity_registry.unregister_entity(self)
         #import gc
         #referrers = gc.get_referrers(self)

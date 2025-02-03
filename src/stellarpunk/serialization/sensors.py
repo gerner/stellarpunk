@@ -86,8 +86,6 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         # the sensor image must be valid (i.e. _ship is non-None, in a sector)
         assert(sensor_image._ship)
         assert(sensor_image._ship.sector)
-        if sensor_image._target:
-            assert(sensor_image._target.sector == sensor_image._ship.sector)
 
         bytes_written = 0
 
@@ -101,7 +99,6 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         bytes_written += s_util.float_to_f(sensor_image._identity.angle, f)
 
         bytes_written += s_util.debug_string_w("basic fields", f)
-        bytes_written += s_util.bool_to_f(sensor_image._target is not None, f)
         bytes_written += s_util.uuid_to_f(sensor_image._detector_id, f)
         bytes_written += s_util.float_to_f(sensor_image._last_update, f)
         bytes_written += s_util.float_to_f(sensor_image._prior_fidelity, f)
@@ -135,7 +132,6 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         angle = s_util.float_from_f(f)
 
         s_util.debug_string_r("basic fields", f)
-        has_target = s_util.bool_from_f(f)
         detector_id = s_util.uuid_from_f(f)
         last_update = s_util.float_from_f(f)
         prior_fidelity = s_util.float_from_f(f)
@@ -176,15 +172,13 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         sensor_image._velocity_bias = velocity_bias
         sensor_image._last_bias_update_ts = last_bias_update_ts
 
-        load_context.register_post_load(sensor_image, (has_target, target_id, detector_id, sector_id))
+        load_context.register_post_load(sensor_image, (target_id, detector_id, sector_id))
         return sensor_image
 
     def post_load(self, sensor_image:sensors.SensorImage, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[bool, uuid.UUID, uuid.UUID, uuid.UUID] = context
-        has_target, target_id, detector_id, sector_id = context_data
+        context_data:tuple[uuid.UUID, uuid.UUID, uuid.UUID] = context
+        target_id, detector_id, sector_id = context_data
 
-        if has_target:
-            sensor_image._target = load_context.gamestate.get_entity(target_id, core.SectorEntity)
         sensor_image._ship = load_context.gamestate.get_entity(detector_id, core.SectorEntity)
 
         sector = load_context.gamestate.get_entity(sector_id, core.Sector)

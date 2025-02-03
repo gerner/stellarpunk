@@ -33,7 +33,7 @@ class ContextKeys(enum.IntEnum):
     STATIC_COUNT = enum.auto()
     DYNAMIC_COUNT = enum.auto()
 
-class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
+class SensorImage(core.AbstractSensorImage):
     @classmethod
     def create_sensor_image(cls, target:Optional[core.SectorEntity], ship:core.SectorEntity, sensor_manager:core.AbstractSensorManager, identity:Optional[core.SensorIdentity]=None, identified:bool=False) -> "SensorImage":
         if identity is None:
@@ -41,13 +41,9 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
             identity = core.SensorIdentity(target)
         image = SensorImage(identity)
         image.set_sensor_manager(sensor_manager)
-        image._target = target
         image._ship = ship
         image._detector_id = ship.entity_id
         image._identified = identified
-        if target:
-            target.observe(image)
-        ship.observe(image)
         return image
 
     def __init__(self, identity:core.SensorIdentity, *args:Any, **kwargs:Any) -> None:
@@ -56,7 +52,6 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
         self._sensor_manager:core.AbstractSensorManager = None # type: ignore
         self._ship:core.SectorEntity = None # type: ignore
         self._detector_id:uuid.UUID = None # type: ignore
-        self._target:Optional[core.SectorEntity] = None
         self._last_update = 0.
         self._prior_fidelity = 1.0
         self._last_profile = 0.
@@ -80,47 +75,19 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     def __hash__(self) -> int:
         return hash((self._identity.entity_id, self._detector_id))
 
-    # core.SectorEntityObserver
-    @property
-    def observer_id(self) -> uuid.UUID:
-        return self._detector_id
+    def target_destroyed(self, entity:core.SectorEntity) -> None:
+        assert entity.entity_id == self._identity.entity_id
+        # might be risky checking if detected on logically destroyed entity
+        if self._ship and self._sensor_manager.detected(entity, self._ship):
+            self._is_active = False
+            self._inactive_reason = core.SensorImageInactiveReason.DESTROYED
 
-    def entity_destroyed(self, entity:core.SectorEntity) -> None:
-        if entity == self._target:
-            # might be risky checking if detected on logically destroyed entity
-            if self._ship and self._sensor_manager.detected(entity, self._ship):
-                self._is_active = False
-                self._inactive_reason = core.SensorImageInactiveReason.DESTROYED
-            self._target = None
-        elif entity == self._ship:
-            if self._target:
-                self._target.unobserve(self)
-                self._target = None
-            self._ship.unobserve(self)
-            self._ship.sensor_settings.unregister_image(self)
-            # we drop our _ship reference to let it get cleaned up
-            self._ship = None # type: ignore
-        else:
-            raise ValueError(f'got entity_destroyed for unexpected entity {entity}')
-
-    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
-        if entity == self._target:
-            # might be risky checking if detected on logically migrated entity
-            if self._ship and self._sensor_manager.detected(entity, self._ship):
-                self._is_active = False
-                self._inactive_reason = core.SensorImageInactiveReason.MIGRATED
-            self._target.unobserve(self)
-            self._target = None
-        elif entity == self._ship:
-            # this sensor image is invalid if the detector migrates
-            if self._target:
-                self._target.unobserve(self)
-                self._target = None
-            self._ship.unobserve(self)
-            self._ship.sensor_settings.unregister_image(self)
-            self._ship = None # type: ignore
-        else:
-            raise ValueError(f'got entity_migrated for unexpected entity {entity}')
+    def target_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        assert entity.entity_id == self._identity.entity_id
+        # might be risky checking if detected on logically migrated entity
+        if self._ship and self._sensor_manager.detected(entity, self._ship):
+            self._is_active = False
+            self._inactive_reason = core.SensorImageInactiveReason.MIGRATED
 
 
     def set_sensor_manager(self, sensor_manager:core.AbstractSensorManager) -> None:
@@ -164,13 +131,6 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     def acceleration(self) -> npt.NDArray[np.float64]:
         return self._acceleration
 
-    @property
-    def transponder(self) -> bool:
-        if self._target:
-            return self._target.sensor_settings.transponder
-        else:
-            return False
-
     def is_active(self) -> bool:
         return self._is_active
 
@@ -178,32 +138,28 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
     def inactive_reason(self) -> core.SensorImageInactiveReason:
         return self._inactive_reason
 
-    def initialize(self) -> None:
-        self._initialize_bias()
+    def initialize(self, target:core.SectorEntity) -> None:
+        self._initialize_bias(target)
 
-    def _initialize_bias(self) -> None:
-        assert self._target
-        assert self._ship
+    def destroy(self) -> None:
+        self._ship = None # type: ignore
 
+    def _initialize_bias(self, target:core.SectorEntity) -> None:
         # choose a direction for the location bias
         # choose an angle and radius offset relative to detector
-        distance = util.magnitude(*(self._target.loc - self._ship.loc))
+        distance = util.magnitude(*(target.loc - self._ship.loc))
         if distance > 0.0:
             offset_r = core.Gamestate.gamestate.random.uniform(low=-1.0, high=1.0) * config.Settings.sensors.COEFF_BIAS_OFFSET_R * distance
             offset_theta = core.Gamestate.gamestate.random.uniform(low=-1.0, high=1.0) * config.Settings.sensors.COEFF_BIAS_OFFSET_THETA
 
-            target_r, target_theta = util.cartesian_to_polar(*(self._target.loc - self._ship.loc))
+            target_r, target_theta = util.cartesian_to_polar(*(target.loc - self._ship.loc))
 
-            self._loc_bias_direction = np.array(util.polar_to_cartesian(target_r+offset_r, target_theta+offset_theta)) + self._ship.loc - self._target.loc
+            self._loc_bias_direction = np.array(util.polar_to_cartesian(target_r+offset_r, target_theta+offset_theta)) + self._ship.loc - target.loc
             self._loc_bias_direction /= util.magnitude(*self._loc_bias_direction)
         self._last_bias_update_ts = -np.inf
 
-    def _update_bias(self) -> None:
-
-        assert self._target
-        assert self._ship
-
-        if isinstance(self._target, sector_entity.Projectile):
+    def _update_bias(self, target:core.SectorEntity) -> None:
+        if isinstance(target, sector_entity.Projectile):
             self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
             return
 
@@ -225,32 +181,32 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
         self._last_bias_update_ts = core.Gamestate.gamestate.timestamp
 
     def update(self, notify_target:bool=True) -> bool:
-        if self._ship and self._ship.sector and not self._target:
+        target:Optional[core.SectorEntity] = None
+        if self._ship.sector:
             # try to re-fetch the target if possible
             # this might happen if this image is created from intel
             # also possible if the target jumps away without us detecting them
             # and then comes back
             if self.identity.entity_id in self._ship.sector.entities:
-                self._target = self._ship.sector.entities[self.identity.entity_id]
-                self._target.observe(self)
+                target = self._ship.sector.entities[self.identity.entity_id]
 
-        if self._target and self._ship:
+        if target:
             # update sensor reading if possible
-            if self._sensor_manager.detected(self._target, self._ship):
+            if self._sensor_manager.detected(target, self._ship):
                 self._prior_fidelity = self.fidelity
-                self._identity.angle = self._target.angle
-                self._last_profile = self._sensor_manager.compute_target_profile(self._target, self._ship)
-                self._update_bias()
+                self._identity.angle = target.angle
+                self._last_profile = self._sensor_manager.compute_target_profile(target, self._ship)
+                self._update_bias(target)
 
                 since_last_update = core.Gamestate.gamestate.timestamp - self._last_update
                 if since_last_update < config.Settings.sensors.ACCEL_PREDICTION_MAX_SEC:
-                    self._acceleration = self._target.velocity - self._velocity
+                    self._acceleration = target.velocity - self._velocity
                 else:
                     self._acceleration = ZERO_VECTOR
 
                 self._last_update = core.Gamestate.gamestate.timestamp
-                self._loc = self._target.loc
-                self._velocity = np.array(self._target.velocity)
+                self._loc = target.loc
+                self._velocity = np.array(target.velocity)
 
                 if not self._identified and self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0:
                     crew = core.crew(self._ship)
@@ -262,18 +218,18 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
                                 gamestate.event_manager.e(Events.IDENTIFIED),
                                 {
                                     gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
-                                    gamestate.event_manager.ck(ContextKeys.TARGET): self._target.short_id_int(),
+                                    gamestate.event_manager.ck(ContextKeys.TARGET): target.short_id_int(),
                                 }
                         )
                     # once identified, always identified
                     self._identified = True
 
                 # let the target know they've been targeted by us
-                if notify_target and self._sensor_manager.detected(self._ship, self._target):
+                if notify_target and self._sensor_manager.detected(self._ship, target):
                     #TODO: this is going to get triggered a lot. should we only
                     # do it the first time they get targeted?
                     #TODO: what about passengers? should they get this event too?
-                    candidates = list(itertools.chain(core.crew(self._ship), core.crew(self._target)))
+                    candidates = list(itertools.chain(core.crew(self._ship), core.crew(target)))
                     if candidates:
                         gamestate = core.Gamestate.gamestate
                         gamestate.trigger_event(
@@ -281,11 +237,11 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
                                 gamestate.event_manager.e(Events.TARGETED),
                                 {
                                     gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
-                                    gamestate.event_manager.ck(ContextKeys.TARGET): self._target.short_id_int(),
+                                    gamestate.event_manager.ck(ContextKeys.TARGET): target.short_id_int(),
                                 }
                         )
 
-                    self._target.target(self._ship)
+                    target.target(self._ship)
                 return True
             else:
                 self._acceleration = ZERO_VECTOR
@@ -303,7 +259,7 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
             return detector.sensor_settings.get_image(self.identity.entity_id)
 
         identity = self._identity
-        image = SensorImage.create_sensor_image(self._target, detector, self._sensor_manager, identity=self._identity, identified=self._identified)
+        image = SensorImage.create_sensor_image(None, detector, self._sensor_manager, identity=self._identity, identified=self._identified)
         image._last_update = self._last_update
         image._last_profile = self._last_profile
         image._loc = self._loc
@@ -320,12 +276,16 @@ class SensorImage(core.SectorEntityObserver, core.AbstractSensorImage):
 
         return image
 
-class SensorSettings(core.AbstractSensorSettings):
+class SensorSettings(core.SectorEntityObserver, core.AbstractSensorSettings):
     def __init__(self, max_sensor_power:float=0., sensor_intercept:float=100.0, initial_sensor_power:Optional[float]=None, initial_transponder:bool=True) -> None:
+        super().__init__()
         if initial_sensor_power is None:
             initial_sensor_power = max_sensor_power
         if initial_sensor_power > max_sensor_power or 0.0 > initial_sensor_power:
             raise ValueError(f'0 must be <= {initial_sensor_power=} <= {max_sensor_power=}')
+
+        self._detector_id:uuid.UUID = None # type: ignore
+
         self._max_sensor_power = max_sensor_power
         self._sensor_intercept = sensor_intercept
         self._sensor_power = initial_sensor_power
@@ -348,7 +308,26 @@ class SensorSettings(core.AbstractSensorSettings):
         self._cached_effective_profile:float = 0.0
         self._cached_effective_profile_ts:float = -np.inf
 
+    # core.SectorEntityObserver
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self._detector_id
+
+    def entity_destroyed(self, entity:core.SectorEntity) -> None:
+        if entity.entity_id in self._images:
+            self._images[entity.entity_id].target_destroyed(entity)
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        if entity.entity_id in self._images:
+            self._images[entity.entity_id].target_migrated(entity, from_sector, to_sector)
+
+    def set_detector_id(self, detector_id:uuid.UUID) -> None:
+        self._detector_id = detector_id
+
     def register_image(self, image:core.AbstractSensorImage) -> None:
+        if core.Gamestate.gamestate.contains_entity(image.identity.entity_id):
+            target = core.Gamestate.gamestate.get_entity(image.identity.entity_id, core.SectorEntity)
+            target.observe(self)
         self._images[image.identity.entity_id] = image
     def unregister_image(self, image:core.AbstractSensorImage) -> None:
         del self._images[image.identity.entity_id]
@@ -356,9 +335,15 @@ class SensorSettings(core.AbstractSensorSettings):
         return target_id in self._images
     def get_image(self, target_id:uuid.UUID) -> core.AbstractSensorImage:
         return self._images[target_id]
+
     @property
     def images(self) -> Collection[core.AbstractSensorImage]:
         return list(self._images.values())
+    def clear_images(self) -> None:
+        for image in self._images.values():
+            image.destroy()
+        self._images.clear()
+        self.clear_observings()
 
     @property
     def max_sensor_power(self) -> float:
@@ -520,7 +505,7 @@ class SensorManager(core.AbstractSensorManager):
             return image
         else:
             image = SensorImage.create_sensor_image(target, detector, self)
-            image.initialize()
+            image.initialize(target)
             image.update(notify_target=notify_target)
             detector.sensor_settings.register_image(image)
             return image

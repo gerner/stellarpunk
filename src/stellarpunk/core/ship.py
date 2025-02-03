@@ -30,7 +30,7 @@ class Ship(character.Asset, character.CrewedSectorEntity):
 
         self._orders: collections.deque[base.AbstractOrder] = collections.deque()
 
-    def _destroy(self) -> None:
+    def _destroy_sector_entity(self) -> None:
         self._clear_orders()
 
     def get_history(self) -> Sequence[sector.HistoryEntry]:

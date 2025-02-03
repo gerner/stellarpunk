@@ -272,8 +272,7 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         return self.entity_id
 
 
-    def destroy(self) -> None:
-        super().destroy()
+    def _destroy(self) -> None:
         for observer in self._observers.copy():
             observer.character_destroyed(self)
         self.clear_observers()

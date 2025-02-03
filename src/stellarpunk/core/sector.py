@@ -167,6 +167,7 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         self.history: collections.deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         self.sensor_settings=sensor_settings
+        self.sensor_settings.set_detector_id(self.entity_id)
 
     # base.Observable
     @property
@@ -184,22 +185,25 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         for o in self._observers.copy():
             o.entity_migrated(self, from_sector, to_sector)
 
+        self.sensor_settings.clear_images()
         self._migrate(to_sector)
 
     def _migrate(self, to_sector:"Sector") -> None:
         pass
 
-    def destroy(self) -> None:
+    def _destroy_sector_entity(self) -> None:
+        pass
+
+    def _destroy(self) -> None:
         for o in self._observers.copy():
             o.entity_destroyed(self)
         self.clear_observers()
 
-        self._destroy()
+        # perform SE specific destroy logic before we lose the phys data,
+        # but after we've cleared observers
+        self._destroy_sector_entity()
+        self.sensor_settings.clear_images()
         self.phys.data = None
-        super().destroy()
-
-    def _destroy(self) -> None:
-        pass
 
     def target(self, threat:"SectorEntity") -> None:
         for o in self._observers.copy():
@@ -297,6 +301,13 @@ class AbstractSensorImage:
     directly hang on to the target object. This image predicts the target's 
     position and velocity using latest sensor readings.
     """
+    def target_migrated(self, target:SectorEntity, from_sector:"Sector", to_sector:"Sector") -> None:
+        pass
+    def target_destroyed(self, target:SectorEntity) -> None:
+        pass
+
+    @abc.abstractmethod
+    def destroy(self) -> None: ...
     @property
     @abc.abstractmethod
     def age(self) -> float:
@@ -329,9 +340,9 @@ class AbstractSensorImage:
     @property
     @abc.abstractmethod
     def identity(self) -> SensorIdentity: ...
-    @property
-    @abc.abstractmethod
-    def transponder(self) -> bool: ...
+    #@property
+    #@abc.abstractmethod
+    #def transponder(self) -> bool: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
         """ False iff we detected target destroyed or leaving the sector """
@@ -354,6 +365,8 @@ class AbstractSensorImage:
 
 class AbstractSensorSettings:
     @abc.abstractmethod
+    def set_detector_id(self, entity_id:uuid.UUID) -> None: ...
+    @abc.abstractmethod
     def register_image(self, image:AbstractSensorImage) -> None: ...
     @abc.abstractmethod
     def unregister_image(self, image:AbstractSensorImage) -> None: ...
@@ -364,6 +377,8 @@ class AbstractSensorSettings:
     @property
     @abc.abstractmethod
     def images(self) -> Collection[AbstractSensorImage]: ...
+    @abc.abstractmethod
+    def clear_images(self) -> None: ...
 
     @property
     @abc.abstractmethod
