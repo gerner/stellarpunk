@@ -215,15 +215,21 @@ class EntityIntelMatchCriteria(core.IntelMatchCriteria):
         return other.intel_entity_id == self.entity_id
 
 class EntityIntel[T:core.Entity](Intel):
-    def __init__(self, intel_entity_id:uuid.UUID, id_prefix:str, intel_entity_short_id:str, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, intel_entity_id:uuid.UUID, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
         # we need to set these fields before the super constructor because we
         # override __str__ which might be called in a super constructor
         # we specifically do not retain a reference to the original entity
         self.intel_entity_id = intel_entity_id
-        self.intel_entity_id_prefix = id_prefix
-        self.intel_entity_short_id = intel_entity_short_id
         self.intel_entity_type:Type[T] = intel_entity_type
         super().__init__(*args, **kwargs)
+
+    @property
+    def intel_entity_short_id(self) -> str:
+        return self.intel_entity_type.create_short_id(self.intel_entity_id)
+
+    @property
+    def intel_entity_id_prefix(self) -> str:
+        return self.intel_entity_type.id_prefix
 
     def __str__(self) -> str:
         return f'{self.short_id()} {type(self)} on {self.intel_entity_short_id} valid:{self.is_valid()} fresh:{self.is_fresh()}'
@@ -352,10 +358,8 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
         radius = entity.radius
         is_static = entity.is_static
         entity_id = entity.entity_id
-        id_prefix = entity.id_prefix
-        entity_short_id = entity.short_id()
         entity_class = type(entity)
-        intel = cls.create_intel(*args, sector_id, loc, radius, is_static, entity_id, id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
+        intel = cls.create_intel(*args, sector_id, loc, radius, is_static, entity_id, entity_class, gamestate, **kwargs)
 
         return intel
 
@@ -430,10 +434,8 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
     @classmethod
     def create_econ_agent_intel(cls, econ_agent:core.EconAgent, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "EconAgentIntel":
         entity_id = econ_agent.entity_id
-        entity_id_prefix = econ_agent.id_prefix
-        entity_short_id = econ_agent.short_id()
         entity_class = type(econ_agent)
-        agent_intel = cls.create_intel(entity_id, entity_id_prefix, entity_short_id, entity_class, gamestate, **kwargs)
+        agent_intel = cls.create_intel(entity_id, entity_class, gamestate, **kwargs)
         #TODO: econ agents are not always associated with sector entities!
         underlying_entity = gamestate.agent_to_entity[entity_id]
         agent_intel.underlying_entity_type = type(underlying_entity)
@@ -842,12 +844,12 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
         static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
         s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
         if not s_intel or not s_intel.is_fresh():
-            static_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, True, 0, {}, gamestate, expires_at=static_expires_at, fresh_until=static_fresh_until)
+            static_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, True, 0, {}, gamestate, author_id=character.entity_id, expires_at=static_expires_at, fresh_until=static_fresh_until)
 
         dynamic_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, False)
         d_intel = character.intel_manager.get_intel(dynamic_criteria, SectorHexIntel)
         if not d_intel or not d_intel.is_fresh():
-            dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, False, 0, {}, gamestate, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
+            dynamic_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, False, 0, {}, gamestate, author_id=character.entity_id, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
 
     # iterate over all the sensor images we've got accumulating info for
     # the hex they lie in, if it's within range
@@ -882,7 +884,7 @@ def add_sector_intel(sector:core.Sector, character:core.Character, gamestate:cor
     if sector_intel and sector_intel.is_fresh():
         return
 
-    sector_intel = SectorIntel.create_intel(sector.entity_id, sector.id_prefix, sector.short_id(), type(sector), gamestate, expires_at=expires_at, fresh_until=fresh_until)
+    sector_intel = SectorIntel.create_intel(sector.entity_id, type(sector), gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until)
     ret = character.intel_manager.add_intel(sector_intel)
     assert(ret)
 

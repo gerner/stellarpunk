@@ -22,7 +22,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
 
     def _save_navigator_params(self, params:collision.NavigatorParameters, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("navigator basic params", f)
+        bytes_written += self.save_game.debug_string_w("navigator basic params", f)
 
         bytes_written += s_util.float_to_f(params.radius, f)
         bytes_written += s_util.float_to_f(params.max_thrust, f)
@@ -58,7 +58,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         bytes_written += s_util.bool_to_f(params.collision_cbdr, f)
 
         # analysis params
-        bytes_written += s_util.debug_string_w("navigator analysis params", f)
+        bytes_written += self.save_game.debug_string_w("navigator analysis params", f)
         bytes_written += s_util.float_to_f(params.analysis.neighborhood_radius, f)
         bytes_written += s_util.int_to_f(params.analysis.threat_count, f)
         bytes_written += s_util.int_to_f(params.analysis.neighborhood_size, f)
@@ -67,7 +67,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         bytes_written += s_util.int_to_f(params.analysis.coalesced_threat_count, f)
 
         # prior threats
-        bytes_written += s_util.debug_string_w("navigator prior threats", f)
+        bytes_written += self.save_game.debug_string_w("navigator prior threats", f)
         bytes_written += s_util.uuids_to_f(list(x.body.data.entity_id for x in params.prior_threats), f)
 
         return bytes_written
@@ -75,7 +75,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
     def _load_navigator_params(self, f:io.IOBase, order:T, load_context:save_game.LoadContext) -> tuple[collision.NavigatorParameters, Any]:
         params = collision.NavigatorParameters()
 
-        s_util.debug_string_r("navigator basic params", f)
+        load_context.debug_string_r("navigator basic params", f)
 
         params.radius = s_util.float_from_f(f)
         params.max_thrust = s_util.float_from_f(f)
@@ -112,7 +112,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         params.collision_cbdr = s_util.bool_from_f(f)
 
         # analysis params
-        s_util.debug_string_r("navigator analysis params", f)
+        load_context.debug_string_r("navigator analysis params", f)
         params.analysis.neighborhood_radius = s_util.float_from_f(f)
         params.analysis.threat_count = s_util.int_from_f(f)
         params.analysis.neighborhood_size = s_util.int_from_f(f)
@@ -121,7 +121,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         params.analysis.coalesced_threat_count = s_util.int_from_f(f)
 
         # prior threats, we'll fully set this up in post load
-        s_util.debug_string_r("navigator prior threats", f)
+        load_context.debug_string_r("navigator prior threats", f)
         prior_threat_ids = s_util.uuids_from_f(f)
 
         load_context.register_custom_post_load(self._post_load_navigator_params, order, (params, prior_threat_ids))

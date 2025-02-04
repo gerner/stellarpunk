@@ -124,6 +124,10 @@ class EntityRegistry(abc.ABC):
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
+    @classmethod
+    def create_short_id(cls, entity_id:uuid.UUID) -> str:
+        return f'{cls.id_prefix}-{entity_id.hex[:8]}'
+
     def __init__(self, entity_registry: EntityRegistry, created_at:Optional[float]=None, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = util.uuid_to_u64(self.entity_id)

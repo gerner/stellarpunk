@@ -20,25 +20,25 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
 
     def save(self, effect:Effect, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(effect.effect_id, f)
         bytes_written += s_util.uuid_to_f(effect.sector.entity_id, f)
         bytes_written += s_util.float_to_f(effect.started_at, f)
         bytes_written += s_util.float_to_f(effect.completed_at, f)
 
-        bytes_written += s_util.debug_string_w("type specific", f)
+        bytes_written += self.save_game.debug_string_w("type specific", f)
         bytes_written += self._save_effect(effect, f)
 
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> Effect:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         effect_id = s_util.uuid_from_f(f)
         sector_id = s_util.uuid_from_f(f)
         started_at = s_util.float_from_f(f)
         completed_at = s_util.float_from_f(f)
 
-        s_util.debug_string_r("type specific", f)
+        load_context.debug_string_r("type specific", f)
         effect, extra_context = self._load_effect(f, load_context, effect_id)
         effect.started_at = started_at
         effect.completed_at = completed_at

@@ -20,26 +20,26 @@ class AgendumSaver[T:agenda.Agendum](save_game.Saver[T], abc.ABC):
 
     def save(self, obj:T, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(obj.agenda_id, f)
         bytes_written += s_util.uuid_to_f(obj.character.entity_id, f)
         bytes_written += s_util.float_to_f(obj.started_at, f)
         bytes_written += s_util.float_to_f(obj.stopped_at, f)
         bytes_written += s_util.bool_to_f(obj.paused, f)
         bytes_written += s_util.bool_to_f(obj._is_primary, f)
-        bytes_written += s_util.debug_string_w("type specific", f)
+        bytes_written += self.save_game.debug_string_w("type specific", f)
         bytes_written += self._save_agendum(obj, f)
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> T:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         agenda_id = s_util.uuid_from_f(f)
         character_id = s_util.uuid_from_f(f)
         started_at = s_util.float_from_f(f)
         stopped_at = s_util.float_from_f(f)
         paused = s_util.bool_from_f(f)
         is_primary = s_util.bool_from_f(f)
-        s_util.debug_string_r("type specific", f)
+        load_context.debug_string_r("type specific", f)
         (agendum, extra_context) = self._load_agendum(f, load_context, agenda_id)
         agendum.started_at = started_at
         agendum.stopped_at = stopped_at
@@ -104,7 +104,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
     def _save_agendum(self, obj:agenda.MiningAgendum, f:io.IOBase) -> int:
         bytes_written = 0
 
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(obj.craft.entity_id, f)
         bytes_written += s_util.uuid_to_f(obj.agent.entity_id, f)
         bytes_written += s_util.ints_to_f(obj.allowed_resources, f)
@@ -113,7 +113,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         bytes_written += s_util.int_to_f(obj.max_trips, f, signed=True)
         bytes_written += s_util.optional_obj_to_f(obj.allowed_stations, f, s_util.uuids_to_f)
 
-        bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += self.save_game.debug_string_w("orders", f)
         if obj.mining_order:
             bytes_written += s_util.bool_to_f(True, f)
             bytes_written += s_util.uuid_to_f(obj.mining_order.order_id, f)
@@ -126,7 +126,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         else:
             bytes_written += s_util.bool_to_f(False, f)
 
-        bytes_written += s_util.debug_string_w("pending interest", f)
+        bytes_written += self.save_game.debug_string_w("pending interest", f)
         if obj._pending_intel_interest:
             bytes_written += s_util.bool_to_f(True, f)
             bytes_written += self.save_game.save_object(obj._pending_intel_interest, f, core.IntelMatchCriteria)
@@ -136,7 +136,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         return bytes_written
 
     def _load_agendum(self, f:io.IOBase, load_context:save_game.LoadContext, agenda_id:uuid.UUID) -> tuple[agenda.MiningAgendum, Any]:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         ship_id = s_util.uuid_from_f(f)
         agent_id = s_util.uuid_from_f(f)
         allowed_resources = s_util.ints_from_f(f)
@@ -145,7 +145,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         max_trips = s_util.int_from_f(f, signed=True)
         allowed_stations = s_util.optional_obj_from_f(f, s_util.uuids_from_f)
 
-        s_util.debug_string_r("orders", f)
+        load_context.debug_string_r("orders", f)
         has_mining_order = s_util.bool_from_f(f)
         mining_order_id:Optional[uuid.UUID] = None
         if has_mining_order:
@@ -155,7 +155,7 @@ class MiningAgendumSaver(AgendumSaver[agenda.MiningAgendum]):
         if has_transfer_order:
             transfer_order_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("pending interest", f)
+        load_context.debug_string_r("pending interest", f)
         has_pending_interest = s_util.bool_from_f(f)
         pending_interest:Optional[core.IntelMatchCriteria] = None
         if has_pending_interest:
@@ -191,7 +191,7 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
     def _save_agendum(self, obj:agenda.TradingAgendum, f:io.IOBase) -> int:
         bytes_written = 0
 
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(obj.craft.entity_id, f)
         bytes_written += s_util.uuid_to_f(obj.agent.entity_id, f)
         bytes_written += s_util.ints_to_f(obj.allowed_goods, f)
@@ -203,7 +203,7 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         bytes_written += s_util.optional_obj_to_f(obj.buy_from_stations, f, s_util.uuids_to_f)
         bytes_written += s_util.optional_obj_to_f(obj.sell_to_stations, f, s_util.uuids_to_f)
 
-        bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += self.save_game.debug_string_w("orders", f)
         if obj.buy_order:
             bytes_written += s_util.bool_to_f(True, f)
             bytes_written += s_util.uuid_to_f(obj.buy_order.order_id, f)
@@ -216,14 +216,14 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         else:
             bytes_written += s_util.bool_to_f(False, f)
 
-        bytes_written += s_util.debug_string_w("pending interests", f)
+        bytes_written += self.save_game.debug_string_w("pending interests", f)
         bytes_written += s_util.size_to_f(len(obj._pending_intel_interests), f)
         for interest in obj._pending_intel_interests:
             bytes_written += self.save_game.save_object(interest, f, core.IntelMatchCriteria)
         return bytes_written
 
     def _load_agendum(self, f:io.IOBase, load_context:save_game.LoadContext, agenda_id:uuid.UUID) -> tuple[agenda.TradingAgendum, Any]:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         ship_id = s_util.uuid_from_f(f)
         agent_id = s_util.uuid_from_f(f)
         allowed_goods = s_util.ints_from_f(f)
@@ -235,7 +235,7 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         buy_from_stations = s_util.optional_obj_from_f(f, s_util.uuids_from_f)
         sell_to_stations = s_util.optional_obj_from_f(f, s_util.uuids_from_f)
 
-        s_util.debug_string_r("orders", f)
+        load_context.debug_string_r("orders", f)
         has_buy_order = s_util.bool_from_f(f)
         buy_order_id:Optional[uuid.UUID] = None
         if has_buy_order:
@@ -245,7 +245,7 @@ class TradingAgendumSaver(AgendumSaver[agenda.TradingAgendum]):
         if has_sell_order:
             sell_order_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("pending interests", f)
+        load_context.debug_string_r("pending interests", f)
         count = s_util.size_from_f(f)
         pending_interests:set[core.IntelMatchCriteria] = set()
         for i in range(count):

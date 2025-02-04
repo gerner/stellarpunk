@@ -42,6 +42,11 @@ class LoadContext:
         self._custom_post_loads:list[tuple[Callable[[Any, LoadContext, Any], None], Any, Any]] = []
         self._custom_sanity_checks:list[tuple[Callable[[Any, LoadContext, Any], None], Any, Any]] = []
 
+    def debug_string_r(self, s:str, f:io.IOBase) -> str:
+        if self.debug:
+            return s_util._debug_string_r(s, f)
+        return s
+
     def reference(self, obj:Any) -> None:
         """ hang on to a reference to an object.
 
@@ -140,7 +145,7 @@ class Saver[T](abc.ABC):
             for observer in obj.observers:
                 assert(obj in observer.observings)
 
-            bytes_written += s_util.debug_string_w("observers", f)
+            bytes_written += self.save_game.debug_string_w("observers", f)
             # skip ephemeral observers with sentinel observer id
             bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observer_id) for x in obj.observers if x.observer_id != core.OBSERVER_ID_NULL), f)
         return bytes_written
@@ -148,7 +153,7 @@ class Saver[T](abc.ABC):
     def load_observers(self, obj:core.Observable, f:io.IOBase, load_context:LoadContext) -> list[tuple[str, uuid.UUID]]:
         observer_ids:list[tuple[str, uuid.UUID]] = []
         if load_context.debug:
-            s_util.debug_string_r("observers", f)
+            load_context.debug_string_r("observers", f)
             observer_ids = s_util.str_uuids_from_f(f)
             load_context.register_sanity_check_observers(obj, observer_ids)
         return observer_ids
@@ -161,13 +166,13 @@ class Saver[T](abc.ABC):
                 assert(obj in observable.observers)
 
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("observing", f)
+        bytes_written += self.save_game.debug_string_w("observing", f)
         bytes_written += s_util.str_uuids_to_f(list((util.fullname(x), x.observable_id) for x in obj.observings), f)
         return bytes_written
 
     def load_observing(self, obj:core.Observer, f:io.IOBase, load_context:LoadContext) -> list[tuple[type, uuid.UUID]]:
         """ Restores info about Observable instances this obj is observing. """
-        s_util.debug_string_r("observing", f)
+        load_context.debug_string_r("observing", f)
         raw_observing_info = s_util.str_uuids_from_f(f)
         observing_info:list[tuple[type, uuid.UUID]] = []
         for klassname, object_id in raw_observing_info:
@@ -283,6 +288,11 @@ class GameSaver(SaverObserver):
         self.intel_director = intel_director
 
         self._observers:weakref.WeakSet[GameSaverObserver] = weakref.WeakSet()
+
+    def debug_string_w(self, s:str, f:io.IOBase) -> int:
+        if self.debug:
+            return s_util._debug_string_w(s, f)
+        return 0
 
     def observe(self, observer:GameSaverObserver) -> None:
         self._observers.add(observer)
@@ -470,7 +480,7 @@ class GameSaver(SaverObserver):
             bytes_written += self._save_metadata(gamestate, save_file)
 
             # save class -> key registration
-            bytes_written += s_util.debug_string_w("class registry", save_file)
+            bytes_written += self.debug_string_w("class registry", save_file)
             bytes_written += self._save_registry(save_file)
 
             #TODO: put some global state error checking stuff. these are things
@@ -479,14 +489,14 @@ class GameSaver(SaverObserver):
             # code/config changes between save/load
             # e.g. sprites, cultures, event context keys
 
-            bytes_written += s_util.debug_string_w("event state", save_file)
+            bytes_written += self.debug_string_w("event state", save_file)
             #TODO: shouldn't we be saving it off of gamestate and not us?
             # this is hard because Gamestate has an AbstractEventManager which
             # doesn't (can't) expose EventState
             bytes_written += self.save_object(self.event_manager.event_state, save_file)
 
             # save the simulator which will recursively save everything
-            bytes_written += s_util.debug_string_w("gamestate", save_file)
+            bytes_written += self.debug_string_w("gamestate", save_file)
             bytes_written += self.save_object(gamestate, save_file)
 
             # move the temp file into final home, so we only end up with good files
@@ -524,14 +534,14 @@ class GameSaver(SaverObserver):
 
             # load the class -> key registration
             self.logger.debug("loading class registry")
-            s_util.debug_string_r("class registry", save_file)
+            load_context.debug_string_r("class registry", save_file)
             self._load_registry(save_file)
 
             self.logger.debug("loading event state")
-            s_util.debug_string_r("event state", save_file)
+            load_context.debug_string_r("event state", save_file)
             event_state = self.load_object(events.EventState, save_file, load_context)
             self.logger.debug("loading gamestate")
-            s_util.debug_string_r("gamestate", save_file)
+            load_context.debug_string_r("gamestate", save_file)
             gamestate = self.load_object(core.Gamestate, save_file, load_context)
             gamestate.fingerprint = save_game.game_fingerprint
             # do not reset game_version, the game is now running under that

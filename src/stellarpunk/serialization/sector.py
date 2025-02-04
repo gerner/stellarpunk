@@ -78,25 +78,25 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         bytes_written = 0
 
         # basic fields: loc, radius, culture
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.matrix_to_f(sector.loc, f)
         bytes_written += s_util.float_to_f(sector.radius, f)
         bytes_written += s_util.float_to_f(sector.hex_size, f)
         bytes_written += s_util.to_len_pre_f(sector.culture, f)
 
         # entities. we'll reconstruct planets, etc. from entities
-        bytes_written += s_util.debug_string_w("sector entities", f)
+        bytes_written += self.save_game.debug_string_w("sector entities", f)
         bytes_written += s_util.uuids_to_f(sector.entities.keys(), f)
 
         # effects
-        bytes_written += s_util.debug_string_w("effects", f)
+        bytes_written += self.save_game.debug_string_w("effects", f)
         bytes_written += s_util.size_to_f(len(sector._effects), f)
         for effect in sector._effects:
             bytes_written += s_util.uuid_to_f(effect.effect_id, f)
 
 
         # weather. we'll reconstruct weather index on load from weather regions
-        bytes_written += s_util.debug_string_w("weather regions", f)
+        bytes_written += self.save_game.debug_string_w("weather regions", f)
         bytes_written += s_util.size_to_f(len(sector._weathers), f)
         # we assume weathers are in compact index order (so first element is
         # index 0, second is 1, and so on)
@@ -105,7 +105,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
 
         if self.save_game.debug:
             # collision observers for sanity checking
-            bytes_written += s_util.debug_string_w("collision observers", f)
+            bytes_written += self.save_game.debug_string_w("collision observers", f)
             bytes_written += s_util.str_uuids_to_f(list((util.fullname(v), k) for k,v in sector.entities.items()), f)
             bytes_written += s_util.str_uuids_to_f(list((util.fullname(v), v.effect_id) for v in sector._effects), f)
             observer_info:list[tuple[str, uuid.UUID]] = []
@@ -115,7 +115,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
             bytes_written += s_util.str_uuids_to_f(observer_info, f)
 
             # phys object params for sanity checking
-            bytes_written += s_util.debug_string_w("phys object params", f)
+            bytes_written += self.save_game.debug_string_w("phys object params", f)
             bodies = sector.space.bodies
             bytes_written += s_util.size_to_f(len(bodies), f)
             for body in bodies:
@@ -141,7 +141,7 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         #we can't fully load the sector until all entities have been loaded.
 
         # basic fields: loc, radius, culture
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         loc = s_util.matrix_from_f(f)
         radius = s_util.float_from_f(f)
         hex_size = s_util.float_from_f(f)
@@ -154,27 +154,27 @@ class SectorSaver(s_gamestate.EntitySaver[core.Sector]):
         sector = core.Sector(loc, radius, hex_size, cymunk.Space(), load_context.gamestate, entity_id=entity_id, culture=culture)
 
         # entities. we'll reconstruct these in post load
-        s_util.debug_string_r("sector entities", f)
+        load_context.debug_string_r("sector entities", f)
         entities:list[uuid.UUID] = s_util.uuids_from_f(f)
 
         # effects
-        s_util.debug_string_r("effects", f)
+        load_context.debug_string_r("effects", f)
         effect_ids:list[uuid.UUID] = s_util.uuids_from_f(f)
 
         # weather
-        s_util.debug_string_r("weather regions", f)
+        load_context.debug_string_r("weather regions", f)
         count = s_util.size_from_f(f)
         for _ in range(count):
             sector.add_region(self.save_game.load_object(core.SectorWeatherRegion, f, load_context))
 
         if load_context.debug:
             # collision observers for sanity checking
-            s_util.debug_string_r("collision observers", f)
+            load_context.debug_string_r("collision observers", f)
             entity_info = s_util.str_uuids_from_f(f)
             effect_info = s_util.str_uuids_from_f(f)
             observer_info = s_util.str_uuids_from_f(f)
 
-            s_util.debug_string_r("phys object params", f)
+            load_context.debug_string_r("phys object params", f)
             body_count = s_util.size_from_f(f)
             body_params:dict[uuid.UUID, BodyParams] = {}
             for i in range(body_count):

@@ -41,7 +41,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written = 0
 
         # all the physical properties needed for the phys body/shape
-        bytes_written += s_util.debug_string_w("phys props", f)
+        bytes_written += self.save_game.debug_string_w("phys props", f)
         bytes_written += s_util.float_to_f(sector_entity.mass, f)
         bytes_written += s_util.float_to_f(sector_entity.moment, f)
         bytes_written += s_util.float_to_f(sector_entity.radius, f)
@@ -55,7 +55,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         bytes_written += s_util.float_to_f(sector_entity.phys.torque, f)
 
         # other fields
-        bytes_written += s_util.debug_string_w("others", f)
+        bytes_written += self.save_game.debug_string_w("others", f)
         bytes_written += s_util.float_to_f(sector_entity.cargo_capacity, f)
         bytes_written += s_util.matrix_to_f(sector_entity.cargo, f)
         bytes_written += s_util.bool_to_f(sector_entity.is_static, f)
@@ -66,22 +66,22 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
             bytes_written += s_util.int_to_f(0, f, blen=1)
 
         # sensor settings
-        bytes_written += s_util.debug_string_w("sensor settings", f)
+        bytes_written += self.save_game.debug_string_w("sensor settings", f)
         bytes_written += self.save_game.save_object(sector_entity.sensor_settings, f, klass=core.AbstractSensorSettings)
 
         if self.save_game.debug:
-            bytes_written += s_util.debug_string_w("history", f)
+            bytes_written += self.save_game.debug_string_w("history", f)
             history_json = json.dumps(list(x.to_dict() for x in sector_entity.get_history()))
             bytes_written += s_util.to_len_pre_f(history_json, f, blen=4)
 
-        bytes_written += s_util.debug_string_w("type specific", f)
+        bytes_written += self.save_game.debug_string_w("type specific", f)
         bytes_written += self._save_sector_entity(sector_entity, f)
 
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> SectorEntity:
         # physical properties
-        s_util.debug_string_r("phys props", f)
+        load_context.debug_string_r("phys props", f)
         mass = s_util.float_from_f(f)
         moment = s_util.float_from_f(f)
         radius = s_util.float_from_f(f)
@@ -95,7 +95,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         torque = s_util.float_from_f(f)
 
         # other fields
-        s_util.debug_string_r("others", f)
+        load_context.debug_string_r("others", f)
         cargo_capacity = s_util.float_from_f(f)
         cargo = s_util.matrix_from_f(f)
         is_static = s_util.bool_from_f(f)
@@ -104,7 +104,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         if has_captain:
             captain_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("sensor settings", f)
+        load_context.debug_string_r("sensor settings", f)
         sensor_settings = self.save_game.load_object(core.AbstractSensorSettings, f, load_context)
 
         phys_body = self._phys_body(mass, radius)
@@ -117,13 +117,13 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         assert(phys_body.moment == moment or (math.isinf(phys_body.mass) and math.isinf(phys_body.moment)))
 
         if self.save_game.debug:
-            s_util.debug_string_r("history", f)
+            load_context.debug_string_r("history", f)
             history_json = s_util.from_len_pre_f(f, blen=4)
             history_list = json.loads(history_json)
             history = list(core.HistoryEntry.from_dict(h) for h in history_list)
 
 
-        s_util.debug_string_r("type specific", f)
+        load_context.debug_string_r("type specific", f)
         sector_entity, extra_context = self._load_sector_entity(f, load_context, entity_id, np.array((loc_x, loc_y)), phys_body, sensor_settings)
         sector_entity.is_static = is_static
 
@@ -172,14 +172,14 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         bytes_written = 0
 
         # basic fields
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.float_to_f(ship.max_base_thrust, f)
         bytes_written += s_util.float_to_f(ship.max_thrust, f)
         bytes_written += s_util.float_to_f(ship.max_fine_thrust, f)
         bytes_written += s_util.float_to_f(ship.max_torque, f)
 
         # orders
-        bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += self.save_game.debug_string_w("orders", f)
         bytes_written += s_util.size_to_f(len(ship._orders), f)
         for order in ship._orders:
             bytes_written += s_util.uuid_to_f(order.order_id, f)
@@ -193,14 +193,14 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         ship = core.Ship(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
         # basic fields
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         ship.max_base_thrust = s_util.float_from_f(f)
         ship.max_thrust = s_util.float_from_f(f)
         ship.max_fine_thrust = s_util.float_from_f(f)
         ship.max_torque = s_util.float_from_f(f)
 
         # orders
-        s_util.debug_string_r("orders", f)
+        load_context.debug_string_r("orders", f)
         order_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for i in range(count):
@@ -229,7 +229,7 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         bytes_written = 0
 
         # basic fields
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.float_to_f(ship.max_base_thrust, f)
         bytes_written += s_util.float_to_f(ship.max_thrust, f)
         bytes_written += s_util.float_to_f(ship.max_fine_thrust, f)
@@ -241,7 +241,7 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
             bytes_written += s_util.int_to_f(0, f, blen=1)
 
         # orders
-        bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += self.save_game.debug_string_w("orders", f)
         bytes_written += s_util.size_to_f(len(ship._orders), f)
         for order in ship._orders:
             bytes_written += s_util.uuid_to_f(order.order_id, f)
@@ -255,7 +255,7 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         ship = combat.Missile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
         # basic fields
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         ship.max_base_thrust = s_util.float_from_f(f)
         ship.max_thrust = s_util.float_from_f(f)
         ship.max_fine_thrust = s_util.float_from_f(f)
@@ -266,7 +266,7 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
             firer_id = s_util.uuid_from_f(f)
 
         # orders
-        s_util.debug_string_r("orders", f)
+        load_context.debug_string_r("orders", f)
         order_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for i in range(count):

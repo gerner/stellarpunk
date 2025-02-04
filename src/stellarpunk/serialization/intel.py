@@ -99,14 +99,12 @@ class EntityIntelSaver[T: intel.EntityIntel](IntelSaver[T]):
     @abc.abstractmethod
     def _save_entity_intel(self, intel:T, f:io.IOBase) -> int: ...
     @abc.abstractmethod
-    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_short_id:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[T, Any]: ...
+    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[T, Any]: ...
 
     def _save_intel(self, intel:T, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.to_len_pre_f(util.fullname(intel.intel_entity_type), f)
         bytes_written += s_util.uuid_to_f(intel.intel_entity_id, f)
-        bytes_written += s_util.to_len_pre_f(intel.intel_entity_id_prefix, f)
-        bytes_written += s_util.to_len_pre_f(intel.intel_entity_short_id, f)
         bytes_written += self._save_entity_intel(intel, f)
         return bytes_written
 
@@ -115,10 +113,8 @@ class EntityIntelSaver[T: intel.EntityIntel](IntelSaver[T]):
         intel_entity_type = pydoc.locate(intel_entity_class_name)
         assert(isinstance(intel_entity_type, type))
         intel_entity_id = s_util.uuid_from_f(f)
-        intel_entity_id_prefix = s_util.from_len_pre_f(f)
-        intel_entity_short_id = s_util.from_len_pre_f(f)
 
-        intel, extra_context = self._load_entity_intel(f, load_context, intel_entity_id, intel_entity_id_prefix, intel_entity_short_id, intel_entity_type, entity_id)
+        intel, extra_context = self._load_entity_intel(f, load_context, intel_entity_id, intel_entity_type, entity_id)
 
         return intel, extra_context
 
@@ -126,8 +122,8 @@ class SectorIntelSaver(EntityIntelSaver[intel.SectorIntel]):
     def _save_entity_intel(self, intel:intel.SectorIntel, f:io.IOBase) -> int:
         return 0
 
-    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_short_id:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.SectorIntel, Any]:
-        sector_intel = intel.SectorIntel(intel_entity_id, intel_entity_id_prefix, intel_entity_short_id, intel_entity_type, load_context.gamestate, entity_id=entity_id, _check_flag=True)
+    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.SectorIntel, Any]:
+        sector_intel = intel.SectorIntel(intel_entity_id, intel_entity_type, load_context.gamestate, entity_id=entity_id, _check_flag=True)
         return sector_intel, None
 
 class SectorHexIntelSaver(IntelSaver[intel.SectorHexIntel]):
@@ -161,13 +157,13 @@ class EconAgentIntelSaver(EntityIntelSaver[intel.EconAgentIntel]):
         bytes_written += s_util.fancy_dict_to_f(intel.buy_offers, f, s_util.int_to_f, s_util.float_pair_to_f)
         return bytes_written
 
-    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_short_id:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.EconAgentIntel, Any]:
+    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.EconAgentIntel, Any]:
         underlying_entity_id = s_util.uuid_from_f(f)
         underlying_entity_type = s_util.type_from_f(f, core.Entity)
         sell_offers = s_util.fancy_dict_from_f(f, s_util.int_from_f, lambda x: tuple(s_util.float_pair_from_f(x)))
         buy_offers = s_util.fancy_dict_from_f(f, s_util.int_from_f, lambda x: tuple(s_util.float_pair_from_f(x)))
 
-        agent_intel = intel.EconAgentIntel(intel_entity_id, intel_entity_id_prefix, intel_entity_short_id, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
+        agent_intel = intel.EconAgentIntel(intel_entity_id, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
         agent_intel.underlying_entity_id = underlying_entity_id
         agent_intel.underlying_entity_type = underlying_entity_type
         agent_intel.sell_offers = sell_offers
@@ -178,28 +174,28 @@ class EconAgentIntelSaver(EntityIntelSaver[intel.EconAgentIntel]):
 class SectorEntityIntelSaver[SectorEntityIntel:intel.SectorEntityIntel](EntityIntelSaver[SectorEntityIntel]):
     def _save_sector_entity_intel(self, sector_entity_intel:SectorEntityIntel, f:io.IOBase) -> int:
         return 0
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_id_short:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[SectorEntityIntel, Any]:
-        return intel.SectorEntityIntel(sector_id, loc, radius, is_static, intel_entity_id, intel_entity_id_prefix, intel_entity_id_short, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id), None # type: ignore
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[SectorEntityIntel, Any]:
+        return intel.SectorEntityIntel(sector_id, loc, radius, is_static, intel_entity_id, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id), None # type: ignore
 
     def _save_entity_intel(self, sector_entity_intel:SectorEntityIntel, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(sector_entity_intel.sector_id, f)
         bytes_written += s_util.float_pair_to_f(sector_entity_intel.loc, f)
         bytes_written += s_util.float_to_f(sector_entity_intel.radius, f)
         bytes_written += s_util.bool_to_f(sector_entity_intel.is_static, f)
-        bytes_written += s_util.debug_string_w("seintel specific", f)
+        bytes_written += self.save_game.debug_string_w("seintel specific", f)
         bytes_written += self._save_sector_entity_intel(sector_entity_intel, f)
         return bytes_written
 
-    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_short_id:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[SectorEntityIntel, Any]:
-        s_util.debug_string_r("basic fields", f)
+    def _load_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[SectorEntityIntel, Any]:
+        load_context.debug_string_r("basic fields", f)
         sector_id = s_util.uuid_from_f(f)
         loc = s_util.float_pair_from_f(f)
         radius = s_util.float_from_f(f)
         is_static = s_util.bool_from_f(f)
-        s_util.debug_string_r("seintel specific", f)
-        sector_entity_intel, extra_context = self._load_sector_entity_intel(f, load_context, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_id_prefix, intel_entity_short_id, intel_entity_type, entity_id)
+        load_context.debug_string_r("seintel specific", f)
+        sector_entity_intel, extra_context = self._load_sector_entity_intel(f, load_context, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_type, entity_id)
         return sector_entity_intel, extra_context
 
 class AsteroidIntelSaver(SectorEntityIntelSaver[intel.AsteroidIntel]):
@@ -209,10 +205,10 @@ class AsteroidIntelSaver(SectorEntityIntelSaver[intel.AsteroidIntel]):
         bytes_written += s_util.float_to_f(sector_entity_intel.amount, f)
         return bytes_written
 
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_id_short:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.AsteroidIntel, Any]:
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.AsteroidIntel, Any]:
         resource = s_util.int_from_f(f)
         amount = s_util.float_from_f(f)
-        sector_entity_intel = intel.AsteroidIntel(resource, amount, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_id_prefix, intel_entity_id_short, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
+        sector_entity_intel = intel.AsteroidIntel(resource, amount, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
         return sector_entity_intel, None
 
 class StationIntelSaver(SectorEntityIntelSaver[intel.StationIntel]):
@@ -222,10 +218,10 @@ class StationIntelSaver(SectorEntityIntelSaver[intel.StationIntel]):
         bytes_written += s_util.ints_to_f(list(int(x) for x in sector_entity_intel.inputs), f)
         return bytes_written
 
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, intel_entity_id:uuid.UUID, intel_entity_id_prefix:str, intel_entity_id_short:str, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.StationIntel, Any]:
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, intel_entity_id:uuid.UUID, intel_entity_type:type, entity_id:uuid.UUID) -> tuple[intel.StationIntel, Any]:
         resource = s_util.int_from_f(f)
         inputs = set(s_util.ints_from_f(f))
-        sector_entity_intel = intel.StationIntel(resource, inputs, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_id_prefix, intel_entity_id_short, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
+        sector_entity_intel = intel.StationIntel(resource, inputs, sector_id, loc, radius, is_static, intel_entity_id, intel_entity_type, load_context.gamestate, _check_flag=True, entity_id=entity_id)
         return sector_entity_intel, None
 
 # IntelCriteria savers

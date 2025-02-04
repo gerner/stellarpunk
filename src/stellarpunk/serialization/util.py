@@ -220,12 +220,12 @@ def str_uuids_from_f(f:io.IOBase) -> list[tuple[str, uuid.UUID]]:
         seq.append((s,u))
     return seq
 
-def debug_string_w(s:str, f:io.IOBase) -> int:
+def _debug_string_w(s:str, f:io.IOBase) -> int:
     #TODO: flag to turn this off
     i = to_len_pre_f(s, f)
     return i
 
-def debug_string_r(s:str, f:io.IOBase) -> str:
+def _debug_string_r(s:str, f:io.IOBase) -> str:
     #TODO: flag to turn this off
     f_pos_start = f.tell()
     prefix = f.read(2)
