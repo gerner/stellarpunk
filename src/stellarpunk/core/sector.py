@@ -169,6 +169,9 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         self.sensor_settings=sensor_settings
         self.sensor_settings.set_detector_id(self.entity_id)
 
+        self._loc = np.array(self.phys.position)
+        self._velocity = np.array(self.phys.velocity)
+
     # base.Observable
     @property
     def observable_id(self) -> uuid.UUID:
@@ -210,9 +213,15 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
             o.entity_targeted(self, threat)
 
     @property
-    def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
+    def loc(self) -> npt.NDArray[np.float64]:
+        self._loc[0] = self.phys.position[0]
+        self._loc[1] = self.phys.position[1]
+        return self._loc
     @property
-    def velocity(self) -> npt.NDArray[np.float64]: return np.array(self.phys.velocity)
+    def velocity(self) -> npt.NDArray[np.float64]:
+        self._velocity[0] = self.phys.velocity[0]
+        self._velocity[1] = self.phys.velocity[1]
+        return self._velocity
     @property
     def speed(self) -> float: return self.phys.velocity.length
     @property

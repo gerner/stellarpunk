@@ -18,9 +18,6 @@ class Planet(character.Asset, character.CrewedSectorEntity):
         super().__init__(*args, **kwargs)
         self.population = 0.
 
-        self._loc = np.array(self.phys.position)
-        self._velocity = np.array(self.phys.velocity)
-
     @property
     def loc(self) -> npt.NDArray[np.float64]: return self._loc
     @property
@@ -37,9 +34,6 @@ class Station(character.Asset, character.CrewedSectorEntity):
 
         self.sprite = sprite
 
-        self._loc = np.array(self.phys.position)
-        self._velocity = np.array(self.phys.velocity)
-
     @property
     def loc(self) -> npt.NDArray[np.float64]: return self._loc
     @property
@@ -51,9 +45,6 @@ class Asteroid(sector.SectorEntity):
         super().__init__(*args, **kwargs)
         self.resource = resource
         self.cargo[self.resource] = amount
-
-        self._loc = np.array(self.phys.position)
-        self._velocity = np.array(self.phys.velocity)
 
     @property
     def loc(self) -> npt.NDArray[np.float64]: return self._loc
@@ -69,9 +60,6 @@ class TravelGate(sector.SectorEntity):
         # radian angle toward the destination
         self.direction:float = direction
         self.direction_vector = np.array(util.polar_to_cartesian(1., direction))
-
-        self._loc = np.array(self.phys.position)
-        self._velocity = np.array(self.phys.velocity)
 
     @property
     def loc(self) -> npt.NDArray[np.float64]: return self._loc
