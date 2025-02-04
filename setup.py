@@ -96,7 +96,7 @@ setuptools.setup(
         "pysdl2-dll",
         "pysdl2",
         #TODO: this needs to get bumped to pull in the most recent change I made to allow more recent versions of python
-        "dtmf @ git+https://github.com/gerner/dtmf@7c02aba",
+        "dtmf @ git+https://github.com/gerner/dtmf@6959029",
         "uroman",
         "hashime",
         "pyinstrument",
