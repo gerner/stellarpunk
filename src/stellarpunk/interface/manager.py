@@ -590,7 +590,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             h = "NO HELP"
         return interface.KeyBinding(k, f, h, help_key=help_key)
 
-    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> interface.CommandBinding:
+    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str, int], str]]=None) -> interface.CommandBinding:
         try:
             h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).commands, command)
         except AttributeError:

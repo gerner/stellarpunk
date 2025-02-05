@@ -116,6 +116,20 @@ class CommandInput(interface.View):
             self._command_history.prev_command()
         elif key == curses.KEY_DOWN:
             self._command_history.next_command()
+        elif key == curses.ascii.TAB:
+            if " " not in self.command:
+                self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial
+            elif self._command_name() in self.commands:
+                c = self.commands[self._command_name()].complete(self.partial, self.command)
+                self.command = self.commands[self._command_name()].complete(self.partial, self.command)
+                self.logger.debug(f'set {c} to {self.command}')
+        elif key == curses.KEY_BTAB:
+            if " " not in self.command:
+                self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys()), direction=-1) or self.partial
+            elif self._command_name() in self.commands:
+                c = self.commands[self._command_name()].complete(self.partial, self.command)
+                self.command = self.commands[self._command_name()].complete(self.partial, self.command)
+                self.logger.debug(f'set {c} to {self.command}')
         elif chr(key).isprintable():
             self.command += chr(key)
             self.partial = self.command
@@ -126,13 +140,6 @@ class CommandInput(interface.View):
             else:
                 self.command = self.command[:-1]
                 self.partial = self.command
-        elif key == curses.ascii.TAB:
-            if " " not in self.command:
-                self.command = util.tab_complete(self.partial, self.command, sorted(self.commands.keys())) or self.partial
-            elif self._command_name() in self.commands:
-                c = self.commands[self._command_name()].complete(self.partial, self.command)
-                self.command = self.commands[self._command_name()].complete(self.partial, self.command)
-                self.logger.debug(f'set {c} to {self.command}')
         elif key == curses.ascii.ESC:
             self.interface.status_message()
             self.interface.close_view(self)

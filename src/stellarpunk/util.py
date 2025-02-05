@@ -571,26 +571,47 @@ def elipsis(string:str, max_length:int) -> str:
         #TODO: is using unicode elipsis the right thing to do here?
         return string[:max_length-1] + "…"
 
-def tab_complete(partial:str, current:str, options:Iterable[str]) -> str:
+def tab_complete(partial:str, current:str, options:Iterable[str], direction:int=1) -> str:
     """ Tab completion of partial given sorted options. """
 
     options = sorted(options)
-    if not current:
-        current = partial
+    if direction > 0:
+        if not current:
+            current = partial
 
-    i = bisect.bisect(options, current)
-    if i == len(options):
-        return partial
-    if options[i].startswith(partial):
-        return options[i]
-    return partial
+        i = bisect.bisect(options, current)
+        logger.info(f'right: {current}\t{i}\t{list(enumerate(options))}')
+        if i == len(options):
+            return partial
+        if not options[i].startswith(partial):
+            return partial
+        else:
+            return options[i]
+    elif direction < 0:
+        # cycle backwards through list of options starting with partial, including partial
+        lo = bisect.bisect(options, partial)
+        if not options[lo].startswith(partial):
+            logger.info(f'left: {current}\t{lo}\t{list(enumerate(options))}')
+            return partial
+        hi = lo+len(list(x for x in options[lo:] if x.startswith(partial)))
+        if current == partial:
+            logger.info(f'left: {current}\t{hi-1}\t{list(enumerate(options))}')
+            return options[hi-1]
+        i = bisect.bisect_left(options, current, lo, hi)-1
+        logger.info(f'left: {current}\t{i}\t{list(enumerate(options))}')
+        if i < lo:
+            return partial
+        else:
+            return options[i]
+    else:
+        raise ValueError(f'direction must be < 0 or > 0, not {direction}')
 
-def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
+def tab_completer(options:Iterable[str])->Callable[[str, str, int], str]:
     options = list(options)
-    def completer(partial:str, command:str)->str:
+    def completer(partial:str, command:str, direction:int)->str:
         p = partial.split(' ')[-1]
         c = command.split(' ')[-1]
-        o = tab_complete(p, c, options) or p
+        o = tab_complete(p, c, options, direction) or p
         logging.debug(f'p:{p} c:{c} o:{o}')
         return " ".join(command.split(' ')[:-1]) + " " + o
     return completer
@@ -946,7 +967,7 @@ def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_
 
     hex_pairs = 0
     row_pairs = 0
-    # draw pairs of lines until hex center is size distance outside bottom edge
+    # draw pairs of hexes until hex center is size distance outside bottom edge
     #logger.info(f'bbox: {bbox}')
     #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
     while(pixel_loc[1]+offset_y < bbox[3]+size):

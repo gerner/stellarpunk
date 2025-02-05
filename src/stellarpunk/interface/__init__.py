@@ -423,7 +423,7 @@ CommandSig = Union[
 ]
 
 class CommandBinding:
-    def __init__(self, command:str, f:Callable[[Sequence[str]], None], h:str, tab_completer:Optional[Callable[[str, str], str]]=None, help_key:Optional[str]=None) -> None:
+    def __init__(self, command:str, f:Callable[[Sequence[str]], None], h:str, tab_completer:Optional[Callable[[str, str, int], str]]=None, help_key:Optional[str]=None) -> None:
         self.command = command
         self.f = f
         self.help = h
@@ -435,9 +435,9 @@ class CommandBinding:
     def __call__(self, args:Sequence[str]) -> None:
         self.f(args)
 
-    def complete(self, partial:str, command:str) -> str:
+    def complete(self, partial:str, command:str, direction:int=1) -> str:
         if self.tab_completer:
-            return self.tab_completer(partial, command) or " "
+            return self.tab_completer(partial, command, direction) or " "
         else:
             return self.command
 
@@ -485,7 +485,7 @@ class View(abc.ABC):
 
         return bindings
 
-    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> CommandBinding:
+    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str, int], str]]=None) -> CommandBinding:
         try:
             h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).commands, command)
         except AttributeError:
