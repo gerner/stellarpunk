@@ -1075,6 +1075,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             self.presenter.draw_hexes()
         else:
             self.starfield.draw_starfield(self.viewscreen)
+            self.presenter.draw_hexes()
             self.presenter.draw_weather()
             self.presenter.draw_shapes()
             self._draw_radar()

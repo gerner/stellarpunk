@@ -914,7 +914,7 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
 
     return c
 
-def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None, side_tr:bool=True, side_r:bool=True, side_br:bool=True) -> drawille.Canvas:
     """ Draws right half of a regular hexagon, center to point distance size.
 
     This is useful when drawing a tessalating hex pattern. Each hex draws its
@@ -931,20 +931,23 @@ def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_
     # top right segment
     start = (0.+offset_x, size+offset_y)
     end = (np.sqrt(3.)/2.*size+offset_x, size/2.+offset_y)
-    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    if side_tr:
+        c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
     #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "1.s")
     #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "1.e")
     # right segment
     start = end
     end = (np.sqrt(3.)/2.*size+offset_x, -size/2.+offset_y)
-    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    if side_r:
+        c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
     #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "2.s")
     #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "2.e")
 
     # bottom right segment
     start = end
     end = (0+offset_x, -size+offset_y)
-    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    if side_br:
+        c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
     #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "3.s")
     #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "3.e")
 
@@ -952,7 +955,7 @@ def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_
 
     return c
 
-def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, suppress_hexes:set[tuple[int, int]]=set()) -> drawille.Canvas:
     """ makes a pointy hex grid filling bbox. """
     c = drawille.Canvas()
     if bbox is None:
@@ -976,14 +979,38 @@ def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_
         row_start = hex_loc.copy()
         while(pixel_loc[0]+offset_x < bbox[2]):
             # draw first, upper left hex
-            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # if this hex is supressed, check the three directions
+            int_hex_loc = int_coords(hex_loc)
+            side_tr = side_r = side_br = True
+            if int_hex_loc in suppress_hexes:
+                if (int_hex_loc[0]+1, int_hex_loc[1]-1) in suppress_hexes:
+                    side_br = False
+                if (int_hex_loc[0]+1, int_hex_loc[1]) in suppress_hexes:
+                    side_r = False
+                if (int_hex_loc[0], int_hex_loc[1]+1) in suppress_hexes:
+                    side_tr = False
+            else:
+                c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), "?")
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c, side_tr=side_tr, side_r=side_r, side_br=side_br)
             # debugging:
             #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.a {hex_loc}')
 
             # draw second, lower right hex
             hex_loc[1] += 1
             pixel_loc = pointy_hex_to_pixel(hex_loc, size)
-            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # if this hex is supressed, check the three directions
+            int_hex_loc = int_coords(hex_loc)
+            side_tr = side_r = side_br = True
+            if int_hex_loc in suppress_hexes:
+                if (int_hex_loc[0]+1, int_hex_loc[1]-1) in suppress_hexes:
+                    side_br = False
+                if (int_hex_loc[0]+1, int_hex_loc[1]) in suppress_hexes:
+                    side_r = False
+                if (int_hex_loc[0], int_hex_loc[1]+1) in suppress_hexes:
+                    side_tr = False
+            else:
+                c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), "?")
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c, side_tr=side_tr, side_r=side_r, side_br=side_br)
             # debugging:
             #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.b {hex_loc}')
 
@@ -1140,7 +1167,7 @@ def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:flo
     # determine k, the largest integral hex distance that is wholly within dist
     center_hex = axial_round(pixel_to_pointy_hex(coords, size))
     coords = pointy_hex_to_pixel(center_hex, size)
-    outside_coords = np.array((coords[0]-dist, coords[1]))
+    outside_coords = np.array((coords[0], coords[1]+dist))
     outside_hex = axial_round(pixel_to_pointy_hex(outside_coords, size))
     if both_isclose(outside_hex, center_hex):
         return []

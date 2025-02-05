@@ -338,7 +338,7 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
             # order might already have been removed from the queue
             pass
 
-        for order in self.child_orders:
+        for order in self.child_orders.copy():
             order.cancel_order()
             try:
                 self.ship.remove_order(order)

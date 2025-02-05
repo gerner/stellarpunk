@@ -494,7 +494,9 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
         agent_intel.underlying_entity_type = type(underlying_entity)
         agent_intel.underlying_entity_id = underlying_entity.entity_id
         for resource in econ_agent.sell_resources():
-            assert econ_agent.inventory(resource) > 0.0
+            # they might want to sell and just not have any inventory at the
+            # moment
+            #assert econ_agent.inventory(resource) > 0.0
             assert econ_agent.sell_price(resource) < np.inf
             agent_intel.sell_offers[resource] = (
                 econ_agent.sell_price(resource),
@@ -502,7 +504,9 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
             )
 
         for resource in econ_agent.buy_resources():
-            assert econ_agent.budget(resource) > 0.0
+            # they might want to buy and just not have any inventory at the
+            # moment
+            #assert econ_agent.budget(resource) > 0.0
             assert econ_agent.buy_price(resource) > 0.0
             agent_intel.buy_offers[resource] = (
                 econ_agent.buy_price(resource),
@@ -899,7 +903,8 @@ def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamesta
 def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None, loc:Optional[npt.NDArray[np.float64]]=None, scan_range:Optional[float]=None, images:Optional[Collection[core.AbstractSensorImage]]=None) -> None:
     # figure out the set of hexes that are relevant
     if scan_range is None:
-        scan_range, _, _ = sector.sensor_manager.sensor_ranges(detector)
+        passive_range, full_thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
+        scan_range = (passive_range + active_range)/2.0
     if loc is None:
         loc = detector.loc
     sector_hexes = util.hexes_within_pixel_dist(loc, scan_range, sector.hex_size)

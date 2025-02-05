@@ -490,12 +490,21 @@ class Presenter:
     def draw_hexes(self) -> None:
         """ Draws the sector hex grid """
 
+        # get sector hexes player knows about
+        assert self.gamestate.player.character
+        known_hexes = set(
+            util.int_coords(x.hex_loc)
+            for x in self.gamestate.player.character.intel_manager.intel(
+                intel.SectorHexPartialCriteria(self.sector.entity_id, is_static=True),
+                cls=intel.SectorHexIntel,
+            )
+        )
+
         assert isinstance(self.view.viewscreen, interface.Canvas)
         mpc_x, mpc_y = self.perspective.meters_per_char
-        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, mpc_x, mpc_y, bbox=self.perspective.bbox)
+        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, mpc_x, mpc_y, bbox=self.perspective.bbox, suppress_hexes=known_hexes)
         s_x, s_y = self.perspective.sector_to_screen(0, 0)
         util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(23))
-        self.gamestate.breakpoint()
 
     def update(self) -> None:
         pass
