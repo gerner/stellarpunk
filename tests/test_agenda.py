@@ -229,9 +229,9 @@ def test_basic_trading(intel_director, gamestate, generator, sector, testui, sim
         # check that buys and sales all make sense
         assert len(buys) == 1
         assert len(buys[resource]) == 1
-        assert buys[resource][0][2] == station_producer
+        assert buys[resource][0][2].intel_entity_id == station_producer.entity_id
         assert len(sales[resource]) == 1
-        assert sales[resource][0][2] == station_consumer
+        assert sales[resource][0][2].intel_entity_id == station_consumer.entity_id
         assert sales[resource][0][0] > buys[resource][0][0]
 
         assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
@@ -240,7 +240,7 @@ def test_basic_trading(intel_director, gamestate, generator, sector, testui, sim
         buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
         assert buy_ret is not None
         assert buy_ret[0] == resource
-        assert buy_ret[1] == station_producer
+        assert buy_ret[1].intel_entity_id == station_producer.entity_id
 
         # keep track of some info about the expected buy/sale
         buy_price = buys[resource][0][0]

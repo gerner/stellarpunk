@@ -182,10 +182,10 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     buys = agenda.possible_buys(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
     assert len(buys) == 1
     assert len(buys[resource]) == 1
-    assert buys[resource][0][2] == station_producer
+    assert buys[resource][0][2].intel_entity_id == station_producer.entity_id
     sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
     assert len(sales[resource]) == 1
-    assert sales[resource][0][2] == station_consumer
+    assert sales[resource][0][2].intel_entity_id == station_consumer.entity_id
     assert sales[resource][0][0] > buys[resource][0][0]
 
     assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
@@ -194,7 +194,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
     assert buy_ret is not None
     assert buy_ret[0] == resource
-    assert buy_ret[1] == station_producer
+    assert buy_ret[1].intel_entity_id == station_producer.entity_id
 
     # keep track of some info about the expected buy/sale
     buy_price = buys[resource][0][0]

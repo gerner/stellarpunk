@@ -235,8 +235,12 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         # either by matching it directly or making it redundant
         elif self._immediate_interest is None:
             # keep collecting more intel (passively or actively)
-            assert self._state in [IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE]
-            self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+            if self._state in [IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE]:
+                self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+            else:
+                # this must have been incidental intel that got collected
+                # e.g. we docked at a station
+                assert self._state == IntelCollectionAgendum.State.IDLE
 
         # otherwise this was an incidental added intel, not one we're actively
         # working on, so no need to reschedule ourselves
@@ -485,7 +489,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
             sector = self.gamestate.get_entity(sector_id, core.Sector)
             target_loc = np.array((0.0, 0.0))
 
-        target_dist = sector.radius
+        target_dist = sector.radius*3.0
         hex_loc = sector.get_hex_coords(target_loc)
         # look for hex options in current sector
 

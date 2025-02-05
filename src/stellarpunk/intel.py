@@ -937,7 +937,7 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
         else:
             intels = dynamic_intel
 
-        if h_coords in static_intel:
+        if h_coords in intels:
             intels[h_coords].entity_count += 1
             type_name = image.identity.object_type
             if type_name in intels[h_coords].type_counts:

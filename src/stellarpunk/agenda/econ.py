@@ -23,10 +23,10 @@ def possible_buys(
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         buy_from_stations:Optional[list[uuid.UUID]],
-        ) -> Mapping[int, list[tuple[float, float, core.SectorEntity]]]:
+        ) -> Mapping[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]]:
     assert ship.sector is not None
     # figure out possible buys by resource
-    buys:collections.defaultdict[int, list[tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
+    buys:collections.defaultdict[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]] = collections.defaultdict(list)
     buy_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
 
     resources = frozenset(ship_agent.buy_resources()).intersection(allowed_resources)
@@ -49,9 +49,7 @@ def possible_buys(
                 continue
             assert price < np.inf
 
-            #TODO: we should not reaching into gamestate for the actual station
-            station = gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
-            buys[resource].append((price, amount, station))
+            buys[resource].append((price, amount, station_intel, econ_agent_intel))
 
     return buys
 
@@ -62,10 +60,10 @@ def possible_sales(
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         allowed_stations:Optional[list[uuid.UUID]],
-        ) -> Mapping[int, list[tuple[float, float, core.SectorEntity]]]:
+        ) -> Mapping[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]]:
     assert ship.sector is not None
     # figure out possible sales by resource
-    sales:collections.defaultdict[int, list[tuple[float, float, core.SectorEntity]]] = collections.defaultdict(list)
+    sales:collections.defaultdict[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]] = collections.defaultdict(list)
     sale_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
 
     resources = frozenset(ship_agent.sell_resources()).intersection(allowed_resources)
@@ -84,16 +82,16 @@ def possible_sales(
 
     for econ_agent_intel, station_intel in sale_hits:
         for resource, (price, amount) in econ_agent_intel.buy_offers.items():
-            assert ship_agent.inventory(resource) > 0.
+            if ship_agent.inventory(resource) < 1.:
+                continue
             if amount < 1.:
                 continue
 
-            #TODO: we should not reaching into gamestate for the actual station
-            station = gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
             sales[resource].append((
                 price,
                 min(amount, ship_agent.inventory(resource)),
-                station,
+                station_intel,
+                econ_agent_intel
             ))
     return sales
 
@@ -105,7 +103,7 @@ def choose_station_to_buy_from(
         allowed_resources:list[int],
         buy_from_stations:Optional[list[uuid.UUID]],
         sell_to_stations:Optional[list[uuid.UUID]]
-        ) -> Optional[tuple[int, sector_entity.Station, core.EconAgent, float, float]]:
+        ) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel, float, float]]:
 
     if ship.sector is None:
         raise ValueError(f'{ship} in no sector')
@@ -128,7 +126,7 @@ def choose_station_to_buy_from(
     profits_per_time = []
     trades = []
     for resource in buys.keys():
-        for ((buy_price, buy_amount, buy_station), (sale_price, sale_amount, sale_station)) in itertools.product(buys[resource], sales[resource]):
+        for ((buy_price, buy_amount, buy_station, buy_agent), (sale_price, sale_amount, sale_station, sale_agent)) in itertools.product(buys[resource], sales[resource]):
             amount = min(buy_amount, sale_amount)
             profit = (sale_price - buy_price)*amount
             if profit < 0.:
@@ -138,7 +136,7 @@ def choose_station_to_buy_from(
 
             profit_per_time = profit / (transfer_time + travel_time)
             profits_per_time.append(profit_per_time)
-            trades.append((resource, buy_station, gamestate.econ_agents[buy_station.entity_id], profit, transfer_time + travel_time)) # type: ignore
+            trades.append((resource, buy_station, buy_agent, profit, transfer_time + travel_time)) # type: ignore
             #if profit_per_time > best_profit_per_time:
             #    best_profit_per_time = profit_per_time
             #    best_trade = (resource, buy_station, gamestate.econ_agents[buy_station.entity_id]) # type: ignore
@@ -160,7 +158,7 @@ def choose_station_to_sell_to(
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         sell_to_stations:Optional[list[uuid.UUID]]
-        ) -> Optional[tuple[int, sector_entity.Station, core.EconAgent]]:
+        ) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel]]:
     """ Choose a station to sell goods from ship to """
 
     if ship.sector is None:
@@ -177,9 +175,9 @@ def choose_station_to_sell_to(
     sales = possible_sales(character, gamestate, ship, ship_agent, allowed_resources, sell_to_stations)
 
     best_profit_per_time = 0.
-    best_trade:Optional[tuple[int, sector_entity.Station, core.EconAgent]] = None
+    best_trade:Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel]] = None
     for resource in sales.keys():
-        for sale_price, amount, sale_station in sales[resource]:
+        for sale_price, amount, sale_station, sale_agent in sales[resource]:
             profit = sale_price * amount
             transfer_time = ocore.TradeCargoToStation.transfer_rate() * amount
             travel_time = movement.GoToLocation.compute_eta(ship, sale_station.loc)
@@ -187,7 +185,7 @@ def choose_station_to_sell_to(
             profit_per_time = profit / (transfer_time + travel_time)
             if profit_per_time > best_profit_per_time:
                 best_profit_per_time = profit_per_time
-                best_trade = (resource, sale_station, gamestate.econ_agents[sale_station.entity_id]) # type: ignore
+                best_trade = (resource, sale_station, sale_agent)
 
     assert best_trade is None or best_profit_per_time > 0.
     return best_trade
@@ -407,16 +405,21 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             return
 
         resource, station, station_agent = sell_station_ret
-        assert station_agent.buy_price(resource) > 0
-        assert station_agent.budget(resource) > 0
+        assert station_agent.buy_offers[resource][0] > 0
+        assert station_agent.buy_offers[resource][1] > 0
         #TODO: sensibly have a floor for selling the good
         # basically we pick a station and hope for the best
         floor_price = 0.
 
         self.state = MiningAgendum.State.TRADING
+
+        #TODO: we should probably not reach into the actual entities here
+        actual_station = self.gamestate.get_entity(station.intel_entity_id, sector_entity.Station)
+        actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
+
         self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
-                station_agent, self.agent, floor_price,
-                station, resource, self.craft.cargo[resource],
+                actual_agent, self.agent, floor_price,
+                actual_station, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.transfer_order.observe(self)
         self.craft.prepend_order(self.transfer_order)
@@ -739,7 +742,7 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             self._register_interest(interest)
         # buyer for known sold good
         if len(self._known_sold_resources) > 0:
-            interst = intel.EconAgentSectorEntityPartialCriteria(buy_resources=self._known_sold_resources)
+            interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=self._known_sold_resources)
             self._register_interest(interest)
 
         # seller for known bought goods
@@ -769,20 +772,23 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             self.relinquish_primary()
             return
         resource, station, station_agent, est_profit, est_time = buy_station_ret
-        assert station_agent.sell_price(resource) < np.inf
-        assert station_agent.inventory(resource) > 0.
+        assert station_agent.sell_offers[resource][0] < np.inf
+        assert station_agent.sell_offers[resource][1] > 0.
 
         self.logger.debug(f'buying {resource=} from {station=} {est_profit=} {est_time=}')
 
         #TODO: sensibly have a ceiling for buying the good
         # basically we pick a station and hope for the best
         ceiling_price = np.inf
-        amount = min(station.cargo[resource], self.craft.cargo_capacity - self.craft.cargo.sum())
+        amount = min(station_agent.sell_offers[resource][1], self.craft.cargo_capacity - self.craft.cargo.sum())
 
         self.state = TradingAgendum.State.BUYING
+        #TODO: we should probably not reach into the actual entities here
+        actual_station = self.gamestate.get_entity(station.intel_entity_id, sector_entity.Station)
+        actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.buy_order = ocore.TradeCargoFromStation.create_trade_cargo_from_station(
-                self.agent, station_agent, ceiling_price,
-                station, resource, amount,
+                self.agent, actual_agent, ceiling_price,
+                actual_station, resource, amount,
                 self.craft, self.gamestate)
         self.buy_order.observe(self)
         self.craft.prepend_order(self.buy_order)
@@ -806,8 +812,8 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
             return False
 
         resource, station, station_agent = sell_station_ret
-        assert station_agent.buy_price(resource) > 0
-        assert station_agent.budget(resource) > 0
+        assert station_agent.buy_offers[resource][0] > 0
+        assert station_agent.buy_offers[resource][1] > 0
 
         self.logger.debug(f'selling {resource=} to {station=}')
 
@@ -816,9 +822,12 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         floor_price = 0.
 
         self.state = TradingAgendum.State.SELLING
+        #TODO: we should probably not reach into the actual entities here
+        actual_station = self.gamestate.get_entity(station.intel_entity_id, sector_entity.Station)
+        actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
-                station_agent, self.agent, floor_price,
-                station, resource, self.craft.cargo[resource],
+                actual_agent, self.agent, floor_price,
+                actual_station, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.sell_order.observe(self)
         self.craft.prepend_order(self.sell_order)
@@ -854,7 +863,7 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
                 self.gamestate.schedule_agendum(self.gamestate.timestamp + TRADING_SLEEP_TIME_NO_INTEL, self)
                 return
 
-        assert self.state == TradingAgendum.State.IDLE
+        assert self.state in (TradingAgendum.State.IDLE, TradingAgendum.State.NO_INTEL)
 
         if self.is_complete():
             self.state = TradingAgendum.State.COMPLETE

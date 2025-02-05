@@ -580,7 +580,6 @@ def tab_complete(partial:str, current:str, options:Iterable[str], direction:int=
             current = partial
 
         i = bisect.bisect(options, current)
-        logger.info(f'right: {current}\t{i}\t{list(enumerate(options))}')
         if i == len(options):
             return partial
         if not options[i].startswith(partial):
@@ -588,18 +587,15 @@ def tab_complete(partial:str, current:str, options:Iterable[str], direction:int=
         else:
             return options[i]
     elif direction < 0:
-        # cycle backwards through list of options starting with partial, including partial
+        # cycle backwards through list of options starting with partial,
+        # including partial
         lo = bisect.bisect(options, partial)
         if not options[lo].startswith(partial):
-            logger.info(f'left: {current}\t{lo}\t{list(enumerate(options))}')
             return partial
         hi = lo+len(list(x for x in options[lo:] if x.startswith(partial)))
         if current == partial:
-            logger.info(f'left: {current}\t{hi-1}\t{list(enumerate(options))}')
             return options[hi-1]
         i = bisect.bisect_left(options, current, lo, hi)-1
-        logger.info(f'left: {current}\t{i}\t{list(enumerate(options))}')
-        if i < lo:
             return partial
         else:
             return options[i]

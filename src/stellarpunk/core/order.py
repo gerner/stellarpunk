@@ -351,7 +351,7 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
             self.parent_order.child_orders.remove(self)
 
         self._cancel()
-        for observer in self._observers:
+        for observer in self._observers.copy():
             observer.order_cancel(self)
         self.clear_observers()
         self.gamestate.unschedule_order(self)

@@ -716,7 +716,7 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
         elif util.distance(self.ship.loc, self.loc) > self.ship.sector.hex_size:
             # go to target location
             assert(self.goto_order is None)
-            self.goto_order = GoToLocation.create_go_to_location(self.loc, self.ship, self.gamestate, surface_distance=self.ship.sector.hex_size/2.0)
+            self.goto_order = GoToLocation.create_go_to_location(self.loc, self.ship, self.gamestate, arrival_distance=self.ship.sector.hex_size/2.0)
             self.goto_order.observe(self)
             self._add_child(self.goto_order)
         else:
