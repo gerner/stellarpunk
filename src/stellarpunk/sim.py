@@ -515,6 +515,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(intel.SectorEntityIntel, s_intel.SectorEntityIntelSaver(sg))
     sg.register_saver(intel.AsteroidIntel, s_intel.AsteroidIntelSaver(sg))
     sg.register_saver(intel.StationIntel, s_intel.StationIntelSaver(sg))
+    sg.register_saver(intel.TravelGateIntel, s_intel.TravelGateIntelSaver(sg))
     sg.register_saver(intel.EconAgentIntel, s_intel.EconAgentIntelSaver(sg))
     sg.register_saver(intel.SectorHexIntel, s_intel.SectorHexIntelSaver(sg))
 

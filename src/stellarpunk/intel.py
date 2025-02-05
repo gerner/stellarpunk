@@ -1,6 +1,7 @@
 import logging
 import uuid
 import collections
+import functools
 import abc
 from collections.abc import Collection, MutableMapping, Mapping
 from typing import Type, Any, Optional, TypeVar, Union
@@ -215,13 +216,17 @@ class EntityIntelMatchCriteria(core.IntelMatchCriteria):
         return other.intel_entity_id == self.entity_id
 
 class EntityIntel[T:core.Entity](Intel):
-    def __init__(self, intel_entity_id:uuid.UUID, intel_entity_type:Type[T], *args:Any, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, intel_entity_id:uuid.UUID, intel_entity_type:Type[T], intel_entity_name:str, intel_entity_description:str, **kwargs:Any) -> None:
         # we need to set these fields before the super constructor because we
         # override __str__ which might be called in a super constructor
         # we specifically do not retain a reference to the original entity
         self.intel_entity_id = intel_entity_id
         self.intel_entity_type:Type[T] = intel_entity_type
+        self.intel_entity_name = intel_entity_name
+        self.intel_entity_description = intel_entity_description
         super().__init__(*args, **kwargs)
+        if not isinstance(self.name, str):
+             raise Exception()
 
     @property
     def intel_entity_short_id(self) -> str:
@@ -250,6 +255,74 @@ class EntityIntel[T:core.Entity](Intel):
             assert(entity.short_id() == self.intel_entity_short_id)
             assert(entity.id_prefix == self.intel_entity_id_prefix)
 
+class UniverseView:
+    """ Short-lived object representing a character's view of the universe.
+
+    This includes all sectors, all travel gates and edges between sectors.
+    """
+    @classmethod
+    def create(cls, character:core.Character) -> "UniverseView":
+        #TODO: should this be intel itself?
+
+        # construct known sector graph in weighted adjacency matrix form
+        sector_intels = character.intel_manager.intel(TrivialMatchCriteria(cls=SectorIntel), SectorIntel)
+        sector_idx_lookup = {x.intel_entity_id: i for i,x in enumerate(sector_intels)}
+        sector_intel_lookup = {x.intel_entity_id: x for x in sector_intels}
+
+        travel_gate_intels = character.intel_manager.intel(TrivialMatchCriteria(cls=TravelGateIntel), TravelGateIntel)
+
+        # augment idx lookup with sectors we know of from travel gate intel, but don't 
+        i = len(sector_idx_lookup)
+        for gate_intel in travel_gate_intels:
+            if gate_intel.destination_id in sector_idx_lookup:
+                continue
+            sector_idx_lookup[gate_intel.destination_id] = i
+            i += 1
+
+        adj_matrix = np.ones((len(sector_idx_lookup), len(sector_idx_lookup))) * np.inf
+        for gate_intel in travel_gate_intels:
+            # model the cost the edge as the cost of travelling from one sector
+            # center to edge plus other sector edge back to center
+
+            # we could be more precise by modelling sector links as nodes and
+            # sector paths between gates as edges
+            # since the cost to travel from sector to sector is actually
+            # incurred while travelling from gate to gate within a sector
+            # but that sounds complicated and this is an easy approximation
+
+            # we must have intel on the source
+            a_idx = sector_idx_lookup[gate_intel.sector_id]
+            b_idx = sector_idx_lookup[gate_intel.destination_id]
+            cost_estimate = sector_intel_lookup[gate_intel.sector_id].radius
+            # we might not have intel on the destination
+            if gate_intel.destination_id not in sector_intel_lookup:
+                cost_estimate *= 2.0
+            else:
+                cost_estimate += sector_intel_lookup[gate_intel.destination_id].radius
+            adj_matrix[a_idx, b_idx] = cost_estimate
+
+        return cls(sector_intels, travel_gate_intels, sector_idx_lookup, sector_intel_lookup, adj_matrix)
+
+    def __init__(self, sector_intels:list["SectorIntel"], travel_gate_intels:list["TravelGateIntel"], sector_idx_lookup:dict[uuid.UUID, int], sector_intel_lookup:dict[uuid.UUID, "SectorIntel"], adj_matrix:npt.NDArray[np.float64]):
+        self.sector_intels = sector_intels
+        self.travel_gate_intels = travel_gate_intels
+        self.sector_idx_lookup = sector_idx_lookup
+        self.sector_id_lookup = {v:k for k,v in sector_idx_lookup.items()}
+        self.sector_intel_lookup = sector_intel_lookup
+        self.gate_intel_lookup = {(x.sector_id, x.destination_id):x for x in travel_gate_intels}
+
+        def group_by_source(acc:collections.defaultdict[uuid.UUID, list[TravelGateIntel]], x:TravelGateIntel) -> collections.defaultdict[uuid.UUID, list[TravelGateIntel]]:
+            acc[x.sector_id].append(x)
+            return acc
+        def group_by_destination(acc:collections.defaultdict[uuid.UUID, list[TravelGateIntel]], x:TravelGateIntel) -> collections.defaultdict[uuid.UUID, list[TravelGateIntel]]:
+            acc[x.destination_id].append(x)
+            return acc
+        self.gates_by_source:collections.defaultdict[uuid.UUID, list[TravelGateIntel]] = collections.defaultdict(list)
+        functools.reduce(group_by_source, travel_gate_intels, self.gates_by_source)
+        self.gates_by_destination:collections.defaultdict[uuid.UUID, list[TravelGateIntel]] = collections.defaultdict(list)
+        functools.reduce(group_by_destination, travel_gate_intels, self.gates_by_destination)
+        self.adj_matrix = adj_matrix
+
 class SectorIntel(EntityIntel[core.Sector]):
     @property
     def loc(self) -> npt.NDArray[np.float64]:
@@ -277,14 +350,11 @@ class SectorIntel(EntityIntel[core.Sector]):
         """
 
         # construct known sector graph in weighted adjacency matrix form
-        sector_intels = character.intel_manager.intel(TrivialMatchCriteria(cls=SectorIntel), SectorIntel)
-        sector_idx_lookup = {x.intel_entity_id: i for i,x in enumerate(sector_intels)}
-        sector_intel_lookup = {x.intel_entity_id: x for x in sector_intels}
-
-        source_idx = sector_idx_lookup.get(source_id)
+        universe_view = UniverseView.create(character)
+        source_idx = universe_view.sector_idx_lookup.get(source_id)
         if source_idx is None:
             raise ValueError(f'{character} has no intel for source sector {source_id}')
-        target_idx = sector_idx_lookup.get(self.intel_entity_id)
+        target_idx = universe_view.sector_idx_lookup.get(self.intel_entity_id)
         if target_idx is None:
             raise ValueError(f'{character} has no intel for target sector {self.intel_entity_id}')
 
@@ -292,27 +362,9 @@ class SectorIntel(EntityIntel[core.Sector]):
             # trivial path to stay here
             return []
 
-        travel_gate_intels = character.intel_manager.intel(TrivialMatchCriteria(cls=TravelGateIntel), TravelGateIntel)
-        gate_intel_lookup = {(x.sector_id, x.destination_id):x for x in travel_gate_intels}
-
-        adj_matrix = np.ones((len(sector_intels), len(sector_intels))) * np.inf
-        for gate_intel in travel_gate_intels:
-            # model the cost the edge as the cost of travelling from one sector
-            # center to edge plus other sector edge back to center
-
-            # we could be more precise by modelling sector links as nodes and
-            # sector paths between gates as edges
-            # since the cost to travel from sector to sector is actually
-            # incurred while travelling from gate to gate within a sector
-            # but that sounds complicated and this is an easy approximation
-
-            a_idx = sector_idx_lookup[gate_intel.sector_id]
-            b_idx = sector_idx_lookup[gate_intel.destination_id]
-            cost_estimate = sector_intel_lookup[gate_intel.sector_id].radius + sector_intel_lookup[gate_intel.destination_id].radius
-            adj_matrix[a_idx, b_idx] = cost_estimate
 
         # compute shortest path from source to target, if one
-        path_tree, distance_map = util.dijkstra(adj_matrix, source_idx, target_idx)
+        path_tree, distance_map = util.dijkstra(universe_view.adj_matrix, source_idx, target_idx)
 
         if source_idx not in path_tree:
             # no path found
@@ -340,9 +392,9 @@ class SectorIntel(EntityIntel[core.Sector]):
         # assume travel gate intel in both directions for every step in path
         sector_path = list(
             (
-                sector_intels[u],
-                gate_intel_lookup[sector_intels[u].intel_entity_id, sector_intels[v].intel_entity_id],
-                gate_intel_lookup[sector_intels[v].intel_entity_id, sector_intels[u].intel_entity_id],
+                universe_view.sector_intels[u],
+                universe_view.gate_intel_lookup[universe_view.sector_intels[u].intel_entity_id, universe_view.sector_intels[v].intel_entity_id],
+                universe_view.gate_intel_lookup[universe_view.sector_intels[v].intel_entity_id, universe_view.sector_intels[u].intel_entity_id],
                 dist
             ) for (u,v), dist in zip(idx_path_pairs, distances)
         )
@@ -359,7 +411,7 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
         is_static = entity.is_static
         entity_id = entity.entity_id
         entity_class = type(entity)
-        intel = cls.create_intel(*args, sector_id, loc, radius, is_static, entity_id, entity_class, gamestate, **kwargs)
+        intel = cls.create_intel(*args, sector_id, loc, radius, is_static, gamestate, intel_entity_id=entity_id, intel_entity_type=entity_class, intel_entity_name=entity.name, intel_entity_description=entity.description, **kwargs)
 
         return intel
 
@@ -426,16 +478,17 @@ class StationIntel(SectorEntityIntel[sector_entity.Station]):
         self.inputs = inputs
 
 class TravelGateIntel(SectorEntityIntel[sector_entity.TravelGate]):
-    def __init__(self, *args:Any, destination_id:uuid.UUID, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, destination_id:uuid.UUID, direction:float, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.destination_id = destination_id
+        self.direction = direction
 
 class EconAgentIntel(EntityIntel[core.EconAgent]):
     @classmethod
     def create_econ_agent_intel(cls, econ_agent:core.EconAgent, gamestate:core.Gamestate, *args:Any, **kwargs:Any) -> "EconAgentIntel":
         entity_id = econ_agent.entity_id
         entity_class = type(econ_agent)
-        agent_intel = cls.create_intel(entity_id, entity_class, gamestate, **kwargs)
+        agent_intel = cls.create_intel(gamestate, intel_entity_id=entity_id, intel_entity_type=entity_class, intel_entity_name=econ_agent.name, intel_entity_description=econ_agent.description, **kwargs)
         #TODO: econ agents are not always associated with sector entities!
         underlying_entity = gamestate.agent_to_entity[entity_id]
         agent_intel.underlying_entity_type = type(underlying_entity)
@@ -802,6 +855,17 @@ def add_station_intel(station:sector_entity.Station, character:core.Character, g
     else:
         return False
 
+def add_travel_gate_intel(gate:sector_entity.TravelGate, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+    entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(gate.entity_id), TravelGateIntel)
+    if not entity_intel or not entity_intel.is_fresh():
+        new_intel = TravelGateIntel.create_sector_entity_intel(gate, gamestate, destination_id=gate.destination.entity_id, direction=gate.direction, fresh_until=fresh_until, expires_at=expires_at, author_id=character.entity_id)
+
+        ret = character.intel_manager.add_intel(new_intel)
+        assert ret
+        return True
+    else:
+        return False
+
 def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None) -> bool:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sentity.entity_id), SectorEntityIntel)
     if not entity_intel or not entity_intel.is_fresh():
@@ -879,12 +943,12 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
         ret = character.intel_manager.add_intel(d_intel)
         assert ret
 
-def add_sector_intel(sector:core.Sector, character:core.Character, gamestate:core.Gamestate, fresh_until:float, expires_at:float) -> None:
+def add_sector_intel(sector:core.Sector, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> None:
     sector_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sector.entity_id), SectorIntel)
     if sector_intel and sector_intel.is_fresh():
         return
 
-    sector_intel = SectorIntel.create_intel(sector.entity_id, type(sector), gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until)
+    sector_intel = SectorIntel.create_intel(gamestate, intel_entity_id=sector.entity_id, intel_entity_type=type(sector), intel_entity_name=sector.name, intel_entity_description=sector.description, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until)
     ret = character.intel_manager.add_intel(sector_intel)
     assert(ret)
 
@@ -915,6 +979,19 @@ class IdentifyStationAction(events.Action):
         #TODO: expiration?
         add_station_intel(station, character, self.gamestate)
 
+class IdentifyTravelGateAction(events.Action):
+    def act(self,
+            character:core.Character,
+            event_type:int,
+            event_context:Mapping[int,int],
+            event_args: MutableMapping[str, Union[int,float,str,bool]],
+            action_args: Mapping[str, Union[int,float,str,bool]]
+    ) -> None:
+        gate = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), sector_entity.TravelGate)
+        #TODO: expiration?
+        add_travel_gate_intel(gate, character, self.gamestate)
+
+
 class IdentifySectorEntityAction(events.Action):
     def __init__(self, *args:Any, intel_ttl:float=300, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -930,6 +1007,7 @@ class IdentifySectorEntityAction(events.Action):
         sentity = self.gamestate.get_entity_short(self.ck(event_context, sensors.ContextKeys.TARGET), core.SectorEntity)
         assert(not isinstance(sentity, sector_entity.Asteroid))
         assert(not isinstance(sentity, sector_entity.Station))
+        assert(not isinstance(sentity, sector_entity.TravelGate))
         fresh_until = self.gamestate.timestamp + self.intel_ttl*0.2
         expires_at = self.gamestate.timestamp + self.intel_ttl
         #TODO: should "static" sector entities have expiration?
@@ -1004,6 +1082,7 @@ class EnterSectorAction(events.Action):
 def pre_initialize(event_manager:events.EventManager) -> None:
     event_manager.register_action(IdentifyAsteroidAction(), "identify_asteroid", "intel")
     event_manager.register_action(IdentifyStationAction(), "identify_station", "intel")
+    event_manager.register_action(IdentifyTravelGateAction(), "identify_travel_gate", "intel")
     event_manager.register_action(IdentifySectorEntityAction(), "identify_sector_entity", "intel")
     event_manager.register_action(DockingAction(), "witness_docking", "intel")
     event_manager.register_action(ScanAction(), "witness_scan", "intel")

@@ -473,7 +473,7 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
-def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None, bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+def drawille_line(start:Union[Sequence[float]|npt.NDArray[np.float64]], end:Union[Sequence[float], npt.NDArray[np.float64]], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None, bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
 
     if canvas is None:
         canvas = drawille.Canvas()
@@ -836,8 +836,9 @@ def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[
     return c
 
 
-def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
-    c = drawille.Canvas()
+def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+    if c is None:
+        c = drawille.Canvas()
     assert r >= 0
     if isclose(r, 0.):
         c.set(0,0)

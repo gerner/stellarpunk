@@ -491,7 +491,8 @@ class Presenter:
         """ Draws the sector hex grid """
 
         assert isinstance(self.view.viewscreen, interface.Canvas)
-        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, *self.perspective.meters_per_char, bbox=self.perspective.bbox)
+        mpc_x, mpc_y = self.perspective.meters_per_char
+        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, mpc_x, mpc_y, bbox=self.perspective.bbox)
         s_x, s_y = self.perspective.sector_to_screen(0, 0)
         util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(23))
         self.gamestate.breakpoint()

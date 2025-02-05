@@ -363,7 +363,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
                 raise command_input.UserError("cannot reach the travel gate")
             selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
             assert isinstance(selected_entity, sector_entity.TravelGate)
-            order = orders.TravelThroughGate(selected_entity, self.ship, self.gamestate)
+            order = orders.TravelThroughGate.create_travel_through_gate(selected_entity, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
 

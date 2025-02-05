@@ -165,6 +165,14 @@ criteria = ["$sensors:target.generate:etype_station"]
 [[intel_id_station.actions]]
 _action = "intel:identify_station"
 
+[intel_id_travel_gate]
+type = "sensors:identified"
+priority = 1
+group = "intel"
+criteria = ["$sensors:target.generate:etype_travel_gate"]
+[[intel_id_travel_gate.actions]]
+_action = "intel:identify_travel_gate"
+
 #TODO: what about planets?
 [intel_docked_station]
 type = "docked"

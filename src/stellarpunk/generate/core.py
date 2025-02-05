@@ -96,6 +96,7 @@ class ContextKeys(enum.IntEnum):
     ETYPE_PLANET = enum.auto()
     ETYPE_SHIP = enum.auto()
     ETYPE_MISSILE = enum.auto()
+    ETYPE_TRAVEL_GATE = enum.auto()
 
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
@@ -912,6 +913,7 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id
         )
         gate.destination = destination
+        gate.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_TRAVEL_GATE), 1)
 
         self.phys_shape(body, gate, gate_radius)
 
@@ -2164,6 +2166,8 @@ class UniverseGenerator(core.AbstractGenerator):
                         intel.add_station_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                         if entity.entity_id in self.gamestate.econ_agents:
                             intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, **intel_ttl(econ_expires_at))
+                    elif isinstance(entity, sector_entity.TravelGate):
+                        intel.add_travel_gate_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                     else:
                         intel.add_sector_entity_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at"))
 
@@ -2246,17 +2250,26 @@ class UniverseGenerator(core.AbstractGenerator):
             num_cultures=num_cultures,
         )
 
-        # generate starting intel for characters
-        for observer in self._observers:
-            observer.generation_step(GenerationStep.INTEL)
-        self.generate_intel()
-
         # generate the player
         for observer in self._observers:
             observer.generation_step(GenerationStep.PLAYER)
             observer.generation_tick()
         self.generate_player()
         #self.generate_player_for_combat_test(sector_ids, habitable_mask)
+
+        # generate starting intel for characters
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.INTEL)
+        self.generate_intel()
+
+        # give the player all universe view
+        assert self.gamestate.player.character
+        #for sector_id in self.gamestate.sectors:
+        #    sector = self.gamestate.get_entity(sector_id, core.Sector)
+            #intel.add_sector_intel(sector, self.gamestate.player.character, self.gamestate, np.inf, np.inf)
+        sector = self.gamestate.get_entity(self.gamestate.player.character.home_sector_id, core.Sector)
+        for travel_gate in sector.entities_by_type(sector_entity.TravelGate):
+            intel.add_travel_gate_intel(travel_gate, self.gamestate.player.character, self.gamestate)
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
         self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
