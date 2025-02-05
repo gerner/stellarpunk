@@ -494,12 +494,16 @@ class EconAgentIntel(EntityIntel[core.EconAgent]):
         agent_intel.underlying_entity_type = type(underlying_entity)
         agent_intel.underlying_entity_id = underlying_entity.entity_id
         for resource in econ_agent.sell_resources():
+            assert econ_agent.inventory(resource) > 0.0
+            assert econ_agent.sell_price(resource) < np.inf
             agent_intel.sell_offers[resource] = (
                 econ_agent.sell_price(resource),
                 econ_agent.inventory(resource),
             )
 
         for resource in econ_agent.buy_resources():
+            assert econ_agent.budget(resource) > 0.0
+            assert econ_agent.buy_price(resource) > 0.0
             agent_intel.buy_offers[resource] = (
                 econ_agent.buy_price(resource),
                 econ_agent.budget(resource) / econ_agent.buy_price(resource),
