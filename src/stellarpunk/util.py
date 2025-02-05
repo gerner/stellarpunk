@@ -587,8 +587,7 @@ def tab_complete(partial:str, current:str, options:Iterable[str], direction:int=
         else:
             return options[i]
     elif direction < 0:
-        # cycle backwards through list of options starting with partial,
-        # including partial
+        # cycle backwards through list of options starting with partial, including partial
         lo = bisect.bisect(options, partial)
         if not options[lo].startswith(partial):
             return partial
@@ -596,6 +595,7 @@ def tab_complete(partial:str, current:str, options:Iterable[str], direction:int=
         if current == partial:
             return options[hi-1]
         i = bisect.bisect_left(options, current, lo, hi)-1
+        if i < lo:
             return partial
         else:
             return options[i]
