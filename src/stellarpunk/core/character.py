@@ -231,6 +231,9 @@ class CharacterObserver(base.Observer, abc.ABC):
     def character_destroyed(self, character: "Character") -> None:
         pass
 
+    def character_migrated(self, character:"Character", from_entity:Optional[sector.SectorEntity], to_entity:Optional[sector.SectorEntity]) -> None:
+        pass
+
 class Character(base.Observable[CharacterObserver], base.Entity):
     id_prefix = "CHR"
 
@@ -246,8 +249,7 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         self.portrait:base.Sprite = sprite
         #TODO: other character background stuff
 
-        #TODO: does location matter?
-        self.location:Optional[sector.SectorEntity] = None
+        self._location:Optional[sector.SectorEntity] = None
 
         # how much money
         self.balance:float = 0.
@@ -278,7 +280,17 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         self.clear_observers()
         for agendum in self.agenda:
             agendum.stop()
-        self.location = None
+        self._location = None
+
+    @property
+    def location(self) -> Optional[sector.SectorEntity]:
+        return self._location
+
+    def migrate(self, location:sector.SectorEntity) -> None:
+        old_location = self._location
+        self._location = location
+        for observer in self._observers.copy():
+            observer.character_migrated(self, old_location, location)
 
     def address_str(self) -> str:
         if self.location is None:

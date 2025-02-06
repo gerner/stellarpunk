@@ -133,7 +133,7 @@ class Entity(abc.ABC):
         self._entity_id_short_int = util.uuid_to_u64(self.entity_id)
 
         if name is None:
-            name = f'{self.__class__} {str(self.entity_id)}'
+            name = f'{util.fullname(self)} {str(self.entity_id)}'
         self.name = name
 
         self.description = description or name
@@ -165,7 +165,7 @@ class Entity(abc.ABC):
         return self._entity_id_short_int
 
     def __str__(self) -> str:
-        return f'{self.short_id()}'
+        return f'{self.name} ({self.short_id()})'
 
     def sanity_check(self) -> None:
         assert(self.entity_registry.get_entity(self.entity_id, type(self)) == self)

@@ -453,7 +453,7 @@ class SaveGameProgressView(save_game.GameSaverObserver, interface.View):
     def _save_game(self) -> None:
         self.interface.log_message('saving game...')
         start_time = time.perf_counter()
-        self._game_saver.save(self._gamestate, self._save_filename)
+        self._game_saver.save(self._gamestate, self._save_filename, force_pause=False)
         end_time = time.perf_counter()
         self.interface.log_message(f'game saved in {end_time-start_time:.2f}s.')
         with self._save_lock.acquire():
@@ -541,7 +541,7 @@ class AutosaveTickHandler(core.TickHandler):
         self.next_autosave_real_timestamp = time.time() + self.autosave_interval
 
 
-class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
+class InterfaceManager(core.CharacterObserver, core.SectorEntityObserver, generate.UniverseGeneratorObserver):
     def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
@@ -565,6 +565,10 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.interface.__exit__(*args)
         self.mixer.__exit__(*args)
 
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
     # generate.UniverseGeneratorObserver
     def universe_generated(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate
@@ -576,6 +580,8 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         #TODO: should probably check some state to avoid errors here
         # e.g. player already exists and didn't die
         player.character.observe(self)
+        if player.character.location:
+            player.character.location.observe(self)
 
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
         self.logger.info("universe loaded")
@@ -590,18 +596,42 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.autosave_tick_handler.gamestate = gamestate
         self.autosave_tick_handler.set_next_autosave_ts()
 
-    # core.CharacterObserver
-    @property
-    def observer_id(self) -> uuid.UUID:
-        return core.OBSERVER_ID_NULL
 
+    # core.CharacterObserver
     def character_destroyed(self, character:core.Character) -> None:
         if character == self.interface.player.character:
+            if character.location:
+                character.location.unobserve(self)
+
             self.logger.info("player killed")
             self.gamestate.force_pause(self)
             self.interface.log_message("you've been killed")
             # TODO: what should we do when the player's character dies?
             self.open_universe()
+
+    def character_migrated(self, character:core.Character, from_entity:Optional[core.SectorEntity], to_entity:Optional[core.SectorEntity]) -> None:
+        if character != self.interface.player.character:
+            return
+        if from_entity:
+            self.interface.log_message(f'disembarked {from_entity}')
+            from_entity.unobserve(self)
+        if to_entity:
+            self.interface.log_message(f'boarded {to_entity}')
+            to_entity.observe(self)
+
+
+    # core.SectorEntityObserver
+
+    # no need to watch entity destroyed, that'll destroy the character and
+    # we'll catch it there
+    #def entity_destroyed
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        assert self.interface.player.character
+        if entity != self.interface.player.character.location:
+            return
+        self.interface.log_message(f'left {from_sector}, entering {to_sector}')
+
 
     def pre_initialize(self, event_manager:events.EventManager, runtime:core.AbstractGameRuntime) -> None:
         self.event_manager = event_manager

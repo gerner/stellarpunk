@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import uuid
+import enum
 from typing import Optional, Any, Type
 
 import numpy as np
@@ -350,10 +351,11 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
 
 class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     # lifecycle has several phases:
-    PHASE_TRAVEL_TO_GATE = 1
-    PHASE_TRAVEL_OUT_OF_SECTOR = 2
-    PHASE_TRAVEL_IN_TO_SECTOR = 3
-    PHASE_COMPLETE = 4
+    class Phase(enum.IntEnum):
+        PHASE_TRAVEL_TO_GATE = enum.auto()
+        PHASE_TRAVEL_OUT_OF_SECTOR = enum.auto()
+        PHASE_TRAVEL_IN_TO_SECTOR = enum.auto()
+        PHASE_COMPLETE = enum.auto()
 
     @classmethod
     def create_travel_through_gate[T:"TravelThroughGate"](cls:Type[T], target_gate: sector_entity.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> T:
@@ -373,7 +375,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         self.travel_thrust = travel_thrust
         self.max_gate_dist = max_gate_dist
 
-        self.phase = self.PHASE_TRAVEL_TO_GATE
+        self.phase = self.Phase.PHASE_TRAVEL_TO_GATE
         self.travel_start_time = 0.
         self.rotate_order:Optional[RotateOrder] = None
 
@@ -383,7 +385,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         self.warp_in:Optional[effects.WarpInEffect] = None
 
     def _is_complete(self) -> bool:
-        return self.phase == self.PHASE_COMPLETE
+        return self.phase == self.Phase.PHASE_COMPLETE
 
     def __str__(self) -> str:
         return f'TravelThroughGate phase {self.phase}'
@@ -408,21 +410,20 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         return self.order_id
 
     def effect_complete(self, effect:core.Effect) -> None:
-        if self.phase == self.PHASE_TRAVEL_OUT_OF_SECTOR:
-            assert effect == self.warp_out
-        elif self.phase == self.PHASE_TRAVEL_IN_TO_SECTOR:
-            assert effect == self.warp_in
-        else:
-            assert False
+        assert effect in (self.warp_out, self.warp_in)
+        if effect == self.warp_out:
+            assert self.phase in (self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR, self.Phase.PHASE_TRAVEL_IN_TO_SECTOR)
+        elif effect == self.warp_in:
+            assert self.phase in (self.Phase.PHASE_TRAVEL_IN_TO_SECTOR, self.Phase.PHASE_COMPLETE)
+
         self.gamestate.schedule_order_immediate(self)
 
     def effect_cancel(self, effect:core.Effect) -> None:
-        if self.phase == self.PHASE_TRAVEL_OUT_OF_SECTOR:
-            assert effect == self.warp_out
-        elif self.phase == self.PHASE_TRAVEL_IN_TO_SECTOR:
-            assert effect == self.warp_in
-        else:
-            assert False
+        assert effect in (self.warp_out, self.warp_in)
+        if effect == self.warp_out:
+            assert self.phase in (self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR, self.Phase.PHASE_TRAVEL_IN_TO_SECTOR)
+        elif effect == self.warp_in:
+            assert self.phase in (self.Phase.PHASE_TRAVEL_IN_TO_SECTOR, self.Phase.PHASE_COMPLETE)
         self.gamestate.schedule_order_immediate(self)
 
     # core.OrderObserver
@@ -458,10 +459,11 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
                     observer=self)
             self.ship.sector.add_effect(self.warp_out)
 
-            self.phase = self.PHASE_TRAVEL_OUT_OF_SECTOR
+            self.phase = self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR
             self.travel_start_time = self.gamestate.timestamp
 
-            # continue action when the effect completes
+            # schedule immediately so we can start traveling out of the sector
+            self.gamestate.schedule_order_immediate(self)
             return
 
         # zero velocity and not eclipsed by the gate
@@ -484,6 +486,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
                 arrival_distance=self.position_margin, min_distance=0.,
                 observer=self
         )
+        self.logger.info(f'made goto order {goto_order}')
         self._add_child(goto_order)
         # continue action when the goto is complete
 
@@ -513,7 +516,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             #TODO: should setting these happen in the post_tick phase?
             self.ship.set_loc(loc)
             self.warp_velocity = np.copy(self.ship.velocity)
-            self.ship.set_velocity((0., 0.))
+            #self.ship.set_velocity((0., 0.))
 
             # move from current sector to destination sector
             self.ship.migrate(self.target_gate.destination)
@@ -534,9 +537,15 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
                     np.copy(self.ship.loc), self.ship.sector, self.gamestate,
                     observer=self)
             self.ship.sector.add_effect(self.warp_in)
-            self.phase = self.PHASE_TRAVEL_IN_TO_SECTOR
+            self.phase = self.Phase.PHASE_TRAVEL_IN_TO_SECTOR
+            self.travel_start_time = self.gamestate.timestamp
 
-            # continue action once the effect completes
+            # rotate to face opposite direction of travel and decelerate
+            self.rotate_order = RotateOrder.create_rotate_order(self.target_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
+            self._add_child(self.rotate_order)
+            self.ship.apply_force(-1 * self.target_gate.direction_vector * self.travel_thrust, True)
+            # we'll act again when the rotate order is finished
+            return
         else:
             # lets gooooooo
             self.ship.apply_force(self.target_gate.direction_vector * self.travel_thrust, True)
@@ -553,23 +562,23 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # application of force over time, so it's possible this won't work
 
             # should already be stopped, but let's make sure
+            self.ship.apply_force((0., 0.), True)
             self.ship.phys.velocity = (0., 0.)
-            self.phase = self.PHASE_COMPLETE
+            self.phase = self.Phase.PHASE_COMPLETE
 
             # schedule another tick to get cleaned up
             self.gamestate.schedule_order_immediate(self)
         else:
             self.ship.apply_force(-1 * self.target_gate.direction_vector * self.travel_thrust, True)
-            #TODO: we want to continue applying thrust for the entire interval
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
 
     def act(self, dt:float) -> None:
-        if self.phase == self.PHASE_TRAVEL_TO_GATE:
+        if self.phase == self.Phase.PHASE_TRAVEL_TO_GATE:
             self._act_travel_to_gate(dt)
-        elif self.phase == self.PHASE_TRAVEL_OUT_OF_SECTOR:
+        elif self.phase == self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR:
             self._act_travel_out_of_sector(dt)
-        elif self.phase == self.PHASE_TRAVEL_IN_TO_SECTOR:
+        elif self.phase == self.Phase.PHASE_TRAVEL_IN_TO_SECTOR:
             self._act_travel_in_to_sector(dt)
         else:
             raise ValueError(f'unknown gate travel phase {self.phase}')

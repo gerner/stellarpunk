@@ -189,6 +189,12 @@ class ProductionChainConfig:
 
 
 class UniverseConfig:
+
+    class PlayerStart(enum.Enum):
+        MINER = enum.auto()
+        TEST_COMBAT = enum.auto()
+        TEST_GATE = enum.auto()
+
     def __init__(self) -> None:
 
         # names and cultures
@@ -217,6 +223,8 @@ class UniverseConfig:
         self.station_factor = config.Settings.generate.Universe.STATION_FACTOR
         self.mining_ship_factor = config.Settings.generate.Universe.MINING_SHIP_FACTOR
         self.trading_ship_factor = config.Settings.generate.Universe.TRADING_SHIP_FACTOR
+
+        self.player_start = UniverseConfig.PlayerStart.MINER
 
 
 class UniverseGenerator(core.AbstractGenerator):
@@ -1011,7 +1019,9 @@ class UniverseGenerator(core.AbstractGenerator):
             name=self._gen_character_name(location.sector.culture),
             home_sector_id=location.sector.entity_id,
         )
-        character.location = location
+        # TODO: should we set this directly? gamestate.migrate assumes we've
+        # already been added
+        character._location = location
         character.balance = balance
         intel_manager.character = character
         self.gamestate.add_character(character)
@@ -1967,7 +1977,15 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return sector_ids, habitable_mask
 
-    def generate_player(self) -> None:
+    def generate_player(self, sector_ids:npt.NDArray, habitable_mask:npt.NDArray) -> None:
+        if self.universe_config.player_start == UniverseConfig.PlayerStart.MINER:
+            self.generate_player_for_miner_start()
+        elif self.universe_config.player_start == UniverseConfig.PlayerStart.TEST_COMBAT:
+            self.generate_player_for_combat_test(sector_ids, habitable_mask)
+        elif self.universe_config.player_start == UniverseConfig.PlayerStart.TEST_GATE:
+            self.generate_player_for_gate_test(sector_ids, habitable_mask)
+
+    def generate_player_for_miner_start(self) -> None:
         assert(self.gamestate)
 
         # mining start: working for someone else, doing mining for a refinery
@@ -2060,6 +2078,29 @@ class UniverseGenerator(core.AbstractGenerator):
         region_inner = core.SectorWeatherRegion(weather_loc, weather_radius*2*0.8, 0.5)
         sector.add_region(region_outer)
         sector.add_region(region_inner)
+
+    def generate_player_for_gate_test(self, sector_ids:npt.NDArray, habitable_mask:npt.NDArray) -> None:
+        """ generate the player in an uninhabited sector near a gate """
+
+        assert self.gamestate
+
+        # choose an uninhabited sector
+        sector_id = self.r.choice(sector_ids[~habitable_mask], 1)[0] # type: ignore
+        sector = self.gamestate.sectors[sector_id]
+
+        # find a gate in that sector
+        gate = next(sector.entities_by_type(sector_entity.TravelGate))
+
+        # spawn the player, character, ship, etc.
+        ship_loc = self.gen_sector_location(sector, center=gate.loc, radius=5e3, min_dist=2e3)
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., initial_sensor_power_ratio=0.0)
+
+        self.gamestate.player = self.spawn_player(ship, balance=2e3)
+        player_character = self.gamestate.player.character
+        assert(player_character)
+
+        player_character.add_agendum(agenda.CaptainAgendum.create_eoa(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
+
 
     def generate_starfields(self) -> None:
         assert(self.gamestate)
@@ -2254,7 +2295,8 @@ class UniverseGenerator(core.AbstractGenerator):
         for observer in self._observers:
             observer.generation_step(GenerationStep.PLAYER)
             observer.generation_tick()
-        self.generate_player()
+
+        self.generate_player(sector_ids, habitable_mask)
         #self.generate_player_for_combat_test(sector_ids, habitable_mask)
 
         # generate starting intel for characters

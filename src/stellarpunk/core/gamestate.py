@@ -423,7 +423,7 @@ class Gamestate(EntityRegistry):
         if character.location is not None:
             self.characters_by_location[character.location.entity_id].remove(character)
         self.characters_by_location[location.entity_id].append(character)
-        character.location = location
+        character.migrate(location)
 
     def handle_destroy_entities(self) -> None:
         for entity in self.gamestate.entity_destroy_list:

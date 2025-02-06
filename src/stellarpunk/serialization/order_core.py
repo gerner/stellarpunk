@@ -218,7 +218,7 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
         warp_in_id = s_util.optional_uuid_from_f(f)
 
         order = ocore.TravelThroughGate(load_context.gamestate, position_margin=position_margin, travel_time=travel_time, travel_thrust=travel_thrust, max_gate_dist=max_gate_dist, _check_flag=True, order_id=order_id)
-        order.phase = phase
+        order.phase = ocore.TravelThroughGate.Phase(phase)
         order.travel_start_time = travel_start_time
         order.warp_velocity = warp_velocity
 

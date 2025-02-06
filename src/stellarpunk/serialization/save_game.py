@@ -475,7 +475,12 @@ class GameSaver(SaverObserver):
         save_filename = os.path.join(self._save_path, save_filename)
         return self.save(gamestate, save_filename)
 
-    def save(self, gamestate:core.Gamestate, save_filename:Optional[str]=None) -> str:
+    def save(self, gamestate:core.Gamestate, save_filename:Optional[str]=None, force_pause:bool=True) -> str:
+        if force_pause:
+            gamestate.force_pause(self)
+        else:
+            assert gamestate.paused
+
         self.logger.info(f'saving gamestate at {gamestate.timestamp} with {gamestate.ticks} ticks...')
         start_time = time.perf_counter()
         # plus one estimated tick for the sanity check
@@ -528,6 +533,9 @@ class GameSaver(SaverObserver):
             observer.save_complete(self)
 
         self.logger.info(f'saved {bytes_written} bytes to {save_filename} in {time.perf_counter()-start_time}s')
+
+        if force_pause:
+            gamestate.force_unpause(self)
 
         return save_filename
 
