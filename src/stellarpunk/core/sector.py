@@ -126,10 +126,15 @@ def write_history_to_file(entity:Union["Sector", "SectorEntity"], f:Union[str, T
         fout.close()
 
 class SectorEntityObserver(base.Observer):
+    def entity_pre_migrate(self, entity:"SectorEntity", from_sector:"Sector", to_sector:"Sector") -> None:
+        """ Called prior to migrating this sector entity to a new sector. """
+        pass
     def entity_migrated(self, entity:"SectorEntity", from_sector:"Sector", to_sector:"Sector") -> None:
+        """ Called after the entity has migrated to a new sector. """
         pass
 
     def entity_destroyed(self, entity:"SectorEntity") -> None:
+        """ Called just before destroying the entity. """
         pass
 
     def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
@@ -274,12 +279,13 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
-    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None, is_static:Optional[bool]=None):
+    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, mass:Optional[float]=None, radius:Optional[float]=None, is_static:Optional[bool]=None):
         if entity:
             self.object_type:Type[SectorEntity]=type(entity)
             self.id_prefix = entity.id_prefix
             self.entity_id = entity.entity_id
             self.short_id = entity.short_id()
+            self.mass = entity.mass
             self.radius = entity.radius
             self.is_static = entity.is_static
         else:
@@ -287,12 +293,14 @@ class SensorIdentity:
             assert(id_prefix)
             assert(entity_id)
             assert(short_id)
+            assert(mass is not None)
             assert(radius is not None)
             assert(is_static is not None)
             self.object_type = object_type
             self.id_prefix = id_prefix
             self.entity_id = entity_id
             self.short_id = short_id
+            self.mass = mass
             self.radius = radius
             self.is_static = is_static
         # must be updated externally
@@ -300,8 +308,9 @@ class SensorIdentity:
 
 class SensorImageInactiveReason(enum.IntEnum):
     OTHER = enum.auto()
-    DESTROYED = enum.auto()
-    MIGRATED = enum.auto()
+    DESTROYED = enum.auto() # observed target being destroyed
+    MIGRATED = enum.auto() # observed target leaving the sector
+    MISSING = enum.auto() # discovered target missing from expected location
 
 class AbstractSensorImage:
     """ A sensor contact which might be old with predicted attributes
@@ -352,6 +361,8 @@ class AbstractSensorImage:
     #@property
     #@abc.abstractmethod
     #def transponder(self) -> bool: ...
+    @abc.abstractmethod
+    def detected(self) -> bool: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
         """ False iff we detected target destroyed or leaving the sector """

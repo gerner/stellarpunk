@@ -75,6 +75,14 @@ class SensorImage(core.AbstractSensorImage):
     def __hash__(self) -> int:
         return hash((self._identity.entity_id, self._detector_id))
 
+    def _detection_range(self) -> float:
+        """ Range at which we should be able to detect this target for sure
+
+        This is a lower bound, target may be detectable at a longer range."""
+        passive_profile = (config.Settings.sensors.COEFF_MASS * self._identity.mass + config.Settings.sensors.COEFF_RADIUS * self._identity.radius)
+        threshold = self._sensor_manager.compute_effective_threshold(self._ship)
+        return np.sqrt(passive_profile / threshold / config.Settings.sensors.COEFF_DISTANCE)
+
     def target_destroyed(self, entity:core.SectorEntity) -> None:
         assert entity.entity_id == self._identity.entity_id
         # might be risky checking if detected on logically destroyed entity
@@ -111,6 +119,14 @@ class SensorImage(core.AbstractSensorImage):
     @property
     def fidelity(self) -> float:
         return self.profile / self._sensor_manager.compute_effective_threshold(self._ship)
+
+    def detected(self) -> bool:
+        if not self._ship.sector:
+            return False
+        if self.identity.entity_id not in self._ship.sector.entities:
+            return False
+        target = self._ship.sector.entities[self.identity.entity_id]
+        return self._sensor_manager.detected(target, self._ship)
 
     @property
     def identified(self) -> bool:
@@ -247,7 +263,14 @@ class SensorImage(core.AbstractSensorImage):
                 self._acceleration = ZERO_VECTOR
                 return False
         else:
-            #TODO: shouldn't we flip _is_active at some point?
+            if self._is_active:
+                # we did not observe the target becoming inactive
+                # check to see if we have enough information to deduce it is
+                # inactive now, i.e. we're close enough
+                if util.distance(self._ship.loc, self.loc) < self._detection_range():
+                    self._is_active = False
+                    self._inactive_reason = core.SensorImageInactiveReason.MISSING
+
             return False
 
     def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
@@ -316,10 +339,12 @@ class SensorSettings(core.SectorEntityObserver, core.AbstractSensorSettings):
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity.entity_id in self._images:
             self._images[entity.entity_id].target_destroyed(entity)
+        entity.unobserve(self)
 
-    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+    def entity_pre_migrate(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         if entity.entity_id in self._images:
             self._images[entity.entity_id].target_migrated(entity, from_sector, to_sector)
+        entity.unobserve(self)
 
     def set_detector_id(self, detector_id:uuid.UUID) -> None:
         self._detector_id = detector_id
@@ -330,6 +355,9 @@ class SensorSettings(core.SectorEntityObserver, core.AbstractSensorSettings):
             target.observe(self)
         self._images[image.identity.entity_id] = image
     def unregister_image(self, image:core.AbstractSensorImage) -> None:
+        if core.Gamestate.gamestate.contains_entity(image.identity.entity_id):
+            target = core.Gamestate.gamestate.get_entity(image.identity.entity_id, core.SectorEntity)
+            target.unobserve(self)
         del self._images[image.identity.entity_id]
     def has_image(self, target_id:uuid.UUID) -> bool:
         return target_id in self._images

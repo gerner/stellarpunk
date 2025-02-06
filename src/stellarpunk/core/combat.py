@@ -232,6 +232,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
 
     class State(enum.IntEnum):
+        BEGIN = enum.auto()
         APPROACH = enum.auto()
         WITHDRAW = enum.auto()
         SHADOW = enum.auto()
@@ -240,6 +241,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         LAST_LOCATION = enum.auto()
         SEARCH = enum.auto()
         GIVEUP = enum.auto()
+        DESTROYED = enum.auto()
 
     @classmethod
     def create_attack_order[T:"AttackOrder"](cls:Type[T], target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:int=0, **kwargs:Any) -> T:
@@ -265,7 +267,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         #TODO: a temporary hack to limit how many missiles we can shoot
         self.max_missiles = max_missiles
 
-        self.state = AttackOrder.State.APPROACH
+        self.state = AttackOrder.State.BEGIN
 
         self.last_fire_ts = -3600.
         #TODO: fire period is a temporary hack to limit firing
@@ -294,6 +296,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def _do_search(self) -> None:
         #TODO: search, for now give up
         self.logger.debug(f'giving up search for target {self.target.identity.short_id}')
+        assert not self.target.detected()
         self.state = AttackOrder.State.GIVEUP
 
     def _do_approach(self) -> None:
@@ -361,6 +364,14 @@ class AttackOrder(movement.AbstractSteeringOrder):
             self.ship.sensor_settings.set_sensors(0.0)
 
     def _choose_state(self) -> "AttackOrder.State":
+        if not self.target.is_active():
+            if self.target.inactive_reason == core.SensorImageInactiveReason.DESTROYED:
+                # we observed the target being destroyed
+                return AttackOrder.State.DESTROYED
+            else:
+                # we lost track of the target and we know they are missing
+                return AttackOrder.State.GIVEUP
+
         if self.gamestate.timestamp - self.last_fire_ts < self.fire_backoff_time:
             # back off immediately following firing a missile to reduce risk of
             # colliding with our own missile
@@ -397,6 +408,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         assert self.ship.sector
         self.target.update()
+        if not self.target.is_active():
+            breakpoint()
 
         self._set_sensors()
 

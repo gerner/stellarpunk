@@ -102,3 +102,16 @@ strictly necessary or the player's ship has fully resolved the object.
 * Jump through a gate
 * Mine an asteroid
 * Combat: launch a missile at a craft
+
+# Discovering a sensor contact is gone
+
+If a contact is destroyed or leaves the sector, but that event is not detected
+The detector may continue to operate as if the target is still there. But at
+some point it must be able to detect that the target isn't there.
+
+For instance, a ship might approach a station to dock, not realizing the
+station has been destroyed. At some point it must be close enough to the
+expected location that sensors are guaranteed to be able to detect the station
+if it were still there. At this point the image should be marked inactive, even
+if the event that removed the station was not detected.
+
