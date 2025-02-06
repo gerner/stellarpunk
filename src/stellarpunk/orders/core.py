@@ -379,8 +379,6 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         self.travel_start_time = 0.
         self.rotate_order:Optional[RotateOrder] = None
 
-        # the velocity we reached when we warped out, saved for when we warp in
-        self.warp_velocity = np.array((0.,0.))
         self.warp_out:Optional[effects.WarpOutEffect] = None
         self.warp_in:Optional[effects.WarpInEffect] = None
 
@@ -515,7 +513,6 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
             #TODO: should setting these happen in the post_tick phase?
             self.ship.set_loc(loc)
-            self.warp_velocity = np.copy(self.ship.velocity)
             #self.ship.set_velocity((0., 0.))
 
             # move from current sector to destination sector

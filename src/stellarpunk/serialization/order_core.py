@@ -197,7 +197,6 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
         bytes_written += s_util.float_to_f(order.travel_start_time, f)
         bytes_written += s_util.optional_uuid_to_f(order.rotate_order.order_id if order.rotate_order else None, f)
 
-        bytes_written += s_util.float_pair_to_f(order.warp_velocity, f)
         bytes_written += s_util.optional_uuid_to_f(order.warp_out.effect_id if order.warp_out else None, f)
         bytes_written += s_util.optional_uuid_to_f(order.warp_in.effect_id if order.warp_in else None, f)
         return bytes_written
@@ -213,14 +212,12 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
         travel_start_time = s_util.float_from_f(f)
         rotate_order_id = s_util.optional_uuid_from_f(f)
 
-        warp_velocity = s_util.float_pair_from_f(f)
         warp_out_id = s_util.optional_uuid_from_f(f)
         warp_in_id = s_util.optional_uuid_from_f(f)
 
         order = ocore.TravelThroughGate(load_context.gamestate, position_margin=position_margin, travel_time=travel_time, travel_thrust=travel_thrust, max_gate_dist=max_gate_dist, _check_flag=True, order_id=order_id)
         order.phase = ocore.TravelThroughGate.Phase(phase)
         order.travel_start_time = travel_start_time
-        order.warp_velocity = warp_velocity
 
         return order, (target_gate_id, rotate_order_id, warp_out_id, warp_in_id)
 
