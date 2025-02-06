@@ -62,6 +62,10 @@ class Counters(enum.IntEnum):
     EVENTS_TOTAL_THROTTLED = enum.auto()
 
 
+class TickHandler:
+    def tick(self) -> None:
+        pass
+
 class AbstractGameRuntime:
     """ The game runtime that actually runs the simulation. """
 
@@ -105,6 +109,9 @@ class AbstractGameRuntime:
 
     def should_breakpoint(self) -> bool:
         return False
+
+    def register_tick_handler(self, tick_handler:TickHandler) -> None:
+        pass
 
 class AbstractGenerator:
     @abc.abstractmethod

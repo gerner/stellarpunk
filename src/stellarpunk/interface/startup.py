@@ -135,7 +135,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._loaded_gamestate = gamestate
         end_time = time.perf_counter()
         self.interface.log_message(f'game loaded in {end_time-start_time:.2f}s.')
-        self._universe_loaded = True
+        with self._generation_lock.acquire():
+            self._universe_loaded = True
 
     def _load_game_threaded(self) -> None:
         try:

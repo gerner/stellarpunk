@@ -109,6 +109,8 @@ class LoadError(Exception):
 class SaverObserver:
     def load_tick(self, saver:"Saver") -> None:
         pass
+    def save_tick(self, saver:"Saver") -> None:
+        pass
 
 class Saver[T](abc.ABC):
     def __init__(self, save_game:"GameSaver"):
@@ -221,6 +223,10 @@ class Saver[T](abc.ABC):
         for observer in self._observers:
             observer.load_tick(self)
 
+    def save_tick(self) -> None:
+        for observer in self._observers:
+            observer.save_tick(self)
+
 class NoneSaver(Saver[None]):
     def save(self, obj:None, f:io.IOBase) -> int:
         return 0
@@ -254,11 +260,17 @@ class SaveGame:
 class GameSaverObserver:
     def load_start(self, estimated_ticks:int, game_saver:"GameSaver") -> None:
         pass
-
     def load_tick(self, game_saver:"GameSaver") -> None:
         pass
-
     def load_complete(self, load_context:LoadContext, game_saver:"GameSaver") -> None:
+        pass
+
+
+    def save_start(self, estimated_ticks:int, game_saver:"GameSaver") -> None:
+        pass
+    def save_tick(self, game_saver:"GameSaver") -> None:
+        pass
+    def save_complete(self, game_saver:"GameSaver") -> None:
         pass
 
 class GameSaver(SaverObserver):
@@ -304,6 +316,10 @@ class GameSaver(SaverObserver):
     def load_tick(self, saver:Saver) -> None:
         for observer in self._observers:
             observer.load_tick(self)
+
+    def save_tick(self, saver:Saver) -> None:
+        for observer in self._observers:
+            observer.save_tick(self)
 
     def _gen_save_filename(self) -> str:
         return f'save_{time.time()}.stpnk'
@@ -462,9 +478,15 @@ class GameSaver(SaverObserver):
     def save(self, gamestate:core.Gamestate, save_filename:Optional[str]=None) -> str:
         self.logger.info(f'saving gamestate at {gamestate.timestamp} with {gamestate.ticks} ticks...')
         start_time = time.perf_counter()
+        # plus one estimated tick for the sanity check
+        estimated_ticks = self.estimate_ticks(gamestate)+1
+        for observer in self._observers:
+            observer.save_start(estimated_ticks, self)
 
         self.logger.debug("sanity checking gamestate")
         gamestate.sanity_check()
+        for observer in self._observers:
+            observer.save_tick(self)
         self.logger.debug("sanity check complete")
 
         if save_filename is None:
@@ -501,6 +523,9 @@ class GameSaver(SaverObserver):
 
             # move the temp file into final home, so we only end up with good files
             os.rename(temp_save_file.name, save_filename)
+
+        for observer in self._observers:
+            observer.save_complete(self)
 
         self.logger.info(f'saved {bytes_written} bytes to {save_filename} in {time.perf_counter()-start_time}s')
 

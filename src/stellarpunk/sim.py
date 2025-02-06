@@ -58,6 +58,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         self.should_raise= False
         self.should_raise_breakpoint = False
 
+        self.tick_handlers:list[core.TickHandler] = []
+
         # time between ticks, this is the framerate
         self.desired_dt = 1/60
         self.dt = self.desired_dt
@@ -182,6 +184,9 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
 
     def should_breakpoint(self) -> bool:
         return self.should_raise_breakpoint
+
+    def register_tick_handler(self, tick_handler:core.TickHandler) -> None:
+        self.tick_handlers.append(tick_handler)
 
     def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
         """ post-gamestate generation/loading initialization.
@@ -469,6 +474,9 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             if not self.gamestate.paused:
                 self.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.timeout
 
+            for tick_handler in self.tick_handlers:
+                tick_handler.tick()
+
             self.ui.tick(timeout, self.dt)
 
             now = time.perf_counter()
@@ -638,7 +646,6 @@ def main() -> None:
         generator.pre_initialize(event_manager, intel_director)
 
         ui_util.initialize()
-        ui.pre_initialize(event_manager)
 
         # note: universe generator is handled by the ui if the player chooses
         # a new game or to load the game
@@ -646,6 +653,7 @@ def main() -> None:
         #TODO: should this be tied to the gamestate?
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
         sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, game_saver=sg, context_stack=context_stack)
+        ui.pre_initialize(event_manager, sim)
         sim.pre_initialize()
 
         ui.interface.runtime = sim

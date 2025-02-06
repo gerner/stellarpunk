@@ -1,7 +1,7 @@
 # Stellarpunk config file
 
 #TODO: 30 seconds seems far too short
-AUTOSAVE_PERIOD_SEC = 30.0
+AUTOSAVE_PERIOD_SEC = 120.0
 
 [help]
     [help.interface.InterfaceManager]

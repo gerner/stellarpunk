@@ -682,9 +682,9 @@ class FPSCounter:
 class Interface(AbstractInterface):
     def __init__(self, game_saver:save_game.GameSaver, *args:Any, **kwargs:Any):
         super().__init__(*args, **kwargs)
-        self.game_saver = game_saver
-        self.next_autosave_timestamp = 0.
-        self.next_autosave_real_timestamp = 0.
+        #self.game_saver = game_saver
+        #self.next_autosave_timestamp = 0.
+        #self.next_autosave_real_timestamp = 0.
         self.stdscr:curses.window = None # type: ignore[assignment]
 
         self.desired_fps = Settings.MAX_FPS
@@ -1092,6 +1092,7 @@ class Interface(AbstractInterface):
         else:
             return False
 
+    """
     def _tick_autosave(self) -> None:
         if self.game_saver is None:
             return
@@ -1116,6 +1117,7 @@ class Interface(AbstractInterface):
     def set_next_autosave_ts(self) -> None:
         self.next_autosave_timestamp = self.gamestate.timestamp + config.Settings.AUTOSAVE_PERIOD_SEC
         self.next_autosave_real_timestamp = time.time() + config.Settings.AUTOSAVE_PERIOD_SEC
+    """
 
     def tick(self, timeout:float, dt:float) -> None:
         start_time = time.perf_counter()
@@ -1151,9 +1153,6 @@ class Interface(AbstractInterface):
             self.show_diagnostics()
             self.stdscr.noutrefresh()
             curses.doupdate()
-
-        # autosave
-        self._tick_autosave()
 
         #TODO: this can block in the case of mouse clicks
         #TODO: see note above about setting mouseinterval to 0 which fixes this?

@@ -29,10 +29,8 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         #bytes_written += s_util.float_to_f(gamestate.min_tick_sleep, f)
         bytes_written += s_util.int_to_f(gamestate.ticks, f)
 
-        # in general we can't save while force paused since we force pause
-        # because we're at risk of putting the gamestate in an inconsistent
-        # state (e.g. middle of dialog)
-        assert(not gamestate.is_force_paused())
+        # we must be paused to save the game
+        assert gamestate.paused
 
         bytes_written += s_util.uuid_to_f(gamestate.player.entity_id, f)
         #TODO: should we save counters?
@@ -49,6 +47,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for entity in gamestate.entities.values():
             # we save as a generic entity which will handle its own dispatch
             bytes_written += self.save_game.save_object(entity, f, klass=core.Entity)
+            self.save_tick()
 
         # orders
         bytes_written += self.save_game.debug_string_w("orders", f)
@@ -56,6 +55,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for order in gamestate.orders.values():
             # we save as a generic order which will handle its own dispatch
             bytes_written += self.save_game.save_object(order, f, klass=core.Order)
+            self.save_tick()
 
         # effects
         bytes_written += self.save_game.debug_string_w("effects", f)
@@ -63,6 +63,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for effect in gamestate.effects.values():
             # we save as a generic effect which will handle its own dispatch
             bytes_written += self.save_game.save_object(effect, f, klass=core.Effect)
+            self.save_tick()
 
         # agenda
         bytes_written += self.save_game.debug_string_w("agenda", f)
@@ -70,6 +71,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for agenda in gamestate.agenda.values():
             # we save as a generic effect which will handle its own dispatch
             bytes_written += self.save_game.save_object(agenda, f, klass=core.AbstractAgendum)
+            self.save_tick()
 
         # sectors
         # save the sector ids in the right order
@@ -146,6 +148,9 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             bytes_written += s_util.to_len_pre_f(colliders, f)
 
         bytes_written += self.save_game.debug_string_w("gamestate done", f)
+
+        self.save_tick()
+
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> core.Gamestate:
