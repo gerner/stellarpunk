@@ -330,7 +330,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         if cheapest_criteria is None:
             # this means we have intel interests we cannot collect and no one
             # else is directing primary character behavior.
-            self.logger.info(f'{self.character} has intel interests that we cannot actively satisfy')
+            self.logger.info(f'{self.character} has intel interests that we cannot actively satisfy: {self._interests}')
             # clear out all intel interests, we will not try to collect them
             # if someone still wants them, something else needs to happen in
             # order to collect that intel.

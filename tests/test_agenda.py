@@ -219,8 +219,9 @@ def test_basic_trading(intel_director, gamestate, generator, sector, testui, sim
 
         # check if we collected some intel successfully
         # if we have a trade check some parameters about it
-        buys = agenda.possible_buys(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
-        sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+        #TODO: multi-sector trading
+        buys = agenda.possible_buys(ship_owner, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
+        sales = agenda.possible_sales(ship_owner, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
 
         if len(buys) == 0 or len(sales) == 0:
             return

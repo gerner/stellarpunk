@@ -18,13 +18,26 @@ from .core import EntityOperatorAgendum
 
 def possible_buys(
         character:core.Character,
-        gamestate:core.Gamestate,
-        ship:core.SectorEntity,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         buy_from_stations:Optional[list[uuid.UUID]],
+        center_sector_id:Optional[uuid.UUID]=None,
+        max_jumps:int=0,
+        universe_view:Optional[intel.UniverseView]=None,
         ) -> Mapping[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]]:
-    assert ship.sector is not None
+    """ Find all known opportunities to buy goods
+
+    character: the character whose intel we will consider (the buyer)
+    ship_agent: the EconAgent representing this buyer
+    allowed_resources: a list of resource ids to consider buying
+    buy_from_stations: an optional list of station ids to consider buying from
+    center_sector_id: an optional sector_id to limit buys to nearby sectors
+    max_jumps: the max number of jumps to allow from center_sector_id
+    universe_view: the character's view of the universe
+    """
+
+
+
     # figure out possible buys by resource
     buys:collections.defaultdict[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]] = collections.defaultdict(list)
     buy_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
@@ -41,6 +54,22 @@ def possible_buys(
         station_intel = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(econ_agent_intel.underlying_entity_id), intel.StationIntel)
         if not station_intel:
             continue
+
+        # check if we're limiting sectors by jump count
+        if center_sector_id:
+            assert universe_view
+            if station_intel.sector_id == center_sector_id:
+                jumps_needed = 0
+            else:
+                jump_path = universe_view.compute_path(center_sector_id, station_intel.sector_id)
+                if jump_path is None:
+                    # no known path
+                    continue
+                jumps_needed = len(jump_path)
+            if jumps_needed > max_jumps:
+                # too many jumps away from the center
+                continue
+
         buy_hits.append((econ_agent_intel, station_intel))
 
     for econ_agent_intel, station_intel in buy_hits:
@@ -55,13 +84,13 @@ def possible_buys(
 
 def possible_sales(
         character:core.Character,
-        gamestate:core.Gamestate,
-        ship:core.SectorEntity,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         allowed_stations:Optional[list[uuid.UUID]],
-        ) -> Mapping[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]]:
-    assert ship.sector is not None
+        center_sector_id:Optional[uuid.UUID]=None,
+        max_jumps:int=0,
+        universe_view:Optional[intel.UniverseView]=None,
+) -> Mapping[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]]:
     # figure out possible sales by resource
     sales:collections.defaultdict[int, list[tuple[float, float, intel.StationIntel, intel.EconAgentIntel]]] = collections.defaultdict(list)
     sale_hits:list[tuple[intel.EconAgentIntel, intel.StationIntel]] = []
@@ -102,8 +131,11 @@ def choose_station_to_buy_from(
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
         buy_from_stations:Optional[list[uuid.UUID]],
-        sell_to_stations:Optional[list[uuid.UUID]]
-        ) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel, float, float]]:
+        sell_to_stations:Optional[list[uuid.UUID]],
+        center_sector_id:Optional[uuid.UUID]=None,
+        max_jumps:int=0,
+        universe_view:Optional[intel.UniverseView]=None,
+) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel, float, float]]:
 
     if ship.sector is None:
         raise ValueError(f'{ship} in no sector')
@@ -116,10 +148,10 @@ def choose_station_to_buy_from(
     # transfer time = buy transfer + sell transfer
     # travel time  = time to buy + time to sell
 
-    buys = possible_buys(character, gamestate, ship, ship_agent, allowed_resources, buy_from_stations)
+    buys = possible_buys(character, ship_agent, allowed_resources, buy_from_stations, center_sector_id=center_sector_id, max_jumps=max_jumps, universe_view=universe_view)
 
     # find sales, assuming we can acquire whatever resource we need
-    sales = possible_sales(character, gamestate, ship, econ.YesAgent(gamestate.production_chain), allowed_resources, sell_to_stations)
+    sales = possible_sales(character, econ.YesAgent(gamestate.production_chain), allowed_resources, sell_to_stations, center_sector_id=center_sector_id, max_jumps=max_jumps, universe_view=universe_view)
 
     #best_profit_per_time = 0.
     #best_trade:Optional[tuple[int, core.Station, core.EconAgent]] = None
@@ -157,8 +189,11 @@ def choose_station_to_sell_to(
         ship:core.Ship,
         ship_agent:core.EconAgent,
         allowed_resources:list[int],
-        sell_to_stations:Optional[list[uuid.UUID]]
-        ) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel]]:
+        sell_to_stations:Optional[list[uuid.UUID]],
+        center_sector_id:Optional[uuid.UUID]=None,
+        max_jumps:int=0,
+        universe_view:Optional[intel.UniverseView]=None,
+) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel]]:
     """ Choose a station to sell goods from ship to """
 
     if ship.sector is None:
@@ -172,7 +207,7 @@ def choose_station_to_sell_to(
     #TODO: what if no stations seem to trade the resources we have?
     #TODO: what if no stations seem to trade any allowed resources?
 
-    sales = possible_sales(character, gamestate, ship, ship_agent, allowed_resources, sell_to_stations)
+    sales = possible_sales(character, ship_agent, allowed_resources, sell_to_stations, center_sector_id=center_sector_id, max_jumps=max_jumps, universe_view=universe_view)
 
     best_profit_per_time = 0.
     best_trade:Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel]] = None
@@ -694,14 +729,15 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         # fresh: look for anything that might be useful
         # delta: we've learned something new, try to exploit that
 
+        #TODO: multi-sector trading
         buys = possible_buys(
                 self.character,
-                self.gamestate, self.craft, self.agent,
+                self.agent,
                 self.allowed_goods, self.buy_from_stations
         )
         sales = possible_sales(
                 self.character,
-                self.gamestate, self.craft, self.agent,
+                self.agent,
                 self.allowed_goods, self.sell_to_stations,
         )
         known_sold_resources = frozenset(buys.keys()).intersection(self.allowed_goods)

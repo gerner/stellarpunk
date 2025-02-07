@@ -445,9 +445,13 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         while self.startup_running:
             now = time.perf_counter()
             self._handle_synchronization(now, next_tick)
+            starttime = time.perf_counter()
             next_tick = next_tick + self.dt
             timeout = next_tick - now
             self.ui.tick(timeout, self.dt)
+            now = time.perf_counter()
+            ticktime = now - starttime
+            self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
     def run(self) -> None:
         next_tick = time.perf_counter()+self.dt

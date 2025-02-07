@@ -179,11 +179,11 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     add_sector_intel(ship, sector, ship_owner, gamestate)
 
     # check that buys and sales all make sense
-    buys = agenda.possible_buys(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
+    buys = agenda.possible_buys(ship_owner, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
     assert len(buys) == 1
     assert len(buys[resource]) == 1
     assert buys[resource][0][2].intel_entity_id == station_producer.entity_id
-    sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+    sales = agenda.possible_sales(ship_owner, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
     assert len(sales[resource]) == 1
     assert sales[resource][0][2].intel_entity_id == station_consumer.entity_id
     assert sales[resource][0][0] > buys[resource][0][0]

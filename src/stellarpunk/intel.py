@@ -323,6 +323,70 @@ class UniverseView:
         functools.reduce(group_by_destination, travel_gate_intels, self.gates_by_destination)
         self.adj_matrix = adj_matrix
 
+    @functools.cache
+    def _sector_dfs(self, source_idx:int) -> tuple[Mapping[int, int], Mapping[int, float]]:
+        return util.dijkstra(self.adj_matrix, source_idx, len(self.sector_idx_lookup))
+
+    def compute_path(self, source_id:uuid.UUID, target_id:uuid.UUID) -> Optional[list[tuple["SectorIntel", "TravelGateIntel", "TravelGateIntel", float]]]:
+        """ Computes the shortest known path from character's sector to target
+
+        returns: list of edges in the form tuple:
+            source_sector_intel,
+            outbound_gate_intel in source sector,
+            inbound_gate_intel in target sector,
+            edge_distance from source to target
+
+            or None if no known path exists
+        """
+
+        if source_id not in self.sector_idx_lookup:
+            # we don't know about source sector
+            return None
+
+        if target_id not in self.sector_idx_lookup:
+            # we don't know about target sector
+            return None
+
+        source_idx = self.sector_idx_lookup[source_id]
+        target_idx = self.sector_idx_lookup[target_id]
+
+        path_tree, distance_map = self._sector_dfs(source_idx)
+
+        if target_idx not in path_tree:
+            # no path to target found
+            return None
+
+        # translate route implied by path_tree
+        idx_path:list[int] = []
+        cum_distances:list[float] = []
+        u = target_idx
+        idx_path.append(u)
+        cum_distances.append(distance_map[u])
+        while u != source_idx:
+            u = path_tree[u]
+            idx_path.append(u)
+            cum_distances.append(distance_map[u])
+
+        # compute per-edge distances as cum_dist[i] - cum_dist[i+1]
+        distances = list(a-b for a,b in zip(cum_distances[0:-1], cum_distances[1:]))
+
+        # make from,to pair path and distances in source -> target order
+        idx_path.reverse()
+        idx_path_pairs = zip(idx_path[0:-1], idx_path[1:])
+        distances.reverse()
+
+        # assume travel gate intel in both directions for every step in path
+        sector_path = list(
+            (
+                self.sector_intels[u],
+                self.gate_intel_lookup[self.sector_intels[u].intel_entity_id, self.sector_intels[v].intel_entity_id],
+                self.gate_intel_lookup[self.sector_intels[v].intel_entity_id, self.sector_intels[u].intel_entity_id],
+                dist
+            ) for (u,v), dist in zip(idx_path_pairs, distances)
+        )
+
+        return sector_path
+
 class SectorIntel(EntityIntel[core.Sector]):
     @property
     def loc(self) -> npt.NDArray[np.float64]:
