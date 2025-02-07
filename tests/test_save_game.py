@@ -6,7 +6,7 @@ from collections.abc import MutableMapping
 
 import numpy as np
 
-from stellarpunk import sim, core, agenda, econ, orders, util
+from stellarpunk import sim, core, agenda, econ, orders, util, intel
 from stellarpunk.orders import steering, movement
 from stellarpunk.core import sector_entity, combat
 from stellarpunk.serialization import util as s_util
@@ -305,9 +305,15 @@ def test_saving_in_mining(player, gamestate, generator, intel_director, sector, 
     # ship and asteroid
     resource = 0
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    ship_owner = generator.spawn_character(ship)
+    ship_owner.take_ownership(ship)
+    ship.captain = ship_owner
     asteroid = generator.spawn_asteroid(sector, 0, 0, resource, 5e2)
+    add_sector_intel(ship, sector, ship_owner, gamestate)
+    asteroid_intel = ship_owner.intel_manager.get_intel(intel.EntityIntelMatchCriteria(asteroid.entity_id), intel.AsteroidIntel)
+    assert asteroid_intel
     # ship mines the asteroid
-    mining_order = orders.MineOrder.create_mine_order(asteroid, 3.5e2, ship, gamestate)
+    mining_order = orders.MineOrder.create_mine_order(asteroid_intel, 3.5e2, ship, gamestate)
     ship.prepend_order(mining_order)
 
     testui.orders = [mining_order]

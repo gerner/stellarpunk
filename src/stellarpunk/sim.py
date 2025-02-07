@@ -556,7 +556,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(orders.core.TransferCargo, s_order_core.TransferCargoSaver[orders.core.TransferCargo](sg))
     sg.register_saver(orders.core.TradeCargoToStation, s_order_core.TradeCargoToStationSaver(sg))
     sg.register_saver(orders.core.TradeCargoFromStation, s_order_core.TradeCargoFromStationSaver(sg))
-    sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
+    #sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
     sg.register_saver(orders.core.TravelThroughGate, s_order_core.TravelThroughGateSaver(sg))
     sg.register_saver(orders.core.DockingOrder, s_order_core.DockingOrderSaver(sg))
     sg.register_saver(orders.core.LocationExploreOrder, s_order_core.LocationExploreOrderSaver(sg))

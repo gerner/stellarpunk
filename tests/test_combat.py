@@ -214,7 +214,7 @@ def test_discover_missing(gamestate, generator, sector, testui, simulator):
     inactive_ticks = None
     def tick_callback():
         nonlocal gamestate, sector, attacker, defender, target_image, undetected_ticks, stillactive_ticks, inactive_ticks
-        if not undetected_ticks and not target_image.detected():
+        if not undetected_ticks and not target_image.detected:
             undetected_ticks = gamestate.ticks
             gamestate.destroy_entity(defender)
             assert target_image.is_active()

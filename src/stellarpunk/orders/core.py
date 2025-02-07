@@ -10,7 +10,7 @@ from typing import Optional, Any, Type
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import util, core, effects, econ, events, sensors
+from stellarpunk import util, core, effects, econ, events, sensors, intel
 from stellarpunk.core import sector_entity
 from stellarpunk.narrative import director
 from . import movement
@@ -20,24 +20,29 @@ from .steering import ZERO_VECTOR
 
 class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
     @classmethod
-    def create_mine_order[T:"MineOrder"](cls:Type[T], target: sector_entity.Asteroid, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> MineOrder:
+    def create_mine_order[T:"MineOrder"](cls:Type[T], target_intel: intel.AsteroidIntel, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> MineOrder:
         o = cls.create_order(*args, max_dist=max_dist, **kwargs)
-        o.target = target
-        o.eow = core.EntityOrderWatch(o, target)
+        o.target_intel = target_intel
         o.amount = min(amount, o.ship.cargo_capacity)
         return o
 
     def __init__(self, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.target:core.Asteroid = None # type: ignore
-        self.eow:core.EntityOrderWatch = None # type: ignore
+        self.target_intel:intel.AsteroidIntel = None # type: ignore
+        self.target_image:Optional[core.AbstractSensorImage] = None
         self.max_dist = max_dist
         self.amount = 0.0
         self.mining_effect:Optional[effects.MiningEffect] = None
         self.mining_rate = 2e1
 
     def estimate_eta(self) -> float:
-        docking_eta = DockingOrder.compute_eta(self.ship, self.target)
+        #TODO: what if we're in a different sector
+        assert self.ship.sector
+        if self.ship.sector.entity_id != self.target_intel.sector_id:
+            raise ValueError("ship and asteroid not in same sector")
+        if self.target_image is None:
+            self.target_image = self.ship.sector.sensor_manager.target_from_identity(self.target_intel.create_sensor_identity(), self.ship, self.target_intel.loc)
+        docking_eta = DockingOrder.compute_eta(self.ship, self.target_image.loc)
         if docking_eta > 0:
             return docking_eta + 5 + self.amount / self.mining_rate
         elif self.mining_effect is not None:
@@ -49,11 +54,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         return self.mining_effect is None
 
     def _begin(self) -> None:
-        self.init_eta = (
-                DockingOrder.compute_eta(self.ship, self.target)
-                + 5
-                + self.amount / self.mining_rate
-        )
+        self.init_eta = self.estimate_eta()
 
     def _cancel(self) -> None:
         if self.mining_effect:
@@ -90,21 +91,40 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         return (self.mining_effect is not None and self.mining_effect.is_complete())
 
     def act(self, dt: float) -> None:
-        if self.ship.sector != self.target.sector:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target.sector}')
-        # grab resources from the asteroid and add to our cargo
-        distance = util.distance(self.ship.loc,self.target.loc) - self.target.radius
-        if distance > self.max_dist:
-            order = DockingOrder.create_docking_order(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
-            self._add_child(order)
+        if not self.ship.sector or self.ship.sector.entity_id != self.target_intel.sector_id:
+            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_intel.sector_id}')
+        # we know we're in the same sector as the target
+        if self.target_image is None:
+            self.target_image = self.ship.sector.sensor_manager.target_from_identity(self.target_intel.create_sensor_identity(), self.ship, self.target_intel.loc)
+        else:
+            self.target_image.update()
 
-        elif movement.KillVelocityOrder.in_motion(self.ship):
+        if not self.target_image.is_active():
+            # asteroid isn't there anymore!
+            self.cancel_order()
+            return
+
+        # grab resources from the asteroid and add to our cargo
+        distance = util.distance(self.ship.loc, self.target_image.loc) - self.target_image.identity.radius
+        if distance > self.max_dist:
+            order = DockingOrder.create_docking_order(self.target_image, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
+            self._add_child(order)
+            return
+
+        # we must be close enough to identify the target
+        assert self.target_image.currently_identified
+
+        if movement.KillVelocityOrder.in_motion(self.ship):
             self._add_child(movement.KillVelocityOrder.create_kill_velocity_order(self.ship, self.gamestate, observer=self))
-        elif not self.mining_effect:
+            return
+
+        if not self.mining_effect:
             assert self.ship.phys.torque == 0.
-            assert self.ship.sector is not None
+            actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, sector_entity.Asteroid)
+            assert actual_target.sector == self.ship.sector
+
             self.mining_effect = effects.MiningEffect.create_transfer_cargo_effect(
-                    self.target.resource, self.amount, self.target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
+                    actual_target.resource, self.amount, actual_target, self.ship, self.ship.sector, self.gamestate, transfer_rate=self.mining_rate, observer=self)
             self.ship.sector.add_effect(self.mining_effect)
 
         # else wait for the mining effect
@@ -115,17 +135,18 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         return 1e2
 
     @classmethod
-    def create_transfer_cargo[T:"TransferCargo"](cls:Type[T], target: core.SectorEntity, resource: int, amount: float, *args:Any, max_dist:float=2e3, **kwargs:Any) -> T:
+    def create_transfer_cargo[T:"TransferCargo"](cls:Type[T], target_image:core.AbstractSensorImage, resource: int, amount: float, *args:Any, max_dist:float=2e3, **kwargs:Any) -> T:
         o = cls.create_order(*args, resource, amount, **kwargs)
-        o.target = target
-        o.eow = core.EntityOrderWatch(o, target)
+        o.target_image = target_image
+        #o.target = target
+        #o.eow = core.EntityOrderWatch(o, target)
         return o
 
     def __init__(self, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.target:core.SectorEntity = None # type: ignore
-        self.eow:core.EntityOrderWatch = None # type: ignore
+        self.target_image:core.AbstractSensorImage = None # type: ignore
+        #self.eow:core.EntityOrderWatch = None # type: ignore
         self.resource = resource
         self.amount = amount
         self.transferred = 0.
@@ -135,7 +156,7 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
 
     def _begin(self) -> None:
         self.init_eta = (
-                DockingOrder.compute_eta(self.ship, self.target)
+                DockingOrder.compute_eta(self.ship, self.target_image.loc)
                 + self.amount / self.transfer_rate()
         )
 
@@ -168,12 +189,17 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         return self.transfer_effect is not None and self.transfer_effect.is_complete()
 
     def act(self, dt:float) -> None:
-        if self.ship.sector is None or self.ship.sector != self.target.sector:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target.sector}')
+        self.target_image.update()
+        if not self.target_image.is_active():
+            self.cancel_order()
+            return
+
+        if self.ship.sector is None or self.ship.sector.entity_id != self.target_image.identity.sector_id:
+            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_image.identity.sector_id}')
         # if we're too far away, go to the target
-        distance = util.distance(self.ship.loc, self.target.loc) - self.target.radius
+        distance = util.distance(self.ship.loc, self.target_image.loc) - self.target_image.identity.radius
         if distance > self.max_dist:
-            order = DockingOrder.create_docking_order(self.target, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
+            order = DockingOrder.create_docking_order(self.target_image, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
             self._add_child(order)
             return
 
@@ -186,8 +212,12 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
+        assert self.target_image.detected
+        assert self.target_image.currently_identified
+        assert self.target_image.is_active()
+        actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, core.SectorEntity)
         return effects.TransferCargoEffect.create_transfer_cargo_effect(
-                self.resource, self.amount, self.ship, self.target,
+                self.resource, self.amount, self.ship, actual_target,
                 self.ship.sector, self.gamestate,
                 transfer_rate=self.transfer_rate())
 
@@ -207,19 +237,23 @@ class TradeCargoToStation(TransferCargo):
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
-        assert self.buyer == self.gamestate.econ_agents[self.target.entity_id]
+        assert self.buyer == self.gamestate.econ_agents[self.target_image.identity.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
         # anymore (might have happened since we started the order)
+        assert self.target_image.detected
+        assert self.target_image.currently_identified
+        assert self.target_image.is_active()
+        actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, core.SectorEntity)
         return effects.TradeTransferEffect.create_trade_transfer_effect(
                 self.buyer, self.seller, econ.buyer_price,
-                self.resource, self.amount, self.ship, self.target,
+                self.resource, self.amount, self.ship, actual_target,
                 self.ship.sector, self.gamestate,
                 floor_price=self.floor_price,
                 transfer_rate=self.transfer_rate())
 
     def act(self, dt:float) -> None:
         #TODO: what happens if the buyer changes?
-        assert self.buyer == self.gamestate.econ_agents.get(self.target.entity_id)
+        assert self.buyer == self.gamestate.econ_agents.get(self.target_image.identity.entity_id)
         super().act(dt)
 
 class TradeCargoFromStation(TransferCargo):
@@ -239,21 +273,26 @@ class TradeCargoFromStation(TransferCargo):
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
-        assert self.seller == self.gamestate.econ_agents[self.target.entity_id]
+        assert self.seller == self.gamestate.econ_agents[self.target_image.identity.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
         # anymore (might have happened since we started the order)
+        assert self.target_image.detected
+        assert self.target_image.currently_identified
+        assert self.target_image.is_active()
+        actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, core.SectorEntity)
         return effects.TradeTransferEffect.create_trade_transfer_effect(
                 self.buyer, self.seller, econ.seller_price,
-                self.resource, self.amount, self.target, self.ship,
+                self.resource, self.amount, actual_target, self.ship,
                 self.ship.sector, self.gamestate,
                 ceiling_price=self.ceiling_price,
                 transfer_rate=self.transfer_rate())
 
     def act(self, dt:float) -> None:
         #TODO: what happens if the buyer changes?
-        assert self.seller == self.gamestate.econ_agents.get(self.target.entity_id)
+        assert self.seller == self.gamestate.econ_agents.get(self.target_image.identity.entity_id)
         super().act(dt)
 
+"""
 class DisembarkToEntity(core.OrderObserver, core.Order):
     @staticmethod
     def disembark_to(embark_to:core.SectorEntity, ship:core.Ship, gamestate:core.Gamestate, disembark_dist:float=5e3, disembark_margin:float=5e2) -> DisembarkToEntity:
@@ -348,6 +387,7 @@ class DisembarkToEntity(core.OrderObserver, core.Order):
             self._add_child(self.disembark_order, begin=True)
         else:
             self._add_child(self.embark_order, begin=True)
+"""
 
 class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     # lifecycle has several phases:
@@ -587,14 +627,13 @@ class DockingOrder(core.OrderObserver, core.Order):
     """
 
     @staticmethod
-    def compute_eta(ship:core.Ship, target:core.SectorEntity) -> float:
-        return GoToLocation.compute_eta(ship, target.loc) + 15
+    def compute_eta(ship:core.Ship, loc:npt.NDArray[np.float64]) -> float:
+        return GoToLocation.compute_eta(ship, loc) + 15
 
     @classmethod
-    def create_docking_order[T:"DockingOrder"](cls:Type[T], target:core.SectorEntity, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> T:
+    def create_docking_order[T:"DockingOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> T:
         o = cls.create_order(*args, surface_distance=surface_distance, approach_distance=approach_distance, wait_time=wait_time, **kwargs)
-        o.target = target
-        o.eow = core.EntityOrderWatch(o, target)
+        o.target_image = target_image
 
         return o
 
@@ -602,8 +641,7 @@ class DockingOrder(core.OrderObserver, core.Order):
         super().__init__(*args, **kwargs)
         if approach_distance <= surface_distance:
             raise ValueError(f'{approach_distance=} must be greater than {surface_distance=}')
-        self.target:core.SectorEntity = None # type: ignore
-        self.eow:core.EntityOrderWatch = None # type: ignore
+        self.target_image:core.AbstractSensorImage = None # type: ignore
         self.surface_distance = surface_distance
         self.approach_distance = approach_distance
         self.wait_time = wait_time
@@ -616,7 +654,7 @@ class DockingOrder(core.OrderObserver, core.Order):
 
     def _begin(self) -> None:
         # need to get roughly to the target and then time for final approach
-        self._init_eta = DockingOrder.compute_eta(self.ship, self.target)
+        self._init_eta = DockingOrder.compute_eta(self.ship, self.target_image.loc)
 
     def _complete(self) -> None:
         crew = core.crew(self.ship)
@@ -625,7 +663,7 @@ class DockingOrder(core.OrderObserver, core.Order):
                 crew,
                 self.gamestate.event_manager.e(events.Events.DOCKED),
                 {
-                    self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target.short_id_int(),
+                    self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target_image.identity.short_id_int(),
                     self.gamestate.event_manager.ck(events.ContextKeys.SHIP): self.ship.short_id_int(),
                 },
             )
@@ -641,25 +679,31 @@ class DockingOrder(core.OrderObserver, core.Order):
         self.gamestate.schedule_order_immediate(self)
 
     def _is_complete(self) -> bool:
-        distance_to_target = util.distance(self.ship.loc, self.target.loc)
-        return distance_to_target < self.surface_distance + self.target.radius
+        if not self.target_image.is_active():
+            return False
+        distance_to_target = util.distance(self.ship.loc, self.target_image.loc)
+        return distance_to_target < self.surface_distance + self.target_image.identity.radius
 
     def act(self, dt:float) -> None:
-        if self.ship.sector != self.target.sector:
+        self.target_image.update()
+        if not self.target_image.is_active():
+            self.cancel_order()
+
+        if self.ship.sector is None or self.ship.sector.entity_id != self.target_image.identity.sector_id:
             self.cancel_order()
 
         if self.gamestate.timestamp < self.next_arrival_attempt_time:
             return
 
-        distance_to_target = util.distance(self.ship.loc, self.target.loc)
-        if distance_to_target > self.approach_distance + self.target.radius:
+        distance_to_target = util.distance(self.ship.loc, self.target_image.loc)
+        if distance_to_target > self.approach_distance + self.target_image.identity.radius:
             self.logger.debug('embarking to target')
-            goto_order = GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.approach_distance, observer=self)
+            goto_order = GoToLocation.goto_entity(self.target_image, self.ship, self.gamestate, surface_distance=self.approach_distance, observer=self)
             self._add_child(goto_order)
             self.started_waiting = np.inf
         else:
             try:
-                goto_order = GoToLocation.goto_entity(self.target, self.ship, self.gamestate, surface_distance=self.surface_distance, empty_arrival=True, observer=self)
+                goto_order = GoToLocation.goto_entity(self.target_image, self.ship, self.gamestate, surface_distance=self.surface_distance, empty_arrival=True, observer=self)
                 self.started_waiting = np.inf
             except GoToLocation.NoEmptyArrivalError:
                 self.logger.debug(f'arrival zone is full, waiting. waited {self.gamestate.timestamp - self.started_waiting:.0f}s so far')

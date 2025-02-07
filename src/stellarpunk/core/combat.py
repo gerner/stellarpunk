@@ -296,7 +296,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def _do_search(self) -> None:
         #TODO: search, for now give up
         self.logger.debug(f'giving up search for target {self.target.identity.short_id}')
-        assert not self.target.detected()
+        assert not self.target.detected
         self.state = AttackOrder.State.GIVEUP
 
     def _do_approach(self) -> None:

@@ -407,18 +407,20 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
         assert(entity.sector)
         sector_id = entity.sector.entity_id
         loc = entity.loc
+        mass = entity.mass
         radius = entity.radius
         is_static = entity.is_static
         entity_id = entity.entity_id
         entity_class = type(entity)
-        intel = cls.create_intel(*args, sector_id, loc, radius, is_static, gamestate, intel_entity_id=entity_id, intel_entity_type=entity_class, intel_entity_name=entity.name, intel_entity_description=entity.description, **kwargs)
+        intel = cls.create_intel(*args, sector_id, loc, mass, radius, is_static, gamestate, intel_entity_id=entity_id, intel_entity_type=entity_class, intel_entity_name=entity.name, intel_entity_description=entity.description, **kwargs)
 
         return intel
 
-    def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], mass:float, radius:float, is_static:bool, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.sector_id = sector_id
         self.loc = loc
+        self.mass = mass
         self.radius = radius
         self.is_static = is_static
 
@@ -444,9 +446,10 @@ class SectorEntityIntel[T:core.SectorEntity](EntityIntel[T]):
                 object_type=self.intel_entity_type,
                 id_prefix=self.intel_entity_id_prefix,
                 entity_id=self.intel_entity_id,
-                short_id=self.intel_entity_short_id,
+                mass=self.mass,
                 radius=self.radius,
-                is_static=self.is_static
+                is_static=self.is_static,
+                sector_id=self.sector_id
         )
 
 class AsteroidIntel(SectorEntityIntel[sector_entity.Asteroid]):

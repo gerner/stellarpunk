@@ -25,6 +25,7 @@ class Events(enum.IntEnum):
     SCANNED = enum.auto()
     TARGETED = enum.auto()
     IDENTIFIED = enum.auto()
+    INACTIVE = enum.auto()
 
 class ContextKeys(enum.IntEnum):
     DETECTOR = enum.auto()
@@ -32,6 +33,7 @@ class ContextKeys(enum.IntEnum):
     SECTOR = enum.auto()
     STATIC_COUNT = enum.auto()
     DYNAMIC_COUNT = enum.auto()
+    INACTIVE_REASON = enum.auto()
 
 class SensorImage(core.AbstractSensorImage):
     @classmethod
@@ -89,6 +91,17 @@ class SensorImage(core.AbstractSensorImage):
         if self._ship and self._sensor_manager.detected(entity, self._ship):
             self._is_active = False
             self._inactive_reason = core.SensorImageInactiveReason.DESTROYED
+            crew = core.crew(self._ship)
+            gamestate = core.Gamestate.gamestate
+            gamestate.trigger_event(
+                    crew,
+                    gamestate.event_manager.e(Events.INACTIVE),
+                    {
+                        gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
+                        gamestate.event_manager.ck(ContextKeys.TARGET): self._identity.short_id_int(),
+                        gamestate.event_manager.ck(ContextKeys.INACTIVE_REASON): self._inactive_reason,
+                    }
+            )
 
     def target_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
         assert entity.entity_id == self._identity.entity_id
@@ -96,6 +109,17 @@ class SensorImage(core.AbstractSensorImage):
         if self._ship and self._sensor_manager.detected(entity, self._ship):
             self._is_active = False
             self._inactive_reason = core.SensorImageInactiveReason.MIGRATED
+            crew = core.crew(self._ship)
+            gamestate = core.Gamestate.gamestate
+            gamestate.trigger_event(
+                    crew,
+                    gamestate.event_manager.e(Events.INACTIVE),
+                    {
+                        gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
+                        gamestate.event_manager.ck(ContextKeys.TARGET): self._identity.short_id_int(),
+                        gamestate.event_manager.ck(ContextKeys.INACTIVE_REASON): self._inactive_reason,
+                    }
+            )
 
 
     def set_sensor_manager(self, sensor_manager:core.AbstractSensorManager) -> None:
@@ -120,6 +144,7 @@ class SensorImage(core.AbstractSensorImage):
     def fidelity(self) -> float:
         return self.profile / self._sensor_manager.compute_effective_threshold(self._ship)
 
+    @property
     def detected(self) -> bool:
         if not self._ship.sector:
             return False
@@ -127,6 +152,10 @@ class SensorImage(core.AbstractSensorImage):
             return False
         target = self._ship.sector.entities[self.identity.entity_id]
         return self._sensor_manager.detected(target, self._ship)
+
+    @property
+    def currently_identified(self) -> bool:
+        return self.fidelity * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY > 1.0
 
     @property
     def identified(self) -> bool:
@@ -247,13 +276,15 @@ class SensorImage(core.AbstractSensorImage):
                     #TODO: what about passengers? should they get this event too?
                     candidates = list(itertools.chain(core.crew(self._ship), core.crew(target)))
                     if candidates:
+                        crew = core.crew(self._ship)
                         gamestate = core.Gamestate.gamestate
                         gamestate.trigger_event(
-                                candidates,
-                                gamestate.event_manager.e(Events.TARGETED),
+                                crew,
+                                gamestate.event_manager.e(Events.INACTIVE),
                                 {
                                     gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
-                                    gamestate.event_manager.ck(ContextKeys.TARGET): target.short_id_int(),
+                                    gamestate.event_manager.ck(ContextKeys.TARGET): self._identity.short_id_int(),
+                                    gamestate.event_manager.ck(ContextKeys.INACTIVE_REASON): self._inactive_reason,
                                 }
                         )
 
@@ -270,6 +301,17 @@ class SensorImage(core.AbstractSensorImage):
                 if util.distance(self._ship.loc, self.loc) < self._detection_range():
                     self._is_active = False
                     self._inactive_reason = core.SensorImageInactiveReason.MISSING
+                    crew = core.crew(self._ship)
+                    gamestate = core.Gamestate.gamestate
+                    gamestate.trigger_event(
+                            crew,
+                            gamestate.event_manager.e(Events.INACTIVE),
+                            {
+                                gamestate.event_manager.ck(ContextKeys.DETECTOR): self._ship.short_id_int(),
+                                gamestate.event_manager.ck(ContextKeys.TARGET): self._identity.short_id_int(),
+                            }
+                    )
+
 
             return False
 

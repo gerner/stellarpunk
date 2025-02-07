@@ -4,7 +4,7 @@ import abc
 import uuid
 from typing import Any, Optional
 
-from stellarpunk import core, effects, sensors
+from stellarpunk import core, effects, sensors, intel
 from stellarpunk.core import sector_entity
 from stellarpunk.orders import core as ocore, movement
 from stellarpunk.serialization import util as s_util, save_game, order as s_order
@@ -12,7 +12,8 @@ from stellarpunk.serialization import util as s_util, save_game, order as s_orde
 class MineOrderSaver(s_order.OrderSaver[ocore.MineOrder]):
     def _save_order(self, order:ocore.MineOrder, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(order.target.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.target_intel.entity_id, f)
+        bytes_written += s_util.bool_to_f(True if order.target_image else False, f)
         bytes_written += s_util.float_to_f(order.max_dist, f)
         bytes_written += s_util.float_to_f(order.amount, f)
         if order.mining_effect:
@@ -25,6 +26,7 @@ class MineOrderSaver(s_order.OrderSaver[ocore.MineOrder]):
 
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[ocore.MineOrder, Any]:
         asteroid_id = s_util.uuid_from_f(f)
+        has_image = s_util.bool_from_f(f)
         max_dist = s_util.float_from_f(f)
         amount = s_util.float_from_f(f)
         has_effect = s_util.bool_from_f(f)
@@ -36,15 +38,17 @@ class MineOrderSaver(s_order.OrderSaver[ocore.MineOrder]):
         order.amount = amount
         order.mining_rate = mining_rate
 
-        return order, (asteroid_id, effect_id)
+        return order, (asteroid_id, has_image, effect_id)
 
     def _post_load_order(self, order:ocore.MineOrder, load_context:save_game.LoadContext, extra_context:Any) -> None:
-        context_data:tuple[uuid.UUID, Optional[uuid.UUID]] = extra_context
-        asteroid_id, effect_id = context_data
+        context_data:tuple[uuid.UUID, bool, Optional[uuid.UUID]] = extra_context
+        asteroid_id, has_image, effect_id = context_data
 
-        asteroid = load_context.gamestate.get_entity(asteroid_id, sector_entity.Asteroid)
-        order.target = asteroid
-        order.eow = core.EntityOrderWatch(order, asteroid)
+        asteroid_intel = load_context.gamestate.get_entity(asteroid_id, intel.AsteroidIntel)
+        order.target_intel = asteroid_intel
+
+        if has_image:
+            order.target_image = order.ship.sensor_settings.get_image(asteroid_intel.intel_entity_id)
 
         if effect_id:
             effect = load_context.gamestate.get_effect(effect_id, effects.MiningEffect)
@@ -62,7 +66,7 @@ class TransferCargoSaver[T:ocore.TransferCargo](s_order.OrderSaver[T]):
 
     def _save_order(self, order:T, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(order.target.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.target_image.identity.entity_id, f)
         bytes_written += s_util.int_to_f(order.resource, f)
         bytes_written += s_util.float_to_f(order.amount, f)
         bytes_written += s_util.float_to_f(order.transferred, f)
@@ -97,9 +101,8 @@ class TransferCargoSaver[T:ocore.TransferCargo](s_order.OrderSaver[T]):
         context_data:tuple[uuid.UUID, uuid.UUID, Any] = context
         target_id, effect_id, extra_context = context_data
 
-        target = load_context.gamestate.get_entity(target_id, core.SectorEntity)
-        order.target = target
-        order.eow = core.EntityOrderWatch(order, target)
+        target_image = order.ship.sensor_settings.get_image(target_id)
+        order.target_image = target_image
 
         if effect_id:
             effect = load_context.gamestate.get_effect(effect_id, effects.TransferCargoEffect)
@@ -153,6 +156,7 @@ class TradeCargoFromStationSaver(TransferCargoSaver[ocore.TradeCargoFromStation]
         order.buyer = buyer
         order.seller = seller
 
+"""
 class DisembarkToEntitySaver(s_order.OrderSaver[ocore.DisembarkToEntity]):
     def _save_order(self, order:ocore.DisembarkToEntity, f:io.IOBase) -> int:
         bytes_written = 0
@@ -183,6 +187,7 @@ class DisembarkToEntitySaver(s_order.OrderSaver[ocore.DisembarkToEntity]):
             order.disembark_order = load_context.gamestate.get_order(disembark_order_id, movement.GoToLocation)
         if embark_order_id:
             order.embark_order = load_context.gamestate.get_order(embark_order_id, movement.GoToLocation)
+"""
 
 class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.ABC):
     def _save_order(self, order:ocore.TravelThroughGate, f:io.IOBase) -> int:
@@ -240,7 +245,7 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
 class DockingOrderSaver(s_order.OrderSaver[ocore.DockingOrder], abc.ABC):
     def _save_order(self, order:ocore.DockingOrder, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(order.target.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.target_image.identity.entity_id, f)
         bytes_written += s_util.float_to_f(order.surface_distance, f)
         bytes_written += s_util.float_to_f(order.approach_distance, f)
         bytes_written += s_util.float_to_f(order.wait_time, f)
@@ -263,9 +268,8 @@ class DockingOrderSaver(s_order.OrderSaver[ocore.DockingOrder], abc.ABC):
     def _post_load_order(self, order:ocore.DockingOrder, load_context:save_game.LoadContext, context:Any) -> None:
         target_entity_id:uuid.UUID = context
 
-        target = load_context.gamestate.get_entity(target_entity_id, core.SectorEntity)
-        order.target = target
-        order.eow = core.EntityOrderWatch(order, target)
+        target_image = order.ship.sensor_settings.get_image(target_entity_id)
+        order.target_image = target_image
 
 class LocationExploreOrderSaver(s_order.OrderSaver[ocore.LocationExploreOrder], abc.ABC):
     def _save_order(self, order:ocore.LocationExploreOrder, f:io.IOBase) -> int:

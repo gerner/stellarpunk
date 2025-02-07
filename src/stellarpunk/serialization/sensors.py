@@ -93,10 +93,10 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         bytes_written += s_util.uuid_to_f(sensor_image._identity.entity_id, f)
         bytes_written += s_util.to_len_pre_f(util.fullname(sensor_image._identity.object_type), f)
         bytes_written += s_util.to_len_pre_f(sensor_image._identity.id_prefix, f)
-        bytes_written += s_util.to_len_pre_f(sensor_image._identity.short_id, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.mass, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.radius, f)
         bytes_written += s_util.bool_to_f(sensor_image._identity.is_static, f)
+        bytes_written += s_util.uuid_to_f(sensor_image._identity.sector_id, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.angle, f)
 
         bytes_written += self.save_game.debug_string_w("basic fields", f)
@@ -127,10 +127,10 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         target_id = s_util.uuid_from_f(f)
         object_type_str = s_util.from_len_pre_f(f)
         id_prefix = s_util.from_len_pre_f(f)
-        short_id = s_util.from_len_pre_f(f)
         mass = s_util.float_from_f(f)
         radius = s_util.float_from_f(f)
         is_static = s_util.bool_from_f(f)
+        sector_id = s_util.uuid_from_f(f)
         angle = s_util.float_from_f(f)
 
         load_context.debug_string_r("basic fields", f)
@@ -155,7 +155,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         object_type = pydoc.locate(object_type_str)
         assert(isinstance(object_type, type))
         assert(issubclass(object_type, core.SectorEntity))
-        identity = core.SensorIdentity(None, object_type, id_prefix, target_id, short_id, mass, radius, is_static)
+        identity = core.SensorIdentity(None, object_type, id_prefix, target_id, mass, radius, is_static, sector_id)
         identity.angle = angle
         sensor_image = sensors.SensorImage(identity)
 

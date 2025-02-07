@@ -616,8 +616,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             #TODO: handle stations out of sector
             if station_intel.sector_id != sector_id:
                 continue
-            station = self.gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
-            eta = ocore.DockingOrder.compute_eta(character.location, station)
+            eta = ocore.DockingOrder.compute_eta(character.location, station_intel.loc)
             if eta < travel_cost:
                 closest_station_intel = station_intel
                 travel_cost = eta
@@ -649,17 +648,14 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             return 0.0
 
         travel_cost, station_intel = ret
-        #TODO: we should not reach into gamestate here and use the intel or a
-        # sensor image or something instead
-
-        station = self.gamestate.get_entity(station_intel.intel_entity_id, sector_entity.Station)
-
         assert(isinstance(character.location, core.Ship))
-        assert(character == character.location.captain)
         assert(character.location.sector)
-        assert(character.location.sector == station.sector)
+        station_image = character.location.sector.sensor_manager.target_from_identity(station_intel.create_sensor_identity(), character.location, station_intel.loc)
 
-        docking_order = ocore.DockingOrder.create_docking_order(station, character.location, self.gamestate)
+        assert(character == character.location.captain)
+        assert(character.location.sector.entity_id == station_image.identity.sector_id)
+
+        docking_order = ocore.DockingOrder.create_docking_order(station_image, character.location, self.gamestate)
         #TODO: should we keep track of this order and cancel it if necessary?
         character.location.prepend_order(docking_order)
-        return self.gamestate.timestamp + ocore.DockingOrder.compute_eta(character.location, station) * 1.2
+        return self.gamestate.timestamp + ocore.DockingOrder.compute_eta(character.location, station_image.loc) * 1.2

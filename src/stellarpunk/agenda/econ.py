@@ -324,7 +324,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
 
-    def _choose_asteroid(self) -> Optional[sector_entity.Asteroid]:
+    def _choose_asteroid(self) -> Optional[intel.AsteroidIntel]:
         if self.craft.sector is None:
             raise ValueError(f'{self.craft} in no sector')
 
@@ -347,10 +347,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         p = 1.0 / np.array(distances)
         p = p / p.sum()
         idx = self.gamestate.random.choice(len(candidates), 1, p=p)[0]
-        #TODO: we should not directly retrieve the asteroid, and use the intel
-        # or maybe a sensor image of the intel
-        target = self.gamestate.get_entity(candidates[idx].intel_entity_id, sector_entity.Asteroid)
-        return target
+        return candidates[idx]
 
     def _preempt_primary(self) -> bool:
         #TODO: decide if we want to relinquish being primary
@@ -413,13 +410,15 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         self.state = MiningAgendum.State.TRADING
 
+        assert self.craft.sector
+        assert station.sector_id == self.craft.sector.entity_id
+        station_image = self.craft.sector.sensor_manager.target_from_identity(station.create_sensor_identity(), self.craft, station.loc)
         #TODO: we should probably not reach into the actual entities here
-        actual_station = self.gamestate.get_entity(station.intel_entity_id, sector_entity.Station)
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
 
         self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                 actual_agent, self.agent, floor_price,
-                actual_station, resource, self.craft.cargo[resource],
+                station_image, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.transfer_order.observe(self)
         self.craft.prepend_order(self.transfer_order)
@@ -783,12 +782,14 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         amount = min(station_agent.sell_offers[resource][1], self.craft.cargo_capacity - self.craft.cargo.sum())
 
         self.state = TradingAgendum.State.BUYING
+        assert self.craft.sector
+        assert station.sector_id == self.craft.sector.entity_id
+        station_image = self.craft.sector.sensor_manager.target_from_identity(station.create_sensor_identity(), self.craft, station.loc)
         #TODO: we should probably not reach into the actual entities here
-        actual_station = self.gamestate.get_entity(station.intel_entity_id, sector_entity.Station)
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.buy_order = ocore.TradeCargoFromStation.create_trade_cargo_from_station(
                 self.agent, actual_agent, ceiling_price,
-                actual_station, resource, amount,
+                station_image, resource, amount,
                 self.craft, self.gamestate)
         self.buy_order.observe(self)
         self.craft.prepend_order(self.buy_order)
@@ -822,12 +823,14 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         floor_price = 0.
 
         self.state = TradingAgendum.State.SELLING
+        assert self.craft.sector
+        assert station.sector_id == self.craft.sector.entity_id
+        station_image = self.craft.sector.sensor_manager.target_from_identity(station.create_sensor_identity(), self.craft, station.loc)
         #TODO: we should probably not reach into the actual entities here
-        actual_station = self.gamestate.get_entity(station.intel_entity_id, sector_entity.Station)
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                 actual_agent, self.agent, floor_price,
-                actual_station, resource, self.craft.cargo[resource],
+                station_image, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.sell_order.observe(self)
         self.craft.prepend_order(self.sell_order)

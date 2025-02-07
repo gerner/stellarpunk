@@ -177,14 +177,15 @@ class EconAgentIntelSaver(EntityIntelSaver[intel.EconAgentIntel]):
 class SectorEntityIntelSaver[SectorEntityIntel:intel.SectorEntityIntel](EntityIntelSaver[SectorEntityIntel]):
     def _save_sector_entity_intel(self, sector_entity_intel:SectorEntityIntel, f:io.IOBase) -> int:
         return 0
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, **kwargs:Any) -> tuple[SectorEntityIntel, Any]:
-        return intel.SectorEntityIntel(sector_id, loc, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True), None # type: ignore
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], mass:float, radius:float, is_static:bool, **kwargs:Any) -> tuple[SectorEntityIntel, Any]:
+        return intel.SectorEntityIntel(sector_id, loc, mass, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True), None # type: ignore
 
     def _save_entity_intel(self, sector_entity_intel:SectorEntityIntel, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(sector_entity_intel.sector_id, f)
         bytes_written += s_util.float_pair_to_f(sector_entity_intel.loc, f)
+        bytes_written += s_util.float_to_f(sector_entity_intel.mass, f)
         bytes_written += s_util.float_to_f(sector_entity_intel.radius, f)
         bytes_written += s_util.bool_to_f(sector_entity_intel.is_static, f)
         bytes_written += self.save_game.debug_string_w("seintel specific", f)
@@ -195,10 +196,11 @@ class SectorEntityIntelSaver[SectorEntityIntel:intel.SectorEntityIntel](EntityIn
         load_context.debug_string_r("basic fields", f)
         sector_id = s_util.uuid_from_f(f)
         loc = s_util.float_pair_from_f(f)
+        mass = s_util.float_from_f(f)
         radius = s_util.float_from_f(f)
         is_static = s_util.bool_from_f(f)
         load_context.debug_string_r("seintel specific", f)
-        sector_entity_intel, extra_context = self._load_sector_entity_intel(f, load_context, sector_id, loc, radius, is_static, **kwargs)
+        sector_entity_intel, extra_context = self._load_sector_entity_intel(f, load_context, sector_id, loc, mass, radius, is_static, **kwargs)
         return sector_entity_intel, extra_context
 
 class AsteroidIntelSaver(SectorEntityIntelSaver[intel.AsteroidIntel]):
@@ -208,10 +210,10 @@ class AsteroidIntelSaver(SectorEntityIntelSaver[intel.AsteroidIntel]):
         bytes_written += s_util.float_to_f(sector_entity_intel.amount, f)
         return bytes_written
 
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, **kwargs:Any) -> tuple[intel.AsteroidIntel, Any]:
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], mass:float, radius:float, is_static:bool, **kwargs:Any) -> tuple[intel.AsteroidIntel, Any]:
         resource = s_util.int_from_f(f)
         amount = s_util.float_from_f(f)
-        sector_entity_intel = intel.AsteroidIntel(resource, amount, sector_id, loc, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True)
+        sector_entity_intel = intel.AsteroidIntel(resource, amount, sector_id, loc, mass, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True)
         return sector_entity_intel, None
 
 class StationIntelSaver(SectorEntityIntelSaver[intel.StationIntel]):
@@ -221,10 +223,10 @@ class StationIntelSaver(SectorEntityIntelSaver[intel.StationIntel]):
         bytes_written += s_util.ints_to_f(list(int(x) for x in sector_entity_intel.inputs), f)
         return bytes_written
 
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, **kwargs:Any) -> tuple[intel.StationIntel, Any]:
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], mass:float, radius:float, is_static:bool, **kwargs:Any) -> tuple[intel.StationIntel, Any]:
         resource = s_util.int_from_f(f)
         inputs = set(s_util.ints_from_f(f))
-        sector_entity_intel = intel.StationIntel(resource, inputs, sector_id, loc, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True)
+        sector_entity_intel = intel.StationIntel(resource, inputs, sector_id, loc, mass, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True)
         return sector_entity_intel, None
 
 class TravelGateIntelSaver(SectorEntityIntelSaver[intel.TravelGateIntel]):
@@ -234,10 +236,10 @@ class TravelGateIntelSaver(SectorEntityIntelSaver[intel.TravelGateIntel]):
         bytes_written += s_util.float_to_f(sector_entity_intel.direction, f)
         return bytes_written
 
-    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], radius:float, is_static:bool, **kwargs:Any) -> tuple[intel.TravelGateIntel, Any]:
+    def _load_sector_entity_intel(self, f:io.IOBase, load_context:save_game.LoadContext, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], mass:float, radius:float, is_static:bool, **kwargs:Any) -> tuple[intel.TravelGateIntel, Any]:
         destination_id = s_util.uuid_from_f(f)
         direction = s_util.float_from_f(f)
-        sector_entity_intel = intel.TravelGateIntel(sector_id, loc, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True, destination_id=destination_id, direction=direction)
+        sector_entity_intel = intel.TravelGateIntel(sector_id, loc, mass, radius, is_static, load_context.gamestate, **kwargs, _check_flag=True, destination_id=destination_id, direction=direction)
         return sector_entity_intel, None
 
 

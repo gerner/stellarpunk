@@ -279,32 +279,41 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
-    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, mass:Optional[float]=None, radius:Optional[float]=None, is_static:Optional[bool]=None):
+    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, mass:Optional[float]=None, radius:Optional[float]=None, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
         if entity:
             self.object_type:Type[SectorEntity]=type(entity)
             self.id_prefix = entity.id_prefix
             self.entity_id = entity.entity_id
-            self.short_id = entity.short_id()
             self.mass = entity.mass
             self.radius = entity.radius
             self.is_static = entity.is_static
+            assert(entity.sector)
+            self.sector_id = entity.sector.entity_id
         else:
             assert(object_type)
             assert(id_prefix)
             assert(entity_id)
-            assert(short_id)
             assert(mass is not None)
             assert(radius is not None)
             assert(is_static is not None)
+            assert(sector_id)
             self.object_type = object_type
             self.id_prefix = id_prefix
             self.entity_id = entity_id
-            self.short_id = short_id
             self.mass = mass
             self.radius = radius
             self.is_static = is_static
+            self.sector_id = sector_id
         # must be updated externally
         self.angle = 0.0
+
+    def short_id(self) -> str:
+        """ first 32 bits as hex """
+        return f'{self.id_prefix}-{self.entity_id.hex[:8]}'
+
+    def short_id_int(self) -> int:
+        return util.uuid_to_u64(self.entity_id)
+
 
 class SensorImageInactiveReason(enum.IntEnum):
     OTHER = enum.auto()
@@ -354,6 +363,12 @@ class AbstractSensorImage:
     def fidelity(self) -> float: ...
     @property
     @abc.abstractmethod
+    def detected(self) -> bool: ...
+    @property
+    @abc.abstractmethod
+    def currently_identified(self) -> bool: ...
+    @property
+    @abc.abstractmethod
     def identified(self) -> bool: ...
     @property
     @abc.abstractmethod
@@ -361,8 +376,6 @@ class AbstractSensorImage:
     #@property
     #@abc.abstractmethod
     #def transponder(self) -> bool: ...
-    @abc.abstractmethod
-    def detected(self) -> bool: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
         """ False iff we detected target destroyed or leaving the sector """

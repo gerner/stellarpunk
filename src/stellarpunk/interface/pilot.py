@@ -14,7 +14,7 @@ from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import core, interface, util, orders, config
+from stellarpunk import core, interface, util, orders, config, intel
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
@@ -375,9 +375,13 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the asteroid")
-            selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, sector_entity.Asteroid)
-            order = orders.MineOrder.create_mine_order(selected_entity, math.inf, self.ship, self.gamestate)
+
+            assert self.interface.player.character
+            asteroid_intel = self.interface.player.character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(self.presenter.selected_target), intel.AsteroidIntel)
+            if not asteroid_intel:
+                raise command_input.UserError(f'no intel for {self.presenter.selected_target}')
+
+            order = orders.MineOrder.create_mine_order(asteroid_intel, math.inf, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
 
@@ -387,14 +391,11 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
                 raise command_input.UserError("target is not identified as a station")
 
-            if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
-                raise command_input.UserError("cannot reach the station")
-            selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, sector_entity.Station)
-            order = orders.DockingOrder.create_docking_order(selected_entity, self.ship, self.gamestate)
-            dock_station = selected_entity
+            order = orders.DockingOrder.create_docking_order(self.presenter.selected_target_image, self.ship, self.gamestate)
 
+            station_id = self.presenter.selected_target
             def complete_docking(order: core.Order) -> None:
+                dock_station = self.gamestate.get_entity(station_id, sector_entity.Station)
                 self.open_station_view(dock_station)
 
             order.observe(self.make_order_observer(complete=complete_docking))
@@ -488,7 +489,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         def mouse_pos(args:Sequence[str]) -> None:
             self.interface.log_message(f'{self.m_sector_x},{self.m_sector_y}')
 
-        detected_short_ids = (x.identity.short_id for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
+        detected_short_ids = (x.identity.short_id() for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
 
         def only_draw_cymunk(args:Sequence[str]) -> None:
             self.draw_cymunk_shapes = not self.draw_cymunk_shapes

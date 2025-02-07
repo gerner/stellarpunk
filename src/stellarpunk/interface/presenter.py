@@ -537,7 +537,11 @@ class IntelImage(core.AbstractSensorImage):
     @property
     def fidelity(self) -> float:
         return 0.0
+    @property
     def detected(self) -> bool:
+        return False
+    @property
+    def currently_identified(self) -> bool:
         return False
     @property
     def identified(self) -> bool:

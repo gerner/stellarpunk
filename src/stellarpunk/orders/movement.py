@@ -107,7 +107,7 @@ class GoToLocation(AbstractSteeringOrder):
 
     @staticmethod
     def goto_entity(
-            entity:core.SectorEntity,
+            entity:core.AbstractSensorImage,
             ship:core.Ship,
             gamestate:core.Gamestate,
             surface_distance:float=2e3,
@@ -126,9 +126,6 @@ class GoToLocation(AbstractSteeringOrder):
         returns a GoToLocation order matching those parameters
         """
 
-        if entity.sector is None:
-            raise ValueError("entity {entity} is not in any sector")
-
         # pick a point on this side of the target entity that is midway in the
         # "viable" arrival band: the space between the collision margin and
         # surface distance away from the radius
@@ -140,13 +137,15 @@ class GoToLocation(AbstractSteeringOrder):
             _, angle = util.cartesian_to_polar(*(ship.loc - entity.loc))
             target_angle = angle + gamestate.random.uniform(-math.pi/1.5, math.pi/1.5)
             target_arrival_distance = (surface_distance - collision_margin)/2
-            target_loc = entity.loc + util.polar_to_cartesian(entity.radius + collision_margin + target_arrival_distance, target_angle)
+            target_loc = entity.loc + util.polar_to_cartesian(entity.identity.radius + collision_margin + target_arrival_distance, target_angle)
 
+            #TODO: check if there's stuff
             # check if there's other stuff nearby this point
             # note: this isn't perfect since these entities might be transient,
             # but this is best effort
-            if next(entity.sector.spatial_point(target_loc, collision_margin), None) == None:
-                break
+            #if next(entity.sector.spatial_point(target_loc, collision_margin), None) == None:
+            #    break
+            break
             tries += 1
 
         if empty_arrival and tries >= max_tries:
@@ -156,7 +155,6 @@ class GoToLocation(AbstractSteeringOrder):
                 target_loc, ship, gamestate,
                 arrival_distance=target_arrival_distance,
                 min_distance=0.,
-                target_sector=entity.sector,
                 observer=observer)
 
     @staticmethod
