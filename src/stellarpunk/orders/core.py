@@ -92,6 +92,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
 
     def act(self, dt: float) -> None:
         if not self.ship.sector or self.ship.sector.entity_id != self.target_intel.sector_id:
+            #TODO: travel to different sectors
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_intel.sector_id}')
         # we know we're in the same sector as the target
         if self.target_image is None:
@@ -135,18 +136,16 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         return 1e2
 
     @classmethod
-    def create_transfer_cargo[T:"TransferCargo"](cls:Type[T], target_image:core.AbstractSensorImage, resource: int, amount: float, *args:Any, max_dist:float=2e3, **kwargs:Any) -> T:
+    def create_transfer_cargo[T:"TransferCargo"](cls:Type[T], target_intel:intel.SectorEntityIntel, resource: int, amount: float, *args:Any, max_dist:float=2e3, **kwargs:Any) -> T:
         o = cls.create_order(*args, resource, amount, **kwargs)
-        o.target_image = target_image
-        #o.target = target
-        #o.eow = core.EntityOrderWatch(o, target)
+        o.target_intel = target_intel
         return o
 
     def __init__(self, resource: int, amount: float, *args: Any, max_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.target_image:core.AbstractSensorImage = None # type: ignore
-        #self.eow:core.EntityOrderWatch = None # type: ignore
+        self.target_intel:intel.SectorEntityIntel = None # type: ignore
+        self.target_image:Optional[core.AbstractSensorImage] = None
         self.resource = resource
         self.amount = amount
         self.transferred = 0.
@@ -155,8 +154,9 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         self.transfer_effect:Optional[core.Effect] = None
 
     def _begin(self) -> None:
+        #TODO: multi-sector estimate
         self.init_eta = (
-                DockingOrder.compute_eta(self.ship, self.target_image.loc)
+                DockingOrder.compute_eta(self.ship, self.target_intel.loc)
                 + self.amount / self.transfer_rate()
         )
 
@@ -189,13 +189,19 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         return self.transfer_effect is not None and self.transfer_effect.is_complete()
 
     def act(self, dt:float) -> None:
-        self.target_image.update()
+        if self.ship.sector is None or self.ship.sector.entity_id != self.target_intel.sector_id:
+            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_intel.sector_id}')
+
+        if self.target_image is None:
+            self.target_image = self.ship.sector.sensor_manager.target_from_identity(self.target_intel.create_sensor_identity(), self.ship, self.target_intel.loc)
+        else:
+            self.target_image.update()
+
         if not self.target_image.is_active():
+            # target doesn't exist any more
             self.cancel_order()
             return
 
-        if self.ship.sector is None or self.ship.sector.entity_id != self.target_image.identity.sector_id:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_image.identity.sector_id}')
         # if we're too far away, go to the target
         distance = util.distance(self.ship.loc, self.target_image.loc) - self.target_image.identity.radius
         if distance > self.max_dist:
@@ -212,6 +218,7 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
         assert self.ship.sector is not None
+        assert self.target_image
         assert self.target_image.detected
         assert self.target_image.currently_identified
         assert self.target_image.is_active()
@@ -236,6 +243,10 @@ class TradeCargoToStation(TransferCargo):
         self.floor_price = floor_price
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
+        assert self.target_image
+        assert self.target_image.detected
+        assert self.target_image.currently_identified
+        assert self.target_image.is_active()
         assert self.ship.sector is not None
         assert self.buyer == self.gamestate.econ_agents[self.target_image.identity.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
@@ -253,7 +264,7 @@ class TradeCargoToStation(TransferCargo):
 
     def act(self, dt:float) -> None:
         #TODO: what happens if the buyer changes?
-        assert self.buyer == self.gamestate.econ_agents.get(self.target_image.identity.entity_id)
+        assert self.buyer == self.gamestate.econ_agents.get(self.target_intel.intel_entity_id)
         super().act(dt)
 
 class TradeCargoFromStation(TransferCargo):
@@ -272,13 +283,14 @@ class TradeCargoFromStation(TransferCargo):
         self.ceiling_price = ceiling_price
 
     def _initialize_transfer(self) -> effects.TransferCargoEffect:
+        assert self.target_image
+        assert self.target_image.detected
+        assert self.target_image.currently_identified
+        assert self.target_image.is_active()
         assert self.ship.sector is not None
         assert self.seller == self.gamestate.econ_agents[self.target_image.identity.entity_id]
         #TODO: what should we do if the buyer doesn't represent the station
         # anymore (might have happened since we started the order)
-        assert self.target_image.detected
-        assert self.target_image.currently_identified
-        assert self.target_image.is_active()
         actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, core.SectorEntity)
         return effects.TradeTransferEffect.create_trade_transfer_effect(
                 self.buyer, self.seller, econ.seller_price,
@@ -289,7 +301,7 @@ class TradeCargoFromStation(TransferCargo):
 
     def act(self, dt:float) -> None:
         #TODO: what happens if the buyer changes?
-        assert self.seller == self.gamestate.econ_agents.get(self.target_image.identity.entity_id)
+        assert self.seller == self.gamestate.econ_agents.get(self.target_intel.intel_entity_id)
         super().act(dt)
 
 """

@@ -294,8 +294,13 @@ def test_basic_transfer_order(gamestate, generator, sector, testui, simulator):
     ship_b = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
     ship_a.cargo[0] = 5e2
 
-    ship_b_image = sector.sensor_manager.target(ship_b, ship_a)
-    transfer_order = orders.TransferCargo.create_transfer_cargo(ship_b_image, 0, 3.5e2, ship_a, gamestate)
+    ship_owner = generator.spawn_character(ship_a)
+    ship_owner.take_ownership(ship_a)
+    ship_a.captain = ship_owner
+    add_sector_intel(ship_a, sector, ship_owner, gamestate)
+
+    ship_b_intel = ship_owner.intel_manager.get_intel(intel.EntityIntelMatchCriteria(ship_b.entity_id), intel.SectorEntityIntel)
+    transfer_order = orders.TransferCargo.create_transfer_cargo(ship_b_intel, 0, 3.5e2, ship_a, gamestate)
     ship_a.prepend_order(transfer_order)
 
     testui.orders = [transfer_order]
@@ -321,8 +326,13 @@ def test_over_transfer(gamestate, generator, sector, testui, simulator):
     ship_b = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)
     ship_a.cargo[0] = 2.5e2
 
-    ship_b_image = sector.sensor_manager.target(ship_b, ship_a)
-    transfer_order = orders.TransferCargo.create_transfer_cargo(ship_b_image, 0, 3.5e2, ship_a, gamestate)
+    ship_owner = generator.spawn_character(ship_a)
+    ship_owner.take_ownership(ship_a)
+    ship_a.captain = ship_owner
+    add_sector_intel(ship_a, sector, ship_owner, gamestate)
+
+    ship_b_intel = ship_owner.intel_manager.get_intel(intel.EntityIntelMatchCriteria(ship_b.entity_id), intel.SectorEntityIntel)
+    transfer_order = orders.TransferCargo.create_transfer_cargo(ship_b_intel, 0, 3.5e2, ship_a, gamestate)
     ship_a.prepend_order(transfer_order)
 
     testui.orders = [transfer_order]

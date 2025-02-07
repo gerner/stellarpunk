@@ -66,7 +66,8 @@ class TransferCargoSaver[T:ocore.TransferCargo](s_order.OrderSaver[T]):
 
     def _save_order(self, order:T, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(order.target_image.identity.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.target_intel.entity_id, f)
+        bytes_written += s_util.bool_to_f(True if order.target_image else False, f)
         bytes_written += s_util.int_to_f(order.resource, f)
         bytes_written += s_util.float_to_f(order.amount, f)
         bytes_written += s_util.float_to_f(order.transferred, f)
@@ -82,6 +83,7 @@ class TransferCargoSaver[T:ocore.TransferCargo](s_order.OrderSaver[T]):
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[T, Any]:
 
         target_id = s_util.uuid_from_f(f)
+        has_image = s_util.bool_from_f(f)
         resource = s_util.int_from_f(f)
         amount = s_util.float_from_f(f)
         transferred = s_util.float_from_f(f)
@@ -94,15 +96,18 @@ class TransferCargoSaver[T:ocore.TransferCargo](s_order.OrderSaver[T]):
         order, extra_context = self._load_transfer_cargo(f, load_context, order_id, resource, amount, max_dist)
         order.transferred = transferred
 
-        return order, (target_id, effect_id, extra_context)
+        return order, (target_id, has_image, effect_id, extra_context)
 
 
     def _post_load_order(self, order:T, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID, Any] = context
-        target_id, effect_id, extra_context = context_data
+        context_data:tuple[uuid.UUID, bool, uuid.UUID, Any] = context
+        target_id, has_image, effect_id, extra_context = context_data
 
-        target_image = order.ship.sensor_settings.get_image(target_id)
-        order.target_image = target_image
+        target_intel = load_context.gamestate.get_entity(target_id, intel.SectorEntityIntel)
+        order.target_intel = target_intel
+        if has_image:
+            target_image = order.ship.sensor_settings.get_image(target_intel.intel_entity_id)
+            order.target_image = target_image
 
         if effect_id:
             effect = load_context.gamestate.get_effect(effect_id, effects.TransferCargoEffect)

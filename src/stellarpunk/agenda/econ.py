@@ -412,13 +412,13 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         assert self.craft.sector
         assert station.sector_id == self.craft.sector.entity_id
-        station_image = self.craft.sector.sensor_manager.target_from_identity(station.create_sensor_identity(), self.craft, station.loc)
+        #TODO: multiple sectors
         #TODO: we should probably not reach into the actual entities here
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
 
         self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                 actual_agent, self.agent, floor_price,
-                station_image, resource, self.craft.cargo[resource],
+                station, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.transfer_order.observe(self)
         self.craft.prepend_order(self.transfer_order)
@@ -783,13 +783,12 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
         self.state = TradingAgendum.State.BUYING
         assert self.craft.sector
-        assert station.sector_id == self.craft.sector.entity_id
-        station_image = self.craft.sector.sensor_manager.target_from_identity(station.create_sensor_identity(), self.craft, station.loc)
+        #TODO: multiple sectors
         #TODO: we should probably not reach into the actual entities here
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.buy_order = ocore.TradeCargoFromStation.create_trade_cargo_from_station(
                 self.agent, actual_agent, ceiling_price,
-                station_image, resource, amount,
+                station, resource, amount,
                 self.craft, self.gamestate)
         self.buy_order.observe(self)
         self.craft.prepend_order(self.buy_order)
@@ -825,12 +824,11 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         self.state = TradingAgendum.State.SELLING
         assert self.craft.sector
         assert station.sector_id == self.craft.sector.entity_id
-        station_image = self.craft.sector.sensor_manager.target_from_identity(station.create_sensor_identity(), self.craft, station.loc)
         #TODO: we should probably not reach into the actual entities here
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
                 actual_agent, self.agent, floor_price,
-                station_image, resource, self.craft.cargo[resource],
+                station, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.sell_order.observe(self)
         self.craft.prepend_order(self.sell_order)

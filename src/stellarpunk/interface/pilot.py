@@ -889,7 +889,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         else:
             closest_approach = math.inf
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.presenter.selected_target_image.identity.short_id}')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.presenter.selected_target_image.identity.short_id()}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_profile:>12} {self.presenter.selected_target_image.profile}')
         self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(util.magnitude(*self.presenter.selected_target_image.velocity))}')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.presenter.selected_target_image.loc[0]:.0f},{self.presenter.selected_target_image.loc[1]:.0f}')

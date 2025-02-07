@@ -586,6 +586,7 @@ class SensorManager(core.AbstractSensorManager):
 
         image = SensorImage.create_sensor_image(None, detector, self, identity=target_identity, identified=identified)
         image._loc = loc
+        image.update(notify_target=notify_target)
         detector.sensor_settings.register_image(image)
 
         return image
