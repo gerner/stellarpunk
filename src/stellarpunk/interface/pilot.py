@@ -361,9 +361,10 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the travel gate")
-            selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, sector_entity.TravelGate)
-            order = orders.TravelThroughGate.create_travel_through_gate(selected_entity, self.ship, self.gamestate)
+            assert self.interface.player.character
+            travel_gate_intel = self.interface.player.character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(self.presenter.selected_target), intel.TravelGateIntel)
+            assert travel_gate_intel is not None
+            order = orders.TravelThroughGate.create_travel_through_gate(travel_gate_intel, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
 

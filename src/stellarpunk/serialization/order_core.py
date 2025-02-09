@@ -235,10 +235,11 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
         context_data:tuple[uuid.UUID, Optional[uuid.UUID], Optional[uuid.UUID], Optional[uuid.UUID]] = context
         target_gate_id, rotate_order_id, warp_out_id, warp_in_id = context_data
 
-        target_gate = load_context.gamestate.get_entity(target_gate_id, sector_entity.TravelGate)
-        order.target_gate = target_gate
+        target_gate = load_context.gamestate.get_entity(target_gate_id, intel.TravelGateIntel)
+        target_gate_image = order.ship.sensor_settings.get_image(target_gate.intel_entity_id)
 
-        order.eow = core.EntityOrderWatch(order, target_gate)
+        order.target_gate = target_gate
+        order.target_gate_image = target_gate_image
 
         if rotate_order_id:
             order.rotate_order = load_context.gamestate.get_order(rotate_order_id, movement.RotateOrder)

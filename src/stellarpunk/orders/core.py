@@ -410,18 +410,23 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         PHASE_COMPLETE = enum.auto()
 
     @classmethod
-    def create_travel_through_gate[T:"TravelThroughGate"](cls:Type[T], target_gate: sector_entity.TravelGate, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> T:
+    def compute_eta(cls, ship:core.Ship, target_gate:intel.TravelGateIntel, starting_loc:Optional[npt.NDArray[np.float64]]=None) -> float:
+        return GoToLocation.compute_eta(ship, target_gate.loc, starting_loc=starting_loc) + 5
+
+    @classmethod
+    def create_travel_through_gate[T:"TravelThroughGate"](cls:Type[T], target_gate: intel.TravelGateIntel, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> T:
         o = cls.create_order(*args, position_margin=position_margin, travel_time=travel_time, travel_thrust=travel_thrust, max_gate_dist=max_gate_dist, **kwargs)
         o.target_gate = target_gate
-        o.eow = core.EntityOrderWatch(o, target_gate)
+        assert o.ship.sector
+        o.target_gate_image = o.ship.sector.sensor_manager.target_from_identity(target_gate.create_sensor_identity(), o.ship, target_gate.loc)
 
         return o
 
     def __init__(self, *args: Any, position_margin:float=5e2, travel_time:float=5, travel_thrust:float=5e6, max_gate_dist:float=2e3, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.target_gate:sector_entity.TravelGate = None # type: ignore
-        self.eow:core.EntityOrderWatch = None # type: ignore
+        self.target_gate:intel.TargetGateIntel = None # type: ignore
+        self.target_gate_image:sensors.AbstractSensorImage = None # type: ignore
         self.position_margin = position_margin
         self.travel_time = travel_time
         self.travel_thrust = travel_thrust
@@ -449,7 +454,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
     def _begin(self) -> None:
         # get into position and then some time of acceleration "out of system"
-        self.init_eta = GoToLocation.compute_eta(self.ship, self.target_gate.loc) + 5
+        self.init_eta = TravelThroughGate.compute_eta(self.ship, self.target_gate)
 
     def is_cancellable(self) -> bool:
         return self.warp_out is None and self.warp_in is None
@@ -490,10 +495,14 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         If we're at the gate, transitions to travelling out of sector,
         otherwise just sets up a goto order to get us into position. """
 
-        if self.ship.sector is None or self.ship.sector != self.target_gate.sector:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector}')
+        if self.ship.sector is None or self.ship.sector.entity_id != self.target_gate.sector_id:
+            raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector_id}')
 
+        # check if we just finished rotating to the right position
         if self.rotate_order is not None and self.rotate_order.is_complete():
+            assert self.target_gate_image.detected
+            assert self.target_gate_image.identified
+
             # everything is ready for travel, let's goooooo
             self.ship.set_velocity((0., 0.))
 
@@ -547,17 +556,23 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         done enough, we warp the player ship into another sector, swapping out
         physics bodies and such. """
 
-        if self.ship.sector is None or self.ship.sector != self.target_gate.sector:
+        assert self.target_gate_image.detected
+        assert self.target_gate_image.identified
+
+        if self.ship.sector is None or self.ship.sector.entity_id != self.target_gate.sector_id:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector}')
+
+        actual_gate = self.gamestate.get_entity(self.target_gate.intel_entity_id, sector_entity.TravelGate)
+
         # go fast! until we're "out of sector"
         if self.gamestate.timestamp - self.travel_start_time > self.travel_time:
             # set position with enough runway to come to a full stop
-            min_r = self.target_gate.destination.radius * 2
-            max_r = self.target_gate.destination.radius * 2.5
+            min_r = actual_gate.destination.radius * 2
+            max_r = actual_gate.destination.radius * 2.5
             # 180 the direction so we come in on the opposite side of the
             # destination sector
-            min_theta = np.pi + self.target_gate.direction - math.radians(5)
-            max_theta = np.pi + self.target_gate.direction + math.radians(5)
+            min_theta = np.pi + actual_gate.direction - math.radians(5)
+            max_theta = np.pi + actual_gate.direction + math.radians(5)
 
             r = self.gamestate.random.uniform(min_r, max_r)
             theta = self.gamestate.random.uniform(min_theta, max_theta)
@@ -568,7 +583,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             #self.ship.set_velocity((0., 0.))
 
             # move from current sector to destination sector
-            self.ship.migrate(self.target_gate.destination)
+            self.ship.migrate(actual_gate.destination)
 
             crew = core.crew(self.ship)
             if crew:
@@ -576,7 +591,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
                     crew,
                     self.gamestate.event_manager.e(events.Events.ENTER_SECTOR),
                     {
-                        self.gamestate.event_manager.ck(events.ContextKeys.TARGET): self.target_gate.destination.short_id_int(),
+                        self.gamestate.event_manager.ck(events.ContextKeys.TARGET): actual_gate.destination.short_id_int(),
                         self.gamestate.event_manager.ck(events.ContextKeys.SHIP): self.ship.short_id_int(),
                     },
                 )
@@ -590,21 +605,21 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             self.travel_start_time = self.gamestate.timestamp
 
             # rotate to face opposite direction of travel and decelerate
-            self.rotate_order = RotateOrder.create_rotate_order(self.target_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
+            self.rotate_order = RotateOrder.create_rotate_order(actual_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
             self._add_child(self.rotate_order)
-            self.ship.apply_force(-1 * self.target_gate.direction_vector * self.travel_thrust, True)
+            self.ship.apply_force(-1 * actual_gate.direction_vector * self.travel_thrust, True)
             # we'll act again when the rotate order is finished
             return
         else:
             # lets gooooooo
-            self.ship.apply_force(self.target_gate.direction_vector * self.travel_thrust, True)
+            self.ship.apply_force(actual_gate.direction_vector * self.travel_thrust, True)
             #TODO: we want to continue applying thrust for the entire interval
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
 
     def _act_travel_in_to_sector(self, dt:float) -> None:
-        if self.ship.sector is None or self.ship.sector != self.target_gate.destination:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate destination {self.target_gate.destination}')
+        if self.ship.sector is None or self.ship.sector.entity_id != self.target_gate.destination_id:
+            raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate destination {self.target_gate.destination_id}')
         if self.gamestate.timestamp - self.travel_start_time > self.travel_time:
             #TODO: theoretically we should get to zero velocity, but this makes
             # a lot of assumptions about our starting velocity and precise
@@ -618,11 +633,18 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # schedule another tick to get cleaned up
             self.gamestate.schedule_order_immediate(self)
         else:
-            self.ship.apply_force(-1 * self.target_gate.direction_vector * self.travel_thrust, True)
+            self.ship.apply_force(-1 * util.polar_to_cartesian(self.travel_thrust, self.target_gate.direction), True)
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
 
     def act(self, dt:float) -> None:
+        self.target_gate_image.update()
+        if not self.target_gate_image.is_active():
+            # this would be very odd, right? we don't allow destroying travel gates
+            #self.cancel_order()
+            assert self.target_gate_image.is_active()
+            return
+
         if self.phase == self.Phase.PHASE_TRAVEL_TO_GATE:
             self._act_travel_to_gate(dt)
         elif self.phase == self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR:
@@ -787,3 +809,85 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
             self.scan_order = sensors.SensorScanOrder.create_order(self.ship, self.gamestate)
             self.scan_order.observe(self)
             self._add_child(self.scan_order)
+
+class NavigateOrder(core.OrderObserver, core.Order):
+    @classmethod
+    def compute_eta(cls, ship:core.Ship, target_id:uuid.UUID, start_id:Optional[uuid.UUID]=None, starting_loc:Optional[npt.NDArray[np.float64]]=None) -> float:
+        if ship.captain is None:
+            raise ValueError(f'cannot estimate eta for captainless ship')
+
+        if start_id is None:
+            if ship.sector is None:
+                raise ValueError(f'no starting sector id and ship is not in a sector')
+            start_id = ship.sector.entity_id
+
+        if start_id == target_id:
+            return 0.0
+
+        universe_view = intel.UniverseView.create(ship.captain)
+        jump_path = universe_view.compute_path(start_id, target_id)
+
+        if jump_path is None:
+            return np.inf
+
+        assert len(jump_path) > 0
+        out_gate = jump_path[0][1]
+        assert out_gate.sector_id == start_id
+
+        time = TravelThroughGate.compute_eta(ship, out_gate, starting_loc=starting_loc)
+
+        last_in_gate = jump_path[0][2]
+        for _, out_gate, in_gate, _ in jump_path[1:]:
+            assert last_in_gate.sector_id == out_gate.sector_id
+            time += TravelThroughGate.compute_eta(ship, out_gate, starting_loc=last_in_gate.loc)
+            last_in_gate = in_gate
+        assert last_in_gate.sector_id == target_id
+
+        return time
+
+    def __init__(self, sector_id:uuid.UUID, *args:Any, **kwargs:Any) -> None:
+        self.sector_id = sector_id
+        self.gate_order:Optional[TravelThroughGate] = None
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return self.order_id
+
+    def order_cancel(self, order:core.Order) -> None:
+        if order == self.gate_order:
+            self.gate_order = None
+            self.gamestate.schedule_order_immediate(self)
+        else:
+            raise ValueError(f'unexpected order event for {order}')
+
+    def order_complete(self, order:core.Order) -> None:
+        if order == self.gate_order:
+            self.gate_order = None
+            self.gamestate.schedule_order_immediate(self)
+        else:
+            raise ValueError(f'unexpected order event for {order}')
+
+    # core.Order
+
+    def _is_complete(self) -> bool:
+        return self.ship.sector is not None and self.ship.sector.entity_id == self.sector_id
+
+    def _begin(self) -> None:
+        self.init_eta = NavigateOrder.compute_eta(self.ship, self.sector_id)
+
+    def act(self, dt:float) -> None:
+        assert self.ship.sector
+        assert self.ship.sector.entity_id != self.sector_id
+        assert self.ship.captain
+        # find a path to the target sector
+        universe_view = intel.UniverseView.create(self.ship.captain)
+        jump_path = universe_view.compute_path(self.ship.sector.entity_id, self.sector_id)
+        if jump_path is None:
+            self.logger.debug(f'{self.ship.captain} knows of no path from {self.ship.sector} to {self.sector_id}')
+            self.cancel_order()
+            return
+        assert len(jump_path) > 0
+        assert(self.gate_order is None)
+        self.gate_order = TravelThroughGate.create_travel_through_gate(jump_path[0][1], self.ship, self.gamestate)
+        self.gate_order.observe(self)
+        self._add_child(self.gate_order)

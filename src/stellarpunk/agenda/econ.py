@@ -107,6 +107,22 @@ def possible_sales(
         station_intel = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(econ_agent_intel.underlying_entity_id), intel.StationIntel)
         if not station_intel:
             continue
+
+        # check if we're limiting sectors by jump count
+        if center_sector_id:
+            assert universe_view
+            if station_intel.sector_id == center_sector_id:
+                jumps_needed = 0
+            else:
+                jump_path = universe_view.compute_path(center_sector_id, station_intel.sector_id)
+                if jump_path is None:
+                    # no known path
+                    continue
+                jumps_needed = len(jump_path)
+            if jumps_needed > max_jumps:
+                # too many jumps away from the center
+                continue
+
         sale_hits.append((econ_agent_intel, station_intel))
 
     for econ_agent_intel, station_intel in sale_hits:
@@ -134,11 +150,12 @@ def choose_station_to_buy_from(
         sell_to_stations:Optional[list[uuid.UUID]],
         center_sector_id:Optional[uuid.UUID]=None,
         max_jumps:int=0,
-        universe_view:Optional[intel.UniverseView]=None,
 ) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel, float, float]]:
 
     if ship.sector is None:
         raise ValueError(f'{ship} in no sector')
+
+    universe_view = intel.UniverseView.create(character)
 
     # compute diffs of allowed/known stations
     # pick a trade that maximizes profit discounting by time spent travelling
@@ -164,7 +181,19 @@ def choose_station_to_buy_from(
             if profit < 0.:
                 continue
             transfer_time = ocore.TradeCargoFromStation.transfer_rate() * amount + ocore.TradeCargoToStation.transfer_rate() * amount
-            travel_time = movement.GoToLocation.compute_eta(ship, buy_station.loc) + movement.GoToLocation.compute_eta(ship, sale_station.loc, starting_loc=buy_station.loc)
+
+            travel_time = 0.
+            if buy_station.sector_id == ship.sector.entity_id:
+                travel_time += movement.GoToLocation.compute_eta(ship, buy_station.loc)
+            else:
+                #TODO: compute travel time for multi sector travel
+                travel_time += 0
+
+            if sale_station.sector_id == buy_station.sector_id:
+                travel_time += movement.GoToLocation.compute_eta(ship, sale_station.loc, starting_loc=buy_station.loc)
+            else:
+                #TODO: compute travel time for multi sector travel
+                travel_time += 0
 
             profit_per_time = profit / (transfer_time + travel_time)
             profits_per_time.append(profit_per_time)
@@ -192,12 +221,13 @@ def choose_station_to_sell_to(
         sell_to_stations:Optional[list[uuid.UUID]],
         center_sector_id:Optional[uuid.UUID]=None,
         max_jumps:int=0,
-        universe_view:Optional[intel.UniverseView]=None,
 ) -> Optional[tuple[int, intel.StationIntel, intel.EconAgentIntel]]:
     """ Choose a station to sell goods from ship to """
 
     if ship.sector is None:
         raise ValueError(f'{ship} in no sector')
+
+    universe_view = intel.UniverseView.create(character)
 
     # pick the station where we'll get the best profit for our cargo
     # biggest profit-per-tick for our cargo
@@ -215,7 +245,12 @@ def choose_station_to_sell_to(
         for sale_price, amount, sale_station, sale_agent in sales[resource]:
             profit = sale_price * amount
             transfer_time = ocore.TradeCargoToStation.transfer_rate() * amount
-            travel_time = movement.GoToLocation.compute_eta(ship, sale_station.loc)
+
+            if sale_station.sector_id == ship.sector.entity_id:
+                travel_time = movement.GoToLocation.compute_eta(ship, sale_station.loc)
+            else:
+                #TODO: compte travel time across sectors
+                travel_time += 0
 
             profit_per_time = profit / (transfer_time + travel_time)
             if profit_per_time > best_profit_per_time:
@@ -265,6 +300,8 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         *args: Any,
         allowed_resources: Optional[list[int]] = None,
         allowed_stations:Optional[list[uuid.UUID]] = None,
+        center_sector_id:Optional[uuid.UUID] = None,
+        max_jumps:int=0,
         **kwargs: Any
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -287,6 +324,9 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         self.max_trips = -1
 
         self._pending_intel_interest:Optional[core.IntelMatchCriteria] = None
+
+        self._center_sector_id:Optional[uuid.UUID] = None
+        self._max_jumps = 0
 
     def __str__(self) -> str:
         return f'{util.fullname(self)} {self.state.name}'
@@ -363,22 +403,60 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         if self.craft.sector is None:
             raise ValueError(f'{self.craft} in no sector')
 
+        universe_view = intel.UniverseView.create(self.character)
+
         nearest = None
         nearest_dist = np.inf
         distances = []
         candidates = []
         for a in self.character.intel_manager.intel(intel.AsteroidIntelPartialCriteria(resources=frozenset(self.allowed_resources)), intel.AsteroidIntel):
-            #TODO: handle out of sector mining
-            if a.sector_id != self.craft.sector.entity_id:
+            if a.amount < 1.0:
                 continue
-            if a.amount > 0.:
-                candidates.append(a)
-                distances.append(util.distance(self.craft.loc, a.loc))
+
+            # check if we're limiting sectors by jump count
+            if self._center_sector_id:
+                assert universe_view
+                if a.sector_id != self._center_sector_id:
+                    jump_path = universe_view.compute_path(self._center_sector_id, a.sector_id)
+                    if jump_path is None:
+                        # no known path
+                        #TODO: should we ask for more intel?
+                        continue
+                    jumps_needed = len(jump_path)
+                    if jumps_needed > self._max_jumps:
+                        # too many jumps away from the center
+                        #TODO: should we ask for more intel?
+                        continue
+
+            # compute distance from current sector/loc to asteroid sector/loc
+            if a.sector_id == self.craft.sector.entity_id:
+                distance = util.distance(self.craft.loc, a.loc)
+            else:
+                jump_path = universe_view.compute_path(self.craft.sector.entity_id, a.sector_id)
+                if jump_path is None:
+                    # no known path from current location to the asteroid
+                    #TODO: should we ask for more intel?
+                    continue
+
+                out_gate = jump_path[0][1]
+                assert out_gate.sector_id == self.craft.sector.entity_id
+                last_in_gate = jump_path[0][2]
+                distance = util.distance(self.craft.loc, out_gate.loc)
+                for _, out_gate, in_gate, _ in jump_path[1:]:
+                    assert last_in_gate.sector_id == out_gate.sector_id
+                    distance += util.distance(last_in_gate.loc, out_gate.loc)
+                    last_in_gate = in_gate
+                assert last_in_gate.sector_id == a.sector_id
+                distance += util.distance(last_in_gate.loc, a.loc)
+
+            candidates.append(a)
+            distances.append(distance)
 
         if len(candidates) == 0:
             return None
 
-        #TODO: choose asteroids in a more sensible way
+        # this scheme potentially chooses any asteroid, favoring close ones
+        # this helps to avoid all miners heading for the same asteroids
         p = 1.0 / np.array(distances)
         p = p / p.sum()
         idx = self.gamestate.random.choice(len(candidates), 1, p=p)[0]
@@ -425,6 +503,8 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
                 self.character,
                 self.gamestate, self.craft, self.agent,
                 self.allowed_resources, self.allowed_stations,
+                center_sector_id=self._center_sector_id,
+                max_jumps=self._max_jumps,
         )
         if sell_station_ret is None:
             #TODO: we could also mine something else instead
@@ -567,6 +647,8 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         allowed_goods:Optional[list[int]]=None,
         buy_from_stations:Optional[list[uuid.UUID]]=None,
         sell_to_stations:Optional[list[uuid.UUID]]=None,
+        center_sector_id:Optional[uuid.UUID]=None,
+        max_jumps:int=0,
         **kwargs:Any
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -577,6 +659,9 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         if allowed_goods is None:
             allowed_goods = list(range(self.gamestate.production_chain.ranks[0], self.gamestate.production_chain.ranks.cumsum()[-2]))
         self.allowed_goods = allowed_goods
+
+        self._center_sector_id:Optional[uuid.UUID] = center_sector_id
+        self._max_jumps:int = 0
 
         self.buy_from_stations = buy_from_stations
         self.sell_to_stations = sell_to_stations
@@ -797,7 +882,10 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
                 self.character,
                 self.gamestate, self.craft, self.agent,
                 self.allowed_goods,
-                self.buy_from_stations, self.sell_to_stations)
+                self.buy_from_stations, self.sell_to_stations,
+                center_sector_id=self._center_sector_id,
+                max_jumps=self._max_jumps
+        )
 
         if buy_station_ret is None:
             self._register_interests()
@@ -837,6 +925,8 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
                 self.character,
                 self.gamestate, self.craft, self.agent,
                 self.allowed_goods, self.sell_to_stations,
+                center_sector_id=self._center_sector_id,
+                max_jumps=self._max_jumps,
         )
         if sell_station_ret is None:
             #TODO: revisit sleeping and tracking that as a state

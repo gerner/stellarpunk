@@ -415,3 +415,9 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
     assert distance > 7e2 + station.radius + ship_driver.radius
 
     assert all(np.isclose(ship_driver.velocity, np.array((0., 0.))))
+
+#TODO: TravelThroughGate
+
+#TODO: LocationExploreOrder
+
+#TODO: NavigateOrder
