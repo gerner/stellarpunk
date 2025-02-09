@@ -12,7 +12,7 @@ import numpy as np
 from stellarpunk import core, econ, util, intel
 import stellarpunk.orders.core as ocore
 from stellarpunk.core import sector_entity
-from stellarpunk.orders import movement
+from stellarpunk.orders import movement, steering
 
 from .core import EntityOperatorAgendum
 
@@ -186,14 +186,16 @@ def choose_station_to_buy_from(
             if buy_station.sector_id == ship.sector.entity_id:
                 travel_time += movement.GoToLocation.compute_eta(ship, buy_station.loc)
             else:
-                #TODO: compute travel time for multi sector travel
-                travel_time += 0
+                travel_time += ocore.NavigateOrder.compute_eta(ship, buy_station.sector_id)
+                # approximate final travel distance as flying from the center of the sector
+                travel_time += movement.GoToLocation.compute_eta(ship, buy_station.loc, starting_loc=steering.ZERO_VECTOR)
 
             if sale_station.sector_id == buy_station.sector_id:
                 travel_time += movement.GoToLocation.compute_eta(ship, sale_station.loc, starting_loc=buy_station.loc)
             else:
-                #TODO: compute travel time for multi sector travel
-                travel_time += 0
+                travel_time += ocore.NavigateOrder.compute_eta(ship, sale_station.sector_id)
+                # approximate final travel distance as flying from the center of the sector
+                travel_time += movement.GoToLocation.compute_eta(ship, sale_station.loc, starting_loc=steering.ZERO_VECTOR)
 
             profit_per_time = profit / (transfer_time + travel_time)
             profits_per_time.append(profit_per_time)
@@ -232,11 +234,6 @@ def choose_station_to_sell_to(
     # pick the station where we'll get the best profit for our cargo
     # biggest profit-per-tick for our cargo
 
-    #TODO: how do we access price information? shouldn't this be
-    # somehow limited to a view specific to us?
-    #TODO: what if no stations seem to trade the resources we have?
-    #TODO: what if no stations seem to trade any allowed resources?
-
     sales = possible_sales(character, ship_agent, allowed_resources, sell_to_stations, center_sector_id=center_sector_id, max_jumps=max_jumps, universe_view=universe_view)
 
     best_profit_per_time = 0.
@@ -249,8 +246,10 @@ def choose_station_to_sell_to(
             if sale_station.sector_id == ship.sector.entity_id:
                 travel_time = movement.GoToLocation.compute_eta(ship, sale_station.loc)
             else:
-                #TODO: compte travel time across sectors
-                travel_time += 0
+                travel_time = ocore.NavigateOrder.compute_eta(ship, sale_station.sector_id)
+                # approximate final travel distance as flying from the center of the sector
+                travel_time += movement.GoToLocation.compute_eta(ship, sale_station.loc, starting_loc=steering.ZERO_VECTOR)
+
 
             profit_per_time = profit / (transfer_time + travel_time)
             if profit_per_time > best_profit_per_time:
@@ -407,7 +406,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         nearest = None
         nearest_dist = np.inf
-        distances = []
+        estimated_times = []
         candidates = []
         for a in self.character.intel_manager.intel(intel.AsteroidIntelPartialCriteria(resources=frozenset(self.allowed_resources)), intel.AsteroidIntel):
             if a.amount < 1.0:
@@ -428,36 +427,24 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
                         #TODO: should we ask for more intel?
                         continue
 
-            # compute distance from current sector/loc to asteroid sector/loc
+            # compute time from current sector/loc to asteroid sector/loc
+            assert(isinstance(self.craft, core.Ship))
             if a.sector_id == self.craft.sector.entity_id:
-                distance = util.distance(self.craft.loc, a.loc)
+                estimated_time = movement.GoToLocation.compute_eta(self.craft, a.loc)
             else:
-                jump_path = universe_view.compute_path(self.craft.sector.entity_id, a.sector_id)
-                if jump_path is None:
-                    # no known path from current location to the asteroid
-                    #TODO: should we ask for more intel?
-                    continue
-
-                out_gate = jump_path[0][1]
-                assert out_gate.sector_id == self.craft.sector.entity_id
-                last_in_gate = jump_path[0][2]
-                distance = util.distance(self.craft.loc, out_gate.loc)
-                for _, out_gate, in_gate, _ in jump_path[1:]:
-                    assert last_in_gate.sector_id == out_gate.sector_id
-                    distance += util.distance(last_in_gate.loc, out_gate.loc)
-                    last_in_gate = in_gate
-                assert last_in_gate.sector_id == a.sector_id
-                distance += util.distance(last_in_gate.loc, a.loc)
+                estimated_time = ocore.NavigateOrder.compute_eta(self.craft, a.sector_id)
+                # estimate final travel time from center of sector
+                estimated_time += movement.GoToLocation.compute_eta(self.craft, a.loc, starting_loc=steering.ZERO_VECTOR)
 
             candidates.append(a)
-            distances.append(distance)
+            estimated_times.append(estimated_time)
 
         if len(candidates) == 0:
             return None
 
         # this scheme potentially chooses any asteroid, favoring close ones
         # this helps to avoid all miners heading for the same asteroids
-        p = 1.0 / np.array(distances)
+        p = 1.0 / np.array(estimated_times)
         p = p / p.sum()
         idx = self.gamestate.random.choice(len(candidates), 1, p=p)[0]
         return candidates[idx]

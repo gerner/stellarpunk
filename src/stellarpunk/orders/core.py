@@ -36,10 +36,10 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         self.mining_rate = 2e1
 
     def estimate_eta(self) -> float:
-        #TODO: what if we're in a different sector
         assert self.ship.sector
         if self.ship.sector.entity_id != self.target_intel.sector_id:
-            raise ValueError("ship and asteroid not in same sector")
+            return NavigateOrder.compute_eta(self.ship, self.target_intel.sector_id) + DockingOrder.compute_eta(self.ship, self.target_intel.loc, starting_loc=ZERO_VECTOR) + 5 + self.amount / self.mining_rate
+
         if self.target_image is None:
             self.target_image = self.ship.sector.sensor_manager.target_from_identity(self.target_intel.create_sensor_identity(), self.ship, self.target_intel.loc)
         docking_eta = DockingOrder.compute_eta(self.ship, self.target_image.loc)
@@ -92,8 +92,9 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
 
     def act(self, dt: float) -> None:
         if not self.ship.sector or self.ship.sector.entity_id != self.target_intel.sector_id:
-            #TODO: travel to different sectors
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_intel.sector_id}')
+            #TODO: what if we don't have any path to the target?
+            self._add_child(NavigateOrder.create_order(self.ship, self.gamestate, self.target_intel.sector_id, observer=self))
+            return
         # we know we're in the same sector as the target
         if self.target_image is None:
             self.target_image = self.ship.sector.sensor_manager.target_from_identity(self.target_intel.create_sensor_identity(), self.ship, self.target_intel.loc)
@@ -190,7 +191,9 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
 
     def act(self, dt:float) -> None:
         if self.ship.sector is None or self.ship.sector.entity_id != self.target_intel.sector_id:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of target {self.target_intel.sector_id}')
+            #TODO: what if we don't have any path to the target?
+            self._add_child(NavigateOrder.create_order(self.ship, self.gamestate, self.target_intel.sector_id, observer=self))
+            return
 
         if self.target_image is None:
             self.target_image = self.ship.sector.sensor_manager.target_from_identity(self.target_intel.create_sensor_identity(), self.ship, self.target_intel.loc)
@@ -661,8 +664,8 @@ class DockingOrder(core.OrderObserver, core.Order):
     """
 
     @staticmethod
-    def compute_eta(ship:core.Ship, loc:npt.NDArray[np.float64]) -> float:
-        return GoToLocation.compute_eta(ship, loc) + 15
+    def compute_eta(ship:core.Ship, loc:npt.NDArray[np.float64], starting_loc:Optional[npt.NDArray[np.float64]]=None) -> float:
+        return GoToLocation.compute_eta(ship, loc, starting_loc=starting_loc) + 15
 
     @classmethod
     def create_docking_order[T:"DockingOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> T:
