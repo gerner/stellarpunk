@@ -11,6 +11,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import core, sim, orders, interface, util, generate, intel
+from stellarpunk.serialization import save_game
 from stellarpunk.core import sector_entity
 from stellarpunk.orders import steering
 
@@ -20,8 +21,12 @@ def write_history(func):
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        sector = kwargs["sector"]
-        #gamestate = kwargs["gamestate"]
+        if "sector" in kwargs:
+            # try and get sector from kwargs (the normal test)
+            sector = kwargs["sector"]
+        else:
+            # otherwise guess, this is a weird case
+            sector = next(iter(core.Gamestate.gamestate.sectors.values()))
         sector_id = sector.entity_id
         wrote=False
         try:
@@ -148,6 +153,8 @@ def add_sector_intel(detector:core.CrewedSectorEntity, sector:core.Sector, chara
             intel.add_station_intel(entity, character, gamestate)
             if entity.entity_id in gamestate.econ_agents:
                 intel.add_econ_agent_intel(gamestate.econ_agents[entity.entity_id], character, gamestate)
+        elif isinstance(entity, sector_entity.TravelGate):
+            intel.add_travel_gate_intel(entity, character,gamestate)
         else:
             intel.add_sector_entity_intel(entity, character, gamestate)
 
@@ -184,7 +191,7 @@ class MonitoringEconDataLogger(core.AbstractEconDataLogger):
         pass
 
 class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, interface.AbstractInterface):
-    def __init__(self, sector:core.Sector, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, sector:core.Sector, game_saver:save_game.GameSaver, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
         self.sector = sector
@@ -203,6 +210,10 @@ class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, inter
         self.collisions_allowed=False
         self.complete_orders:List[core.Order] = []
 
+        self.game_saver = game_saver
+        self.save_interval = np.inf
+        self.last_save_ts = 0.0
+        self.save_count = 0
 
         self.done = False
 
@@ -329,7 +340,7 @@ class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, inter
 
         if self.eta < np.inf:
             assert self.gamestate.timestamp < self.eta, f'exceeded set eta (still running: {[(x.ship.entity_id, x) for x in self.orders if x not in self.complete_orders]}, {self.agenda})'
-        else:
+        elif len(self.orders) > 0:
             assert self.gamestate.timestamp < max(map(lambda x: x.init_eta, self.orders))*self.order_eta_error_factor, "exceeded max eta over all orders"
 
         for x in self.cannot_stop_orders:
@@ -355,6 +366,19 @@ class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, inter
 
         if self.tick_callback:
             self.tick_callback()
+
+        if self.last_save_ts + self.save_interval < self.gamestate.timestamp:
+            self.logger.info(f'saving...')
+            assert self.gamestate == core.Gamestate.gamestate
+            save_filename = "/tmp/stellarpunk_testfile.stpnk"
+            self.game_saver.save(self.gamestate, save_filename)
+            self.logger.info(f'saved.')
+            self.logger.info(f'loading...')
+            self.game_saver.load(save_filename)
+            self.logger.info(f'loaded.')
+            # observing the generator should let us recover gamestate
+            self.last_save_ts = self.gamestate.timestamp
+            self.save_count += 1
 
 class MonitoringSimulator(sim.Simulator):
     def __init__(self, generator:generate.UniverseGenerator, testui:MonitoringUI) -> None:

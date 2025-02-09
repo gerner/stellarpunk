@@ -429,7 +429,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         super().__init__(*args, **kwargs)
 
         self.target_gate:intel.TargetGateIntel = None # type: ignore
-        self.target_gate_image:sensors.AbstractSensorImage = None # type: ignore
+        self.target_gate_image:Optional[core.AbstractSensorImage] = None
         self.position_margin = position_margin
         self.travel_time = travel_time
         self.travel_thrust = travel_thrust
@@ -503,6 +503,7 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
         # check if we just finished rotating to the right position
         if self.rotate_order is not None and self.rotate_order.is_complete():
+            assert self.target_gate_image
             assert self.target_gate_image.detected
             assert self.target_gate_image.identified
 
@@ -559,23 +560,38 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         done enough, we warp the player ship into another sector, swapping out
         physics bodies and such. """
 
+        assert self.target_gate_image
         assert self.target_gate_image.detected
         assert self.target_gate_image.identified
 
         if self.ship.sector is None or self.ship.sector.entity_id != self.target_gate.sector_id:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector}')
 
+        # we should double check that the gate is still there (sanity check, it
+        # is detected, see above)
         actual_gate = self.gamestate.get_entity(self.target_gate.intel_entity_id, sector_entity.TravelGate)
 
         # go fast! until we're "out of sector"
         if self.gamestate.timestamp - self.travel_start_time > self.travel_time:
-            # set position with enough runway to come to a full stop
-            min_r = actual_gate.destination.radius * 2
-            max_r = actual_gate.destination.radius * 2.5
+
+            # figure out how far out from the gate we should enter the sector
+            # so we end up near it
+            # this is how far we expect to travel while slowing down, plus some
+            # safety margin so we don't hit the gate
+            # s = u * t + 1/2 * a * t
+            # f = m * a
+            # a = f / m
+            expected_travel_distance = util.magnitude(*self.ship.velocity) * self.travel_time + 0.5 * (-self.travel_thrust / self.ship.mass) * self.travel_time * self.travel_time
+            enter_loc_offset = util.polar_to_cartesian(expected_travel_distance, np.pi + actual_gate.direction)
+
+            # then add some noise around where the destination gate should be
+            # plus the stopping distance, and a safety margin just in case
+            min_r = actual_gate.destination.radius*2 + expected_travel_distance + 2e3
+            max_r = actual_gate.destination.radius*2.5 + expected_travel_distance + 2e3
             # 180 the direction so we come in on the opposite side of the
             # destination sector
-            min_theta = np.pi + actual_gate.direction - math.radians(5)
-            max_theta = np.pi + actual_gate.direction + math.radians(5)
+            min_theta = np.pi + actual_gate.direction# - math.radians(5)
+            max_theta = np.pi + actual_gate.direction# + math.radians(5)
 
             r = self.gamestate.random.uniform(min_r, max_r)
             theta = self.gamestate.random.uniform(min_theta, max_theta)
@@ -583,11 +599,14 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
             #TODO: should setting these happen in the post_tick phase?
             self.ship.set_loc(loc)
-            #self.ship.set_velocity((0., 0.))
+            # keep existing velocity, we'll slow down on the other side
 
             # move from current sector to destination sector
+            # make sure to nuke the image, only makes sense in current sector
+            self.target_gate_image = None
             self.ship.migrate(actual_gate.destination)
 
+            #TODO: should this go in migrate or sector?
             crew = core.crew(self.ship)
             if crew:
                 self.gamestate.trigger_event(
@@ -610,12 +629,12 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # rotate to face opposite direction of travel and decelerate
             self.rotate_order = RotateOrder.create_rotate_order(actual_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
             self._add_child(self.rotate_order)
-            self.ship.apply_force(-1 * actual_gate.direction_vector * self.travel_thrust, True)
+            self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, np.pi+actual_gate.direction), True)
             # we'll act again when the rotate order is finished
             return
         else:
             # lets gooooooo
-            self.ship.apply_force(actual_gate.direction_vector * self.travel_thrust, True)
+            self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, actual_gate.direction), True)
             #TODO: we want to continue applying thrust for the entire interval
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
@@ -636,17 +655,20 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # schedule another tick to get cleaned up
             self.gamestate.schedule_order_immediate(self)
         else:
-            self.ship.apply_force(-1 * util.polar_to_cartesian(self.travel_thrust, self.target_gate.direction), True)
+            self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, self.target_gate.direction+np.pi), True)
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
 
     def act(self, dt:float) -> None:
-        self.target_gate_image.update()
-        if not self.target_gate_image.is_active():
-            # this would be very odd, right? we don't allow destroying travel gates
-            #self.cancel_order()
-            assert self.target_gate_image.is_active()
-            return
+        if self.target_gate_image:
+            self.target_gate_image.update()
+            if not self.target_gate_image.is_active():
+                # this would be very odd, right? we don't allow destroying travel gates
+                #self.cancel_order()
+                assert self.target_gate_image.is_active()
+                return
+        else:
+            assert self.ship.sector and self.ship.sector.entity_id == self.target_gate.destination_id
 
         if self.phase == self.Phase.PHASE_TRAVEL_TO_GATE:
             self._act_travel_to_gate(dt)

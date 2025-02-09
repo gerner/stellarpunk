@@ -13,6 +13,8 @@ from stellarpunk.serialization import util as s_util
 
 from . import write_history, add_sector_intel
 
+from . import test_orders
+
 def test_to_int():
     with tempfile.TemporaryFile() as fp:
         v1 = 42
@@ -471,3 +473,16 @@ def test_saving_during_attack(player, gamestate, generator, intel_director, sect
     logging.info(f'target active: {attack_order.target.is_active()}')
     logging.info(f'threats destroyed: {flee_order.point_defense.targets_destroyed}')
 
+def test_saving_with_docking(player, gamestate, generator, sector, testui, simulator):
+    testui.save_interval = 15.0
+    test_orders.test_docking_order(gamestate, generator, sector, testui, simulator)
+    gamestate = testui.gamestate
+    assert gamestate.save_count > 1
+    assert gamestate.save_count == testui.save_count
+
+
+def test_saving_with_gate(player, gamestate, generator, sector, connecting_sector, testui, simulator):
+    testui.save_interval = 75.0
+    test_orders.test_travel_through_gate(gamestate, generator, sector, connecting_sector, testui, simulator)
+    gamestate = testui.gamestate
+    assert gamestate.save_count > 1

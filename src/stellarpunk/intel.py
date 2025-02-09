@@ -323,6 +323,16 @@ class UniverseView:
         functools.reduce(group_by_destination, travel_gate_intels, self.gates_by_destination)
         self.adj_matrix = adj_matrix
 
+        if len(self.travel_gate_intels) > 0:
+            self.max_edge_length = max(
+                util.distance(
+                    self.sector_intel_lookup[x.sector_id].loc,
+                    self.sector_intel_lookup[x.destination_id].loc if x.destination_id in sector_intel_lookup else self.sector_intel_lookup[x.sector_id].radius * 10.0
+                ) for x in self.travel_gate_intels
+            )
+        else:
+            self.max_edge_length = 0.0
+
     @functools.cache
     def _sector_dfs(self, source_idx:int) -> tuple[Mapping[int, int], Mapping[int, float]]:
         return util.dijkstra(self.adj_matrix, source_idx, len(self.sector_idx_lookup))

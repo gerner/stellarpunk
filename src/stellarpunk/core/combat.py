@@ -517,7 +517,6 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
     def _activate(self) -> None:
         """ IDLE -> ACTIVE transition logic """
-        self.logger.info("activate")
         self.state = PointDefenseEffect.State.ACTIVE
 
         self._setup_shape()
@@ -555,7 +554,6 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
     def _deactivate(self) -> None:
         """ ACTIVE -> IDLE transition logic """
-        self.logger.info("deactivate")
         assert self._pd_shape
         self.state = PointDefenseEffect.State.IDLE
 
@@ -567,7 +565,6 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
     def add_collision(self, entity:core.SectorEntity) -> None:
         assert self.state == PointDefenseEffect.State.ACTIVE
-        logger.info(f'point defense cone collision with {entity}')
         if entity.entity_id not in self._pd_collisions:
             self._pd_collisions[entity.entity_id] = PDTarget(entity)
         else:
@@ -622,22 +619,17 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
             p = config.Settings.combat.point_defense.THREAT_HIT_PROBABILITY
         roll = self.gamestate.random.uniform()
         if roll < p:
-            self.logger.info(f'pd hit {target.entity.entity_id} {roll} < {p}')
             if damage(target.entity):
                 self.targets_destroyed += 1
                 return True
-        else:
-            self.logger.info(f'pd miss {target.entity.entity_id} {roll} > {p}')
         target.last_roll = core.Gamestate.gamestate.timestamp
         return False
 
     def _do_point_defense(self, target:core.AbstractSensorImage) -> None:
-        self.logger.info(f'pd {target}')
         assert self._pd_shape
         # handle any collisions with the cone shape
         remove_ids:List[uuid.UUID] = []
         for entity_id, pdtarget in self._pd_collisions.items():
-            self.logger.info(f'pdtarget {pdtarget}')
             if pdtarget.since_last_seen > self.pdtarget_expiration:
                 remove_ids.append(entity_id)
             elif util.isclose(pdtarget.since_last_seen, 0.0):

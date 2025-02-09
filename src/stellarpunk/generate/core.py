@@ -1886,8 +1886,6 @@ class UniverseGenerator(core.AbstractGenerator):
             edge_index.insert(edge_id, bbox, ((*a, *b), (source_id, dest_id)))
             edge_id += 1
 
-        self.gamestate.update_edges(sector_edges, sector_ids, sector_coords)
-
         return sector_coords, sector_edges, sector_radii, edge_distances
 
     def generate_sectors(self,
@@ -2314,7 +2312,6 @@ class UniverseGenerator(core.AbstractGenerator):
             intel.add_travel_gate_intel(travel_gate, self.gamestate.player.character, self.gamestate)
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
-        self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
         self.logger.info(f'characters: {len(self.gamestate.characters)}')
         self.logger.info(f'econ_agents: {len(self.gamestate.econ_agents)}')
         self.logger.info(f'entities: {len(self.gamestate.entities)}')

@@ -1,4 +1,4 @@
-from typing import Tuple, List, Dict, Any
+from typing import Tuple, List, Dict, Any, Optional
 
 import cymunk # type: ignore
 
@@ -29,6 +29,15 @@ class NeighborAnalysisParameters:
     nearest_neighborhood_dist:float
     cannot_avoid_collision:bool
     coalesced_threat_count:int
+
+    threat_shape:Optional[cymunk.Shape]
+    minimum_separation:float
+    current_threat_loc:tuple[float, float]
+    threat_velocity:tuple[float, float]
+    detection_timestamp:float
+    approach_time:float
+    threat_loc:tuple[float, float]
+    threat_radius:float
 
 class NavigatorParameters:
     """ carries navigator parameters for serialization. """

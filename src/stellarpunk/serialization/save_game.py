@@ -494,6 +494,10 @@ class GameSaver(SaverObserver):
             observer.save_tick(self)
         self.logger.debug("sanity check complete")
 
+        # keep track of how many times we've saved this game
+        # this will get restored on load
+        gamestate.save_count += 1
+
         if save_filename is None:
             save_filename = self._gen_save_filename()
             save_filename = os.path.join(self._save_path, save_filename)

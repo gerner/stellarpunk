@@ -78,10 +78,9 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         # this gives us enough info to reconstruct sectors dict, sector_idx,
         # sector_spatial by pulling desired entity from the entity store
         bytes_written += self.save_game.debug_string_w("sector ids", f)
-        bytes_written += s_util.size_to_f(len(gamestate.sector_ids), f)
-        for sector_id in gamestate.sector_ids:
+        bytes_written += s_util.size_to_f(len(gamestate.sectors), f)
+        for sector_id in gamestate.sectors.keys():
             s_util.uuid_to_f(sector_id, f)
-        bytes_written += s_util.matrix_to_f(gamestate.sector_edges, f)
 
         # econ agents
         bytes_written += self.save_game.debug_string_w("econ agents", f)
@@ -221,16 +220,12 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         for i in range(count):
             sector_id = s_util.uuid_from_f(f)
             sector_ids.append(sector_id)
-        sector_edges = s_util.matrix_from_f(f)
 
         # now reconstruct all the sector state from entites already loaded
-        sector_coords = np.zeros((len(sector_ids), 2), dtype=np.float64)
         for i, sector_id in enumerate(sector_ids):
             sector = gamestate.entities[sector_id]
             assert(isinstance(sector, core.Sector))
-            sector_coords[i] = sector.loc
             gamestate.add_sector(sector, i)
-        gamestate.update_edges(sector_edges, np.array(sector_ids), sector_coords)
 
         # econ agents
         load_context.debug_string_r("econ agents", f)

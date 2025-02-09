@@ -172,11 +172,7 @@ class Gamestate(EntityRegistry):
         # Universe State
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:dict[uuid.UUID, Sector] = {}
-        self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
-        self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
-        self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
-        self.max_edge_length:float = 0.0
-
+        #self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
 
@@ -594,39 +590,14 @@ class Gamestate(EntityRegistry):
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
-        self.sector_idx[sector.entity_id] = idx
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
-
-        # we'll do this here for consistency, but really this should happen in
-        # update_edges
-        sector_ids = list(self.sector_ids)
-        if sector.entity_id not in sector_ids:
-            sector_ids.append(sector.entity_id)
-            self.sector_ids = np.array(sector_ids)
-
-    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:
-        self.sector_edges = sector_edges
-        self.sector_ids = sector_ids
-        self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
-        if len(sector_ids) >= 2:
-            self.max_edge_length = max(
-                util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
-            )
-        else:
-            # or should it be inf?
-            self.max_edge_length = 0.0
 
     def spatial_query(self, bounds:tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits # type: ignore
 
     def sanity_check_sectors(self) -> None:
-        assert set(self.sector_ids) == set(self.sectors.keys())
-        for sector_id in self.sector_ids:
-            assert sector_id in self.entities
-            assert self.sectors[sector_id] == self.entities[sector_id]
-            assert sector_id in self.sector_idx
-        assert len(self.sector_ids) == len(self.sector_idx)
+        pass
 
     def sanity_check(self) -> None:
         self.sanity_check_entities()

@@ -1,12 +1,14 @@
 """ Tests for ship orders and behaviors. """
 
 import logging
+import math
 import os
 
 import pytest
 import numpy as np
 
 from stellarpunk import core, sim, generate, orders, util, intel
+from stellarpunk.core import sector_entity
 from stellarpunk.orders import steering, collision
 from . import write_history, nearest_neighbor, add_sector_intel
 
@@ -409,6 +411,12 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
     testui.orders = [goto_order]
 
     simulator.run()
+
+    # save/load support
+    gamestate = testui.gamestate
+    goto_order = testui.orders[0]
+    ship_driver, station = gamestate.recover_objects((ship_driver, station))
+
     assert goto_order.is_complete()
     distance = util.distance(ship_driver.loc, station.loc)
     assert distance < arrival_distance + station.radius
@@ -416,8 +424,70 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
 
     assert all(np.isclose(ship_driver.velocity, np.array((0., 0.))))
 
-#TODO: TravelThroughGate
+def test_travel_through_gate(gamestate, generator, sector, connecting_sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    ship_owner = generator.spawn_character(ship_driver)
+    ship_owner.take_ownership(ship_driver)
+    ship_driver.captain = ship_owner
+    add_sector_intel(ship_driver, sector, ship_owner, gamestate)
+    gate_intel = ship_owner.intel_manager.get_intel(intel.SectorEntityPartialCriteria(sector_id=sector.entity_id, cls=sector_entity.TravelGate), intel.TravelGateIntel)
+
+    assert gate_intel.intel_entity_id == next(sector.entities_by_type(sector_entity.TravelGate)).entity_id
+
+    order = orders.TravelThroughGate.create_travel_through_gate(gate_intel, ship_driver, gamestate)
+    ship_driver.prepend_order(order)
+    assert order.estimate_eta() < 200.0
+
+    testui.eta = order.estimate_eta()*1.1
+    testui.orders = [order]
+    simulator.run()
+
+    # some support to use this with save/load
+    gamestate = testui.gamestate
+    order = testui.orders[0]
+    ship_driver, connecting_sector = gamestate.recover_objects((ship_driver, connecting_sector))
+
+    assert order.is_complete()
+    assert ship_driver.sector is not None and ship_driver.sector == connecting_sector
+    assert util.isclose(util.magnitude(*ship_driver.velocity), 0.0)
+    # we should be close to where the corresponding travel gate is
+    # this depends on generation logic placing the gate here
+    destination_gate = next(connecting_sector.entities_by_type(sector_entity.TravelGate))
+    r, theta = util.cartesian_to_polar(*ship_driver.loc)
+    assert abs(theta - destination_gate.direction) < math.radians(5.0)
+    assert r > connecting_sector.radius*2.0+2e3
+    assert r < connecting_sector.radius*2.5+2e3
+
+    # the above parameters should guarantee this, although this depends on how
+    # gates a re spawned in generate
+    assert util.distance(destination_gate.loc, ship_driver.loc) < connecting_sector.radius*0.5
+
+def test_simple_physics(gamestate, generator, sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+
+    # start out with some velocity
+    ship_driver.phys.velocity = np.array([12458.33398438,     0.        ])
+
+    # apply some force
+    travel_thrust = 5000000.0
+    ship_driver.apply_force((-travel_thrust, 0.0), True)
+    #calculate where we should end up
+    # s = u * t + 1/2 * a * t
+    # f = m * a
+    # a = f / m
+    travel_time = 5.0
+    expected_travel_distance = util.magnitude(*ship_driver.velocity) * travel_time + 0.5 * (-travel_thrust / ship_driver.mass) * travel_time * travel_time
+    start_loc = np.array(ship_driver.loc)
+
+    testui.max_timestamp=travel_time
+    simulator.run()
+
+    assert abs(expected_travel_distance - util.distance(ship_driver.loc, start_loc)) < 2e2
 
 #TODO: LocationExploreOrder
+def test_location_explore_order():
+    pass
 
 #TODO: NavigateOrder
+def test_navigate_order():
+    pass

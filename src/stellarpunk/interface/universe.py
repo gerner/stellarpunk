@@ -102,14 +102,16 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
         # construct the player's view of the universe, depending on intel
         universe_view = intel.UniverseView.create(self.gamestate.player.character)
 
+        max_edge_length = universe_view.max_edge_length
+
         for sector in universe_view.sector_intels:
             # compute a bounding box of interest for this sector
             # that's this sector (including radius) plus all sectors it connects to
             sector_bbox = (
-                    sector.loc[0]-sector.radius-self.gamestate.max_edge_length,
-                    sector.loc[1]-sector.radius-self.gamestate.max_edge_length,
-                    sector.loc[0]+sector.radius+self.gamestate.max_edge_length,
-                    sector.loc[1]+sector.radius+self.gamestate.max_edge_length
+                    sector.loc[0]-sector.radius-max_edge_length,
+                    sector.loc[1]-sector.radius-max_edge_length,
+                    sector.loc[0]+sector.radius+max_edge_length,
+                    sector.loc[1]+sector.radius+max_edge_length
             )
 
             if not util.intersects(self.perspective.bbox, sector_bbox):

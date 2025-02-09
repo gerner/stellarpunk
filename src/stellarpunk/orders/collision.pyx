@@ -752,11 +752,21 @@ class NeighborAnalysisParameters:
     """ carries analysis parameters for serialization. """
     def __init__(self):
         self.neighborhood_radius = 0.0
-        self.threat_count = 0
         self.neighborhood_size = 0
+        self.threat_count = 0
         self.nearest_neighborhood_dist = 0.0
         self.cannot_avoid_collision = False
         self.coalesced_threat_count = 0
+
+        # things only needed by get_telemetry
+        self.threat_shape = None
+        self.minimum_separation = 0.0
+        self.current_threat_loc = tuple((0.0, 0.0))
+        self.threat_velocity = tuple((0.0, 0.0))
+        self.detection_timestamp = 0.0
+        self.approach_time = 0.0
+        self.threat_loc = tuple((0.0, 0.0))
+        self.threat_radius = 0.0
 
 class NavigatorParameters:
     """ carries navigator parameters for serialization. """
@@ -1008,6 +1018,19 @@ cdef class Navigator:
         params.nearest_neighborhood_dist = self.analysis.nearest_neighbor_dist
         params.cannot_avoid_collision = self.analysis.cannot_avoid_collision
         params.coalesced_threat_count = self.analysis.coalesced_threat_count
+
+        # these are parameters we only need for get_telemetry
+        if self.analysis.threat_count > 0 and self.analysis.threat_shape != NULL:
+            shape = self.space._shapes.get(self.analysis.threat_shape.hashid_private)
+            params.threat_shape = shape
+        params.minimum_separation = self.analysis.minimum_separation
+        params.current_threat_loc = tuple((self.analysis.current_threat_loc.x, self.analysis.current_threat_loc.y))
+        params.threat_velocity = tuple((self.analysis.threat_velocity.x, self.analysis.threat_velocity.y))
+        params.detection_timestamp = self.analysis.detection_timestamp
+        params.approach_time = self.analysis.approach_time
+        params.threat_loc = tuple((self.analysis.threat_loc.x, self.analysis.threat_loc.y))
+        params.threat_radius = self.analysis.threat_radius
+
         return params
 
     def set_analysis_parameters(self, params):
@@ -1018,6 +1041,17 @@ cdef class Navigator:
         self.analysis.nearest_neighbor_dist = params.nearest_neighborhood_dist
         self.analysis.cannot_avoid_collision = params.cannot_avoid_collision
         self.analysis.coalesced_threat_count = params.coalesced_threat_count
+
+        # these are parameters we only need for get_telemetry
+        if params.threat_shape:
+            self.analysis.threat_shape = (<ccymunk.Shape?>params.threat_shape)._shape
+        self.analysis.minimum_separation = params.minimum_separation
+        self.analysis.current_threat_loc = ccymunk.cpVect(params.current_threat_loc[0], params.current_threat_loc[1])
+        self.analysis.threat_velocity = ccymunk.cpVect(params.threat_velocity[0], params.threat_velocity[1])
+        self.analysis.detection_timestamp = 0.0
+        self.analysis.approach_time = 0.0
+        self.analysis.threat_loc = ccymunk.cpVect(params.threat_loc[0], params.threat_loc[1])
+        self.analysis.threat_radius = 0.0
 
     cdef void log(self, message, eid_prefix=""):
         log(self.body, f'{self.analysis.timestamp}\t'+message, eid_prefix)
@@ -1069,7 +1103,7 @@ cdef class Navigator:
             # space by the time we are pulling telemtry. if so, space.shapes
             # won't have it, so let's not prepare any collision threat
             # telemetry in that case
-            if self.analysis.threat_shape.hashid_private not in self.space.shapes:
+            if self.analysis.threat_shape != NULL and self.analysis.threat_shape.hashid_private not in self.space.shapes:
                 return telemetry
             telemetry.update({
                 "ct": self.space.shapes[self.analysis.threat_shape.hashid_private].body,
@@ -1078,7 +1112,7 @@ cdef class Navigator:
                 "ct_v": cpvtoTuple(self.analysis.threat_velocity),
                 "ct_ts": self.analysis.detection_timestamp,
                 "ct_at": self.analysis.approach_time,
-                "ct_ct": self.analysis.coalesced_threats.size(),
+                "ct_ct": self.analysis.coalesced_threat_count,
                 "ct_cloc": cpvtoTuple(self.analysis.threat_loc),
                 "ct_cradius": self.analysis.threat_radius,
                 "ct_cn": self.coalesced_neighbor_locations(),

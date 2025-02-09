@@ -72,7 +72,7 @@ class SensorImage(core.AbstractSensorImage):
         self._identified = False
 
     def __str__(self) -> str:
-        return f'{self._identity.short_id} detected by {self._ship or self._detector_id} {self.age}s old'
+        return f'{self._identity.short_id()} tracked by {self._ship or self._detector_id} {self.age}s old'
 
     def __hash__(self) -> int:
         return hash((self._identity.entity_id, self._detector_id))
