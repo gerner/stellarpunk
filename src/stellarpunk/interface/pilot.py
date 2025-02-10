@@ -334,7 +334,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             if re.match(r'^[A-Z]{3}-[a-z0-9]{8}', args[0]):
                 # provided a short id
                 try:
-                    image = next(x for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified and x.identity.short_id == args[0])
+                    image = next(x for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified and x.identity.short_id() == args[0])
                 except StopIteration:
                     raise command_input.UserError("target not found")
             else:
@@ -351,7 +351,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
                     raise command_input.UserError("target not found")
 
             self._select_target(image)
-            self.interface.log_message(f'{image.identity.short_id} targted')
+            self.interface.log_message(f'{image.identity.short_id()} targted')
 
         def order_jump(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
@@ -853,7 +853,10 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         status_x = self.interface.viewscreen.width - info_width
         status_y = 1
 
-        self.viewscreen.addstr(status_y, status_x, "Target Info:")
+        if self.presenter.selected_target_image.identified:
+            self.viewscreen.addstr(status_y, status_x, "Target Info: (identified)")
+        else:
+            self.viewscreen.addstr(status_y, status_x, "Target Info: (unidentified)")
 
         label_id = "id:"
         label_sensor_profile = "s profile:"

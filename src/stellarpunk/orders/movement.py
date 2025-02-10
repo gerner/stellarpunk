@@ -435,7 +435,7 @@ class EvadeOrder(AbstractSteeringOrder):
         self.max_fine_thrust = 0.0
 
     def __str__(self) -> str:
-        return f'Evade: {self.target.identity.short_id} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
+        return f'Evade: {self.target.identity.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
 
     #def _begin(self) -> None:
     #    self.est_tv_velocity = self.target.velocity
@@ -551,7 +551,7 @@ class PursueOrder(AbstractSteeringOrder):
         self.final_speed = 0.0
 
     def __str__(self) -> str:
-        return f'PursueOrder: {self.target.identity.short_id} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
+        return f'PursueOrder: {self.target.identity.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} arrival: {util.human_distance(self.arrival_distance)}'
 
     def estimate_eta(self) -> float:
         return self.intercept_time

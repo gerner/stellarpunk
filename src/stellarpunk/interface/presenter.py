@@ -309,12 +309,12 @@ class Presenter:
             last_y = hist_y
         """
 
-        if entity.identified and issubclass(entity.identity.object_type, sector_entity.Asteroid | sector_entity.Projectile):
+        if entity.identified and not issubclass(entity.identity.object_type, sector_entity.Asteroid | sector_entity.Projectile):
             speed = util.magnitude(*entity.velocity)
             if speed > 0.:
-                name_tag = f' {entity.identity.short_id} {speed:.0f}'
+                name_tag = f' {entity.identity.short_id()} {speed:.0f}'
             else:
-                name_tag = f' {entity.identity.short_id}'
+                name_tag = f' {entity.identity.short_id()}'
             self.view.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
 
         #if self.debug_entity:

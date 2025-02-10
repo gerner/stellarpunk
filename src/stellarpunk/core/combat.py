@@ -275,11 +275,11 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.missiles_fired = 0
 
     def __str__(self) -> str:
-        return f'Attack: {self.target.identity.short_id} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
+        return f'Attack: {self.target.identity.short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
 
     def _begin(self) -> None:
         super()._begin()
-        self.logger.debug(f'beginning attack on {self.target.identity.short_id}')
+        self.logger.debug(f'beginning attack on {self.target.identity.short_id()}')
 
     def _is_complete(self) -> bool:
         return not self.target.is_active()
@@ -295,7 +295,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
-        self.logger.debug(f'giving up search for target {self.target.identity.short_id}')
+        self.logger.debug(f'giving up search for target {self.target.identity.short_id()}')
         assert not self.target.detected
         self.state = AttackOrder.State.GIVEUP
 
