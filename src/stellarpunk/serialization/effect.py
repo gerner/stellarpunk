@@ -40,6 +40,7 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
 
         load_context.debug_string_r("type specific", f)
         effect, extra_context = self._load_effect(f, load_context, effect_id)
+        assert effect.effect_id == effect_id
         effect.started_at = started_at
         effect.completed_at = completed_at
 
@@ -151,7 +152,7 @@ class WarpOutEffectSaver(EffectSaver[effects.WarpOutEffect]):
         ttl = s_util.float_from_f(f)
         expiration_time = s_util.float_from_f(f)
 
-        effect = effects.WarpOutEffect(loc, load_context.gamestate, radius=radius, ttl=ttl)
+        effect = effects.WarpOutEffect(loc, load_context.gamestate, radius=radius, ttl=ttl, _check_flag=True, effect_id=effect_id)
         effect.expiration_time = expiration_time
 
         return effect, None
@@ -171,7 +172,7 @@ class WarpInEffectSaver(EffectSaver[effects.WarpInEffect]):
         ttl = s_util.float_from_f(f)
         expiration_time = s_util.float_from_f(f)
 
-        effect = effects.WarpInEffect(loc, load_context.gamestate, radius=radius, ttl=ttl)
+        effect = effects.WarpInEffect(loc, load_context.gamestate, radius=radius, ttl=ttl, _check_flag=True, effect_id=effect_id)
         effect.expiration_time = expiration_time
 
         return effect, None

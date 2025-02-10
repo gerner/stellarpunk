@@ -1163,13 +1163,13 @@ def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:flo
     # determine k, the largest integral hex distance that is wholly within dist
     center_hex = axial_round(pixel_to_pointy_hex(coords, size))
     coords = pointy_hex_to_pixel(center_hex, size)
-    outside_coords = np.array((coords[0], coords[1]+dist))
+    outside_coords = np.array((coords[0], coords[1]-dist))
     outside_hex = axial_round(pixel_to_pointy_hex(outside_coords, size))
     if both_isclose(outside_hex, center_hex):
         return []
 
     diff_hex = center_hex - outside_hex
-    d = int(diff_hex[0] - 1)
+    d = int(diff_hex[1] - 1)
     assert(d>=0)
 
     ret:list[npt.NDArray[np.float64]] = []

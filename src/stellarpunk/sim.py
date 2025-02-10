@@ -564,6 +564,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(orders.core.TravelThroughGate, s_order_core.TravelThroughGateSaver(sg))
     sg.register_saver(orders.core.DockingOrder, s_order_core.DockingOrderSaver(sg))
     sg.register_saver(orders.core.LocationExploreOrder, s_order_core.LocationExploreOrderSaver(sg))
+    sg.register_saver(orders.core.NavigateOrder, s_order_core.NavigateOrderSaver(sg))
 
     # steering orders
     sg.register_saver(orders.movement.KillRotationOrder, s_movement.KillRotationOrderSaver(sg))

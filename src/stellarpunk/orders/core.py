@@ -437,7 +437,6 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
         self.phase = self.Phase.PHASE_TRAVEL_TO_GATE
         self.travel_start_time = 0.
-        self.rotate_order:Optional[RotateOrder] = None
 
         self.warp_out:Optional[effects.WarpOutEffect] = None
         self.warp_in:Optional[effects.WarpInEffect] = None
@@ -470,8 +469,10 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     def effect_complete(self, effect:core.Effect) -> None:
         assert effect in (self.warp_out, self.warp_in)
         if effect == self.warp_out:
+            self.warp_out = None
             assert self.phase in (self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR, self.Phase.PHASE_TRAVEL_IN_TO_SECTOR)
         elif effect == self.warp_in:
+            self.warp_in = None
             assert self.phase in (self.Phase.PHASE_TRAVEL_IN_TO_SECTOR, self.Phase.PHASE_COMPLETE)
 
         self.gamestate.schedule_order_immediate(self)
@@ -479,8 +480,10 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     def effect_cancel(self, effect:core.Effect) -> None:
         assert effect in (self.warp_out, self.warp_in)
         if effect == self.warp_out:
+            self.warp_out = None
             assert self.phase in (self.Phase.PHASE_TRAVEL_OUT_OF_SECTOR, self.Phase.PHASE_TRAVEL_IN_TO_SECTOR)
         elif effect == self.warp_in:
+            self.warp_in = None
             assert self.phase in (self.Phase.PHASE_TRAVEL_IN_TO_SECTOR, self.Phase.PHASE_COMPLETE)
         self.gamestate.schedule_order_immediate(self)
 
@@ -491,7 +494,6 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     def order_cancel(self, order:core.Order) -> None:
         self.gamestate.schedule_order_immediate(self)
 
-
     def _act_travel_to_gate(self, dt:float) -> None:
         """ Handles action during travel to gate phase.
 
@@ -501,8 +503,34 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         if self.ship.sector is None or self.ship.sector.entity_id != self.target_gate.sector_id:
             raise ValueError(f'{self.ship} in {self.ship.sector} instead of gate {self.target_gate.sector_id}')
 
-        # check if we just finished rotating to the right position
-        if self.rotate_order is not None and self.rotate_order.is_complete():
+        rel_pos = self.ship.loc - self.target_gate.loc
+        rel_r, rel_theta = util.cartesian_to_polar(*rel_pos)
+
+        if not util.both_almost_zero(self.ship.velocity) or rel_r > self.max_gate_dist or abs(rel_theta - self.target_gate.direction) > np.pi/2:
+            # not zero velocity or not near gate or eclipsed by the gate
+            # we're not in position, set up a goto order to get us into position
+            desired_r = self.gamestate.random.uniform(1e3, self.max_gate_dist-self.position_margin)
+            desired_theta = self.target_gate.direction + self.gamestate.random.uniform(-np.pi/2, np.pi/2)
+            desired_position = np.array(util.polar_to_cartesian(desired_r, desired_theta)) + self.target_gate.loc
+            goto_order = GoToLocation.create_go_to_location(
+                    desired_position, self.ship, self.gamestate,
+                    arrival_distance=self.position_margin, min_distance=0.,
+                    observer=self
+            )
+            self.logger.info(f'made goto order {goto_order}')
+            self._add_child(goto_order)
+            # continue action when the goto is complete
+            return
+
+        elif not util.isclose(util.normalize_angle(self.ship.angle - self.target_gate.direction), 0.0):
+            # we're in position point, but not pointing toward the destination
+            rotate_order = RotateOrder.create_rotate_order(self.target_gate.direction, self.ship, self.gamestate, observer=self)
+            self._add_child(rotate_order)
+
+            # continue action when the rotation is complete
+            return
+
+        else:
             assert self.target_gate_image
             assert self.target_gate_image.detected
             assert self.target_gate_image.identified
@@ -528,30 +556,6 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # schedule immediately so we can start traveling out of the sector
             self.gamestate.schedule_order_immediate(self)
             return
-
-        # zero velocity and not eclipsed by the gate
-        rel_pos = self.ship.loc - self.target_gate.loc
-        rel_r, rel_theta = util.cartesian_to_polar(*rel_pos)
-        if util.both_almost_zero(self.ship.velocity) and rel_r < self.max_gate_dist and abs(rel_theta - self.target_gate.direction) < np.pi/2:
-            # we're in position point toward the destination
-            self.rotate_order = RotateOrder.create_rotate_order(self.target_gate.direction, self.ship, self.gamestate, observer=self)
-            self._add_child(self.rotate_order)
-
-            # continue action when the rotation is complete
-            return
-
-        # we're not in position, set up a goto order to get us into position
-        desired_r = self.gamestate.random.uniform(1e3, self.max_gate_dist-self.position_margin)
-        desired_theta = self.target_gate.direction + self.gamestate.random.uniform(-np.pi/2, np.pi/2)
-        desired_position = np.array(util.polar_to_cartesian(desired_r, desired_theta)) + self.target_gate.loc
-        goto_order = GoToLocation.create_go_to_location(
-                desired_position, self.ship, self.gamestate,
-                arrival_distance=self.position_margin, min_distance=0.,
-                observer=self
-        )
-        self.logger.info(f'made goto order {goto_order}')
-        self._add_child(goto_order)
-        # continue action when the goto is complete
 
     def _act_travel_out_of_sector(self, dt:float) -> None:
         """ Handles action while traveling out of sector.
@@ -780,6 +784,7 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
         self.sector_id = sector_id
         self.loc = loc
 
+        self.navigate_order:Optional[NavigateOrder] = None
         self.goto_order:Optional[movement.GoToLocation] = None
         self.scan_order:Optional[sensors.SensorScanOrder] = None
 
@@ -790,7 +795,10 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
         return self.order_id
 
     def order_cancel(self, order:core.Order) -> None:
-        if order == self.goto_order:
+        if order == self.navigate_order:
+            self.navigate_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        elif order == self.goto_order:
             self.goto_order = None
             self.gamestate.schedule_order_immediate(self, jitter=1.0)
         elif order == self.scan_order:
@@ -800,7 +808,10 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
             raise ValueError(f'unexpected order event for {order}')
 
     def order_complete(self, order:core.Order) -> None:
-        if order == self.goto_order:
+        if order == self.navigate_order:
+            self.navigate_order = None
+            self.gamestate.schedule_order_immediate(self, jitter=1.0)
+        elif order == self.goto_order:
             self.goto_order = None
             self.gamestate.schedule_order_immediate(self, jitter=1.0)
         elif order == self.scan_order:
@@ -814,14 +825,26 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
     # core.Order
 
     def _begin(self) -> None:
-        self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc) + 5.0
+        assert self.ship.sector
+        if self.ship.sector.entity_id != self.sector_id:
+            nav_eta = NavigateOrder.compute_eta(self.ship, self.sector_id)
+            # assume we have to cross from the opposite side of the sector
+            target_r, target_theta = util.cartesian_to_polar(*self.loc)
+            starting_loc = util.polar_to_cartesian(self.ship.sector.radius*2.5, target_theta+np.pi)
+            goto_eta = movement.GoToLocation.compute_eta(self.ship, self.loc, starting_loc=starting_loc)
+            self.init_eta = nav_eta + goto_eta
+        else:
+            self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc) + 5.0
 
     def act(self, dt:float) -> None:
         #TODO: is this a safe assert?
         assert self.ship.sector
         if self.ship.sector.entity_id != self.sector_id:
-            #TODO: get to target sector
-            raise ValueError(f'ship must be in the target sector!')
+            assert self.navigate_order is None
+            # get to target sector
+            self.navigate_order = NavigateOrder.create_order(self.ship, self.gamestate, self.sector_id)
+            self.navigate_order.observe(self)
+            self._add_child(self.navigate_order)
         elif util.distance(self.ship.loc, self.loc) > self.ship.sector.hex_size:
             # go to target location
             assert(self.goto_order is None)
@@ -860,17 +883,17 @@ class NavigateOrder(core.OrderObserver, core.Order):
         assert out_gate.sector_id == start_id
 
         time = TravelThroughGate.compute_eta(ship, out_gate, starting_loc=starting_loc)
-
-        last_in_gate = jump_path[0][2]
-        for _, out_gate, in_gate, _ in jump_path[1:]:
-            assert last_in_gate.sector_id == out_gate.sector_id
-            time += TravelThroughGate.compute_eta(ship, out_gate, starting_loc=last_in_gate.loc)
-            last_in_gate = in_gate
-        assert last_in_gate.sector_id == target_id
+        last_out_gate = jump_path[0][1]
+        for sector, out_gate, _, _ in jump_path[1:]:
+            starting_loc = util.polar_to_cartesian(sector.radius*2.25, last_out_gate.direction+np.pi)
+            time += TravelThroughGate.compute_eta(ship, out_gate, starting_loc=starting_loc)
+            last_out_gate = out_gate
+        assert last_out_gate.destination_id == target_id
 
         return time
 
     def __init__(self, sector_id:uuid.UUID, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
         self.sector_id = sector_id
         self.gate_order:Optional[TravelThroughGate] = None
 

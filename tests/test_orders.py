@@ -247,6 +247,12 @@ def test_basic_mining_order(gamestate, generator, sector, testui, simulator):
     assert np.isclose(asteroid.cargo[asteroid.resource], 5e2)
 
     simulator.run()
+
+    # save/load support
+    gamestate = testui.gamestate
+    mining_order = testui.orders[0]
+    ship, asteroid = gamestate.recover_objects((ship, asteroid))
+
     assert mining_order.is_complete()
 
     # make sure ship ends up near enough to the asteroid
@@ -484,10 +490,93 @@ def test_simple_physics(gamestate, generator, sector, testui, simulator):
 
     assert abs(expected_travel_distance - util.distance(ship_driver.loc, start_loc)) < 2e2
 
-#TODO: LocationExploreOrder
-def test_location_explore_order():
-    pass
+def test_location_explore_order(gamestate, generator, sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    ship_owner = generator.spawn_character(ship_driver)
+    ship_owner.take_ownership(ship_driver)
+    ship_driver.captain = ship_owner
 
-#TODO: NavigateOrder
-def test_navigate_order():
-    pass
+    target_loc = np.array((sector.hex_size*2.0, 0))
+    order = orders.LocationExploreOrder.create_order(ship_driver, gamestate, sector.entity_id, target_loc)
+    ship_driver.prepend_order(order)
+
+    target_hex = util.axial_round(util.pixel_to_pointy_hex(target_loc, sector.hex_size))
+
+    # make sure we don't have the hex intel before we start
+    assert util.int_coords(util.axial_round(util.pixel_to_pointy_hex(ship_driver.loc, sector.hex_size))) != util.int_coords(target_hex)
+    assert len(ship_owner.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector.entity_id, is_static=True, hex_loc=target_hex), intel.SectorHexIntel)) == 0
+
+    testui.eta = order.estimate_eta()*1.1
+    testui.orders = [order]
+    simulator.run()
+
+    # save/load support
+    order = testui.orders[0]
+    gamestate = testui.gamestate
+    ship_driver, ship_owner, sector = gamestate.recover_objects((ship_driver, ship_owner, sector))
+
+    assert order.is_complete()
+
+    # make sure we end up in the appropriate hex, with hex intel about that hex
+    assert util.int_coords(util.axial_round(util.pixel_to_pointy_hex(ship_driver.loc, sector.hex_size))) == util.int_coords(target_hex)
+    assert len(ship_owner.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector.entity_id, is_static=True, hex_loc=target_hex), intel.SectorHexIntel)) == 1
+
+def test_multi_sector_location_explore(gamestate, generator, sector, connecting_sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    ship_owner = generator.spawn_character(ship_driver)
+    ship_owner.take_ownership(ship_driver)
+    ship_driver.captain = ship_owner
+
+    add_sector_intel(ship_driver, sector, ship_owner, gamestate)
+
+    target_loc = np.array((25000, 0))
+    order = orders.LocationExploreOrder.create_order(ship_driver, gamestate, connecting_sector.entity_id, target_loc)
+    ship_driver.prepend_order(order)
+
+    target_hex = util.axial_round(util.pixel_to_pointy_hex(target_loc, connecting_sector.hex_size))
+
+    # make sure we don't have the hex intel before we start
+    assert ship_driver.sector.entity_id != connecting_sector.entity_id
+    assert len(ship_owner.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=connecting_sector.entity_id, is_static=True, hex_loc=target_hex), intel.SectorHexIntel)) == 0
+
+    testui.eta = order.estimate_eta()*1.1
+    testui.orders = [order]
+    simulator.run()
+
+    # save/load support
+    order = testui.orders[0]
+    gamestate = testui.gamestate
+    ship_driver, ship_owner, sector, connecting_sector = gamestate.recover_objects((ship_driver, ship_owner, sector, connecting_sector))
+
+    assert order.is_complete()
+
+    # make sure we end up in the appropriate hex, with hex intel about that hex
+    assert ship_driver.sector.entity_id == connecting_sector.entity_id
+    assert util.int_coords(util.axial_round(util.pixel_to_pointy_hex(ship_driver.loc, connecting_sector.hex_size))) == util.int_coords(target_hex)
+    assert len(ship_owner.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector.entity_id, is_static=True, hex_loc=target_hex), intel.SectorHexIntel)) == 1
+
+def test_navigate_order(gamestate, generator, sector, connecting_sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
+    ship_owner = generator.spawn_character(ship_driver)
+    ship_owner.take_ownership(ship_driver)
+    ship_driver.captain = ship_owner
+
+    add_sector_intel(ship_driver, sector, ship_owner, gamestate)
+
+    order = orders.NavigateOrder.create_order(ship_driver, gamestate, connecting_sector.entity_id)
+    ship_driver.prepend_order(order)
+
+    assert ship_driver.sector.entity_id != connecting_sector.entity_id
+
+    testui.eta = order.estimate_eta()*1.1
+    testui.orders = [order]
+    simulator.run()
+
+    # save/load support
+    order = testui.orders[0]
+    gamestate = testui.gamestate
+    ship_driver, ship_owner, sector, connecting_sector = gamestate.recover_objects((ship_driver, ship_owner, sector, connecting_sector))
+
+    assert order.is_complete()
+    assert ship_driver.sector.entity_id == connecting_sector.entity_id
+

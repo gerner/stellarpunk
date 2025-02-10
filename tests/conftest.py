@@ -64,7 +64,7 @@ def game_saver(gamestate:core.Gamestate, event_manager:events.EventManager, gene
 @pytest.fixture
 def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
-    hex_size = 1e4
+    hex_size = 2e5
     sector_name = "Sector"
 
     sector = core.Sector(np.array([0, 0]), sector_radius, hex_size, cymunk.Space(), gamestate, sector_name, culture="test")

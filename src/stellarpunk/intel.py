@@ -337,7 +337,7 @@ class UniverseView:
     def _sector_dfs(self, source_idx:int) -> tuple[Mapping[int, int], Mapping[int, float]]:
         return util.dijkstra(self.adj_matrix, source_idx, len(self.sector_idx_lookup))
 
-    def compute_path(self, source_id:uuid.UUID, target_id:uuid.UUID) -> Optional[list[tuple["SectorIntel", "TravelGateIntel", "TravelGateIntel", float]]]:
+    def compute_path(self, source_id:uuid.UUID, target_id:uuid.UUID) -> Optional[list[tuple["SectorIntel", "TravelGateIntel", Optional["TravelGateIntel"], float]]]:
         """ Computes the shortest known path from character's sector to target
 
         returns: list of edges in the form tuple:
@@ -385,12 +385,12 @@ class UniverseView:
         idx_path_pairs = zip(idx_path[0:-1], idx_path[1:])
         distances.reverse()
 
-        # assume travel gate intel in both directions for every step in path
+        # construct return. note that some destination gates might not exist
         sector_path = list(
             (
                 self.sector_intels[u],
-                self.gate_intel_lookup[self.sector_intels[u].intel_entity_id, self.sector_intels[v].intel_entity_id],
-                self.gate_intel_lookup[self.sector_intels[v].intel_entity_id, self.sector_intels[u].intel_entity_id],
+                self.gate_intel_lookup[self.sector_id_lookup[u], self.sector_id_lookup[v]],
+                self.gate_intel_lookup[self.sector_id_lookup[v], self.sector_id_lookup[u]] if (self.sector_id_lookup[v], self.sector_id_lookup[u]) in self.gate_intel_lookup else None,
                 dist
             ) for (u,v), dist in zip(idx_path_pairs, distances)
         )

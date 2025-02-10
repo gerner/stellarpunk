@@ -205,7 +205,6 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
 
         bytes_written += s_util.int_to_f(order.phase, f)
         bytes_written += s_util.float_to_f(order.travel_start_time, f)
-        bytes_written += s_util.optional_uuid_to_f(order.rotate_order.order_id if order.rotate_order else None, f)
 
         bytes_written += s_util.optional_uuid_to_f(order.warp_out.effect_id if order.warp_out else None, f)
         bytes_written += s_util.optional_uuid_to_f(order.warp_in.effect_id if order.warp_in else None, f)
@@ -220,7 +219,6 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
 
         phase = s_util.int_from_f(f)
         travel_start_time = s_util.float_from_f(f)
-        rotate_order_id = s_util.optional_uuid_from_f(f)
 
         warp_out_id = s_util.optional_uuid_from_f(f)
         warp_in_id = s_util.optional_uuid_from_f(f)
@@ -229,11 +227,11 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
         order.phase = ocore.TravelThroughGate.Phase(phase)
         order.travel_start_time = travel_start_time
 
-        return order, (target_gate_id, rotate_order_id, warp_out_id, warp_in_id)
+        return order, (target_gate_id, warp_out_id, warp_in_id)
 
     def _post_load_order(self, order:ocore.TravelThroughGate, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, Optional[uuid.UUID], Optional[uuid.UUID], Optional[uuid.UUID]] = context
-        target_gate_id, rotate_order_id, warp_out_id, warp_in_id = context_data
+        context_data:tuple[uuid.UUID, Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        target_gate_id, warp_out_id, warp_in_id = context_data
 
         target_gate = load_context.gamestate.get_entity(target_gate_id, intel.TravelGateIntel)
         target_gate_image = order.ship.sensor_settings.get_image(target_gate.intel_entity_id)
@@ -241,8 +239,6 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
         order.target_gate = target_gate
         order.target_gate_image = target_gate_image
 
-        if rotate_order_id:
-            order.rotate_order = load_context.gamestate.get_order(rotate_order_id, movement.RotateOrder)
         if warp_out_id:
             order.warp_out = load_context.gamestate.get_effect(warp_out_id, effects.WarpOutEffect)
         if warp_in_id:
@@ -282,6 +278,7 @@ class LocationExploreOrderSaver(s_order.OrderSaver[ocore.LocationExploreOrder], 
         bytes_written = 0
         bytes_written += s_util.uuid_to_f(order.sector_id, f)
         bytes_written += s_util.float_pair_to_f(order.loc, f)
+        bytes_written += s_util.optional_uuid_to_f(order.navigate_order.order_id if order.navigate_order else None, f)
         bytes_written += s_util.optional_uuid_to_f(order.goto_order.order_id if order.goto_order else None, f)
         bytes_written += s_util.optional_uuid_to_f(order.scan_order.order_id if order.scan_order else None, f)
         return bytes_written
@@ -289,18 +286,41 @@ class LocationExploreOrderSaver(s_order.OrderSaver[ocore.LocationExploreOrder], 
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[ocore.LocationExploreOrder, Any]:
         sector_id = s_util.uuid_from_f(f)
         loc = s_util.float_pair_from_f(f)
+        navigate_order_id = s_util.optional_uuid_from_f(f)
         goto_location_id = s_util.optional_uuid_from_f(f)
         sensor_scan_id = s_util.optional_uuid_from_f(f)
 
         order = ocore.LocationExploreOrder(sector_id, loc, load_context.gamestate, _check_flag=True, order_id=order_id)
 
-        return order, (goto_location_id, sensor_scan_id)
+        return order, (navigate_order_id, goto_location_id, sensor_scan_id)
 
     def _post_load_order(self, order:ocore.LocationExploreOrder, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[Optional[uuid.UUID], Optional[uuid.UUID]] = context
-        goto_location_id, sensor_scan_id = context_data
+        context_data:tuple[Optional[uuid.UUID], Optional[uuid.UUID], Optional[uuid.UUID]] = context
+        navigate_order_id, goto_location_id, sensor_scan_id = context_data
+        if navigate_order_id:
+            order.navigate_order = load_context.gamestate.get_order(navigate_order_id, ocore.NavigateOrder)
         if goto_location_id:
             order.goto_order = load_context.gamestate.get_order(goto_location_id, movement.GoToLocation)
         if sensor_scan_id:
             order.scan_order = load_context.gamestate.get_order(sensor_scan_id, sensors.SensorScanOrder)
+
+class NavigateOrderSaver(s_order.OrderSaver[ocore.NavigateOrder], abc.ABC):
+    def _save_order(self, order:ocore.NavigateOrder, f:io.IOBase) -> int:
+        bytes_written = 0
+        bytes_written += s_util.uuid_to_f(order.sector_id, f)
+        bytes_written += s_util.optional_uuid_to_f(order.gate_order.order_id if order.gate_order else None, f)
+        return bytes_written
+
+    def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[ocore.NavigateOrder, Any]:
+        sector_id = s_util.uuid_from_f(f)
+        gate_order_id = s_util.optional_uuid_from_f(f)
+
+        order = ocore.NavigateOrder(sector_id, load_context.gamestate, _check_flag=True, order_id=order_id)
+
+        return order, gate_order_id
+
+    def _post_load_order(self, order:ocore.NavigateOrder, load_context:save_game.LoadContext, context:Any) -> None:
+        gate_order_id:Optional[uuid.UUID] = context
+        if gate_order_id:
+            order.gate_order = load_context.gamestate.get_order(gate_order_id, ocore.TravelThroughGate)
 
