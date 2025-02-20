@@ -984,6 +984,8 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
     if loc is None:
         loc = detector.loc
 
+    # find hexes that have unidentified sensor images
+    # we'll use these to eliminate hexes within detection range below
     unidentified_hexes:set[tuple[int, int]] = set()
     for image in images or detector.sensor_settings.images:
         if image.identified:
@@ -998,11 +1000,10 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
     static_intel:dict[tuple[int, int], SectorHexIntel] = {}
     dynamic_intel:dict[tuple[int, int], SectorHexIntel] = {}
     for hex_coords in sector_hexes:
-        # if we have an unidentified image in this hex, toss it
-        # the thinking is that we are pretty sure we can DETECT an image at
-        # this range. So if we don't detect an image in the hex, we know it's
-        # empty. If we do DETECT it, we better be able to IDENTIFY it, or else
-        # we won't mark it as explored
+        # because these hexes are within detection range, we're confident that
+        # any craft (of some certain parameters) in it will at least show up as
+        # a sensor image. If we aren't able to identify the image, we cannot
+        # mark it as explored.
         if util.int_coords(hex_coords) in unidentified_hexes:
             continue
 
@@ -1015,16 +1016,19 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
             if util.distance(corner_coords, loc) > scan_range * hex_sensor_factor:
                 in_range = False
                 break
-
         if not in_range:
             continue
 
+        # at this point the hex is fully detected and any images in it are
+        # identified, so we have fully explored it
 
+        # make a static intel for it if we don't already have one
         static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
         s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
         if not s_intel or not s_intel.is_fresh():
             static_intel[util.int_coords(hex_coords)] = SectorHexIntel.create_intel(sector.entity_id, hex_coords, True, 0, {}, gamestate, author_id=character.entity_id, expires_at=static_expires_at, fresh_until=static_fresh_until)
 
+        # make a dynamic intel for it if we don't already have one
         dynamic_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, False)
         d_intel = character.intel_manager.get_intel(dynamic_criteria, SectorHexIntel)
         if not d_intel or not d_intel.is_fresh():

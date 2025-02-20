@@ -35,6 +35,12 @@ def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventMa
 
 @pytest.fixture
 def generator(event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, gamestate:core.Gamestate) -> generate.UniverseGenerator:
+
+    #TODO: this should be per-test opt-in
+    # override some config settings for testing
+    # this undoes some production config changes that break older tests
+    config.Settings.generate.SectorEntities.asteroid.RADIUS = 300
+
     ug = generate.UniverseGenerator(seed=0)
     ug.gamestate = gamestate
     ug.pre_initialize(event_manager, intel_director, empty_name_model_culture="test")

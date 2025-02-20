@@ -8,7 +8,7 @@ import numpy as np
 
 from stellarpunk import sim, core, agenda, econ, orders, util, intel
 from stellarpunk.orders import steering, movement
-from stellarpunk.core import sector_entity, combat
+from stellarpunk.core import sector_entity, combat, sector as msector
 from stellarpunk.serialization import util as s_util
 
 from . import write_history, add_sector_intel
@@ -321,7 +321,8 @@ def test_saving_during_attack(player, gamestate, generator, intel_director, sect
     defender_owner.take_ownership(defender)
     defender_owner.add_agendum(agenda.CaptainAgendum.create_eoa(defender, defender_owner, gamestate))
 
-    attack_order = combat.AttackOrder.create_attack_order(sector.sensor_manager.target(defender, attacker), attacker, gamestate, max_missiles=15)
+    defender_image = sector.sensor_manager.target_from_identity(msector.SensorIdentity(defender), attacker, defender.loc)
+    attack_order = combat.AttackOrder.create_attack_order(defender_image, attacker, gamestate, max_missiles=15)
     attacker.prepend_order(attack_order)
 
     testui.orders = [attack_order]
