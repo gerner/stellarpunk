@@ -933,7 +933,7 @@ class UniverseGenerator(core.AbstractGenerator):
         assert(self.gamestate)
 
         asteroid_radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT, initial_transponder=False)
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -1001,8 +1001,8 @@ class UniverseGenerator(core.AbstractGenerator):
             total_amount -= amount
 
         # add in some weather related to this resource field
-        region_outer = core.SectorWeatherRegion(field_center, radius*2, 0.5)
-        region_inner = core.SectorWeatherRegion(field_center, radius*2*0.8, 0.5)
+        region_outer = core.SectorWeatherRegion(field_center, radius*2, 0.75)
+        region_inner = core.SectorWeatherRegion(field_center, radius*2*0.8, 0.75)
         sector.add_region(region_outer)
         sector.add_region(region_inner)
 

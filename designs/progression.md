@@ -125,3 +125,5 @@ the player (or other characters):
 
 Subordinates earn wages, costing you money. There's also some level of
 management the player needs to be involved in.
+
+# Character Customization

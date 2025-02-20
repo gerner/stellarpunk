@@ -57,6 +57,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         self.keep_running = False
         self.should_raise= False
         self.should_raise_breakpoint = False
+        self.breakpoint_sentinel:Optional[str] = None
 
         self.tick_handlers:list[core.TickHandler] = []
 
@@ -184,6 +185,12 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
 
     def should_breakpoint(self) -> bool:
         return self.should_raise_breakpoint
+
+    def get_breakpoint_sentinel(self) -> Optional[str]:
+        return self.breakpoint_sentinel
+
+    def set_breakpoint_sentinel(self, value:Optional[str]) -> None:
+        self.breakpoint_sentinel = value
 
     def register_tick_handler(self, tick_handler:core.TickHandler) -> None:
         self.tick_handlers.append(tick_handler)

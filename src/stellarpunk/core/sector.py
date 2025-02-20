@@ -373,9 +373,9 @@ class AbstractSensorImage:
     @property
     @abc.abstractmethod
     def identity(self) -> SensorIdentity: ...
-    #@property
-    #@abc.abstractmethod
-    #def transponder(self) -> bool: ...
+    @property
+    @abc.abstractmethod
+    def transponder(self) -> bool: ...
     @abc.abstractmethod
     def is_active(self) -> bool:
         """ False iff we detected target destroyed or leaving the sector """
@@ -477,6 +477,8 @@ class AbstractSensorManager:
     def target_from_identity(self, target_identity:SensorIdentity, detector:SectorEntity, loc:npt.NDArray[np.float64], notify_target:bool=True) -> AbstractSensorImage: ...
     @abc.abstractmethod
     def scan(self, detector:SectorEntity) -> Iterable[AbstractSensorImage]: ...
+    @abc.abstractmethod
+    def range_to_identify(self, entity:SectorEntity, mass:Optional[float]=None, radius:Optional[float]=None) -> float: ...
     @abc.abstractmethod
     def sensor_ranges(self, ship:SectorEntity) -> tuple[float, float, float]: ...
     @abc.abstractmethod
@@ -609,6 +611,25 @@ class Sector(base.Entity):
         # quantize loc so we can cache it
         quantized_loc = (loc[0] // 100.0 * 100.0, loc[1] // 100.0 * 100.0)
         return self._weather_cached(quantized_loc)
+
+    def hex_weather(self, hex_loc:npt.NDArray[np.float64]) -> SectorWeather:
+        # sample some points in the same hex to choose the worse case weather
+        # we'll use points that are 2/3 of the way to the next hex
+        q = np.array((0.33, 0.  ))
+        r = np.array((0.  , 0.33))
+        sample_points = [hex_loc+q, hex_loc+r, hex_loc-q+r, hex_loc-q, hex_loc-r, hex_loc+q-r]
+
+        min_sensor_factor = np.inf
+        min_w:Optional[SectorWeather] = None
+        for p in sample_points:
+            assert util.int_coords(util.axial_round(p)) == util.int_coords(hex_loc)
+            w = self.weather(util.pointy_hex_to_pixel(p, self.hex_size))
+            if w.sensor_factor < min_sensor_factor:
+                min_sensor_factor = w.sensor_factor
+                min_w = w
+
+        assert min_w
+        return min_w
 
     def register_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
         self.collision_observers[entity_id].add(observer)

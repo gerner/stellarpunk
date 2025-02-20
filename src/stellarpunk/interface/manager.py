@@ -495,7 +495,6 @@ class SaveGameProgressView(save_game.GameSaverObserver, interface.View):
                 done = True
             ticks = self._save_ticks
             total_ticks = self._estimated_ticks
-            self.logger.info(f'update_display: {self._save_ticks} / {self._estimated_ticks}')
 
         y = 16
         x = 15
@@ -787,6 +786,11 @@ class InterfaceManager(core.CharacterObserver, core.SectorEntityObserver, genera
             self.interface.runtime.quit()
         def raise_exception(args:Sequence[str]) -> None: self.interface.runtime.raise_exception()
         def raise_breakpoint(args:Sequence[str]) -> None: self.interface.runtime.raise_breakpoint()
+        def breakpoint_sentinel(args:Sequence[str]) -> None:
+            if len(args) == 0:
+                self.interface.runtime.set_breakpoint_sentinel(None)
+            else:
+                self.interface.runtime.set_breakpoint_sentinel(args[0])
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
         def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(AttrDemo(self.interface), deactivate_views=True)
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
@@ -961,6 +965,7 @@ class InterfaceManager(core.CharacterObserver, core.SectorEntityObserver, genera
         command_list = [
             self.bind_command("raise", raise_exception),
             self.bind_command("breakpoint", raise_breakpoint),
+            self.bind_command("sentinel", breakpoint_sentinel),
             self.bind_command("fps", fps),
             self.bind_command("quit", quit),
             self.bind_command("colordemo", colordemo),

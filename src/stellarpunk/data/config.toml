@@ -131,7 +131,7 @@ AUTOSAVE_PERIOD_SEC = 120.0
         # reasonably expect to detect all objects within the hex
         # this should be approximately half the detection range for objects of
         # interest
-        SECTOR_HEX_SIZE = 2e5
+        SECTOR_HEX_SIZE = 1.5e5
         # max distance between sectors to allow a gate connection
         MAX_SECTOR_EDGE_LENGTH = 2e8
 
@@ -286,7 +286,7 @@ AUTOSAVE_PERIOD_SEC = 120.0
             SENSOR_INTERCEPT = 100.0
         [generate.SectorEntities.asteroid]
             MASS = 2e5
-            RADIUS = 300
+            RADIUS = 1e3
             MAX_SENSOR_POWER = 0
             # large value still expressible in a 32 bit float
             SENSOR_INTERCEPT = 1e38
@@ -403,14 +403,14 @@ AUTOSAVE_PERIOD_SEC = 120.0
 
 [sensors]
     # these are tuned so a stationary, passive ship under normal sector
-    # conditions has a profile of just over 100 at 100km
-    COEFF_MASS = 0.045
-    COEFF_RADIUS = 0.335
+    # conditions has a profile of just over 50 (formerly 100) at 100km
+    COEFF_MASS = 0.015
+    COEFF_RADIUS = 2.335
     COEFF_FORCE = 2.5e-6#0.005
     FORCE_EXPONENT = 1.7#1
     COEFF_SENSORS = 100
-    COEFF_TRANSPONDER = 1e5
-    COEFF_DISTANCE = 1e-10
+    COEFF_TRANSPONDER = 1e4
+    COEFF_DISTANCE = 2e-10#1e-10
 
     # these are tuned so a passiv ship has a threshold of 100 and an active
     # ship has a threshold of 10

@@ -26,6 +26,8 @@ import drawille # type: ignore
 
 logger = logging.getLogger(__name__)
 
+ZERO_VECTOR = np.array((0.0, 0.0))
+
 def fullname(o:Any) -> str:
     # from https://stackoverflow.com/a/2020083/553580
     # o.__module__ + "." + o.__class__.__qualname__ is an example in
@@ -1155,28 +1157,39 @@ def hexes_at_hex_dist(k:int, hex_coords:npt.NDArray[np.float64]) -> Collection[n
 
     return ret
 
+def pixel_to_hex_dist(dist:float, size:float) -> float:
+    return dist / (3. * np.sqrt(3.) * size / 2.)
 
 def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:float) -> Collection[npt.NDArray[np.float64]]:
     """ returns all hex coords for hexes contained completely within pixel dist
     of pixel coords. """
 
-    # determine k, the largest integral hex distance that is wholly within dist
     center_hex = axial_round(pixel_to_pointy_hex(coords, size))
-    coords = pointy_hex_to_pixel(center_hex, size)
-    outside_coords = np.array((coords[0], coords[1]-dist))
-    outside_hex = axial_round(pixel_to_pointy_hex(outside_coords, size))
-    if both_isclose(outside_hex, center_hex):
-        return []
+    d = int(pixel_to_hex_dist(dist, size))
 
-    diff_hex = center_hex - outside_hex
-    d = int(diff_hex[1] - 1)
-    assert(d>=0)
+    # assume worst case that coords is on edge of center_hex, so don't go up
+    # to and including d-1
+    #if d == 0:
+    #    return []
 
     ret:list[npt.NDArray[np.float64]] = []
     for k in range(0, d+1):
         ret.extend(hexes_at_hex_dist(k, center_hex))
 
     return ret
+
+# pixel corner coords of a unit sized hex centered at (0,0)
+# scale by hex_size and offset as appropriate
+HEX_PIXEL_CORNERS = np.array((
+    (0.0, 1.0),
+    (np.sqrt(3.)/2., 1./2.),
+    (np.sqrt(3.)/2., -1.),
+    (0., -1.),
+    (-np.sqrt(3.)/2., -1.),
+    (-np.sqrt(3.)/2., 1./2.),
+))
+def hex_corners(pixel_coords:npt.NDArray[np.float64], hex_size:float) -> npt.NDArray[np.float64]:
+    return HEX_PIXEL_CORNERS * hex_size + pixel_coords
 
 
 class NiceScale:

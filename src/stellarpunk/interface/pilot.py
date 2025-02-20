@@ -853,13 +853,11 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         status_x = self.interface.viewscreen.width - info_width
         status_y = 1
 
-        if self.presenter.selected_target_image.identified:
-            self.viewscreen.addstr(status_y, status_x, "Target Info: (identified)")
-        else:
-            self.viewscreen.addstr(status_y, status_x, "Target Info: (unidentified)")
+        self.viewscreen.addstr(status_y, status_x, "Target Info:")
 
         label_id = "id:"
-        label_sensor_profile = "s profile:"
+        label_sensor_profile = "profile:"
+        label_transponder = "transonponder:"
         label_speed = "speed:"
         label_location = "location:"
         label_bearing = "bearing:"
@@ -893,15 +891,28 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         else:
             closest_approach = math.inf
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.presenter.selected_target_image.identity.short_id()}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_profile:>12} {self.presenter.selected_target_image.profile}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(util.magnitude(*self.presenter.selected_target_image.velocity))}')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.presenter.selected_target_image.loc[0]:.0f},{self.presenter.selected_target_image.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+5, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
-        self.viewscreen.addstr(status_y+6, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
-        self.viewscreen.addstr(status_y+7, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
+        transponder_value = "on" if self.presenter.selected_target_image.transponder else "off"
+        if self.presenter.selected_target_image.identified:
+            id_value = self.presenter.selected_target_image.identity.short_id()
+            transponder_value += " (identified)"
+        else:
+            id_value = f'{self.presenter.selected_target_image.identity.short_id()} (unidentified)'
+
+        display_items:list[tuple[str, str]] = [
+                (label_id, id_value),
+                (label_sensor_profile, f'{self.presenter.selected_target_image.profile:.0f} ({self.presenter.selected_target_image.fidelity:.2f})'),
+                (label_transponder, transponder_value),
+                (label_speed, util.human_speed(util.magnitude(*self.presenter.selected_target_image.velocity))),
+                (label_location, f'{self.presenter.selected_target_image.loc[0]:.0f},{self.presenter.selected_target_image.loc[1]:.0f}'),
+                (label_bearing, f'{math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)'),
+                (label_distance, util.human_distance(distance)),
+                (label_rel_speed, f'{util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})'),
+        ]
         if approach_t < 60*60:
-            self.viewscreen.addstr(status_y+8, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
+            display_items.append((label_eta, f'{approach_t:.0f}s ({util.human_distance(closest_approach)})'))
+
+        for i, (label, value) in enumerate(display_items, start=1):
+            self.viewscreen.addstr(status_y+i, status_x, f'{label:>12} {value}')
 
         #DEBUG:
         #label_bias_mag = "bias:"
@@ -955,9 +966,9 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         course = self.ship.phys.velocity.get_angle() + np.pi/2
         pd_status = "off" if self.point_defense is None else "on"
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship)}')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship):.0f}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_threshold:>12} {self.sector.sensor_manager.compute_sensor_threshold(self.ship)}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({util.human_si_scale(self.ship.phys.force.length, "N")})')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
@@ -1028,7 +1039,17 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         weather_x = 1
         weather_y = self.interface.viewscreen.height - 4
         sensor_factor = self.sector.weather((self.m_sector_x, self.m_sector_y)).sensor_factor
-        self.viewscreen.addstr(weather_y, weather_x, f'{(int(self.m_sector_x), int(self.m_sector_y))} sensor factor: {sensor_factor}')
+        hex_loc = self.sector.get_hex_coords(np.array((self.m_sector_x, self.m_sector_y)))
+        hex_weather_factor = self.sector.hex_weather(hex_loc).sensor_factor
+        if self.interface.player.character:
+            sector_hex_intel = self.interface.player.character.intel_manager.get_intel(intel.SectorHexMatchCriteria(self.sector.entity_id, hex_loc, True), intel.SectorHexIntel)
+            if sector_hex_intel:
+                explored = " (explored)"
+            else:
+                explored = " (unexplored)"
+        else:
+            explored = ""
+        self.viewscreen.addstr(weather_y, weather_x, f'{(int(self.m_sector_x), int(self.m_sector_y))} ({util.int_coords(hex_loc)}) sensor factor: {sensor_factor} ({hex_weather_factor}){explored}')
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')

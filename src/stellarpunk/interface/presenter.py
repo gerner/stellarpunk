@@ -503,8 +503,14 @@ class Presenter:
         assert isinstance(self.view.viewscreen, interface.Canvas)
         mpc_x, mpc_y = self.perspective.meters_per_char
         c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, mpc_x, mpc_y, bbox=self.perspective.bbox, suppress_hexes=known_hexes)
+
+        assert self.gamestate.player.character.location
+        offset_x, offset_y = self.gamestate.player.character.location.loc
+        id_range = self.sector.sensor_manager.range_to_identify(self.gamestate.player.character.location)
+        c = util.make_circle_canvas(id_range, mpc_x, mpc_y, bbox=self.perspective.bbox, c=c, offset_x=offset_x, offset_y=offset_y)
+
         s_x, s_y = self.perspective.sector_to_screen(0, 0)
-        util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(23))
+        util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(34))
 
     def update(self) -> None:
         pass
@@ -626,6 +632,7 @@ class PilotPresenter(Presenter):
 class SensorImageManager:
     """ Manages SensorImage instances for a particular ship. """
     def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float, static_image_ttl:float):
+        self.logger = logging.getLogger(util.fullname(self))
         self.ship = ship
 
         self._cached_entities:dict[uuid.UUID, core.AbstractSensorImage] = {}
@@ -653,9 +660,16 @@ class SensorImageManager:
         self._last_update = core.Gamestate.gamestate.timestamp
 
         # first we find all the detectable entities
+        total_count = 0
+        identified_count = 0
         for hit in self.ship.sector.sensor_manager.scan(self.ship):
             if hit.identity.entity_id not in self._cached_entities:
                 self._cached_entities[hit.identity.entity_id] = hit
+            total_count += 1
+            if hit.identified:
+                identified_count += 1
+
+        self.logger.info(f'identified: {identified_count}/{total_count}')
 
         # then check captain's intel
         if isinstance(self.ship, core.CrewedSectorEntity) and self.ship.captain:

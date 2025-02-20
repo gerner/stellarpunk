@@ -71,7 +71,7 @@ class TransferCargoEffectSaver[T:effects.TransferCargoEffect](EffectSaver[T]):
         bytes_written = 0
         bytes_written += s_util.uuid_to_f(effect.source.entity_id, f)
         bytes_written += s_util.uuid_to_f(effect.destination.entity_id, f)
-        bytes_written += s_util.int_to_f(effect.resource, f)
+        bytes_written += s_util.int_to_f(int(effect.resource), f)
         bytes_written += s_util.float_to_f(effect.amount, f)
         bytes_written += s_util.float_to_f(effect.sofar, f)
         bytes_written += s_util.float_to_f(effect.transfer_rate, f)

@@ -110,6 +110,12 @@ class AbstractGameRuntime:
     def should_breakpoint(self) -> bool:
         return False
 
+    def get_breakpoint_sentinel(self) -> Optional[str]:
+        return None
+
+    def set_breakpoint_sentinel(self, value:Optional[str]) -> None:
+        pass
+
     def register_tick_handler(self, tick_handler:TickHandler) -> None:
         pass
 
@@ -395,6 +401,10 @@ class Gamestate(EntityRegistry):
     def breakpoint(self) -> None:
         if self.game_runtime.should_breakpoint():
             raise Exception("debug breakpoint immediate")
+
+    def conditional_breakpoint(self, value:str) -> None:
+        if self.game_runtime.should_breakpoint() and value == self.game_runtime.get_breakpoint_sentinel():
+            raise Exception("conditional debug breakpoint")
 
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent

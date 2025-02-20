@@ -977,13 +977,20 @@ def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamesta
     else:
         return False
 
-def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None, loc:Optional[npt.NDArray[np.float64]]=None, scan_range:Optional[float]=None, images:Optional[Collection[core.AbstractSensorImage]]=None) -> None:
+def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None, loc:Optional[npt.NDArray[np.float64]]=None, images:Optional[Collection[core.AbstractSensorImage]]=None) -> None:
     # figure out the set of hexes that are relevant
-    if scan_range is None:
-        passive_range, full_thrust_range, active_range = sector.sensor_manager.sensor_ranges(detector)
-        scan_range = (passive_range + active_range)/2.0
+    scan_range = sector.sensor_manager.range_to_detect(detector)
+    identification_range = sector.sensor_manager.range_to_identify(detector)
     if loc is None:
         loc = detector.loc
+
+    unidentified_hexes:set[tuple[int, int]] = set()
+    for image in images or detector.sensor_settings.images:
+        if image.identified:
+            continue
+        h_coords = util.int_coords(util.axial_round(util.pixel_to_pointy_hex(image.loc, sector.hex_size)))
+        unidentified_hexes.add(h_coords)
+
     sector_hexes = util.hexes_within_pixel_dist(loc, scan_range, sector.hex_size)
 
     # eliminate hexes we already have good intel for
@@ -991,6 +998,28 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
     static_intel:dict[tuple[int, int], SectorHexIntel] = {}
     dynamic_intel:dict[tuple[int, int], SectorHexIntel] = {}
     for hex_coords in sector_hexes:
+        # if we have an unidentified image in this hex, toss it
+        # the thinking is that we are pretty sure we can DETECT an image at
+        # this range. So if we don't detect an image in the hex, we know it's
+        # empty. If we do DETECT it, we better be able to IDENTIFY it, or else
+        # we won't mark it as explored
+        if util.int_coords(hex_coords) in unidentified_hexes:
+            continue
+
+        # check if weather makes this hex unscannable at this range
+        hex_sensor_factor = sector.hex_weather(hex_coords).sensor_factor
+        # check that all six points of the hex lie within modified sensor range
+        pixel_coords = util.pointy_hex_to_pixel(hex_coords, sector.hex_size)
+        in_range = True
+        for corner_coords in util.hex_corners(pixel_coords, sector.hex_size):
+            if util.distance(corner_coords, loc) > scan_range * hex_sensor_factor:
+                in_range = False
+                break
+
+        if not in_range:
+            continue
+
+
         static_criteria = SectorHexMatchCriteria(sector.entity_id, hex_coords, True)
         s_intel = character.intel_manager.get_intel(static_criteria, SectorHexIntel)
         if not s_intel or not s_intel.is_fresh():

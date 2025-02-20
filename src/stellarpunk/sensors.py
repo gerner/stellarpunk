@@ -162,6 +162,15 @@ class SensorImage(core.AbstractSensorImage):
         return self._identified
 
     @property
+    def transponder(self) -> bool:
+        if not self._ship.sector:
+            return False
+        if self.identity.entity_id not in self._ship.sector.entities:
+            return False
+        target = self._ship.sector.entities[self.identity.entity_id]
+        return target.sensor_settings.transponder
+
+    @property
     def identity(self) -> core.SensorIdentity:
         return self._identity
 
@@ -590,6 +599,31 @@ class SensorManager(core.AbstractSensorManager):
         detector.sensor_settings.register_image(image)
 
         return image
+
+
+    def range_to_identify(self, entity:core.SectorEntity, mass:Optional[float]=None, radius:Optional[float]=None) -> float:
+        if mass is None:
+            mass = config.Settings.generate.SectorEntities.asteroid.MASS
+        if radius is None:
+            radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
+        passive_profile = (config.Settings.sensors.COEFF_MASS * mass + config.Settings.sensors.COEFF_RADIUS * radius)
+
+        threshold = self.compute_effective_threshold(entity)
+
+        identification_range = np.sqrt(passive_profile / threshold * config.Settings.sensors.COEFF_IDENTIFICATION_FIDELITY / config.Settings.sensors.COEFF_DISTANCE)
+        return identification_range
+
+    def range_to_detect(self, entity:core.SectorEntity, mass:Optional[float]=None, radius:Optional[float]=None) -> float:
+        if mass is None:
+            mass = config.Settings.generate.SectorEntities.asteroid.MASS
+        if radius is None:
+            radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
+        passive_profile = (config.Settings.sensors.COEFF_MASS * mass + config.Settings.sensors.COEFF_RADIUS * radius)
+
+        threshold = self.compute_effective_threshold(entity)
+
+        detection_range = np.sqrt(passive_profile / threshold / config.Settings.sensors.COEFF_DISTANCE)
+        return detection_range
 
 
     def sensor_ranges(self, entity:core.SectorEntity) -> tuple[float, float, float]:
