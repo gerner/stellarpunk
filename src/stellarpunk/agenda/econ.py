@@ -495,7 +495,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         )
         if sell_station_ret is None:
             #TODO: we could also mine something else instead
-            self._pending_intel_interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_resources))
+            self._pending_intel_interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_resources), sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self.character.intel_manager.register_intel_interest(self._pending_intel_interest)
             self.logger.debug(f'cannot find a station buying my mined resources ({np.where(self.craft.cargo[self.allowed_resources] > 0.)}). Sleeping...')
             # we cannot trade until we find a station that buys our cargo
@@ -528,7 +528,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         target = self._choose_asteroid()
         if target is None:
-            self._pending_intel_interest = intel.AsteroidIntelPartialCriteria(resources=frozenset(self.allowed_resources))
+            self._pending_intel_interest = intel.AsteroidIntelPartialCriteria(resources=frozenset(self.allowed_resources), sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self.character.intel_manager.register_intel_interest(self._pending_intel_interest)
             self.logger.debug(f'could not find asteroid of type {self.allowed_resources} in {self.craft.sector}, sleeping...')
             # we cannot mine until we learn of some asteroids (via intel_added)
@@ -829,10 +829,10 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         #TODO: multi-sector?
         # seek buyers for delta_sold resources
         if delta_sold:
-            interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=delta_sold)
+            interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=delta_sold, sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self._register_interest(interest)
         if delta_bought:
-            interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=delta_bought)
+            interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=delta_bought, sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self._register_interest(interest)
 
 
@@ -842,22 +842,22 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         #TODO: multi-sector?
         # buyer for our goods (if we have any)
         if np.sum(np.take(self.craft.cargo, self.allowed_goods)) > 0.:
-            interest:core.IntelMatchCriteria = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_goods))
+            interest:core.IntelMatchCriteria = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(np.flatnonzero(self.craft.cargo)).intersection(self.allowed_goods), sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self._register_interest(interest)
         # buyer for known sold good
         if len(self._known_sold_resources) > 0:
-            interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=self._known_sold_resources)
+            interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=self._known_sold_resources, sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self._register_interest(interest)
 
         # seller for known bought goods
         if len(self._known_bought_resources) > 0:
-            interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=self._known_bought_resources)
+            interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=self._known_bought_resources, sector_id=self._center_sector_id, jump_distance=self._max_jumps)
             self._register_interest(interest)
 
         # any buyers or sellers
-        interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(self.allowed_goods))
+        interest = intel.EconAgentSectorEntityPartialCriteria(buy_resources=frozenset(self.allowed_goods), sector_id=self._center_sector_id, jump_distance=self._max_jumps)
         self._register_interest(interest)
-        interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(self.allowed_goods))
+        interest = intel.EconAgentSectorEntityPartialCriteria(sell_resources=frozenset(self.allowed_goods), sector_id=self._center_sector_id, jump_distance=self._max_jumps)
         self._register_interest(interest)
 
     def _buy_goods(self) -> None:

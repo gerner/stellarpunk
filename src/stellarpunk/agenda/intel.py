@@ -501,7 +501,7 @@ class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
 
 class SectorIntelGatherer(IntelGatherer[intel.SectorPartialCriteria]):
     def _find_candidate(self, character:core.Character, intel_criteria:intel.SectorPartialCriteria) -> Optional[uuid.UUID]:
-        if intel_criteria.sector_id is not None:
+        if intel_criteria.sector_id is not None and intel_criteria.jump_distance == 0:
             # check if we have that sector already
             sector = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(intel_criteria.sector_id), intel.SectorIntel)
             if sector is not None:
@@ -521,6 +521,14 @@ class SectorIntelGatherer(IntelGatherer[intel.SectorPartialCriteria]):
             if sector is not None:
                 #TODO: should we try to refresh it?
                 continue
+            if intel_criteria.sector_id is not None:
+                path = universe_view.compute_path(intel_criteria.sector_id, sector_id)
+                if path is None:
+                    # no known path to that sector
+                    continue
+                if len(path) > intel_criteria.jump_distance:
+                    # sector is too far away from source sector
+                    continue
             return sector_id
 
         # we don't know of any sectors that we haven't already explored
@@ -590,7 +598,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
             return np.array((float(candidate[0]), float(candidate[1])))
 
     def _find_candidate(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria) -> Optional[tuple[intel.SectorIntel, npt.NDArray[np.float64]]]:
-        if intel_criteria.sector_id is not None:
+        if intel_criteria.sector_id is not None and intel_criteria.jump_distance == 0:
             # return whatever candidate is available in that sector, if any
             sector = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(intel_criteria.sector_id), intel.SectorIntel)
             if sector is None:
@@ -608,6 +616,14 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
             sectors = universe_view.sector_intels
 
         for sector in sectors:
+            if intel_criteria.sector_id is not None:
+                path = universe_view.compute_path(intel_criteria.sector_id, sector.intel_entity_id)
+                if path is None:
+                    # no known path to that sector
+                    continue
+                if len(path) > intel_criteria.jump_distance:
+                    # sector is too far away from source sector
+                    continue
             candidate = self._candidate_in_sector(character, intel_criteria, sector)
             if candidate is not None:
                 return (sector, candidate)
@@ -674,7 +690,7 @@ class SectorEntityIntelGatherer(IntelGatherer[intel.SectorEntityPartialCriteria]
         return (True, 0.0)
 
     def collect_intel(self, character:core.Character, intel_criteria:intel.SectorEntityPartialCriteria) -> float:
-        sector_hex_criteria = intel.SectorHexPartialCriteria(sector_id=intel_criteria.sector_id, is_static=intel_criteria.is_static)
+        sector_hex_criteria = intel.SectorHexPartialCriteria(sector_id=intel_criteria.sector_id, is_static=intel_criteria.is_static, jump_distance=intel_criteria.jump_distance)
         character.intel_manager.register_intel_interest(sector_hex_criteria, source=intel_criteria)
         return 0.0
 
@@ -686,6 +702,8 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
         assert(character.location.sector)
 
         # find the closest one (number of jumps, distance)
+        if station_criteria.sector_id and station_criteria.jump_distance > 0:
+            universe_view = intel.UniverseView.create(character)
         travel_cost = np.inf
         closest_station_intel:Optional[intel.StationIntel] = None
         for station_intel in character.intel_manager.intel(station_criteria, intel.StationIntel):
@@ -694,6 +712,18 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             #TODO: should this be a freshness thing?
             if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), core.AbstractIntel):
                 continue
+
+            # we might get stations from intel manager that are in technically
+            # closer than we have intel for (i.e. we might not know the
+            # shortest path), we should reject them.
+            if station_criteria.sector_id and station_criteria.jump_distance > 0:
+                path = universe_view.compute_path(station_criteria.sector_id, station_intel.sector_id)
+                if path is None:
+                    # no known path to that sector
+                    continue
+                if len(path) > station_criteria.jump_distance:
+                    # sector is too far away from source sector
+                    continue
 
             if station_intel.sector_id == character.location.sector.entity_id:
                 eta = ocore.DockingOrder.compute_eta(character.location, station_intel.loc)
@@ -712,7 +742,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
 
     def estimate_cost(self, character:core.Character, intel_criteria:intel.EconAgentSectorEntityPartialCriteria) -> Optional[tuple[bool, float]]:
         # we'll need to find a matching sector entity to dock at
-        station_criteria = intel.StationIntelPartialCriteria(cls=intel_criteria.underlying_entity_type, sector_id=intel_criteria.sector_id, resources=intel_criteria.sell_resources, inputs=intel_criteria.buy_resources)
+        station_criteria = intel.StationIntelPartialCriteria(cls=intel_criteria.underlying_entity_type, sector_id=intel_criteria.sector_id, resources=intel_criteria.sell_resources, inputs=intel_criteria.buy_resources, jump_distance=intel_criteria.jump_distance)
 
         ret = self._find_candidate(character, station_criteria)
         if ret is not None:
@@ -724,7 +754,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
         return (False, 0.0)
 
     def collect_intel(self, character:core.Character, intel_criteria:intel.EconAgentSectorEntityPartialCriteria) -> float:
-        station_criteria = intel.StationIntelPartialCriteria(cls=intel_criteria.underlying_entity_type, sector_id=intel_criteria.sector_id, resources=intel_criteria.sell_resources, inputs=intel_criteria.buy_resources)
+        station_criteria = intel.StationIntelPartialCriteria(cls=intel_criteria.underlying_entity_type, sector_id=intel_criteria.sector_id, resources=intel_criteria.sell_resources, inputs=intel_criteria.buy_resources, jump_distance=intel_criteria.jump_distance)
 
         ret = self._find_candidate(character, station_criteria)
         if ret is None:

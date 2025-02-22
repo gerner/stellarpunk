@@ -1046,6 +1046,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
         assert(self.gamestate)
+        assert asset.sector
 
         if isinstance(asset, core.Ship):
             if asset in mining_ships:
@@ -1057,7 +1058,9 @@ class UniverseGenerator(core.AbstractGenerator):
                 character.add_agendum(agenda.MiningAgendum.create_mining_agendum(
                     asset,
                     character,
-                    self.gamestate
+                    self.gamestate,
+                    center_sector_id=asset.sector.entity_id,
+                    max_jumps=1,
                 ))
                 character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
                     character,
@@ -1073,7 +1076,9 @@ class UniverseGenerator(core.AbstractGenerator):
                 character.add_agendum(agenda.TradingAgendum.create_trading_agendum(
                     asset,
                     character,
-                    self.gamestate
+                    self.gamestate,
+                    center_sector_id=asset.sector.entity_id,
+                    max_jumps=1,
                 ))
                 character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
                     character,
