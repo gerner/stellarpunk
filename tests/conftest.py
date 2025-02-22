@@ -6,13 +6,15 @@ import cymunk # type: ignore
 import numpy as np
 
 from stellarpunk import core, sim, generate, interface, sensors, events, intel, config
+from stellarpunk.core import sector_entity
 from stellarpunk.serialization import save_game
 from stellarpunk.agenda import intel as aintel
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 
-logging.getLogger("stellarpunk.intel").level = logging.DEBUG
-logging.getLogger("stellarpunk.agenda.econ").level = logging.DEBUG
-logging.getLogger("stellarpunk.agenda.intel").level = logging.DEBUG
+# some logging to turn on if we like
+#logging.getLogger("stellarpunk.intel").level = logging.DEBUG
+#logging.getLogger("stellarpunk.agenda.econ").level = logging.DEBUG
+#logging.getLogger("stellarpunk.agenda.intel").level = logging.DEBUG
 
 @pytest.fixture
 def event_manager() -> events.EventManager:
@@ -81,6 +83,7 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     sector = core.Sector(np.array([0, 0]), sector_radius, hex_size, cymunk.Space(), gamestate, sector_name, culture="test")
     sector.sensor_manager = sensors.SensorManager(sector)
     gamestate.add_sector(sector, 0)
+    gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(gamestate)))
 
     return sector
 

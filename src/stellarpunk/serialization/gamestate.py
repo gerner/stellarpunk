@@ -7,6 +7,7 @@ from typing import Any, Type
 import numpy as np
 
 from stellarpunk import core
+from stellarpunk.core import sector_entity
 
 from . import serialize_econ_sim, save_game, util as s_util
 
@@ -226,6 +227,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             sector = gamestate.entities[sector_id]
             assert(isinstance(sector, core.Sector))
             gamestate.add_sector(sector, i)
+        gamestate.recompute_jumps(*sector_entity.TravelGate.compute_sector_network(gamestate))
 
         # econ agents
         load_context.debug_string_r("econ agents", f)

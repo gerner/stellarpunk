@@ -548,6 +548,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(intel.StationIntelPartialCriteria, s_intel.StationIntelPartialCriteriaSaver(sg))
     sg.register_saver(intel.SectorHexPartialCriteria, s_intel.SectorHexPartialCriteriaSaver(sg))
     sg.register_saver(intel.EconAgentSectorEntityPartialCriteria, s_intel.EconAgentSectorEntityPartialCriteriaSaver(sg))
+    sg.register_saver(intel.SectorPartialCriteria, s_intel.SectorPartialCriteriaSaver(sg))
 
     # agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))

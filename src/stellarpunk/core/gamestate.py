@@ -178,7 +178,9 @@ class Gamestate(EntityRegistry):
         # Universe State
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:dict[uuid.UUID, Sector] = {}
-        #self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
+        self.sector_idx_lookup:dict[uuid.UUID, int] = {}
+        self.sector_jumps:dict[uuid.UUID, Mapping[int, float]] = {}
+
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
 
@@ -601,6 +603,23 @@ class Gamestate(EntityRegistry):
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
+
+    def recompute_jumps(self, sector_idx_lookup:dict[uuid.UUID, int], adj_matrix:npt.NDArray[np.float64]) -> None:
+        """ recomputes jump lengths between all sector pairs. """
+
+        self.sector_idx_lookup = sector_idx_lookup
+        self.sector_jumps = dict()
+
+        for sector_id, sector_idx in sector_idx_lookup.items():
+            path_tree, distance_map = util.dijkstra(adj_matrix, sector_idx, -1)
+            self.sector_jumps[sector_id] = distance_map
+
+    def jump_distance(self, a_id:uuid.UUID, b_id:uuid.UUID) -> Optional[int]:
+        b_idx = self.sector_idx_lookup[b_id]
+        if b_idx not in self.sector_jumps[a_id]:
+            return None
+        else:
+            return int(np.round(self.sector_jumps[a_id][b_idx]))
 
     def spatial_query(self, bounds:tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")

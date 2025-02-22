@@ -217,6 +217,7 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
                 sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
                 sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
         )
+        #TODO: this should be related to the player character's intel
         hit = next(self.gamestate.spatial_query(bounds), None)
         if hit:
             #TODO: check if the hit is close enough

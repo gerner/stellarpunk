@@ -676,10 +676,11 @@ class IntelPartialCriteria(core.IntelMatchCriteria):
         return False
 
 class SectorEntityPartialCriteria(IntelPartialCriteria):
-    def __init__(self, cls:Type[core.SectorEntity]=core.SectorEntity, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
+    def __init__(self, cls:Type[core.SectorEntity]=core.SectorEntity, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None, jump_distance:int=0):
         self.cls = cls
         self.is_static = is_static
         self.sector_id = sector_id
+        self.jump_distance = jump_distance
 
     def __str__(self) -> str:
         items = []
@@ -698,8 +699,13 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
             return False
         if self.is_static is not None and intel.is_static != self.is_static:
             return False
-        if self.sector_id is not None and intel.sector_id != self.sector_id:
-            return False
+        if self.sector_id is not None:
+            if self.jump_distance == 0 and intel.sector_id != self.sector_id:
+                return False
+            else:
+                jumps = core.Gamestate.gamestate.jump_distance(intel.sector_id, self.sector_id)
+                if jumps is None or jumps > self.jump_distance:
+                    return False
         return True
 
     def __hash__(self) -> int:
@@ -713,6 +719,8 @@ class SectorEntityPartialCriteria(IntelPartialCriteria):
         if self.is_static != other.is_static:
             return False
         if self.sector_id != other.sector_id:
+            return False
+        if self.jump_distance != other.jump_distance:
             return False
         return True
 
@@ -807,7 +815,7 @@ class StationIntelPartialCriteria(SectorEntityPartialCriteria):
         return True
 
 class SectorHexPartialCriteria(IntelPartialCriteria):
-    def __init__(self, sector_id:Optional[uuid.UUID]=None, is_static:Optional[bool]=None, hex_loc:Optional[npt.NDArray[np.float64]]=None, hex_dist:Optional[float]=None):
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, is_static:Optional[bool]=None, hex_loc:Optional[npt.NDArray[np.float64]]=None, hex_dist:Optional[float]=None, jump_distance:int=0):
         if hex_loc is not None:
             if sector_id is None:
                 raise ValueError(f'cannot specify a location without a sector')
@@ -818,6 +826,7 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
                 raise ValueError(f'cannot specify a dist without a location')
 
         self.sector_id = sector_id
+        self.jump_distance = jump_distance
         self.hex_loc = hex_loc
         self.hex_dist = hex_dist
         self.is_static = is_static
@@ -837,8 +846,13 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
     def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, SectorHexIntel):
             return False
-        if self.sector_id and intel.sector_id != self.sector_id:
-            return False
+        if self.sector_id:
+            if self.jump_distance == 0 and intel.sector_id != self.sector_id:
+                return False
+            else:
+                jumps = core.Gamestate.gamestate.jump_distance(intel.sector_id, self.sector_id)
+                if jumps is None or jumps > self.jump_distance:
+                    return False
         if self.is_static is not None and intel.is_static != self.is_static:
             return False
         if self.hex_loc is not None and util.axial_distance(self.hex_loc, intel.hex_loc) > self.hex_dist:
@@ -856,6 +870,8 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
             return False
         if self.sector_id != other.sector_id:
             return False
+        if self.jump_distance != other.jump_distance:
+            return False
         if self.is_static != other.is_static:
             return False
         if self.hex_loc is None != other.hex_loc is None:
@@ -869,8 +885,9 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
         return True
 
 class SectorPartialCriteria(IntelPartialCriteria):
-    def __init__(self, sector_id:Optional[uuid.UUID]=None):
+    def __init__(self, sector_id:Optional[uuid.UUID]=None, jump_distance:int=0):
         self.sector_id = sector_id
+        self.jump_distance = jump_distance
 
     def __str__(self) -> str:
         if self.sector_id:
@@ -881,17 +898,24 @@ class SectorPartialCriteria(IntelPartialCriteria):
     def matches(self, intel:core.AbstractIntel) -> bool:
         if not isinstance(intel, SectorIntel):
             return False
-        if self.sector_id and intel.intel_entity_id != self.sector_id:
-            return False
+        if self.sector_id:
+            if self.jump_distance == 0 and intel.intel_entity_id != self.sector_id:
+                return False
+            else:
+                jumps = core.Gamestate.gamestate.jump_distance(intel.intel_entity_id, self.sector_id)
+                if jumps is None or jumps > self.jump_distance:
+                    return False
         return True
 
     def __hash__(self) -> int:
-        return hash(self.sector_id)
+        return hash((self.sector_id, self.jump_distance))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, SectorPartialCriteria):
             return False
         if other.sector_id != self.sector_id:
+            return False
+        if other.jump_distance != self.jump_distance:
             return False
         return True
 
@@ -899,12 +923,14 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     """ Partial criteria matching econ agents for static sector entities """
     def __init__(self,
             sector_id:Optional[uuid.UUID]=None,
+            jump_distance:int=0,
             underlying_entity_id:Optional[uuid.UUID]=None,
             underlying_entity_type:Type[core.SectorEntity]=core.SectorEntity,
             buy_resources:Optional[frozenset[int]]=None,
             sell_resources:Optional[frozenset[int]]=None,
     ) -> None:
         self.sector_id = sector_id
+        self.jump_distance = jump_distance
         assert(isinstance(underlying_entity_type, type))
         if not issubclass(underlying_entity_type, core.SectorEntity):
             raise ValueError(f'{underlying_entity_type=} must be a subclass of core.SectorEntity')
@@ -953,17 +979,24 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
             return False
         # static entities should always be in a sector
         assert(entity.sector)
-        if self.sector_id and entity.sector.entity_id != self.sector_id:
-            return False
+        if self.sector_id:
+            if self.jump_distance == 0 and entity.sector.entity_id != self.sector_id:
+                return False
+            else:
+                jumps = core.Gamestate.gamestate.jump_distance(entity.sector.entity_id, self.sector_id)
+                if jumps is None or jumps > self.jump_distance:
+                    return False
         return True
 
     def __hash__(self) -> int:
-        return hash((self.sector_id, self.underlying_entity_id, self.underlying_entity_type, self.buy_resources, self.sell_resources))
+        return hash((self.sector_id, self.jump_distance, self.underlying_entity_id, self.underlying_entity_type, self.buy_resources, self.sell_resources))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, EconAgentSectorEntityPartialCriteria):
             return False
         if self.sector_id != other.sector_id:
+            return False
+        if self.jump_distance != other.jump_distance:
             return False
         if self.underlying_entity_id != other.underlying_entity_id:
             return False

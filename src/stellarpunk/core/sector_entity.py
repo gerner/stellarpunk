@@ -10,7 +10,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 
 from stellarpunk import util
-from . import base, character, sector
+from . import base, character, sector, gamestate
 
 class Planet(character.Asset, character.CrewedSectorEntity):
     id_prefix = "HAB"
@@ -54,6 +54,17 @@ class Asteroid(sector.SectorEntity):
 class TravelGate(sector.SectorEntity):
     """ Represents a "gate" to another sector """
     id_prefix = "GAT"
+
+    @classmethod
+    def compute_sector_network(cls, gamestate:gamestate.Gamestate) -> tuple[dict[uuid.UUID, int], npt.NDArray[np.float64]]:
+        sector_idx_lookup:dict[uuid.UUID, int] = {sector_id: sector_idx for sector_idx, sector_id in enumerate(gamestate.sectors.keys())}
+        adj_matrix:npt.NDArray[np.float64] = np.ones((len(gamestate.sectors), len(gamestate.sectors))) * np.inf
+        for sector_id, sector in gamestate.sectors.items():
+            for gate in sector.entities_by_type(TravelGate):
+                adj_matrix[sector_idx_lookup[sector_id], sector_idx_lookup[gate.destination.entity_id]] = 1.0
+
+        return sector_idx_lookup, adj_matrix
+
     def __init__(self, direction:float, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.destination:sector.Sector = None # type: ignore

@@ -884,7 +884,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
-    def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None) -> sector_entity.TravelGate:
+    def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None, recompute_jumps:bool=True) -> sector_entity.TravelGate:
         assert(self.gamestate)
 
         gate_radius = 50
@@ -926,6 +926,9 @@ class UniverseGenerator(core.AbstractGenerator):
         self.phys_shape(body, gate, gate_radius)
 
         sector.add_entity(gate)
+
+        if recompute_jumps:
+            self.gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(self.gamestate)))
 
         return gate
 
@@ -1962,7 +1965,10 @@ class UniverseGenerator(core.AbstractGenerator):
         #TODO: there's probably a clever way to get these indicies
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if sector_edges[i,j] != 0:
-                self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id])
+                self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id], recompute_jumps=False)
+
+        # have gamestate compute jump lengths (which we skipped above)
+        self.gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(self.gamestate)))
 
         #TODO: post-expansion decline
         # deplete resources at population centers
