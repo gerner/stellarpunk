@@ -502,3 +502,107 @@ def test_multi_sector_trading(intel_director, gamestate, generator, sector, conn
 
     # test that we saw the trader in both sectors and had tranactions in both
     assert len(seen_sector_ids) == 2
+
+def test_too_far_sector_trading(intel_director, gamestate, generator, sector, connecting_sector, third_sector, testui, simulator, econ_logger):
+    # simple setup: trader and two stations
+    # one station produces a good, another one consumes it
+    # in different sectors, separated by two jumps
+    # we don't have any trades within jump range
+
+    trader_capacity = 5e2
+    resource = gamestate.production_chain.ranks[0]
+    buy_price = gamestate.production_chain.prices[resource]
+
+    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
+    ship.cargo_capacity = trader_capacity
+
+    station_producer = generator.spawn_station(sector, 5000, 0, resource=resource, batches_on_hand=200)
+    producer_initial_inventory = station_producer.cargo[resource]
+    assert station_producer.cargo[resource] >= trader_capacity * 2
+
+    consumer_resource = np.where(gamestate.production_chain.adj_matrix[resource] > 0)[0][0]
+    assert resource in gamestate.production_chain.inputs_of(consumer_resource)
+    station_consumer = generator.spawn_station(third_sector, 0, 5000, resource=consumer_resource)
+
+    # set up the trader character with enough money to do one trade
+    # they'll get enough from selling that first trade to do a second one
+    initial_balance = trader_capacity*buy_price
+    ship_owner = generator.spawn_character(ship, balance=initial_balance)
+    ship_owner.take_ownership(ship)
+    ship.captain = ship_owner
+    trading_agendum = agenda.TradingAgendum.create_trading_agendum(ship, ship_owner, gamestate, center_sector_id=sector.entity_id, max_jumps=1)
+    trading_agendum.max_trips=1
+    trader_agent = trading_agendum.agent
+    ship_owner.add_agendum(trading_agendum)
+
+    # set up intel agendum so we can find potential buy/sell pairs
+    intel_agendum = aintel.IntelCollectionAgendum.create_agendum(ship_owner, intel_director, gamestate)
+    ship_owner.add_agendum(intel_agendum)
+
+    # ship owner should start off knowing its own sector
+    intel.add_sector_intel(sector, ship_owner, gamestate)
+
+    # set up prodcer character, no need to have money on hand
+    producer_initial_balance = 0
+    producer_owner = generator.spawn_character(station_producer, balance=producer_initial_balance)
+    producer_owner.take_ownership(station_producer)
+    station_producer.captain = producer_owner
+    producer_agendum = agenda.StationManager.create_station_manager(station_producer, producer_owner, gamestate)
+    producer_owner.add_agendum(producer_agendum)
+    producer_agent = gamestate.econ_agents[station_producer.entity_id]
+
+    assert resource in producer_agent.sell_resources()
+    assert resource not in producer_agent.buy_resources()
+    assert producer_agent.sell_price(resource) == gamestate.production_chain.prices[resource]
+
+    # set up consumer to have enough money to buy two trade's worth of goods
+    consumer_initial_balance = trader_capacity*2*buy_price*gamestate.production_chain.markup[consumer_resource]
+    consumer_owner = generator.spawn_character(station_consumer, balance=consumer_initial_balance)
+    consumer_owner.take_ownership(station_consumer)
+    station_consumer.captain = consumer_owner
+    consumer_agendum = agenda.StationManager.create_station_manager(station_consumer, consumer_owner, gamestate)
+    consumer_owner.add_agendum(consumer_agendum)
+    consumer_agent = gamestate.econ_agents[station_consumer.entity_id]
+
+    assert resource in consumer_agent.buy_resources()
+    assert resource not in consumer_agent.sell_resources()
+    assert consumer_agent.buy_price(resource) > gamestate.production_chain.prices[resource]
+    assert consumer_initial_balance >= consumer_agent.buy_price(resource) * trader_capacity * 2
+
+    testui.agenda.append(trading_agendum)
+    testui.eta = 250 # experimentally determined
+
+    seen_sector_ids:set[uuid.UUID] = set()
+    def tick_callback():
+        nonlocal ship, trading_agendum, seen_sector_ids
+
+        assert ship.sector
+        seen_sector_ids.add(ship.sector.entity_id)
+
+        if trading_agendum.state == agenda.TradingAgendum.State.NO_INTEL:
+            testui.done = True
+
+    testui.tick_callback = tick_callback
+
+    simulator.run()
+    assert intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE
+    assert trading_agendum.state == agenda.TradingAgendum.State.NO_INTEL
+
+    assert len(ship_owner.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(sector_id=sector.entity_id, jump_distance=1, sell_resources=frozenset((resource,))))) == 1
+    assert len(ship_owner.intel_manager.intel(intel.EconAgentSectorEntityPartialCriteria(sector_id=sector.entity_id, jump_distance=1, buy_resources=frozenset((resource,))))) == 0
+
+    universe_view = intel.UniverseView.create(ship_owner)
+
+    assert len(seen_sector_ids) == 2
+    assert len(universe_view.sector_intels) == 2
+    assert set(sector_intel.intel_entity_id for sector_intel in universe_view.sector_intels) == set((sector.entity_id, connecting_sector.entity_id))
+    assert len(universe_view.sector_idx_lookup) == 3
+    assert set(universe_view.sector_idx_lookup.keys()) == set((sector.entity_id, connecting_sector.entity_id, third_sector.entity_id))
+
+    connecting_sector_path = universe_view.compute_path(sector.entity_id, connecting_sector.entity_id)
+    assert connecting_sector_path
+    assert len(connecting_sector_path) == 1
+
+    third_sector_path = universe_view.compute_path(sector.entity_id, third_sector.entity_id)
+    assert third_sector_path
+    assert len(third_sector_path) == 2

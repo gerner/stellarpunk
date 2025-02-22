@@ -95,10 +95,23 @@ def connecting_sector(gamestate:core.Gamestate, generator:generate.UniverseGener
     gamestate.add_sector(connecting_sector, 1)
 
     # add gates connecting sector to connecting_sector
-    gate_a = generator.spawn_gate(sector, connecting_sector)
+    gate_a = generator.spawn_gate(sector, connecting_sector, recompute_jumps=False)
     gate_b = generator.spawn_gate(connecting_sector, sector)
 
     return connecting_sector
+
+@pytest.fixture
+def third_sector(gamestate:core.Gamestate, generator:generate.UniverseGenerator, connecting_sector:core.Sector) -> core.Sector:
+
+    third_sector = core.Sector(np.array([connecting_sector.radius*20.0, 0]), connecting_sector.radius, connecting_sector.hex_size, cymunk.Space(), gamestate, connecting_sector.name+"3", culture="test")
+    third_sector.sensor_manager = sensors.SensorManager(third_sector)
+    gamestate.add_sector(third_sector, 1)
+
+    # add gates connecting connecting_sector to third_sector
+    gate_a = generator.spawn_gate(connecting_sector, third_sector, recompute_jumps=False)
+    gate_b = generator.spawn_gate(third_sector, connecting_sector)
+
+    return third_sector
 
 @pytest.fixture
 def ship(gamestate: core.Gamestate, generator: generate.UniverseGenerator, sector: core.Sector) -> core.Ship:

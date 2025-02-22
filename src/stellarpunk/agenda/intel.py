@@ -680,7 +680,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
             character.location.prepend_order(explore_order)
             return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
         else:
-            sector_criteria = intel.SectorPartialCriteria(sector_id=intel_criteria.sector_id)
+            sector_criteria = intel.SectorPartialCriteria(sector_id=intel_criteria.sector_id, jump_distance=intel_criteria.jump_distance)
             character.intel_manager.register_intel_interest(sector_criteria, source=intel_criteria)
             return 0.0
 

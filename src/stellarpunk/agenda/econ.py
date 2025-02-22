@@ -325,7 +325,7 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
         self._pending_intel_interest:Optional[core.IntelMatchCriteria] = None
 
         self._center_sector_id:Optional[uuid.UUID] = None
-        self._max_jumps = 0
+        self._max_jumps = max_jumps
 
     def __str__(self) -> str:
         return f'{util.fullname(self)} {self.state.name}'
@@ -645,7 +645,7 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
         self.allowed_goods = allowed_goods
 
         self._center_sector_id:Optional[uuid.UUID] = center_sector_id
-        self._max_jumps:int = 0
+        self._max_jumps:int = max_jumps
 
         self.buy_from_stations = buy_from_stations
         self.sell_to_stations = sell_to_stations
