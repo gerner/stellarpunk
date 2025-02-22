@@ -496,6 +496,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
 
 def initialize_intel_director() -> aintel.IntelCollectionDirector:
     intel_director = aintel.IntelCollectionDirector()
+    intel_director.register_gatherer(intel.SectorPartialCriteria, aintel.SectorIntelGatherer())
     intel_director.register_gatherer(intel.SectorHexPartialCriteria, aintel.SectorHexIntelGatherer())
     intel_director.register_gatherer(intel.SectorEntityPartialCriteria, aintel.SectorEntityIntelGatherer())
     intel_director.register_gatherer(intel.EconAgentSectorEntityPartialCriteria, aintel.EconAgentSectorEntityIntelGatherer())

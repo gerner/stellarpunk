@@ -2,6 +2,7 @@ import enum
 import uuid
 import collections
 import abc
+from collections.abc import Iterable
 from typing import Any, Optional, Type
 
 import numpy as np
@@ -115,6 +116,23 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         if intel_criteria not in self._source_interests_by_source:
             self._interests.add(intel_criteria)
             self._interests_advertised += 1
+
+        if self._immediate_interest is not None and self._immediate_interest not in self._interests:
+            # this interest must be a dependency of what we were just looking
+            # for, but we already tried to get it and have some other interest
+            # we need to satisfy for it
+
+            # let's verify that's true, that we have some interest downstream
+            # of this one
+            assert self._state in (IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE)
+            assert self._immediate_interest == intel_criteria
+            #TODO: make sure this interest has some interest dependency path to self._interests
+            assert len(self._interests) > 0
+
+            # and just try gathering intel again
+            self._immediate_interest = None
+            self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+            return
 
         assert self._immediate_interest is None or self._immediate_interest in self._interests
 
@@ -351,6 +369,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
         self._immediate_interest = cheapest_criteria
         self._immediate_interest_count += 1
+        self.logger.debug(f'{self.character} attempting to collect {cheapest_criteria}')
         next_ts = self._director.collect_intel(self.character, cheapest_criteria)
         if next_ts > 0:
             self.gamestate.schedule_agendum(next_ts, self, jitter=1.0)
@@ -480,14 +499,66 @@ class IntelGatherer[T: core.IntelMatchCriteria](abc.ABC):
         returns the timestamp we should check in again. """
         ...
 
+class SectorIntelGatherer(IntelGatherer[intel.SectorPartialCriteria]):
+    def _find_candidate(self, character:core.Character, intel_criteria:intel.SectorPartialCriteria) -> Optional[uuid.UUID]:
+        if intel_criteria.sector_id is not None:
+            # check if we have that sector already
+            sector = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(intel_criteria.sector_id), intel.SectorIntel)
+            if sector is not None:
+                #TODO: should we try to refresh it?
+                return None
+            return intel_criteria.sector_id
+
+        universe_view = intel.UniverseView.create(character)
+
+        if character.location is not None and character.location.sector is not None:
+            sector_ids:Iterable[uuid.UUID] = universe_view.sector_ids_by_distance(character.location.sector.entity_id)
+        else:
+            sector_ids = universe_view.sector_idx_lookup.keys()
+
+        for sector_id in sector_ids:
+            sector = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(sector_id), intel.SectorIntel)
+            if sector is not None:
+                #TODO: should we try to refresh it?
+                continue
+            return sector_id
+
+        # we don't know of any sectors that we haven't already explored
+        return None
+
+    def estimate_cost(self, character:core.Character, intel_criteria:intel.SectorPartialCriteria) -> Optional[tuple[bool, float]]:
+        #TODO: what if we're not a captain?
+        assert isinstance(character.location, core.Ship)
+        sector_id = self._find_candidate(character, intel_criteria)
+        if sector_id is not None:
+            eta = ocore.LocationExploreOrder.compute_eta(character.location, sector_id, ocore.ZERO_VECTOR)
+            return False, eta
+        else:
+            #TODO: we should search for a new gate, right? this might cause a
+            # cycle in interests: we might end up asking for a new sector again
+            return None
+
+    def collect_intel(self, character:core.Character, intel_criteria:intel.SectorPartialCriteria) -> float:
+        sector_id = self._find_candidate(character, intel_criteria)
+
+        if sector_id is None:
+            #TODO: are we supposed to submit a new interest here?
+            raise ValueError(f'no sectors available to satisfy {character} interest in {intel_criteria}')
+
+        #TODO: what if we're not a captain?
+        assert isinstance(character.location, core.Ship)
+        explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector_id, ocore.ZERO_VECTOR)
+        #TODO: should we keep track of this order and cancel it if necessary?
+        character.location.prepend_order(explore_order)
+        return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
+
+
 class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
-    def _candidate_in_sector(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria, sector_id:uuid.UUID) -> Optional[npt.NDArray[np.float64]]:
-        if character.location is not None and character.location.sector is not None and character.location.sector.entity_id == sector_id:
-            sector = character.location.sector
+    def _candidate_in_sector(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria, sector:intel.SectorIntel) -> Optional[npt.NDArray[np.float64]]:
+        if character.location is not None and character.location.sector is not None and character.location.sector.entity_id == sector.intel_entity_id:
             target_loc = character.location.loc
         else:
-            sector = self.gamestate.get_entity(sector_id, core.Sector)
-            target_loc = np.array((0.0, 0.0))
+            target_loc = ocore.ZERO_VECTOR
 
         target_dist = sector.radius*3.0
         hex_loc = sector.get_hex_coords(target_loc)
@@ -506,7 +577,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         candidate_hexes:set[tuple[int, int]] = {(int(x[0]), int(x[1])) for x in util.hexes_within_pixel_dist(target_loc, target_dist, sector.hex_size)}
 
         # find hexes in the current sector we know about
-        for i in character.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector_id, is_static=intel_criteria.is_static, hex_loc=target_hex_loc, hex_dist=target_hex_dist), intel.SectorHexIntel):
+        for i in character.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector.intel_entity_id, is_static=intel_criteria.is_static, hex_loc=target_hex_loc, hex_dist=target_hex_dist), intel.SectorHexIntel):
             hex_key = (int(i.hex_loc[0]), int(i.hex_loc[1]))
             if hex_key in candidate_hexes:
                 candidate_hexes.remove(hex_key)
@@ -518,43 +589,58 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         else:
             return np.array((float(candidate[0]), float(candidate[1])))
 
+    def _find_candidate(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria) -> Optional[tuple[intel.SectorIntel, npt.NDArray[np.float64]]]:
+        if intel_criteria.sector_id is not None:
+            # return whatever candidate is available in that sector, if any
+            sector = character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(intel_criteria.sector_id), intel.SectorIntel)
+            if sector is None:
+                return None
+            candidate = self._candidate_in_sector(character, intel_criteria, sector)
+            if candidate is None:
+                return None
+            return (sector, candidate)
+
+        # search across sectors for an unexplored hex
+        universe_view = intel.UniverseView.create(character)
+        if character.location is not None and character.location.sector is not None:
+            sectors:Iterable[intel.SectorIntel] = universe_view.sectors_by_distance(character.location.sector.entity_id)
+        else:
+            sectors = universe_view.sector_intels
+
+        for sector in sectors:
+            candidate = self._candidate_in_sector(character, intel_criteria, sector)
+            if candidate is not None:
+                return (sector, candidate)
+
+        # no unexplored hex in any known sectors
+        return None
+
     def estimate_cost(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria) -> Optional[tuple[bool, float]]:
         # passive => target hex is adjacent to the one we're in right now
         # cost = time to travel to center of target hex
         # target hex is closest one where a scan will produce new intel that
         # will match this partial criteria
 
+        #TODO: what if we're not captain?
         # we can't estimate cost if we don't know where the character is
         if character.location is None:
             return None
         if character.location.sector is None:
             return None
+        assert isinstance(character.location, core.Ship)
 
-        sector = character.location.sector
-        sector_id = sector.entity_id
+        ret = self._find_candidate(character, intel_criteria)
 
-        if intel_criteria.sector_id is None or intel_criteria.sector_id == sector_id:
-            candidate = self._candidate_in_sector(character, intel_criteria, sector_id)
-            if candidate is not None:
-                candidate_coords = sector.get_coords_from_hex(candidate)
-                loc = character.location.loc
-                hex_loc = sector.get_hex_coords(loc)
-                hex_dist = util.axial_distance(candidate, hex_loc)
+        if ret is not None:
+            sector, candidate = ret
+            candidate_coords = sector.get_coords_from_hex(candidate)
 
-                #TODO: what if we're not a captain? can we take action to travel to some location?
-                # this behavior assumes we're a captain of a ship
-                assert(isinstance(character.location, core.Ship))
-                assert(character.location.captain == character)
-                eta = movement.GoToLocation.compute_eta(character.location, candidate_coords)
-                return (hex_dist > 1, eta)
-
-        # we've already tried to find a hex in the current sector, only
-        # remaining candidates would be outside the current sector
-        if intel_criteria.sector_id is not None and intel_criteria.sector_id == sector_id:
-            return None
-
-        #TODO: find a candidate in another sector
-        return None
+            eta = ocore.LocationExploreOrder.compute_eta(character.location, sector.intel_entity_id, candidate_coords)
+            return eta > 45.0, eta
+        else:
+            # no candidates to explore, we'll have to find a new sector
+            # but submitting more intel is free
+            return False, 0.0
 
     def collect_intel(self, character:core.Character, intel_criteria:intel.SectorHexPartialCriteria) -> float:
         # we can't estimate cost if we don't know where the character is
@@ -563,27 +649,24 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         if character.location.sector is None:
             raise ValueError(f'cannot collect intel for {character} not in any sector')
 
-        sector = character.location.sector
-        sector_id = sector.entity_id
+        ret = self._find_candidate(character, intel_criteria)
 
-        if intel_criteria.sector_id is None or intel_criteria.sector_id == sector_id:
-            candidate = self._candidate_in_sector(character, intel_criteria, sector_id)
-            if candidate is not None:
-                #TODO: what if we're not a captain?
-                # collect intel at this candidate
-                assert(isinstance(character.location, core.Ship))
-                assert(character.location.captain == character)
-                candidate_coords = sector.get_coords_from_hex(candidate)
-                explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector_id, candidate_coords)
-                #TODO: should we keep track of this order and cancel it if necessary?
-                character.location.prepend_order(explore_order)
-                return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
+        if ret is not None:
+            sector, candidate = ret
 
-        #TODO: find a candidate in another sector
-
-        # if we have no candidates we should not have gotten called because we
-        # would not have returned anything from estimate_cost.
-        raise ValueError(f'no candidates to collect intel on')
+            #TODO: what if we're not a captain?
+            # collect intel at this candidate
+            assert(isinstance(character.location, core.Ship))
+            assert(character.location.captain == character)
+            candidate_coords = sector.get_coords_from_hex(candidate)
+            explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector.intel_entity_id, candidate_coords)
+            #TODO: should we keep track of this order and cancel it if necessary?
+            character.location.prepend_order(explore_order)
+            return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
+        else:
+            sector_criteria = intel.SectorPartialCriteria(sector_id=intel_criteria.sector_id)
+            character.intel_manager.register_intel_interest(sector_criteria, source=intel_criteria)
+            return 0.0
 
 class SectorEntityIntelGatherer(IntelGatherer[intel.SectorEntityPartialCriteria]):
     def estimate_cost(self, character:core.Character, intel_criteria:intel.SectorEntityPartialCriteria) -> Optional[tuple[bool, float]]:
@@ -601,7 +684,6 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
         assert(isinstance(character.location, core.Ship))
         assert(character == character.location.captain)
         assert(character.location.sector)
-        sector_id = character.location.sector.entity_id
 
         # find the closest one (number of jumps, distance)
         travel_cost = np.inf
@@ -613,10 +695,12 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), core.AbstractIntel):
                 continue
 
-            #TODO: handle stations out of sector
-            if station_intel.sector_id != sector_id:
-                continue
-            eta = ocore.DockingOrder.compute_eta(character.location, station_intel.loc)
+            if station_intel.sector_id == character.location.sector.entity_id:
+                eta = ocore.DockingOrder.compute_eta(character.location, station_intel.loc)
+            else:
+                eta = ocore.NavigateOrder.compute_eta(character.location, station_intel.sector_id)
+                eta += ocore.DockingOrder.compute_eta(character.location, station_intel.loc, starting_loc=ocore.ZERO_VECTOR)
+
             if eta < travel_cost:
                 closest_station_intel = station_intel
                 travel_cost = eta
@@ -650,12 +734,18 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
         travel_cost, station_intel = ret
         assert(isinstance(character.location, core.Ship))
         assert(character.location.sector)
-        station_image = character.location.sector.sensor_manager.target_from_identity(station_intel.create_sensor_identity(), character.location, station_intel.loc)
-
         assert(character == character.location.captain)
-        assert(character.location.sector.entity_id == station_image.identity.sector_id)
 
-        docking_order = ocore.DockingOrder.create_docking_order(station_image, character.location, self.gamestate)
-        #TODO: should we keep track of this order and cancel it if necessary?
-        character.location.prepend_order(docking_order)
-        return self.gamestate.timestamp + ocore.DockingOrder.compute_eta(character.location, station_image.loc) * 1.2
+        docking_order = ocore.DockingOrder.create_docking_order(character.location, self.gamestate, target_id=station_intel.intel_entity_id)
+
+        if station_intel.sector_id == character.location.sector.entity_id:
+            character.location.prepend_order(docking_order)
+            eta = ocore.DockingOrder.compute_eta(character.location, station_intel.loc) * 1.2
+        else:
+            character.location.prepend_order(docking_order, begin=False)
+            navigate_order = ocore.NavigateOrder.create_order(character.location, self.gamestate, station_intel.sector_id)
+            character.location.prepend_order(navigate_order)
+            eta = ocore.DockingOrder.compute_eta(character.location, station_intel.loc, starting_loc=ocore.ZERO_VECTOR) * 1.2
+            eta += ocore.NavigateOrder.compute_eta(character.location, station_intel.sector_id)
+
+        return self.gamestate.timestamp + eta

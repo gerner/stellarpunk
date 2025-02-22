@@ -1,3 +1,4 @@
+import logging
 from typing import Generator
 
 import pytest
@@ -8,6 +9,10 @@ from stellarpunk import core, sim, generate, interface, sensors, events, intel, 
 from stellarpunk.serialization import save_game
 from stellarpunk.agenda import intel as aintel
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
+
+logging.getLogger("stellarpunk.intel").level = logging.DEBUG
+logging.getLogger("stellarpunk.agenda.econ").level = logging.DEBUG
+logging.getLogger("stellarpunk.agenda.intel").level = logging.DEBUG
 
 @pytest.fixture
 def event_manager() -> events.EventManager:

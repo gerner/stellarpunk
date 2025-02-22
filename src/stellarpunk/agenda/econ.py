@@ -512,9 +512,6 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         self.state = MiningAgendum.State.TRADING
 
-        assert self.craft.sector
-        assert station.sector_id == self.craft.sector.entity_id
-        #TODO: multiple sectors
         #TODO: we should probably not reach into the actual entities here
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
 
@@ -936,7 +933,6 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
         self.state = TradingAgendum.State.SELLING
         assert self.craft.sector
-        assert station.sector_id == self.craft.sector.entity_id
         #TODO: we should probably not reach into the actual entities here
         actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(

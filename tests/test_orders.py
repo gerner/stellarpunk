@@ -410,7 +410,7 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
 
     station_image = sector.sensor_manager.target(station, ship_driver)
     arrival_distance = 1.5e3
-    goto_order = orders.DockingOrder.create_docking_order(station_image, ship_driver, gamestate, surface_distance=arrival_distance - station.radius)
+    goto_order = orders.DockingOrder.create_docking_order(ship_driver, gamestate, target_image=station_image, surface_distance=arrival_distance - station.radius)
 
 
     ship_driver.prepend_order(goto_order)

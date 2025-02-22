@@ -392,7 +392,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
                 raise command_input.UserError("target is not identified as a station")
 
-            order = orders.DockingOrder.create_docking_order(self.presenter.selected_target_image, self.ship, self.gamestate)
+            order = orders.DockingOrder.create_docking_order(self.ship, self.gamestate, target_image=self.presenter.selected_target_image)
 
             station_id = self.presenter.selected_target
             def complete_docking(order: core.Order) -> None:

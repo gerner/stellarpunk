@@ -247,7 +247,8 @@ class TravelThroughGateSaver(s_order.OrderSaver[ocore.TravelThroughGate], abc.AB
 class DockingOrderSaver(s_order.OrderSaver[ocore.DockingOrder], abc.ABC):
     def _save_order(self, order:ocore.DockingOrder, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(order.target_image.identity.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.target_id, f)
+        bytes_written += s_util.bool_to_f(order.target_image is not None, f)
         bytes_written += s_util.float_to_f(order.surface_distance, f)
         bytes_written += s_util.float_to_f(order.approach_distance, f)
         bytes_written += s_util.float_to_f(order.wait_time, f)
@@ -257,21 +258,23 @@ class DockingOrderSaver(s_order.OrderSaver[ocore.DockingOrder], abc.ABC):
 
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[ocore.DockingOrder, Any]:
         target_entity_id = s_util.uuid_from_f(f)
+        has_image = s_util.bool_from_f(f)
         surface_distance = s_util.float_from_f(f)
         approach_distance = s_util.float_from_f(f)
         wait_time = s_util.float_from_f(f)
         next_arrival_attempt_time = s_util.float_from_f(f)
         started_waiting = s_util.float_from_f(f)
 
-        order = ocore.DockingOrder(load_context.gamestate, surface_distance=surface_distance, approach_distance=approach_distance, wait_time=wait_time, _check_flag=True, order_id=order_id)
+        order = ocore.DockingOrder(load_context.gamestate, target_id=target_entity_id, surface_distance=surface_distance, approach_distance=approach_distance, wait_time=wait_time, _check_flag=True, order_id=order_id)
 
-        return order, target_entity_id
+        return order, has_image
 
     def _post_load_order(self, order:ocore.DockingOrder, load_context:save_game.LoadContext, context:Any) -> None:
-        target_entity_id:uuid.UUID = context
+        has_image:bool = context
 
-        target_image = order.ship.sensor_settings.get_image(target_entity_id)
-        order.target_image = target_image
+        if has_image:
+            target_image = order.ship.sensor_settings.get_image(order.target_id)
+            order.target_image = target_image
 
 class LocationExploreOrderSaver(s_order.OrderSaver[ocore.LocationExploreOrder], abc.ABC):
     def _save_order(self, order:ocore.LocationExploreOrder, f:io.IOBase) -> int:

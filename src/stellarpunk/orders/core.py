@@ -109,7 +109,7 @@ class MineOrder(core.OrderObserver, core.EffectObserver, core.Order):
         # grab resources from the asteroid and add to our cargo
         distance = util.distance(self.ship.loc, self.target_image.loc) - self.target_image.identity.radius
         if distance > self.max_dist:
-            order = DockingOrder.create_docking_order(self.target_image, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
+            order = DockingOrder.create_docking_order(self.ship, self.gamestate, target_image=self.target_image, surface_distance=self.max_dist, observer=self)
             self._add_child(order)
             return
 
@@ -208,7 +208,7 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
         # if we're too far away, go to the target
         distance = util.distance(self.ship.loc, self.target_image.loc) - self.target_image.identity.radius
         if distance > self.max_dist:
-            order = DockingOrder.create_docking_order(self.target_image, self.ship, self.gamestate, surface_distance=self.max_dist, observer=self)
+            order = DockingOrder.create_docking_order(self.ship, self.gamestate, target_image=self.target_image, surface_distance=self.max_dist, observer=self)
             self._add_child(order)
             return
 
@@ -694,17 +694,24 @@ class DockingOrder(core.OrderObserver, core.Order):
         return GoToLocation.compute_eta(ship, loc, starting_loc=starting_loc) + 15
 
     @classmethod
-    def create_docking_order[T:"DockingOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> T:
-        o = cls.create_order(*args, surface_distance=surface_distance, approach_distance=approach_distance, wait_time=wait_time, **kwargs)
-        o.target_image = target_image
+    def create_docking_order[T:"DockingOrder"](cls:Type[T], *args:Any, target_id:Optional[uuid.UUID]=None, target_image:Optional[core.AbstractSensorImage]=None, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> T:
+        if target_image is None and target_id is None:
+            raise ValueError("one of target_image or target_id must be specified")
+        elif target_image is not None:
+            target_id = target_image.identity.entity_id
+
+        o = cls.create_order(*args, target_id=target_id, surface_distance=surface_distance, approach_distance=approach_distance, wait_time=wait_time, **kwargs)
+        if target_image is not None:
+            o.target_image = target_image
 
         return o
 
-    def __init__(self, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., **kwargs:Any) -> None:
+    def __init__(self, *args:Any, surface_distance:float=7.5e2, approach_distance:float=1e4, wait_time:float=5., target_id:uuid.UUID, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         if approach_distance <= surface_distance:
             raise ValueError(f'{approach_distance=} must be greater than {surface_distance=}')
-        self.target_image:core.AbstractSensorImage = None # type: ignore
+        self.target_id:uuid.UUID = target_id
+        self.target_image:Optional[core.AbstractSensorImage] = None
         self.surface_distance = surface_distance
         self.approach_distance = approach_distance
         self.wait_time = wait_time
@@ -715,11 +722,28 @@ class DockingOrder(core.OrderObserver, core.Order):
         # on cancel or complete unobserve it
         # on destroy or migrate cancel us
 
+    def _ensure_target(self) -> core.AbstractSensorImage:
+        if self.target_image is not None:
+            return self.target_image
+        if self.ship.captain is None:
+            raise ValueError(f'{self.ship} cannot create a sensor image for {self.target_id} without a captain')
+        if self.ship.sector is None:
+            raise ValueError(f'{self.ship} cannot create a sensor image for {self.target_id} outside of any sector')
+        target_intel = self.ship.captain.intel_manager.get_intel(intel.EntityIntelMatchCriteria(self.target_id), intel.SectorEntityIntel)
+        if target_intel is None:
+            raise ValueError(f'{self.ship.captain} has no intel for {self.target_id}')
+        if target_intel.sector_id != self.ship.sector.entity_id:
+            raise ValueError(f'{self.ship} is in {self.ship.sector}, but target is in {target_intel.sector_id}')
+        self.target_image = self.ship.sector.sensor_manager.target_from_identity(target_intel.create_sensor_identity(), self.ship, target_intel.loc)
+        return self.target_image
+
     def _begin(self) -> None:
+        self.target_image = self._ensure_target()
         # need to get roughly to the target and then time for final approach
         self._init_eta = DockingOrder.compute_eta(self.ship, self.target_image.loc)
 
     def _complete(self) -> None:
+        assert self.target_image
         crew = core.crew(self.ship)
         if crew:
             self.gamestate.trigger_event(
@@ -742,12 +766,15 @@ class DockingOrder(core.OrderObserver, core.Order):
         self.gamestate.schedule_order_immediate(self)
 
     def _is_complete(self) -> bool:
+        if self.target_image is None:
+            return False
         if not self.target_image.is_active():
             return False
         distance_to_target = util.distance(self.ship.loc, self.target_image.loc)
         return distance_to_target < self.surface_distance + self.target_image.identity.radius
 
     def act(self, dt:float) -> None:
+        assert self.target_image
         self.target_image.update()
         if not self.target_image.is_active():
             self.cancel_order()
@@ -779,6 +806,19 @@ class DockingOrder(core.OrderObserver, core.Order):
                 self._add_child(goto_order)
 
 class LocationExploreOrder(core.OrderObserver, core.Order):
+    @classmethod
+    def compute_eta(cls, ship:core.Ship, sector_id:uuid.UUID, loc:npt.NDArray[np.float64]) -> float:
+        assert ship.sector
+        if ship.sector.entity_id != sector_id:
+            nav_eta = NavigateOrder.compute_eta(ship, sector_id)
+            # assume we have to cross from the opposite side of the sector
+            target_r, target_theta = util.cartesian_to_polar(*loc)
+            starting_loc = util.polar_to_cartesian(ship.sector.radius*2.5, target_theta+np.pi)
+            goto_eta = movement.GoToLocation.compute_eta(ship, loc, starting_loc=starting_loc)
+            return nav_eta + goto_eta
+        else:
+            return movement.GoToLocation.compute_eta(ship, loc) + 5.0
+
     def __init__(self, sector_id:uuid.UUID, loc:npt.NDArray[np.float64], *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.sector_id = sector_id
@@ -826,15 +866,7 @@ class LocationExploreOrder(core.OrderObserver, core.Order):
 
     def _begin(self) -> None:
         assert self.ship.sector
-        if self.ship.sector.entity_id != self.sector_id:
-            nav_eta = NavigateOrder.compute_eta(self.ship, self.sector_id)
-            # assume we have to cross from the opposite side of the sector
-            target_r, target_theta = util.cartesian_to_polar(*self.loc)
-            starting_loc = util.polar_to_cartesian(self.ship.sector.radius*2.5, target_theta+np.pi)
-            goto_eta = movement.GoToLocation.compute_eta(self.ship, self.loc, starting_loc=starting_loc)
-            self.init_eta = nav_eta + goto_eta
-        else:
-            self.init_eta = movement.GoToLocation.compute_eta(self.ship, self.loc) + 5.0
+        self.init_eta = LocationExploreOrder.compute_eta(self.ship, self.sector_id, self.loc)
 
     def act(self, dt:float) -> None:
         #TODO: is this a safe assert?

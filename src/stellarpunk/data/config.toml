@@ -401,6 +401,24 @@ AUTOSAVE_PERIOD_SEC = 120.0
             # very large but still expressible in 32 bits
             SENSOR_INTERCEPT = 1e38
 
+[intel]
+    [intel.asteroid]
+        TTL=inf
+    [intel.station]
+        TTL=inf
+    [intel.travel_gate]
+        TTL=inf
+    [intel.sector_entity]
+        TTL=600.0
+    [intel.econ_agent]
+        TTL=1200
+    [intel.static_hex]
+        TTL=7200
+    [intel.dynamic_hex]
+        TTL=2400
+    [intel.sector]
+        TTL=inf
+
 [sensors]
     # these are tuned so a stationary, passive ship under normal sector
     # conditions has a profile of just over 50 (formerly 100) at 100km

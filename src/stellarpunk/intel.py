@@ -3,13 +3,13 @@ import uuid
 import collections
 import functools
 import abc
-from collections.abc import Collection, MutableMapping, Mapping
+from collections.abc import Collection, MutableMapping, Mapping, Iterator
 from typing import Type, Any, Optional, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, events, sensors, util
+from stellarpunk import core, events, sensors, util, config
 #TODO: sector_entity shouldn't be in core
 from stellarpunk.core import sector_entity
 
@@ -182,10 +182,12 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         return None
 
     def register_intel_interest(self, interest:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]=None) -> None:
+        self.logger.debug(f'{self.character} registered interest {interest} {source=}')
         for observer in self.observers:
             observer.intel_desired(self, interest, source=source)
 
     def unregister_intel_interest(self, interest:core.IntelMatchCriteria) -> None:
+        self.logger.debug(f'{self.character} unregistered interest {interest}')
         for observer in self.observers:
             observer.intel_undesired(self, interest)
 
@@ -193,6 +195,8 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 class TrivialMatchCriteria(core.IntelMatchCriteria):
     def __init__(self, *args:Any, cls:Type[core.AbstractIntel]=core.AbstractIntel, **kwargs:Any):
         self.cls = cls
+    def is_exact(self) -> bool:
+        return False
     def matches(self, other:core.AbstractIntel) -> bool:
         if not isinstance(other, self.cls):
             return False
@@ -337,6 +341,20 @@ class UniverseView:
     def _sector_dfs(self, source_idx:int) -> tuple[Mapping[int, int], Mapping[int, float]]:
         return util.dijkstra(self.adj_matrix, source_idx, len(self.sector_idx_lookup))
 
+    def sector_ids_by_distance(self, source_id:uuid.UUID) -> Iterator[uuid.UUID]:
+        source_idx = self.sector_idx_lookup[source_id]
+        path_tree, distance_map = self._sector_dfs(source_idx)
+        for sector_idx, distance in sorted(distance_map.items(), key=lambda x: x[1]):
+            yield self.sector_id_lookup[sector_idx]
+
+    def sectors_by_distance(self, source_id:uuid.UUID) -> Iterator["SectorIntel"]:
+        source_idx = self.sector_idx_lookup[source_id]
+        path_tree, distance_map = self._sector_dfs(source_idx)
+        for sector_idx, distance in sorted(distance_map.items(), key=lambda x: x[1]):
+            # skip sectors we don't have intel for
+            if sector_idx < len(self.sector_intels):
+                yield self.sector_intels[sector_idx]
+
     def compute_path(self, source_id:uuid.UUID, target_id:uuid.UUID) -> Optional[list[tuple["SectorIntel", "TravelGateIntel", Optional["TravelGateIntel"], float]]]:
         """ Computes the shortest known path from character's sector to target
 
@@ -407,6 +425,16 @@ class SectorIntel(EntityIntel[core.Sector]):
     @property
     def culture(self) -> str:
         return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).culture
+
+    @property
+    def hex_size(self) -> float:
+        return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).hex_size
+
+    def get_hex_coords(self, coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).get_hex_coords(coords)
+
+    def get_coords_from_hex(self, hex_coords:npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        return core.Gamestate.gamestate.get_entity(self.intel_entity_id, core.Sector).get_coords_from_hex(hex_coords)
 
     def compute_path(self, source_id:uuid.UUID, character:core.Character) -> Optional[list[tuple["SectorIntel", "TravelGateIntel", "TravelGateIntel", float]]]:
         """ Computes the shortest known path to this sector
@@ -840,6 +868,33 @@ class SectorHexPartialCriteria(IntelPartialCriteria):
             return False
         return True
 
+class SectorPartialCriteria(IntelPartialCriteria):
+    def __init__(self, sector_id:Optional[uuid.UUID]=None):
+        self.sector_id = sector_id
+
+    def __str__(self) -> str:
+        if self.sector_id:
+            return f'{util.fullname(self)} sector_id={self.sector_id}'
+        else:
+            return f'{util.fullname(self)}'
+
+    def matches(self, intel:core.AbstractIntel) -> bool:
+        if not isinstance(intel, SectorIntel):
+            return False
+        if self.sector_id and intel.intel_entity_id != self.sector_id:
+            return False
+        return True
+
+    def __hash__(self) -> int:
+        return hash(self.sector_id)
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, SectorPartialCriteria):
+            return False
+        if other.sector_id != self.sector_id:
+            return False
+        return True
+
 class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
     """ Partial criteria matching econ agents for static sector entities """
     def __init__(self,
@@ -1112,7 +1167,7 @@ class IdentifyTravelGateAction(events.Action):
 
 
 class IdentifySectorEntityAction(events.Action):
-    def __init__(self, *args:Any, intel_ttl:float=300, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, intel_ttl:float=config.Settings.intel.sector_entity.TTL, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.intel_ttl = intel_ttl
 
@@ -1133,7 +1188,7 @@ class IdentifySectorEntityAction(events.Action):
         add_sector_entity_intel(sentity, character, self.gamestate, dynamic_fresh_until=fresh_until, dynamic_expires_at=expires_at)
 
 class DockingAction(events.Action):
-    def __init__(self, *args:Any, econ_intel_ttl:float=300.0, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, econ_intel_ttl:float=config.Settings.intel.econ_agent.TTL, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.econ_intel_ttl=econ_intel_ttl
 
@@ -1155,7 +1210,7 @@ class DockingAction(events.Action):
         #TODO: what other intel do we want to create now that we're docked?
 
 class ScanAction(events.Action):
-    def __init__(self, *args:Any, static_intel_ttl:float=3600, dynamic_intel_ttl:float=900, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, static_intel_ttl:float=config.Settings.intel.static_hex.TTL, dynamic_intel_ttl:float=config.Settings.intel.dynamic_hex.TTL, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.static_intel_ttl = static_intel_ttl
         self.dynamic_intel_ttl = dynamic_intel_ttl
@@ -1179,7 +1234,7 @@ class ScanAction(events.Action):
         add_sector_scan_intel(detector, sector, character, self.gamestate, static_fresh_until=static_fresh_until, static_expires_at=static_expires_at, dynamic_fresh_until=dynamic_fresh_until, dynamic_expires_at=dynamic_expires_at)
 
 class EnterSectorAction(events.Action):
-    def __init__(self, *args:Any, fresh_ttl:float=np.inf, expires_ttl:float=np.inf, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, fresh_ttl:float=config.Settings.intel.sector.TTL, expires_ttl:float=config.Settings.intel.sector.TTL, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.fresh_ttl = fresh_ttl
         self.expires_ttl = expires_ttl
