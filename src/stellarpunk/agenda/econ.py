@@ -512,11 +512,8 @@ class MiningAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperato
 
         self.state = MiningAgendum.State.TRADING
 
-        #TODO: we should probably not reach into the actual entities here
-        actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
-
         self.transfer_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
-                actual_agent, self.agent, floor_price,
+                station_agent.intel_entity_id, self.agent, floor_price,
                 station, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.transfer_order.observe(self)
@@ -891,11 +888,8 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
         self.state = TradingAgendum.State.BUYING
         assert self.craft.sector
-        #TODO: multiple sectors
-        #TODO: we should probably not reach into the actual entities here
-        actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.buy_order = ocore.TradeCargoFromStation.create_trade_cargo_from_station(
-                self.agent, actual_agent, ceiling_price,
+                self.agent, station_agent.intel_entity_id, ceiling_price,
                 station, resource, amount,
                 self.craft, self.gamestate)
         self.buy_order.observe(self)
@@ -933,10 +927,8 @@ class TradingAgendum(core.OrderObserver, core.IntelManagerObserver, EntityOperat
 
         self.state = TradingAgendum.State.SELLING
         assert self.craft.sector
-        #TODO: we should probably not reach into the actual entities here
-        actual_agent = self.gamestate.get_entity(station_agent.intel_entity_id, core.EconAgent)
         self.sell_order = ocore.TradeCargoToStation.create_trade_cargo_to_station(
-                actual_agent, self.agent, floor_price,
+                station_agent.intel_entity_id, self.agent, floor_price,
                 station, resource, self.craft.cargo[resource],
                 self.craft, self.gamestate)
         self.sell_order.observe(self)

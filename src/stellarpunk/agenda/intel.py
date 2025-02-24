@@ -608,7 +608,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         else:
             target_loc = ocore.ZERO_VECTOR
 
-        target_dist = sector.radius*4.0
+        target_dist = sector.radius*3.5
         hex_loc = sector.get_hex_coords(target_loc)
         # look for hex options in current sector
 

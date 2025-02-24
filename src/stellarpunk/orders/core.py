@@ -214,12 +214,16 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
 
         #TODO: multiple goods? transfer from us to them?
         if not self.transfer_effect:
-            self.transfer_effect = self._initialize_transfer()
+            transfer_effect = self._initialize_transfer()
+            if transfer_effect is None:
+                self.cancel_order()
+                return
+            self.transfer_effect = transfer_effect
             self.transfer_effect.observe(self)
             self.ship.sector.add_effect(self.transfer_effect)
         # else wait for the transfer effect
 
-    def _initialize_transfer(self) -> effects.TransferCargoEffect:
+    def _initialize_transfer(self) -> Optional[effects.TransferCargoEffect]:
         assert self.ship.sector is not None
         assert self.target_image
         assert self.target_image.detected
@@ -233,79 +237,75 @@ class TransferCargo(core.OrderObserver, core.EffectObserver, core.Order):
 
 class TradeCargoToStation(TransferCargo):
     @classmethod
-    def create_trade_cargo_to_station[T:"TradeCargoToStation"](cls:Type[T], buyer:core.EconAgent, seller:core.EconAgent, floor_price:float, *args:Any, **kwargs:Any) -> T:
+    def create_trade_cargo_to_station[T:"TradeCargoToStation"](cls:Type[T], buyer_id:uuid.UUID, seller:core.EconAgent, floor_price:float, *args:Any, **kwargs:Any) -> T:
         o = cls.create_transfer_cargo(*args, floor_price, **kwargs)
-        o.buyer = buyer
+        o.buyer_id = buyer_id
         o.seller = seller
         return o
 
     def __init__(self, floor_price:float, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
-        self.buyer:core.EconAgent = None # type: ignore
+        self.buyer_id:uuid.UUID = None # type: ignore
         self.seller:core.EconAgent = None # type: ignore
         self.floor_price = floor_price
 
-    def _initialize_transfer(self) -> effects.TransferCargoEffect:
+    def _initialize_transfer(self) -> Optional[effects.TransferCargoEffect]:
         assert self.target_image
         assert self.target_image.detected
         assert self.target_image.currently_identified
         assert self.target_image.is_active()
         assert self.ship.sector is not None
-        assert self.buyer == self.gamestate.econ_agents[self.target_image.identity.entity_id]
-        #TODO: what should we do if the buyer doesn't represent the station
-        # anymore (might have happened since we started the order)
-        assert self.target_image.detected
-        assert self.target_image.currently_identified
-        assert self.target_image.is_active()
+
+        # check that the expected econ agent represents this station
+        # otherwise bail, some agenda can try again
+        actual_agent = self.gamestate.econ_agents[self.target_image.identity.entity_id]
+        if actual_agent.entity_id != self.buyer_id:
+            return None
+
         actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, core.SectorEntity)
         return effects.TradeTransferEffect.create_trade_transfer_effect(
-                self.buyer, self.seller, econ.buyer_price,
+                actual_agent, self.seller, econ.buyer_price,
                 self.resource, self.amount, self.ship, actual_target,
                 self.ship.sector, self.gamestate,
                 floor_price=self.floor_price,
                 transfer_rate=self.transfer_rate())
 
-    def act(self, dt:float) -> None:
-        #TODO: what happens if the buyer changes?
-        assert self.buyer == self.gamestate.econ_agents.get(self.target_intel.intel_entity_id)
-        super().act(dt)
-
 class TradeCargoFromStation(TransferCargo):
     @classmethod
-    def create_trade_cargo_from_station[T:"TradeCargoFromStation"](cls:Type[T], buyer:core.EconAgent, seller:core.EconAgent, ceiling_price:float, *args:Any, **kwargs:Any) -> T:
+    def create_trade_cargo_from_station[T:"TradeCargoFromStation"](cls:Type[T], buyer:core.EconAgent, seller_id:uuid.UUID, ceiling_price:float, *args:Any, **kwargs:Any) -> T:
         o = cls.create_transfer_cargo(*args, ceiling_price, **kwargs)
         o.buyer = buyer
-        o.seller = seller
+        o.seller_id = seller_id
         assert(o is not None)
         return o
 
     def __init__(self, ceiling_price:float, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.buyer:core.EconAgent = None # type: ignore
-        self.seller:core.EconAgent = None # type: ignore
+        self.seller_id:uuid.UUID = None # type: ignore
         self.ceiling_price = ceiling_price
 
-    def _initialize_transfer(self) -> effects.TransferCargoEffect:
+    def _initialize_transfer(self) -> Optional[effects.TransferCargoEffect]:
         assert self.target_image
         assert self.target_image.detected
         assert self.target_image.currently_identified
         assert self.target_image.is_active()
         assert self.ship.sector is not None
-        assert self.seller == self.gamestate.econ_agents[self.target_image.identity.entity_id]
-        #TODO: what should we do if the buyer doesn't represent the station
-        # anymore (might have happened since we started the order)
+
+        # check that the econ agent for the station is what we expect
+        # otherwise bail and let agenda try again
+        actual_agent = self.gamestate.econ_agents[self.target_image.identity.entity_id]
+        if actual_agent.entity_id != self.seller_id:
+            return None
+
         actual_target = self.gamestate.get_entity(self.target_image.identity.entity_id, core.SectorEntity)
         return effects.TradeTransferEffect.create_trade_transfer_effect(
-                self.buyer, self.seller, econ.seller_price,
+                self.buyer, actual_agent, econ.seller_price,
                 self.resource, self.amount, actual_target, self.ship,
                 self.ship.sector, self.gamestate,
                 ceiling_price=self.ceiling_price,
                 transfer_rate=self.transfer_rate())
 
-    def act(self, dt:float) -> None:
-        #TODO: what happens if the buyer changes?
-        assert self.seller == self.gamestate.econ_agents.get(self.target_intel.intel_entity_id)
-        super().act(dt)
 
 class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     # lifecycle has several phases:

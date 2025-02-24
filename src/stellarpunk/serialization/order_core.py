@@ -118,31 +118,31 @@ class TransferCargoSaver[T:ocore.TransferCargo](s_order.OrderSaver[T]):
 class TradeCargoToStationSaver(TransferCargoSaver[ocore.TradeCargoToStation]):
     def _save_transfer_cargo(self, order:ocore.TradeCargoToStation, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuid_to_f(order.buyer.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.buyer_id, f)
         bytes_written += s_util.uuid_to_f(order.seller.entity_id, f)
         bytes_written += s_util.float_to_f(order.floor_price, f)
         return bytes_written
+
     def _load_transfer_cargo(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID, resource:int, amount:float, max_dist:float) -> tuple[ocore.TradeCargoToStation, Any]:
         buyer_id = s_util.uuid_from_f(f)
         seller_id = s_util.uuid_from_f(f)
         floor_price = s_util.float_from_f(f)
         order = ocore.TradeCargoToStation(floor_price, resource, amount, load_context.gamestate, max_dist=max_dist, _check_flag=True, order_id=order_id)
-        return order, (buyer_id, seller_id)
+        order.buyer_id = buyer_id
+        return order, seller_id
+
     def _post_load_transfer_cargo(self, order:ocore.TradeCargoToStation, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID] = context
-        buyer_id, seller_id = context_data
+        seller_id:uuid.UUID = context
 
         #TODO: I'm not sure why passing core.EconAgent (an abstract class) in here causes mypy issues
-        buyer = load_context.gamestate.get_entity(buyer_id, core.EconAgent) # type: ignore
         seller = load_context.gamestate.get_entity(seller_id, core.EconAgent) # type: ignore
-        order.buyer = buyer
         order.seller = seller
 
 class TradeCargoFromStationSaver(TransferCargoSaver[ocore.TradeCargoFromStation]):
     def _save_transfer_cargo(self, order:ocore.TradeCargoFromStation, f:io.IOBase) -> int:
         bytes_written = 0
         bytes_written += s_util.uuid_to_f(order.buyer.entity_id, f)
-        bytes_written += s_util.uuid_to_f(order.seller.entity_id, f)
+        bytes_written += s_util.uuid_to_f(order.seller_id, f)
         bytes_written += s_util.float_to_f(order.ceiling_price, f)
         return bytes_written
     def _load_transfer_cargo(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID, resource:int, amount:float, max_dist:float) -> tuple[ocore.TradeCargoFromStation, Any]:
@@ -150,16 +150,14 @@ class TradeCargoFromStationSaver(TransferCargoSaver[ocore.TradeCargoFromStation]
         seller_id = s_util.uuid_from_f(f)
         ceiling_price = s_util.float_from_f(f)
         order = ocore.TradeCargoFromStation(ceiling_price, resource, amount, load_context.gamestate, max_dist=max_dist, _check_flag=True, order_id=order_id)
-        return order, (buyer_id, seller_id)
+        order.seller_id = seller_id
+        return order, buyer_id
     def _post_load_transfer_cargo(self, order:ocore.TradeCargoFromStation, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[uuid.UUID, uuid.UUID] = context
-        buyer_id, seller_id = context_data
+        buyer_id:uuid.UUID = context
 
         #TODO: I'm not sure why passing core.EconAgent (an abstract class) in here causes mypy issues
         buyer = load_context.gamestate.get_entity(buyer_id, core.EconAgent) # type: ignore
-        seller = load_context.gamestate.get_entity(seller_id, core.EconAgent) # type: ignore
         order.buyer = buyer
-        order.seller = seller
 
 """
 class DisembarkToEntitySaver(s_order.OrderSaver[ocore.DisembarkToEntity]):
