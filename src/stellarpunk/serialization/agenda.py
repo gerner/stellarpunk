@@ -380,6 +380,8 @@ class IntelCollectionAgendumSaver(AgendumSaver[aintel.IntelCollectionAgendum]):
                 save_imcs
         )
 
+        bytes_written += s_util.objs_to_f(obj._cycle_interests, f, save_imc)
+
         bytes_written += s_util.optional_uuid_to_f(obj._preempted_primary.agenda_id if obj._preempted_primary else None, f)
 
         return bytes_written
@@ -425,6 +427,8 @@ class IntelCollectionAgendumSaver(AgendumSaver[aintel.IntelCollectionAgendum]):
             load_imcs,
         ))
 
+        cycle_interests = set(s_util.objs_from_f(f, load_imc))
+
         preempted_primary_id = s_util.optional_uuid_from_f(f)
 
         intel_agendum = aintel.IntelCollectionAgendum(load_context.generator.intel_director, load_context.gamestate, idle_period=idle_period, _check_flag=True, agenda_id=agenda_id)
@@ -439,6 +443,8 @@ class IntelCollectionAgendumSaver(AgendumSaver[aintel.IntelCollectionAgendum]):
 
         intel_agendum._source_interests_by_dependency = source_interests_by_dependency
         intel_agendum._source_interests_by_source = source_interests_by_source
+
+        intel_agendum._cycle_interests = cycle_interests
 
         return intel_agendum, preempted_primary_id
 

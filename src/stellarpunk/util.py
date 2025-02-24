@@ -445,6 +445,36 @@ def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDAr
         edge_distances[edge[1], edge[0]] = distances[edge]
     return E, edge_distances
 
+def detect_cycle[T](root:T, tree:Mapping[T, Collection[T]], visited:Optional[set[T]]=None) -> bool:
+    if root is None:
+        return False
+    if visited is None:
+        visited = set()
+    if root in visited:
+        return True
+    visited.add(root)
+    if root in tree:
+        for child in tree[root]:
+            if detect_cycle(child, tree, visited):
+                return True
+    return False
+
+def print_tree[T](root:T, tree:Mapping[T, Collection[T]], level:int=0, visited:Optional[set[T]]=None, leader:str="", last:bool=True) -> None:
+    if root is None:
+        return
+    elbow = "└── "
+    pipe = "│   "
+    tee = "├── "
+    blank = "    "
+    if visited is None:
+        visited = set()
+    if root in visited:
+        print(f'{leader}{(elbow if last else tee)}{root} CYCLE')
+        return
+    visited.add(root)
+    print(f'{leader}{(elbow if last else tee)}{root}')
+    for i, child in enumerate(tree[root]):
+        print_tree(child, tree, level+1, visited, leader=leader+(blank if last else pipe), last=i == len(tree[root]) - 1)
 
 # drawille drawing methods
 

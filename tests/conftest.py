@@ -14,7 +14,7 @@ from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
 # some logging to turn on if we like
 #logging.getLogger("stellarpunk.intel").level = logging.DEBUG
 #logging.getLogger("stellarpunk.agenda.econ").level = logging.DEBUG
-#logging.getLogger("stellarpunk.agenda.intel").level = logging.DEBUG
+logging.getLogger("stellarpunk.agenda.intel").level = logging.DEBUG
 
 @pytest.fixture
 def event_manager() -> events.EventManager:

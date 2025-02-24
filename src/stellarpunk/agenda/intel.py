@@ -48,6 +48,9 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         self._source_interests_by_dependency:collections.defaultdict[core.IntelMatchCriteria, set[Optional[core.IntelMatchCriteria]]] = collections.defaultdict(set)
         self._source_interests_by_source:collections.defaultdict[Optional[core.IntelMatchCriteria], set[core.IntelMatchCriteria]] = collections.defaultdict(set)
 
+        # interests that would cause a dependency cycle and need to be rejected
+        self._cycle_interests:set[core.IntelMatchCriteria] = set()
+
         self._preempted_primary:Optional[core.AbstractAgendum] = None
 
     def __str__(self) -> str:
@@ -104,6 +107,17 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
 
         # immediate interest is this source, track the dependency instead
         if source:
+            if util.detect_cycle(intel_criteria, self._source_interests_by_source, set((source,))): # type: ignore
+                # adding intel_criteria from source would create a dependency
+                # cycle
+                # this needs to be resolved by rejecting intel_criteria and
+                # related interests
+                # we'll mark these here and reject them on a subsequent tick
+                self._cycle_interests.add(intel_criteria)
+                self._cycle_interests.add(source)
+                if source == self._immediate_interest:
+                    self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+                return
             if source == self._immediate_interest:
                 self._immediate_interest = intel_criteria
             if source in self._interests:
@@ -121,16 +135,13 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # this interest must be a dependency of what we were just looking
             # for, but we already tried to get it and have some other interest
             # we need to satisfy for it
-
-            # let's verify that's true, that we have some interest downstream
-            # of this one
             assert self._state in (IntelCollectionAgendum.State.PASSIVE, IntelCollectionAgendum.State.ACTIVE)
             assert self._immediate_interest == intel_criteria
             #TODO: make sure this interest has some interest dependency path to self._interests
             assert len(self._interests) > 0
 
             # and just try gathering intel again
-            self._immediate_interest = None
+            #self._immediate_interest = None
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
             return
 
@@ -144,6 +155,24 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # note: we might ask to be scheduled many times here if someone
             # registers several interests, but the schedule will dedupe
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
+
+    def _reject_interest(self, interest:core.IntelMatchCriteria, visited:Optional[set[core.IntelMatchCriteria]]=None) -> None:
+        if visited is None:
+            visited = set()
+        if interest in visited:
+            return
+        visited.add(interest)
+        # this is how we signal to intel consumers that we will not try
+        # to collect this intel
+        # someone else should try to take back primary agendum and do
+        # something else.
+        self.character.intel_manager.unregister_intel_interest(interest)
+        for child in self._source_interests_by_dependency[interest].copy():
+            if child is None:
+                continue
+            self._reject_interest(child, visited)
+        self.logger.info(f'rejection dropping {interest}')
+        self._remove_interest(interest)
 
     def _remove_interest(self, interest:core.IntelMatchCriteria) -> None:
         # prec: interest was an interest we were tracking with at least the None source, possibly others
@@ -357,13 +386,10 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # back into interests and we want to remove those too.
             while self._interests:
                 interest = self._interests.pop()
-                self._remove_interest(interest)
-                # this is how we signal to intel consumers that we will not try
-                # to collect this intel
-                # someone else should try to take back primary agendum and do
-                # something else.
-                self.character.intel_manager.unregister_intel_interest(interest)
+                self._reject_interest(interest)
 
+            assert len(self._source_interests_by_source) == 0
+            assert len(self._source_interests_by_dependency) == 0
             self._go_idle()
             return
 
@@ -404,6 +430,14 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
     def act(self) -> None:
         if self.paused:
             return
+
+        while self._cycle_interests:
+            cycle_interest = self._cycle_interests.pop()
+            # this cycle makes the interest unsatisfiable
+            self.logger.info(f'{self.character} has intel interest {cycle_interest} that we cannot satisfy: (interest dependency cycle)')
+            # bail on all the interests for which this is a dependency
+            self._reject_interest(cycle_interest)
+
         # no sense working if we have no intel to collect
         if len(self._interests) == 0:
             self._go_idle()
@@ -540,25 +574,30 @@ class SectorIntelGatherer(IntelGatherer[intel.SectorPartialCriteria]):
         sector_id = self._find_candidate(character, intel_criteria)
         if sector_id is not None:
             eta = ocore.LocationExploreOrder.compute_eta(character.location, sector_id, ocore.ZERO_VECTOR)
-            return False, eta
+            return True, eta
         else:
-            #TODO: we should search for a new gate, right? this might cause a
+            # we should search for a new gate, right? this might cause a
             # cycle in interests: we might end up asking for a new sector again
-            return None
+            # however, it can only cycle back to searching for a new sector
+            #TODO: how to avoid this cycle? or detect it and then bail on the
+            # chain of interests related to it?
+            return False, 0.0
 
     def collect_intel(self, character:core.Character, intel_criteria:intel.SectorPartialCriteria) -> float:
         sector_id = self._find_candidate(character, intel_criteria)
 
-        if sector_id is None:
-            #TODO: are we supposed to submit a new interest here?
-            raise ValueError(f'no sectors available to satisfy {character} interest in {intel_criteria}')
-
-        #TODO: what if we're not a captain?
-        assert isinstance(character.location, core.Ship)
-        explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector_id, ocore.ZERO_VECTOR)
-        #TODO: should we keep track of this order and cancel it if necessary?
-        character.location.prepend_order(explore_order)
-        return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
+        if sector_id is not None:
+            #TODO: what if we're not a captain?
+            assert isinstance(character.location, core.Ship)
+            explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector_id, ocore.ZERO_VECTOR)
+            #TODO: should we keep track of this order and cancel it if necessary?
+            character.location.prepend_order(explore_order)
+            return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
+        else:
+            # we need to find a new gate
+            gate_criteria = intel.SectorEntityPartialCriteria(cls=sector_entity.TravelGate, sector_id=intel_criteria.sector_id, jump_distance=intel_criteria.jump_distance)
+            character.intel_manager.register_intel_interest(gate_criteria, source=intel_criteria)
+            return 0.0
 
 
 class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):

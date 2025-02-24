@@ -296,6 +296,8 @@ def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_direct
     # 3. back same sector entity interest with econ agent interest as a source
     # 4. back to a new sector hex interest
     # 5. new sector interest
+    # 6. sector entity interest for a travel gate
+    # after this we'll get a cycle and bail on all these interests
     saw_active = False
     saw_interest_ea = False
     interest_ea = None
@@ -310,9 +312,12 @@ def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_direct
     interest_si_objs:set[int] = set()
     saw_interest_si = False
     stage = 0
+    seen_stages:set[int] = set()
     def tick_callback():
-        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh, interest_ea_objs, interest_se_objs, interest_sh_objs, saw_interest_si, interest_si_objs, interest_si, stage
+        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh, interest_ea_objs, interest_se_objs, interest_sh_objs, saw_interest_si, interest_si_objs, interest_si, stage, seen_stages
         character.intel_manager.sanity_check()
+
+        seen_stages.add(stage)
 
         current_interest = next(iter(intel_agendum._interests), None)
 
@@ -328,16 +333,25 @@ def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_direct
             assert len(intel_agendum._interests) == 1
             saw_interest_se = True
             if stage == 0:
+                assert current_interest.cls == sector_entity.Station
                 assert len(interest_se_objs) == 0
                 assert len(interest_sh_objs) == 0
                 stage = 1
             elif stage == 2:
+                assert current_interest.cls == sector_entity.Station
                 assert len(interest_se_objs) == 1
                 assert len(interest_sh_objs) == 1
+                assert len(interest_si_objs) == 0
                 stage = 3
+            elif stage == 5:
+                assert current_interest.cls == sector_entity.TravelGate
+                assert len(interest_se_objs) == 1
+                assert len(interest_sh_objs) == 2
+                assert len(interest_si_objs) == 1
+                stage = 6
             interest_se = current_interest
             interest_se_objs.add(id(current_interest))
-            assert stage in [1,3]
+            assert stage in [1,3,6]
         elif isinstance(current_interest, intel.SectorHexPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_sh = True
@@ -380,10 +394,11 @@ def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_direct
     character.intel_manager.sanity_check()
 
     # at the end we should have seen interests: econ agent, station, sector hex
-    # sector hex should have come up twice with different objects
-    assert stage == 5
+    # sector entity and sector hex should have come up twice with different
+    # objects
+    assert stage == 6
     assert len(interest_ea_objs) == 1
-    assert len(interest_se_objs) == 1
+    assert len(interest_se_objs) == 2
     assert len(interest_sh_objs) == 2
     assert len(interest_si_objs) == 1
 
@@ -402,48 +417,9 @@ def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_direct
     assert interest_se in interest_observer._undesired_interests
     assert interest_sh in interest_observer._undesired_interests
     assert interest_si in interest_observer._undesired_interests
-    assert len(interest_observer._undesired_interests) == 4
+    assert len(interest_observer._undesired_interests) == 5
 
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorHexIntel))) > 0
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.StationIntel))) == 0
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.EconAgentIntel))) == 0
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorIntel))) == 1 # sector we started in
-
-    #TODO: this setup below should be true at some point, right before
-    # intel_agendum goes idle for the last time. but we don't have a good hook
-    # to assert it.
-    # the below is certainly NOT true by the time we get here.
-    # maybe at some point I'll find a clever way to assert all this stuff at
-    # just the right moment. or I'll just nuke all of this.
-
-    # we should still have that full chain of interests, including the None source
-    # the current interest should be unsatisfiable
-    #assert len(intel_agendum._source_interests_by_source) == 3
-
-    #assert interest_sh in intel_agendum._interests
-    #assert len(intel_agendum._interests) == 1
-    #assert len(intel_agendum._source_interests_by_source[interest_sh]) == 0
-
-    #assert interest_se in intel_agendum._source_interests_by_dependency[interest_sh]
-    #assert len(intel_agendum._source_interests_by_dependency[interest_sh]) == 1
-    #assert interest_sh in intel_agendum._source_interests_by_source[interest_se]
-    #assert len(intel_agendum._source_interests_by_source[interest_se]) == 1
-
-    #assert interest_ea in intel_agendum._source_interests_by_dependency[interest_se]
-    #assert len(intel_agendum._source_interests_by_dependency[interest_se]) == 1
-    #assert interest_se in intel_agendum._source_interests_by_source[interest_ea]
-    #assert len(intel_agendum._source_interests_by_source[interest_ea]) == 1
-
-    #assert None in intel_agendum._source_interests_by_dependency[interest_ea]
-    #assert len(intel_agendum._source_interests_by_dependency[interest_ea]) == 1
-    #assert interest_ea in intel_agendum._source_interests_by_source[None]
-    #assert len(intel_agendum._source_interests_by_source[None]) == 1
-
-    #assert criteria == interest_ea
-
-    # this is basically asking us to find sector hexes in a different sector
-    # but there are no other sectors in this test, so this will never be satisfiable
-    #current_interest = next(iter(intel_agendum._interests), None)
-    #assert current_interest is not None
-    #assert intel_director.estimate_cost(character, current_interest) is None
-
