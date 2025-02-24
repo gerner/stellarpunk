@@ -307,103 +307,6 @@ class TradeCargoFromStation(TransferCargo):
         assert self.seller == self.gamestate.econ_agents.get(self.target_intel.intel_entity_id)
         super().act(dt)
 
-"""
-class DisembarkToEntity(core.OrderObserver, core.Order):
-    @staticmethod
-    def disembark_to(embark_to:core.SectorEntity, ship:core.Ship, gamestate:core.Gamestate, disembark_dist:float=5e3, disembark_margin:float=5e2) -> DisembarkToEntity:
-        if ship.sector is None or ship.sector != embark_to.sector:
-            raise ValueError(f'{ship} in {ship.sector} instead of destination {embark_to.sector}')
-        hits = ship.sector.spatial_point(ship.loc, max_dist=disembark_dist)
-        nearest_dist:np.float64 = np.inf # type: ignore
-        nearest = None
-        for entity in hits:
-            if entity == ship:
-                continue
-            if np.allclose(entity.velocity, ZERO_VECTOR):
-                dist = np.linalg.norm(entity.loc - ship.loc)-entity.radius
-                if dist < nearest_dist:
-                    nearest_dist = dist
-                    nearest = entity
-
-        return DisembarkToEntity.create_disembark_to_entity(nearest, embark_to, ship, gamestate, disembark_dist=disembark_dist, disembark_margin=disembark_margin)
-
-    @classmethod
-    def create_disembark_to_entity[T:"DisembarkToEntity"](cls:Type[T], disembark_from: Optional[core.SectorEntity], embark_to: core.SectorEntity, *args: Any, disembark_dist:float=5e3, disembark_margin:float=5e2, **kwargs: Any) -> T:
-        if disembark_from and disembark_from.sector != embark_to.sector:
-            raise ValueError(f'from in {disembark_from.sector}, but to is in {embark_to.sector}, they must be colocated')
-
-        o = cls.create_order(*args, disembark_dist=disembark_dist, disembark_margin=disembark_margin, **kwargs)
-
-        o.disembark_from = disembark_from
-        if disembark_from is not None:
-            o.eow_from = core.EntityOrderWatch(o, disembark_from)
-        o.embark_to = embark_to
-        o.eow_to = core.EntityOrderWatch(o, embark_to)
-
-        return o
-
-    def __init__(self, *args: Any, disembark_dist:float=5e3, disembark_margin:float=5e2, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-
-        self.disembark_dist = disembark_dist
-        self.disembark_margin = disembark_margin
-
-        self.disembark_from:Optional[core.SectorEntity] = None
-        self.eow_from:Optional[core.EntityOrderWatch] = None
-        self.embark_to:core.SectorEntity = None # type: ignore
-        self.eow_to:core.EntityOrderWatch = None # type: ignore
-
-        self.disembark_order:Optional[GoToLocation] = None
-        self.embark_order:Optional[GoToLocation] = None
-
-    def _begin(self) -> None:
-        # should be upper bound of distance to the disembarkation point
-        disembark_loc = self.ship.loc + util.polar_to_cartesian(self.disembark_dist, -self.ship.angle)
-        self.init_eta = (
-                GoToLocation.compute_eta(self.ship, disembark_loc)
-                + GoToLocation.compute_eta(self.ship, self.embark_to.loc)
-        )
-
-    @property
-    def observer_id(self) -> uuid.UUID:
-        return self.order_id
-
-    def order_complete(self, order:core.Order) -> None:
-        assert order == self.embark_order
-        self.gamestate.schedule_order_immediate(self)
-
-    def order_cancel(self, order:core.Order) -> None:
-        assert order == self.embark_order
-        self.gamestate.schedule_order_immediate(self)
-
-    def _is_complete(self) -> bool:
-        return self.embark_order is not None and self.embark_order.is_complete()
-
-    def act(self, dt:float) -> None:
-        #TODO: should this work across sectors?
-        if self.ship.sector is None or self.ship.sector != self.embark_to.sector:
-            raise ValueError(f'{self.ship} in {self.ship.sector} instead of destination {self.embark_to.sector}')
-
-        self.embark_order = GoToLocation.goto_entity(self.embark_to, self.ship, self.gamestate, observer=self)
-        if self.disembark_from and np.linalg.norm(self.disembark_from.loc - self.ship.loc)-self.disembark_from.radius < self.disembark_dist:
-            assert self.disembark_from.sector == self.ship.sector
-            # choose a location which is outside disembark_dist
-            _, angle = util.cartesian_to_polar(*(self.ship.loc - self.disembark_from.loc))
-            target_angle = angle + self.gamestate.random.uniform(-np.pi/2, np.pi/2)
-            target_disembark_distance = self.disembark_from.radius+self.disembark_dist+self.disembark_margin
-            target_loc = self.disembark_from.loc + util.polar_to_cartesian(target_disembark_distance, target_angle)
-
-            self.disembark_order = GoToLocation.create_go_to_location(
-                    target_loc, self.ship, self.gamestate,
-                    arrival_distance=self.disembark_margin,
-                    min_distance=0.
-            )
-            self._add_child(self.embark_order, begin=False)
-            self._add_child(self.disembark_order, begin=True)
-        else:
-            self._add_child(self.embark_order, begin=True)
-"""
-
 class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
     # lifecycle has several phases:
     class Phase(enum.IntEnum):
@@ -474,6 +377,8 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         elif effect == self.warp_in:
             self.warp_in = None
             assert self.phase in (self.Phase.PHASE_TRAVEL_IN_TO_SECTOR, self.Phase.PHASE_COMPLETE)
+        else:
+            raise ValueError(f'got unexpected effect {effect}')
 
         self.gamestate.schedule_order_immediate(self)
 
@@ -485,6 +390,9 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
         elif effect == self.warp_in:
             self.warp_in = None
             assert self.phase in (self.Phase.PHASE_TRAVEL_IN_TO_SECTOR, self.Phase.PHASE_COMPLETE)
+        else:
+            raise ValueError(f'got unexpected effect {effect}')
+
         self.gamestate.schedule_order_immediate(self)
 
     # core.OrderObserver
@@ -623,16 +531,17 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
                 )
 
 
+            # we won't observe this one, it's just a visual effect at this
+            # point since we're alrady migrated to the destination sector
             self.warp_in = effects.WarpInEffect.create_warp_in_effect(
-                    np.copy(self.ship.loc), self.ship.sector, self.gamestate,
-                    observer=self)
+                    np.copy(self.ship.loc), self.ship.sector, self.gamestate)
             self.ship.sector.add_effect(self.warp_in)
             self.phase = self.Phase.PHASE_TRAVEL_IN_TO_SECTOR
             self.travel_start_time = self.gamestate.timestamp
 
             # rotate to face opposite direction of travel and decelerate
-            self.rotate_order = RotateOrder.create_rotate_order(actual_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
-            self._add_child(self.rotate_order)
+            rotate_order = RotateOrder.create_rotate_order(actual_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
+            self._add_child(rotate_order)
             self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, np.pi+actual_gate.direction), True)
             # we'll act again when the rotate order is finished
             return
