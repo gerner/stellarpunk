@@ -365,8 +365,9 @@ class Gamestate(EntityRegistry):
         assert(isinstance(agendum, klass))
         return agendum
 
-    def _pause(self, paused:Optional[bool]=None) -> None:
-        self.game_runtime.time_acceleration(1.0, False)
+    def _pause(self, paused:Optional[bool]=None, reset_time_accel:bool=False) -> None:
+        if reset_time_accel:
+            self.game_runtime.time_acceleration(1.0, False)
         if paused is None:
             self.paused = not self.paused
         else:
@@ -376,7 +377,7 @@ class Gamestate(EntityRegistry):
         if len(self.force_pause_holders) > 0:
             assert(self.paused)
             return
-        self._pause(paused)
+        self._pause(paused, reset_time_accel=True)
 
     def force_pause(self, requesting_object:object) -> None:
         #if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:

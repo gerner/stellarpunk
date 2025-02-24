@@ -171,7 +171,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             if child is None:
                 continue
             self._reject_interest(child, visited)
-        self.logger.info(f'rejection dropping {interest}')
+        self.logger.debug(f'rejection dropping {interest}')
         self._remove_interest(interest)
 
     def _remove_interest(self, interest:core.IntelMatchCriteria) -> None:
@@ -591,6 +591,7 @@ class SectorIntelGatherer(IntelGatherer[intel.SectorPartialCriteria]):
             assert isinstance(character.location, core.Ship)
             explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector_id, ocore.ZERO_VECTOR)
             #TODO: should we keep track of this order and cancel it if necessary?
+            character.location.clear_orders()
             character.location.prepend_order(explore_order)
             return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
         else:
@@ -607,7 +608,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         else:
             target_loc = ocore.ZERO_VECTOR
 
-        target_dist = sector.radius*3.0
+        target_dist = sector.radius*4.0
         hex_loc = sector.get_hex_coords(target_loc)
         # look for hex options in current sector
 
@@ -621,7 +622,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
         if intel_criteria.hex_dist is not None:
             target_hex_dist = intel_criteria.hex_dist
 
-        candidate_hexes:set[tuple[int, int]] = {(int(x[0]), int(x[1])) for x in util.hexes_within_pixel_dist(target_loc, target_dist, sector.hex_size)}
+        candidate_hexes:set[tuple[int, int]] = {(int(x[0]), int(x[1])) for x in util.hexes_within_pixel_dist(ocore.ZERO_VECTOR, target_dist, sector.hex_size)}
 
         # find hexes in the current sector we know about
         for i in character.intel_manager.intel(intel.SectorHexPartialCriteria(sector_id=sector.intel_entity_id, is_static=intel_criteria.is_static, hex_loc=target_hex_loc, hex_dist=target_hex_dist), intel.SectorHexIntel):
@@ -716,6 +717,7 @@ class SectorHexIntelGatherer(IntelGatherer[intel.SectorHexPartialCriteria]):
             candidate_coords = sector.get_coords_from_hex(candidate)
             explore_order = ocore.LocationExploreOrder.create_order(character.location, self.gamestate, sector.intel_entity_id, candidate_coords)
             #TODO: should we keep track of this order and cancel it if necessary?
+            character.location.clear_orders()
             character.location.prepend_order(explore_order)
             return self.gamestate.timestamp + explore_order.estimate_eta() * 1.2
         else:
@@ -805,6 +807,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
         assert(character.location.sector)
         assert(character == character.location.captain)
 
+        character.location.clear_orders()
         docking_order = ocore.DockingOrder.create_docking_order(character.location, self.gamestate, target_id=station_intel.intel_entity_id)
 
         if station_intel.sector_id == character.location.sector.entity_id:
