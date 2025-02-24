@@ -1,3 +1,4 @@
+import logging
 from typing import Generator
 
 import pytest
@@ -5,8 +6,15 @@ import cymunk # type: ignore
 import numpy as np
 
 from stellarpunk import core, sim, generate, interface, sensors, events, intel, config
+from stellarpunk.core import sector_entity
+from stellarpunk.serialization import save_game
 from stellarpunk.agenda import intel as aintel
 from . import MonitoringUI, MonitoringEconDataLogger, MonitoringSimulator
+
+# some logging to turn on if we like
+#logging.getLogger("stellarpunk.intel").level = logging.DEBUG
+#logging.getLogger("stellarpunk.agenda.econ").level = logging.DEBUG
+logging.getLogger("stellarpunk.agenda.intel").level = logging.DEBUG
 
 @pytest.fixture
 def event_manager() -> events.EventManager:
@@ -34,6 +42,12 @@ def gamestate(econ_logger:MonitoringEconDataLogger, event_manager:events.EventMa
 
 @pytest.fixture
 def generator(event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, gamestate:core.Gamestate) -> generate.UniverseGenerator:
+
+    #TODO: this should be per-test opt-in
+    # override some config settings for testing
+    # this undoes some production config changes that break older tests
+    config.Settings.generate.SectorEntities.asteroid.RADIUS = 300
+
     ug = generate.UniverseGenerator(seed=0)
     ug.gamestate = gamestate
     ug.pre_initialize(event_manager, intel_director, empty_name_model_culture="test")
@@ -56,16 +70,48 @@ def generator(event_manager:events.EventManager, intel_director:aintel.IntelColl
     return ug
 
 @pytest.fixture
+def game_saver(gamestate:core.Gamestate, event_manager:events.EventManager, generator:generate.UniverseGenerator, intel_director:aintel.IntelCollectionDirector) -> save_game.GameSaver:
+    game_saver = sim.initialize_save_game(generator, event_manager, intel_director, debug=True)
+    return game_saver
+
+@pytest.fixture
 def sector(gamestate:core.Gamestate) -> core.Sector:
     sector_radius=1e5
-    hex_size = 1e4
+    hex_size = 2e5
     sector_name = "Sector"
 
     sector = core.Sector(np.array([0, 0]), sector_radius, hex_size, cymunk.Space(), gamestate, sector_name, culture="test")
     sector.sensor_manager = sensors.SensorManager(sector)
     gamestate.add_sector(sector, 0)
+    gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(gamestate)))
 
     return sector
+
+@pytest.fixture
+def connecting_sector(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector) -> core.Sector:
+
+    connecting_sector = core.Sector(np.array([sector.radius*10.0, 0]), sector.radius, sector.hex_size, cymunk.Space(), gamestate, sector.name+"2", culture="test")
+    connecting_sector.sensor_manager = sensors.SensorManager(connecting_sector)
+    gamestate.add_sector(connecting_sector, 1)
+
+    # add gates connecting sector to connecting_sector
+    gate_a = generator.spawn_gate(sector, connecting_sector, recompute_jumps=False)
+    gate_b = generator.spawn_gate(connecting_sector, sector)
+
+    return connecting_sector
+
+@pytest.fixture
+def third_sector(gamestate:core.Gamestate, generator:generate.UniverseGenerator, connecting_sector:core.Sector) -> core.Sector:
+
+    third_sector = core.Sector(np.array([connecting_sector.radius*20.0, 0]), connecting_sector.radius, connecting_sector.hex_size, cymunk.Space(), gamestate, connecting_sector.name+"3", culture="test")
+    third_sector.sensor_manager = sensors.SensorManager(third_sector)
+    gamestate.add_sector(third_sector, 1)
+
+    # add gates connecting connecting_sector to third_sector
+    gate_a = generator.spawn_gate(connecting_sector, third_sector, recompute_jumps=False)
+    gate_b = generator.spawn_gate(third_sector, connecting_sector)
+
+    return third_sector
 
 @pytest.fixture
 def ship(gamestate: core.Gamestate, generator: generate.UniverseGenerator, sector: core.Sector) -> core.Ship:
@@ -78,8 +124,8 @@ def player(gamestate: core.Gamestate, generator: generate.UniverseGenerator, shi
     return player
 
 @pytest.fixture
-def testui(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector) -> MonitoringUI:
-    testui = MonitoringUI(sector, generator, interface.AbstractMixer())
+def testui(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector, game_saver:save_game.GameSaver) -> MonitoringUI:
+    testui = MonitoringUI(sector, game_saver, generator, interface.AbstractMixer())
     testui.gamestate = gamestate
     return testui
 

@@ -55,6 +55,11 @@ class Observer(abc.ABC):
     def unmark_observing(self, observed:"Observable") -> None:
         self._observings.remove(observed)
 
+    def clear_observings(self) -> None:
+        for observing in self._observings.copy():
+            # actually removing it from _observings will happen in this call
+            observing.unobserve(self)
+
 class Observable[T:Observer](abc.ABC):
     def __init__(self, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
@@ -119,12 +124,16 @@ class EntityRegistry(abc.ABC):
 class Entity(abc.ABC):
     id_prefix = "ENT"
 
+    @classmethod
+    def create_short_id(cls, entity_id:uuid.UUID) -> str:
+        return f'{cls.id_prefix}-{entity_id.hex[:8]}'
+
     def __init__(self, entity_registry: EntityRegistry, created_at:Optional[float]=None, name:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, description:Optional[str]=None)->None:
         self.entity_id = entity_id or uuid.uuid4()
         self._entity_id_short_int = util.uuid_to_u64(self.entity_id)
 
         if name is None:
-            name = f'{self.__class__} {str(self.entity_id)}'
+            name = f'{util.fullname(self)} {str(self.entity_id)}'
         self.name = name
 
         self.description = description or name
@@ -137,7 +146,11 @@ class Entity(abc.ABC):
         #import traceback
         #self.bt = traceback.format_stack()
 
+    def _destroy(self) -> None:
+        pass
+
     def destroy(self) -> None:
+        self._destroy()
         self.entity_registry.unregister_entity(self)
         #import gc
         #referrers = gc.get_referrers(self)
@@ -152,7 +165,7 @@ class Entity(abc.ABC):
         return self._entity_id_short_int
 
     def __str__(self) -> str:
-        return f'{self.short_id()}'
+        return f'{self.name} ({self.short_id()})'
 
     def sanity_check(self) -> None:
         assert(self.entity_registry.get_entity(self.entity_id, type(self)) == self)

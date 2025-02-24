@@ -63,7 +63,7 @@ accumulate power.
 - [x] sensor
 - [ ] different kinds of ships?
 
-### Player Mining/Trading
+### Mining/Trading
 
 - [x] player directed mining
 - [x] UI improvements for ship status view
@@ -72,7 +72,7 @@ accumulate power.
 - [ ] handle cargo transfer for owned/directed ship (no cash transfer)
 - [ ] player directed trading
 - [x] discovering asteroids/stations
-- [ ] multi-sector trading/mining
+- [x] multi-sector trading/mining
 
 ### Intel System
 

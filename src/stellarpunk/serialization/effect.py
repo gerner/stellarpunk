@@ -20,26 +20,27 @@ class EffectSaver[Effect: core.Effect](save_game.Saver[Effect], abc.ABC):
 
     def save(self, effect:Effect, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(effect.effect_id, f)
         bytes_written += s_util.uuid_to_f(effect.sector.entity_id, f)
         bytes_written += s_util.float_to_f(effect.started_at, f)
         bytes_written += s_util.float_to_f(effect.completed_at, f)
 
-        bytes_written += s_util.debug_string_w("type specific", f)
+        bytes_written += self.save_game.debug_string_w("type specific", f)
         bytes_written += self._save_effect(effect, f)
 
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> Effect:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         effect_id = s_util.uuid_from_f(f)
         sector_id = s_util.uuid_from_f(f)
         started_at = s_util.float_from_f(f)
         completed_at = s_util.float_from_f(f)
 
-        s_util.debug_string_r("type specific", f)
+        load_context.debug_string_r("type specific", f)
         effect, extra_context = self._load_effect(f, load_context, effect_id)
+        assert effect.effect_id == effect_id
         effect.started_at = started_at
         effect.completed_at = completed_at
 
@@ -70,7 +71,7 @@ class TransferCargoEffectSaver[T:effects.TransferCargoEffect](EffectSaver[T]):
         bytes_written = 0
         bytes_written += s_util.uuid_to_f(effect.source.entity_id, f)
         bytes_written += s_util.uuid_to_f(effect.destination.entity_id, f)
-        bytes_written += s_util.int_to_f(effect.resource, f)
+        bytes_written += s_util.int_to_f(int(effect.resource), f)
         bytes_written += s_util.float_to_f(effect.amount, f)
         bytes_written += s_util.float_to_f(effect.sofar, f)
         bytes_written += s_util.float_to_f(effect.transfer_rate, f)
@@ -151,7 +152,7 @@ class WarpOutEffectSaver(EffectSaver[effects.WarpOutEffect]):
         ttl = s_util.float_from_f(f)
         expiration_time = s_util.float_from_f(f)
 
-        effect = effects.WarpOutEffect(loc, load_context.gamestate, radius=radius, ttl=ttl)
+        effect = effects.WarpOutEffect(loc, load_context.gamestate, radius=radius, ttl=ttl, _check_flag=True, effect_id=effect_id)
         effect.expiration_time = expiration_time
 
         return effect, None
@@ -171,7 +172,7 @@ class WarpInEffectSaver(EffectSaver[effects.WarpInEffect]):
         ttl = s_util.float_from_f(f)
         expiration_time = s_util.float_from_f(f)
 
-        effect = effects.WarpInEffect(loc, load_context.gamestate, radius=radius, ttl=ttl)
+        effect = effects.WarpInEffect(loc, load_context.gamestate, radius=radius, ttl=ttl, _check_flag=True, effect_id=effect_id)
         effect.expiration_time = expiration_time
 
         return effect, None

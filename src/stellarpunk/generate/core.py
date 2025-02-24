@@ -6,7 +6,6 @@ import importlib.resources
 import itertools
 import enum
 import collections
-import heapq
 import time
 import gzip
 import os
@@ -29,66 +28,6 @@ from . import markov
 RESOURCE_REL_SHIP = 0
 RESOURCE_REL_STATION = 1
 RESOURCE_REL_CONSUMER = 2
-
-def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
-    """ given adjacency weight matrix, start index, end index, compute
-    distances from start to every node up to end.
-
-    returns tuple:
-        path encoded as node -> parent node mapping
-        distances node -> shortest distance to start
-    """
-    # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
-    d = {start: 0}
-    parent = {start: start}
-    pq = [(0, start)]
-    visited = set()
-    while pq:
-        du, u = heapq.heappop(pq)
-        if u in visited: continue
-        if u == target:
-            break
-        visited.add(u)
-        for v, weight in enumerate(adj[u]):
-            if not weight < math.inf:
-                # inf weight means no edge
-                continue
-            if v not in d or d[v] > du + weight:
-                d[v] = du + weight
-                parent[v] = u
-                heapq.heappush(pq, (d[v], v))
-
-
-    return parent, d
-
-def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    # prim's algorithm to construct a minimum spanning tree
-    # https://en.wikipedia.org/wiki/Prim%27s_algorithm
-    # choose starting vertex arbitrarily
-    V = np.zeros(len(distances), bool)
-    E = np.zeros((len(distances), len(distances)))
-    edge_distances = np.full((len(distances), len(distances)), math.inf)
-    # while some nodes not connected
-    # invariant(s):
-    # V is a mask indicating elements in the tree
-    # E is adjacency matrix representing the tree
-    # distances has distances to nodes in the tree
-    #   with inf distance between nodes already in the tree and self edges
-    V[root_idx] = True
-    while not np.all(V):
-        # choose edge from nodes in tree to node not yet in tree with min dist
-        d = np.copy(distances)
-        # don't choose edges from outside the tree
-        d[~V,:] = np.inf
-        # don't choose edges into the tree
-        d[:,V] = np.inf
-        edge = np.unravel_index(np.argmin(d, axis=None), d.shape)
-        E[edge] = 1.
-        E[edge[1], edge[0]] = 1.
-        V[edge[1]] = True
-        edge_distances[edge] = distances[edge]
-        edge_distances[edge[1], edge[0]] = distances[edge]
-    return E, edge_distances
 
 def generate_starfield_layer(random:np.random.Generator, radius:float, num_stars:int, zoom:float, mu:float, sigma:float) -> core.StarfieldLayer:
 
@@ -157,6 +96,7 @@ class ContextKeys(enum.IntEnum):
     ETYPE_PLANET = enum.auto()
     ETYPE_SHIP = enum.auto()
     ETYPE_MISSILE = enum.auto()
+    ETYPE_TRAVEL_GATE = enum.auto()
 
 class GenerationErrorCase(enum.Enum):
     DISTINCT_INPUTS = enum.auto()
@@ -249,6 +189,12 @@ class ProductionChainConfig:
 
 
 class UniverseConfig:
+
+    class PlayerStart(enum.Enum):
+        MINER = enum.auto()
+        TEST_COMBAT = enum.auto()
+        TEST_GATE = enum.auto()
+
     def __init__(self) -> None:
 
         # names and cultures
@@ -277,6 +223,8 @@ class UniverseConfig:
         self.station_factor = config.Settings.generate.Universe.STATION_FACTOR
         self.mining_ship_factor = config.Settings.generate.Universe.MINING_SHIP_FACTOR
         self.trading_ship_factor = config.Settings.generate.Universe.TRADING_SHIP_FACTOR
+
+        self.player_start = UniverseConfig.PlayerStart.MINER
 
 
 class UniverseGenerator(core.AbstractGenerator):
@@ -734,7 +682,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_station_name(sector.culture),
+            name=self._gen_station_name(sector.culture),
             entity_id=entity_id,
             description="A glittering haven among the void at first glance. In reality just as dirty and run down as the habs. Moreso, in fact, since this station was slapped together out of repurposed parts and maintained with whatever cheap replacement parts the crew of unfortunates can get their hands on. Still, it's better than sleeping in your cockpit."
         )
@@ -764,7 +712,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_planet_name(sector.culture),
+            name=self._gen_planet_name(sector.culture),
             entity_id=entity_id
         )
         planet.population = self.r.uniform(1e10*5, 1e10*15)
@@ -799,7 +747,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(sector.culture),
+            name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id
         )
@@ -855,7 +803,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(sector.culture),
+            name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id,
         )
@@ -904,7 +852,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_ship_name(sector.culture),
+            name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id
         )
@@ -936,7 +884,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
-    def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None) -> sector_entity.TravelGate:
+    def spawn_gate(self, sector: core.Sector, destination: core.Sector, entity_id:Optional[uuid.UUID]=None, recompute_jumps:bool=True) -> sector_entity.TravelGate:
         assert(self.gamestate)
 
         gate_radius = 50
@@ -969,14 +917,18 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_gate_name(destination, sector.culture),
+            name=self._gen_gate_name(destination, sector.culture),
             entity_id=entity_id
         )
         gate.destination = destination
+        gate.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_TRAVEL_GATE), 1)
 
         self.phys_shape(body, gate, gate_radius)
 
         sector.add_entity(gate)
+
+        if recompute_jumps:
+            self.gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(self.gamestate)))
 
         return gate
 
@@ -984,7 +936,7 @@ class UniverseGenerator(core.AbstractGenerator):
         assert(self.gamestate)
 
         asteroid_radius = config.Settings.generate.SectorEntities.asteroid.RADIUS
-        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT)
+        sensor_settings = sensors.SensorSettings(max_sensor_power=config.Settings.generate.SectorEntities.asteroid.MAX_SENSOR_POWER, sensor_intercept=config.Settings.generate.SectorEntities.asteroid.SENSOR_INTERCEPT, initial_transponder=False)
 
         #TODO: stations are static?
         #station_moment = pymunk.moment_for_circle(station_mass, 0, station_radius)
@@ -997,7 +949,7 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate.production_chain.shape[0],
             sensor_settings,
             self.gamestate,
-            self._gen_asteroid_name(sector.culture),
+            name=self._gen_asteroid_name(sector.culture),
             entity_id=entity_id
         )
         asteroid.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_ASTEROID), 1)
@@ -1052,8 +1004,8 @@ class UniverseGenerator(core.AbstractGenerator):
             total_amount -= amount
 
         # add in some weather related to this resource field
-        region_outer = core.SectorWeatherRegion(field_center, radius*2, 0.5)
-        region_inner = core.SectorWeatherRegion(field_center, radius*2*0.8, 0.5)
+        region_outer = core.SectorWeatherRegion(field_center, radius*2, 0.75)
+        region_inner = core.SectorWeatherRegion(field_center, radius*2*0.8, 0.75)
         sector.add_region(region_outer)
         sector.add_region(region_inner)
 
@@ -1070,7 +1022,9 @@ class UniverseGenerator(core.AbstractGenerator):
             name=self._gen_character_name(location.sector.culture),
             home_sector_id=location.sector.entity_id,
         )
-        character.location = location
+        # TODO: should we set this directly? gamestate.migrate assumes we've
+        # already been added
+        character._location = location
         character.balance = balance
         intel_manager.character = character
         self.gamestate.add_character(character)
@@ -1092,6 +1046,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
     def setup_captain(self, character:core.Character, asset:core.SectorEntity, mining_ships:Collection[core.Ship], trading_ships:Collection[core.Ship]) -> None:
         assert(self.gamestate)
+        assert asset.sector
 
         if isinstance(asset, core.Ship):
             if asset in mining_ships:
@@ -1103,7 +1058,9 @@ class UniverseGenerator(core.AbstractGenerator):
                 character.add_agendum(agenda.MiningAgendum.create_mining_agendum(
                     asset,
                     character,
-                    self.gamestate
+                    self.gamestate,
+                    center_sector_id=asset.sector.entity_id,
+                    max_jumps=1,
                 ))
                 character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
                     character,
@@ -1119,7 +1076,9 @@ class UniverseGenerator(core.AbstractGenerator):
                 character.add_agendum(agenda.TradingAgendum.create_trading_agendum(
                     asset,
                     character,
-                    self.gamestate
+                    self.gamestate,
+                    center_sector_id=asset.sector.entity_id,
+                    max_jumps=1,
                 ))
                 character.add_agendum(aintel.IntelCollectionAgendum.create_agendum(
                     character,
@@ -1172,7 +1131,7 @@ class UniverseGenerator(core.AbstractGenerator):
             hex_size,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(culture),
+            name=self._gen_sector_name(culture),
             entity_id=entity_id,
             culture=culture,
         )
@@ -1339,7 +1298,7 @@ class UniverseGenerator(core.AbstractGenerator):
             hex_size,
             cymunk.Space(),
             self.gamestate,
-            self._gen_sector_name(culture),
+            name=self._gen_sector_name(culture),
             entity_id=entity_id,
             culture=culture
         )
@@ -1773,7 +1732,7 @@ class UniverseGenerator(core.AbstractGenerator):
         distances:MutableMapping[int, Mapping[int, float]] = {}
         mean_distances = np.zeros(len(sector_ids))
         for i in range(len(sector_ids)):
-            _, d = dijkstra(edge_distances, i, -1)
+            _, d = util.dijkstra(edge_distances, i, -1)
             for dist in d.values():
                 mean_distances[i] += dist
         mean_distances /= len(sector_ids)
@@ -1789,7 +1748,7 @@ class UniverseGenerator(core.AbstractGenerator):
             culture = self.r.choice(cultures)
             culture_map[i] = culture
             cultures.remove(culture)
-            _, d = dijkstra(edge_distances, i, -1)
+            _, d = util.dijkstra(edge_distances, i, -1)
             distances[i] = d
             # we assume the graph is fully connected, so every entry will be
             # overwritten with a non-inf value
@@ -1869,7 +1828,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         # set up connectivity between sectors
         distances = util.pairwise_distances(sector_coords)#distance.squareform(distance.pdist(sector_coords))
-        sector_edges, edge_distances = prims_mst(distances, self.r.integers(0, len(distances)))
+        sector_edges, edge_distances = util.prims_mst(distances, self.r.integers(0, len(distances)))
 
         # index of bboxes for edges
         edge_id = 0
@@ -1920,7 +1879,7 @@ class UniverseGenerator(core.AbstractGenerator):
                 continue
 
             # do not add edges if the current best distance is not much more
-            p, path_dist = dijkstra(edge_distances, i, j)
+            p, path_dist = util.dijkstra(edge_distances, i, j)
             if path_dist[j] < dist*1.5:
                 continue
 
@@ -1934,8 +1893,6 @@ class UniverseGenerator(core.AbstractGenerator):
             edge_distances[j,i] = dist
             edge_index.insert(edge_id, bbox, ((*a, *b), (source_id, dest_id)))
             edge_id += 1
-
-        self.gamestate.update_edges(sector_edges, sector_ids, sector_coords)
 
         return sector_coords, sector_edges, sector_radii, edge_distances
 
@@ -2013,7 +1970,10 @@ class UniverseGenerator(core.AbstractGenerator):
         #TODO: there's probably a clever way to get these indicies
         for (i, source_id), (j, dest_id) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)):
             if sector_edges[i,j] != 0:
-                self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id])
+                self.spawn_gate(self.gamestate.sectors[source_id], self.gamestate.sectors[dest_id], recompute_jumps=False)
+
+        # have gamestate compute jump lengths (which we skipped above)
+        self.gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(self.gamestate)))
 
         #TODO: post-expansion decline
         # deplete resources at population centers
@@ -2026,7 +1986,15 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return sector_ids, habitable_mask
 
-    def generate_player(self) -> None:
+    def generate_player(self, sector_ids:npt.NDArray, habitable_mask:npt.NDArray) -> None:
+        if self.universe_config.player_start == UniverseConfig.PlayerStart.MINER:
+            self.generate_player_for_miner_start()
+        elif self.universe_config.player_start == UniverseConfig.PlayerStart.TEST_COMBAT:
+            self.generate_player_for_combat_test(sector_ids, habitable_mask)
+        elif self.universe_config.player_start == UniverseConfig.PlayerStart.TEST_GATE:
+            self.generate_player_for_gate_test(sector_ids, habitable_mask)
+
+    def generate_player_for_miner_start(self) -> None:
         assert(self.gamestate)
 
         # mining start: working for someone else, doing mining for a refinery
@@ -2120,6 +2088,29 @@ class UniverseGenerator(core.AbstractGenerator):
         sector.add_region(region_outer)
         sector.add_region(region_inner)
 
+    def generate_player_for_gate_test(self, sector_ids:npt.NDArray, habitable_mask:npt.NDArray) -> None:
+        """ generate the player in an uninhabited sector near a gate """
+
+        assert self.gamestate
+
+        # choose an uninhabited sector
+        sector_id = self.r.choice(sector_ids[~habitable_mask], 1)[0] # type: ignore
+        sector = self.gamestate.sectors[sector_id]
+
+        # find a gate in that sector
+        gate = next(sector.entities_by_type(sector_entity.TravelGate))
+
+        # spawn the player, character, ship, etc.
+        ship_loc = self.gen_sector_location(sector, center=gate.loc, radius=5e3, min_dist=2e3)
+        ship = self.spawn_ship(sector, ship_loc[0], ship_loc[1], v=np.array((0.,0.)), w=0., initial_sensor_power_ratio=0.0)
+
+        self.gamestate.player = self.spawn_player(ship, balance=2e3)
+        player_character = self.gamestate.player.character
+        assert(player_character)
+
+        player_character.add_agendum(agenda.CaptainAgendum.create_eoa(ship, player_character, self.gamestate, enable_threat_response=False, start_transponder=False))
+
+
     def generate_starfields(self) -> None:
         assert(self.gamestate)
 
@@ -2150,9 +2141,18 @@ class UniverseGenerator(core.AbstractGenerator):
         """ Adds starting intel for characters """
         assert self.gamestate
 
+        sector_fresh_until = np.inf
+        sector_expires_at = np.inf
+
         captains:list[core.Character] = []
 
         for character in self.gamestate.characters.values():
+            # add intel for the sector the character is in and their home sector
+            home_sector = self.gamestate.get_entity(character.home_sector_id, core.Sector)
+            intel.add_sector_intel(home_sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
+            if character.location and character.location.sector and home_sector != character.location.sector:
+                intel.add_sector_intel(character.location.sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
+
             # miners
             if list(x for x in character.agenda if isinstance(x, agenda.MiningAgendum)):
                 captains.append(character)
@@ -2216,6 +2216,8 @@ class UniverseGenerator(core.AbstractGenerator):
                         intel.add_station_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                         if entity.entity_id in self.gamestate.econ_agents:
                             intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, **intel_ttl(econ_expires_at))
+                    elif isinstance(entity, sector_entity.TravelGate):
+                        intel.add_travel_gate_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                     else:
                         intel.add_sector_entity_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at"))
 
@@ -2298,20 +2300,29 @@ class UniverseGenerator(core.AbstractGenerator):
             num_cultures=num_cultures,
         )
 
-        # generate starting intel for characters
-        for observers in self._observers:
-            observer.generation_step(GenerationStep.INTEL)
-        self.generate_intel()
-
         # generate the player
         for observer in self._observers:
             observer.generation_step(GenerationStep.PLAYER)
             observer.generation_tick()
-        self.generate_player()
+
+        self.generate_player(sector_ids, habitable_mask)
         #self.generate_player_for_combat_test(sector_ids, habitable_mask)
 
+        # generate starting intel for characters
+        for observer in self._observers:
+            observer.generation_step(GenerationStep.INTEL)
+        self.generate_intel()
+
+        # give the player all universe view
+        assert self.gamestate.player.character
+        #for sector_id in self.gamestate.sectors:
+        #    sector = self.gamestate.get_entity(sector_id, core.Sector)
+            #intel.add_sector_intel(sector, self.gamestate.player.character, self.gamestate, np.inf, np.inf)
+        sector = self.gamestate.get_entity(self.gamestate.player.character.home_sector_id, core.Sector)
+        for travel_gate in sector.entities_by_type(sector_entity.TravelGate):
+            intel.add_travel_gate_intel(travel_gate, self.gamestate.player.character, self.gamestate)
+
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
-        self.logger.info(f'sectors_edges: {np.sum(self.gamestate.sector_edges)}')
         self.logger.info(f'characters: {len(self.gamestate.characters)}')
         self.logger.info(f'econ_agents: {len(self.gamestate.econ_agents)}')
         self.logger.info(f'entities: {len(self.gamestate.entities)}')

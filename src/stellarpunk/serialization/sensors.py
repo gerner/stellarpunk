@@ -11,7 +11,7 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
         bytes_written = 0
 
         # basic fields
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.float_to_f(sensor_settings._max_sensor_power, f)
         bytes_written += s_util.float_to_f(sensor_settings._sensor_intercept, f)
         bytes_written += s_util.float_to_f(sensor_settings._sensor_power, f)
@@ -28,7 +28,7 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
         bytes_written += s_util.bool_to_f(sensor_settings._ignore_bias, f)
 
         # images
-        bytes_written += s_util.debug_string_w("images", f)
+        bytes_written += self.save_game.debug_string_w("images", f)
         bytes_written += s_util.size_to_f(len(sensor_settings.images), f)
         for image in sensor_settings.images:
             bytes_written += self.save_game.save_object(image, f)
@@ -37,7 +37,7 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> sensors.SensorSettings:
         # basic fields
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         max_sensor_power = s_util.float_from_f(f)
         sensor_intercept = s_util.float_from_f(f)
 
@@ -70,7 +70,7 @@ class SensorSettingsSaver(save_game.Saver[sensors.SensorSettings]):
         sensor_settings._ignore_bias = ignore_bias
 
         # images
-        s_util.debug_string_r("images", f)
+        load_context.debug_string_r("images", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             sensor_image = self.save_game.load_object(sensors.SensorImage, f, load_context)
@@ -86,22 +86,20 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         # the sensor image must be valid (i.e. _ship is non-None, in a sector)
         assert(sensor_image._ship)
         assert(sensor_image._ship.sector)
-        if sensor_image._target:
-            assert(sensor_image._target.sector == sensor_image._ship.sector)
 
         bytes_written = 0
 
-        bytes_written += s_util.debug_string_w("identity", f)
+        bytes_written += self.save_game.debug_string_w("identity", f)
         bytes_written += s_util.uuid_to_f(sensor_image._identity.entity_id, f)
         bytes_written += s_util.to_len_pre_f(util.fullname(sensor_image._identity.object_type), f)
         bytes_written += s_util.to_len_pre_f(sensor_image._identity.id_prefix, f)
-        bytes_written += s_util.to_len_pre_f(sensor_image._identity.short_id, f)
+        bytes_written += s_util.float_to_f(sensor_image._identity.mass, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.radius, f)
         bytes_written += s_util.bool_to_f(sensor_image._identity.is_static, f)
+        bytes_written += s_util.uuid_to_f(sensor_image._identity.sector_id, f)
         bytes_written += s_util.float_to_f(sensor_image._identity.angle, f)
 
-        bytes_written += s_util.debug_string_w("basic fields", f)
-        bytes_written += s_util.bool_to_f(sensor_image._target is not None, f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(sensor_image._detector_id, f)
         bytes_written += s_util.float_to_f(sensor_image._last_update, f)
         bytes_written += s_util.float_to_f(sensor_image._prior_fidelity, f)
@@ -114,7 +112,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         bytes_written += s_util.bool_to_f(sensor_image._identified, f)
         bytes_written += s_util.uuid_to_f(sensor_image._ship.sector.entity_id, f)
 
-        bytes_written += s_util.debug_string_w("noise", f)
+        bytes_written += self.save_game.debug_string_w("noise", f)
         bytes_written += s_util.float_pair_to_f(sensor_image._loc_bias_direction, f)
         bytes_written += s_util.float_pair_to_f(sensor_image._loc_bias, f)
         bytes_written += s_util.float_pair_to_f(sensor_image._velocity_bias, f)
@@ -125,17 +123,17 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> sensors.SensorImage:
 
-        s_util.debug_string_r("identity", f)
+        load_context.debug_string_r("identity", f)
         target_id = s_util.uuid_from_f(f)
         object_type_str = s_util.from_len_pre_f(f)
         id_prefix = s_util.from_len_pre_f(f)
-        short_id = s_util.from_len_pre_f(f)
+        mass = s_util.float_from_f(f)
         radius = s_util.float_from_f(f)
         is_static = s_util.bool_from_f(f)
+        sector_id = s_util.uuid_from_f(f)
         angle = s_util.float_from_f(f)
 
-        s_util.debug_string_r("basic fields", f)
-        has_target = s_util.bool_from_f(f)
+        load_context.debug_string_r("basic fields", f)
         detector_id = s_util.uuid_from_f(f)
         last_update = s_util.float_from_f(f)
         prior_fidelity = s_util.float_from_f(f)
@@ -148,7 +146,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         identified = s_util.bool_from_f(f)
         sector_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("noise", f)
+        load_context.debug_string_r("noise", f)
         loc_bias_direction = s_util.float_pair_from_f(f)
         loc_bias = s_util.float_pair_from_f(f)
         velocity_bias = s_util.float_pair_from_f(f)
@@ -157,7 +155,7 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         object_type = pydoc.locate(object_type_str)
         assert(isinstance(object_type, type))
         assert(issubclass(object_type, core.SectorEntity))
-        identity = core.SensorIdentity(None, object_type, id_prefix, target_id, short_id, radius, is_static)
+        identity = core.SensorIdentity(None, object_type, id_prefix, target_id, mass, radius, is_static, sector_id)
         identity.angle = angle
         sensor_image = sensors.SensorImage(identity)
 
@@ -176,15 +174,13 @@ class SensorImageSaver(save_game.Saver[sensors.SensorImage]):
         sensor_image._velocity_bias = velocity_bias
         sensor_image._last_bias_update_ts = last_bias_update_ts
 
-        load_context.register_post_load(sensor_image, (has_target, target_id, detector_id, sector_id))
+        load_context.register_post_load(sensor_image, (target_id, detector_id, sector_id))
         return sensor_image
 
     def post_load(self, sensor_image:sensors.SensorImage, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[bool, uuid.UUID, uuid.UUID, uuid.UUID] = context
-        has_target, target_id, detector_id, sector_id = context_data
+        context_data:tuple[uuid.UUID, uuid.UUID, uuid.UUID] = context
+        target_id, detector_id, sector_id = context_data
 
-        if has_target:
-            sensor_image._target = load_context.gamestate.get_entity(target_id, core.SectorEntity)
         sensor_image._ship = load_context.gamestate.get_entity(detector_id, core.SectorEntity)
 
         sector = load_context.gamestate.get_entity(sector_id, core.Sector)

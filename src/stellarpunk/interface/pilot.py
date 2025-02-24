@@ -14,7 +14,7 @@ from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import core, interface, util, orders, config
+from stellarpunk import core, interface, util, orders, config, intel
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
@@ -264,7 +264,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         self.perspective = interface.Perspective(
             self.interface.viewscreen,
             zoom=self.ship.radius,
-            min_zoom=(6*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
+            min_zoom=(12*config.Settings.generate.Universe.SECTOR_RADIUS_STD+config.Settings.generate.Universe.SECTOR_RADIUS_MEAN)/80,
             max_zoom=2*8*config.Settings.generate.SectorEntities.ship.RADIUS/80.,
         )
         self.perspective.observe(self)
@@ -334,7 +334,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             if re.match(r'^[A-Z]{3}-[a-z0-9]{8}', args[0]):
                 # provided a short id
                 try:
-                    image = next(x for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified and x.identity.short_id == args[0])
+                    image = next(x for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified and x.identity.short_id() == args[0])
                 except StopIteration:
                     raise command_input.UserError("target not found")
             else:
@@ -351,7 +351,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
                     raise command_input.UserError("target not found")
 
             self._select_target(image)
-            self.interface.log_message(f'{image.identity.short_id} targted')
+            self.interface.log_message(f'{image.identity.short_id()} targted')
 
         def order_jump(args:Sequence[str]) -> None:
             if self.presenter.selected_target is None:
@@ -361,9 +361,10 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the travel gate")
-            selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, sector_entity.TravelGate)
-            order = orders.TravelThroughGate(selected_entity, self.ship, self.gamestate)
+            assert self.interface.player.character
+            travel_gate_intel = self.interface.player.character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(self.presenter.selected_target), intel.TravelGateIntel)
+            assert travel_gate_intel is not None
+            order = orders.TravelThroughGate.create_travel_through_gate(travel_gate_intel, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
 
@@ -375,9 +376,13 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
             if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
                 raise command_input.UserError("cannot reach the asteroid")
-            selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, sector_entity.Asteroid)
-            order = orders.MineOrder.create_mine_order(selected_entity, math.inf, self.ship, self.gamestate)
+
+            assert self.interface.player.character
+            asteroid_intel = self.interface.player.character.intel_manager.get_intel(intel.EntityIntelMatchCriteria(self.presenter.selected_target), intel.AsteroidIntel)
+            if not asteroid_intel:
+                raise command_input.UserError(f'no intel for {self.presenter.selected_target}')
+
+            order = orders.MineOrder.create_mine_order(asteroid_intel, math.inf, self.ship, self.gamestate)
             self.ship.clear_orders()
             self.ship.prepend_order(order)
 
@@ -387,14 +392,11 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             if not self.presenter.selected_target_image.identified or not issubclass(self.presenter.selected_target_image.identity.object_type, sector_entity.Station):
                 raise command_input.UserError("target is not identified as a station")
 
-            if self.presenter.selected_target_image.identity.entity_id not in self.sector.entities:
-                raise command_input.UserError("cannot reach the station")
-            selected_entity = self.sector.entities[self.presenter.selected_target_image.identity.entity_id]
-            assert isinstance(selected_entity, sector_entity.Station)
-            order = orders.DockingOrder.create_docking_order(selected_entity, self.ship, self.gamestate)
-            dock_station = selected_entity
+            order = orders.DockingOrder.create_docking_order(self.ship, self.gamestate, target_image=self.presenter.selected_target_image)
 
+            station_id = self.presenter.selected_target
             def complete_docking(order: core.Order) -> None:
+                dock_station = self.gamestate.get_entity(station_id, sector_entity.Station)
                 self.open_station_view(dock_station)
 
             order.observe(self.make_order_observer(complete=complete_docking))
@@ -488,7 +490,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         def mouse_pos(args:Sequence[str]) -> None:
             self.interface.log_message(f'{self.m_sector_x},{self.m_sector_y}')
 
-        detected_short_ids = (x.identity.short_id for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
+        detected_short_ids = (x.identity.short_id() for x in self.presenter.sensor_image_manager.sensor_contacts.values() if x.identified)
 
         def only_draw_cymunk(args:Sequence[str]) -> None:
             self.draw_cymunk_shapes = not self.draw_cymunk_shapes
@@ -854,7 +856,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         self.viewscreen.addstr(status_y, status_x, "Target Info:")
 
         label_id = "id:"
-        label_sensor_profile = "s profile:"
+        label_sensor_profile = "profile:"
+        label_transponder = "transonponder:"
         label_speed = "speed:"
         label_location = "location:"
         label_bearing = "bearing:"
@@ -888,15 +891,28 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         else:
             closest_approach = math.inf
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_id:>12} {self.presenter.selected_target_image.identity.short_id}')
-        self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_profile:>12} {self.presenter.selected_target_image.profile}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(util.magnitude(*self.presenter.selected_target_image.velocity))}')
-        self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.presenter.selected_target_image.loc[0]:.0f},{self.presenter.selected_target_image.loc[1]:.0f}')
-        self.viewscreen.addstr(status_y+5, status_x, f'{label_bearing:>12} {math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)')
-        self.viewscreen.addstr(status_y+6, status_x, f'{label_distance:>12} {util.human_distance(distance)}')
-        self.viewscreen.addstr(status_y+7, status_x, f'{label_rel_speed:>12} {util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})')
+        transponder_value = "on" if self.presenter.selected_target_image.transponder else "off"
+        if self.presenter.selected_target_image.identified:
+            id_value = self.presenter.selected_target_image.identity.short_id()
+            transponder_value += " (identified)"
+        else:
+            id_value = f'{self.presenter.selected_target_image.identity.short_id()} (unidentified)'
+
+        display_items:list[tuple[str, str]] = [
+                (label_id, id_value),
+                (label_sensor_profile, f'{self.presenter.selected_target_image.profile:.0f} ({self.presenter.selected_target_image.fidelity:.2f})'),
+                (label_transponder, transponder_value),
+                (label_speed, util.human_speed(util.magnitude(*self.presenter.selected_target_image.velocity))),
+                (label_location, f'{self.presenter.selected_target_image.loc[0]:.0f},{self.presenter.selected_target_image.loc[1]:.0f}'),
+                (label_bearing, f'{math.degrees(util.normalize_angle(bearing)):.0f}° ({math.degrees(util.normalize_angle(rel_bearing, shortest=True)):.0f}°)'),
+                (label_distance, util.human_distance(distance)),
+                (label_rel_speed, f'{util.human_speed(vel_toward)} ({util.human_speed(vel_perpendicular)})'),
+        ]
         if approach_t < 60*60:
-            self.viewscreen.addstr(status_y+8, status_x, f'{label_eta:>12} {approach_t:.0f}s ({util.human_distance(closest_approach)})')
+            display_items.append((label_eta, f'{approach_t:.0f}s ({util.human_distance(closest_approach)})'))
+
+        for i, (label, value) in enumerate(display_items, start=1):
+            self.viewscreen.addstr(status_y+i, status_x, f'{label:>12} {value}')
 
         #DEBUG:
         #label_bias_mag = "bias:"
@@ -950,9 +966,9 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         course = self.ship.phys.velocity.get_angle() + np.pi/2
         pd_status = "off" if self.point_defense is None else "on"
 
-        self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship)}')
+        self.viewscreen.addstr(status_y+1, status_x, f'{label_sensor_profile:>12} {self.sector.sensor_manager.compute_effective_profile(self.ship):.0f}')
         self.viewscreen.addstr(status_y+2, status_x, f'{label_sensor_threshold:>12} {self.sector.sensor_manager.compute_sensor_threshold(self.ship)}')
-        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({self.ship.phys.force.length}N)')
+        self.viewscreen.addstr(status_y+3, status_x, f'{label_speed:>12} {util.human_speed(self.ship.speed)} ({util.human_si_scale(self.ship.phys.force.length, "N")})')
         self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
@@ -1023,7 +1039,17 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         weather_x = 1
         weather_y = self.interface.viewscreen.height - 4
         sensor_factor = self.sector.weather((self.m_sector_x, self.m_sector_y)).sensor_factor
-        self.viewscreen.addstr(weather_y, weather_x, f'{(int(self.m_sector_x), int(self.m_sector_y))} sensor factor: {sensor_factor}')
+        hex_loc = self.sector.get_hex_coords(np.array((self.m_sector_x, self.m_sector_y)))
+        hex_weather_factor = self.sector.hex_weather(hex_loc).sensor_factor
+        if self.interface.player.character:
+            sector_hex_intel = self.interface.player.character.intel_manager.get_intel(intel.SectorHexMatchCriteria(self.sector.entity_id, hex_loc, True), intel.SectorHexIntel)
+            if sector_hex_intel:
+                explored = " (explored)"
+            else:
+                explored = " (unexplored)"
+        else:
+            explored = ""
+        self.viewscreen.addstr(weather_y, weather_x, f'{(int(self.m_sector_x), int(self.m_sector_y))} ({util.int_coords(hex_loc)}) sensor factor: {sensor_factor} ({hex_weather_factor}){explored}')
 
     def initialize(self) -> None:
         self.logger.info(f'entering pilot mode for {self.ship.entity_id}')
@@ -1038,6 +1064,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             self.control_order.cancel_order()
         if self.point_defense:
             self.point_defense.cancel_effect()
+        self.presenter.terminate()
 
     def focus(self) -> None:
         super().focus()
@@ -1074,6 +1101,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
             self.presenter.draw_hexes()
         else:
             self.starfield.draw_starfield(self.viewscreen)
+            self.presenter.draw_hexes()
             self.presenter.draw_weather()
             self.presenter.draw_shapes()
             self._draw_radar()

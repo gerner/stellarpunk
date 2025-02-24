@@ -62,6 +62,10 @@ class Counters(enum.IntEnum):
     EVENTS_TOTAL_THROTTLED = enum.auto()
 
 
+class TickHandler:
+    def tick(self) -> None:
+        pass
+
 class AbstractGameRuntime:
     """ The game runtime that actually runs the simulation. """
 
@@ -105,6 +109,15 @@ class AbstractGameRuntime:
 
     def should_breakpoint(self) -> bool:
         return False
+
+    def get_breakpoint_sentinel(self) -> Optional[str]:
+        return None
+
+    def set_breakpoint_sentinel(self, value:Optional[str]) -> None:
+        pass
+
+    def register_tick_handler(self, tick_handler:TickHandler) -> None:
+        pass
 
 class AbstractGenerator:
     @abc.abstractmethod
@@ -165,10 +178,8 @@ class Gamestate(EntityRegistry):
         # Universe State
         # the universe is a set of sectors, indexed by their entity id
         self.sectors:dict[uuid.UUID, Sector] = {}
-        self.sector_ids:npt.NDArray = np.ndarray((0,), uuid.UUID) #indexed same as edges
-        self.sector_idx:MutableMapping[uuid.UUID, int] = {} #inverse of sector_ids
-        self.sector_edges:npt.NDArray[np.float64] = np.ndarray((0,0))
-        self.max_edge_length:float = 0.0
+        self.sector_idx_lookup:dict[uuid.UUID, int] = {}
+        self.sector_jumps:dict[uuid.UUID, Mapping[int, float]] = {}
 
         # a spatial index of sectors in the universe
         self.sector_spatial = rtree.index.Index()
@@ -354,8 +365,9 @@ class Gamestate(EntityRegistry):
         assert(isinstance(agendum, klass))
         return agendum
 
-    def _pause(self, paused:Optional[bool]=None) -> None:
-        self.game_runtime.time_acceleration(1.0, False)
+    def _pause(self, paused:Optional[bool]=None, reset_time_accel:bool=False) -> None:
+        if reset_time_accel:
+            self.game_runtime.time_acceleration(1.0, False)
         if paused is None:
             self.paused = not self.paused
         else:
@@ -365,7 +377,7 @@ class Gamestate(EntityRegistry):
         if len(self.force_pause_holders) > 0:
             assert(self.paused)
             return
-        self._pause(paused)
+        self._pause(paused, reset_time_accel=True)
 
     def force_pause(self, requesting_object:object) -> None:
         #if self.force_pause_holder is not None and self.force_pause_holder != requesting_object:
@@ -393,6 +405,10 @@ class Gamestate(EntityRegistry):
         if self.game_runtime.should_breakpoint():
             raise Exception("debug breakpoint immediate")
 
+    def conditional_breakpoint(self, value:str) -> None:
+        if self.game_runtime.should_breakpoint() and value == self.game_runtime.get_breakpoint_sentinel():
+            raise Exception("conditional debug breakpoint")
+
     def representing_agent(self, entity_id:uuid.UUID, agent:EconAgent) -> None:
         self.econ_agents[entity_id] = agent
         self.agent_to_entity[agent.entity_id] = self.entities[entity_id]
@@ -416,7 +432,7 @@ class Gamestate(EntityRegistry):
         if character.location is not None:
             self.characters_by_location[character.location.entity_id].remove(character)
         self.characters_by_location[location.entity_id].append(character)
-        character.location = location
+        character.migrate(location)
 
     def handle_destroy_entities(self) -> None:
         for entity in self.gamestate.entity_destroy_list:
@@ -587,39 +603,31 @@ class Gamestate(EntityRegistry):
 
     def add_sector(self, sector:Sector, idx:int) -> None:
         self.sectors[sector.entity_id] = sector
-        self.sector_idx[sector.entity_id] = idx
         self.sector_spatial.insert(idx, (sector.loc[0]-sector.radius, sector.loc[1]-sector.radius, sector.loc[0]+sector.radius, sector.loc[1]+sector.radius), sector.entity_id)
 
-        # we'll do this here for consistency, but really this should happen in
-        # update_edges
-        sector_ids = list(self.sector_ids)
-        if sector.entity_id not in sector_ids:
-            sector_ids.append(sector.entity_id)
-            self.sector_ids = np.array(sector_ids)
+    def recompute_jumps(self, sector_idx_lookup:dict[uuid.UUID, int], adj_matrix:npt.NDArray[np.float64]) -> None:
+        """ recomputes jump lengths between all sector pairs. """
 
-    def update_edges(self, sector_edges:npt.NDArray[np.float64], sector_ids:npt.NDArray, sector_coords:npt.NDArray[np.float64]) -> None:
-        self.sector_edges = sector_edges
-        self.sector_ids = sector_ids
-        self.sector_idx = {v:k for (k,v) in enumerate(sector_ids)}
-        if len(sector_ids) >= 2:
-            self.max_edge_length = max(
-                util.distance(sector_coords[i], sector_coords[j]) for (i,a),(j,b) in itertools.product(enumerate(sector_ids), enumerate(sector_ids)) if sector_edges[i, j] == 1
-            )
+        self.sector_idx_lookup = sector_idx_lookup
+        self.sector_jumps = dict()
+
+        for sector_id, sector_idx in sector_idx_lookup.items():
+            path_tree, distance_map = util.dijkstra(adj_matrix, sector_idx, -1)
+            self.sector_jumps[sector_id] = distance_map
+
+    def jump_distance(self, a_id:uuid.UUID, b_id:uuid.UUID) -> Optional[int]:
+        b_idx = self.sector_idx_lookup[b_id]
+        if b_idx not in self.sector_jumps[a_id]:
+            return None
         else:
-            # or should it be inf?
-            self.max_edge_length = 0.0
+            return int(np.round(self.sector_jumps[a_id][b_idx]))
 
     def spatial_query(self, bounds:tuple[float, float, float, float]) -> Iterator[uuid.UUID]:
         hits = self.sector_spatial.intersection(bounds, objects="raw")
         return hits # type: ignore
 
     def sanity_check_sectors(self) -> None:
-        assert set(self.sector_ids) == set(self.sectors.keys())
-        for sector_id in self.sector_ids:
-            assert sector_id in self.entities
-            assert self.sectors[sector_id] == self.entities[sector_id]
-            assert sector_id in self.sector_idx
-        assert len(self.sector_ids) == len(self.sector_idx)
+        pass
 
     def sanity_check(self) -> None:
         self.sanity_check_entities()
@@ -641,8 +649,9 @@ class Gamestate(EntityRegistry):
         event_type: int,
         context: dict[int, int],
         event_args: dict[str, Union[int,float,str,bool]] = {},
+        merge_key: Optional[uuid.UUID]=None,
     ) -> None:
-        self.event_manager.trigger_event(characters, event_type, context, event_args)
+        self.event_manager.trigger_event(characters, event_type, context, event_args, merge_key=merge_key)
 
     def trigger_event_immediate(
         self,

@@ -7,6 +7,7 @@ from typing import Any, Type
 import numpy as np
 
 from stellarpunk import core
+from stellarpunk.core import sector_entity
 
 from . import serialize_econ_sim, save_game, util as s_util
 
@@ -18,7 +19,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         bytes_written = 0
 
         # simple fields
-        bytes_written += s_util.debug_string_w("simple fields", f)
+        bytes_written += self.save_game.debug_string_w("simple fields", f)
         bytes_written += s_util.random_state_to_f(gamestate.random, f)
         bytes_written += s_util.to_len_pre_f(gamestate.base_date.isoformat(), f)
         bytes_written += s_util.float_to_f(gamestate.game_secs_per_sec, f)
@@ -29,60 +30,61 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         #bytes_written += s_util.float_to_f(gamestate.min_tick_sleep, f)
         bytes_written += s_util.int_to_f(gamestate.ticks, f)
 
-        # in general we can't save while force paused since we force pause
-        # because we're at risk of putting the gamestate in an inconsistent
-        # state (e.g. middle of dialog)
-        assert(not gamestate.is_force_paused())
+        # we must be paused to save the game
+        assert gamestate.paused
 
         bytes_written += s_util.uuid_to_f(gamestate.player.entity_id, f)
         #TODO: should we save counters?
 
         # production chain
-        bytes_written += s_util.debug_string_w("production chain", f)
+        bytes_written += self.save_game.debug_string_w("production chain", f)
         pchain_bytes = serialize_econ_sim.save_production_chain(gamestate.production_chain)
         bytes_written += s_util.size_to_f(len(pchain_bytes), f)
         bytes_written += f.write(pchain_bytes)
 
         # entities
-        bytes_written += s_util.debug_string_w("entities", f)
+        bytes_written += self.save_game.debug_string_w("entities", f)
         bytes_written += s_util.size_to_f(len(gamestate.entities), f)
         for entity in gamestate.entities.values():
             # we save as a generic entity which will handle its own dispatch
             bytes_written += self.save_game.save_object(entity, f, klass=core.Entity)
+            self.save_tick()
 
         # orders
-        bytes_written += s_util.debug_string_w("orders", f)
+        bytes_written += self.save_game.debug_string_w("orders", f)
         bytes_written += s_util.size_to_f(len(gamestate.orders), f)
         for order in gamestate.orders.values():
             # we save as a generic order which will handle its own dispatch
             bytes_written += self.save_game.save_object(order, f, klass=core.Order)
+            self.save_tick()
 
         # effects
-        bytes_written += s_util.debug_string_w("effects", f)
+        bytes_written += self.save_game.debug_string_w("effects", f)
         bytes_written += s_util.size_to_f(len(gamestate.effects), f)
         for effect in gamestate.effects.values():
             # we save as a generic effect which will handle its own dispatch
             bytes_written += self.save_game.save_object(effect, f, klass=core.Effect)
+            self.save_tick()
 
         # agenda
-        bytes_written += s_util.debug_string_w("agenda", f)
+        bytes_written += self.save_game.debug_string_w("agenda", f)
         bytes_written += s_util.size_to_f(len(gamestate.agenda), f)
         for agenda in gamestate.agenda.values():
             # we save as a generic effect which will handle its own dispatch
             bytes_written += self.save_game.save_object(agenda, f, klass=core.AbstractAgendum)
+            self.save_tick()
 
         # sectors
         # save the sector ids in the right order
         # this gives us enough info to reconstruct sectors dict, sector_idx,
         # sector_spatial by pulling desired entity from the entity store
-        bytes_written += s_util.debug_string_w("sector ids", f)
-        bytes_written += s_util.size_to_f(len(gamestate.sector_ids), f)
-        for sector_id in gamestate.sector_ids:
+        bytes_written += self.save_game.debug_string_w("sector ids", f)
+        bytes_written += s_util.size_to_f(len(gamestate.sectors), f)
+        for sector_id in gamestate.sectors.keys():
             s_util.uuid_to_f(sector_id, f)
-        bytes_written += s_util.matrix_to_f(gamestate.sector_edges, f)
 
         # econ agents
-        bytes_written += s_util.debug_string_w("econ agents", f)
+        bytes_written += self.save_game.debug_string_w("econ agents", f)
         bytes_written += s_util.size_to_f(core.EconAgent._next_id, f)
         bytes_written += s_util.size_to_f(len(gamestate.econ_agents), f)
         for entity_id, agent in gamestate.econ_agents.items():
@@ -90,31 +92,31 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             bytes_written += s_util.uuid_to_f(agent.entity_id, f)
 
         # characters
-        bytes_written += s_util.debug_string_w("characters", f)
+        bytes_written += self.save_game.debug_string_w("characters", f)
         bytes_written += s_util.uuids_to_f(gamestate.characters.keys(), f)
 
         # task lists
 
         # order schedule (orders stored in order registry)
-        bytes_written += s_util.debug_string_w("order schedule", f)
+        bytes_written += self.save_game.debug_string_w("order schedule", f)
         bytes_written += s_util.size_to_f(gamestate._order_schedule.size(), f)
         for (timestamp, order) in gamestate._order_schedule:
             bytes_written += s_util.float_to_f(timestamp, f)
             bytes_written += s_util.uuid_to_f(order.order_id, f)
         # effect schedule (effects stored in effect registry)
-        bytes_written += s_util.debug_string_w("effect schedule", f)
+        bytes_written += self.save_game.debug_string_w("effect schedule", f)
         bytes_written += s_util.size_to_f(gamestate._effect_schedule.size(), f)
         for (timestamp, effect) in gamestate._effect_schedule:
             bytes_written += s_util.float_to_f(timestamp, f)
             bytes_written += s_util.uuid_to_f(effect.effect_id, f)
         # agenda schedule (agenda stored in agenda reigstry)
-        bytes_written += s_util.debug_string_w("agenda schedule", f)
+        bytes_written += self.save_game.debug_string_w("agenda schedule", f)
         bytes_written += s_util.size_to_f(gamestate._agenda_schedule.size(), f)
         for (timestamp, agendum) in gamestate._agenda_schedule:
             bytes_written += s_util.float_to_f(timestamp, f)
             bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
         # task schedule (tasks stored here)
-        bytes_written += s_util.debug_string_w("task schedule", f)
+        bytes_written += self.save_game.debug_string_w("task schedule", f)
         bytes_written += s_util.size_to_f(gamestate._task_schedule.size(), f)
         for (timestamp, task) in gamestate._task_schedule:
             # some tasks might be invalid, so we don't need to save them
@@ -123,7 +125,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
                 bytes_written += self.save_game.save_object(task, f, klass=core.ScheduledTask)
 
         # starfields
-        bytes_written += s_util.debug_string_w("starfields", f)
+        bytes_written += self.save_game.debug_string_w("starfields", f)
         bytes_written += s_util.size_to_f(len(gamestate.starfield), f)
         for starfield in gamestate.starfield:
             bytes_written += self.save_game.save_object(starfield, f)
@@ -135,17 +137,20 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             bytes_written += self.save_game.save_object(starfield, f)
 
         # entity destroy list
-        bytes_written += s_util.debug_string_w("entity destroy list", f)
+        bytes_written += self.save_game.debug_string_w("entity destroy list", f)
         bytes_written += s_util.size_to_f(len(gamestate.entity_destroy_list), f)
         for entity in gamestate.entity_destroy_list:
             bytes_written += s_util.uuid_to_f(entity.entity_id, f)
 
-        bytes_written += s_util.debug_string_w("last colliders", f)
+        bytes_written += self.save_game.debug_string_w("last colliders", f)
         bytes_written += s_util.size_to_f(len(gamestate.last_colliders), f)
         for colliders in gamestate.last_colliders:
             bytes_written += s_util.to_len_pre_f(colliders, f)
 
-        bytes_written += s_util.debug_string_w("gamestate done", f)
+        bytes_written += self.save_game.debug_string_w("gamestate done", f)
+
+        self.save_tick()
+
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> core.Gamestate:
@@ -153,7 +158,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         load_context.gamestate = gamestate
 
         # simple fields
-        s_util.debug_string_r("simple fields", f)
+        load_context.debug_string_r("simple fields", f)
         gamestate.random = s_util.random_state_from_f(f)
         gamestate.base_date = datetime.datetime.fromisoformat(s_util.from_len_pre_f(f))
         gamestate.game_secs_per_sec = s_util.float_from_f(f)
@@ -164,13 +169,13 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         gamestate.ticks = s_util.int_from_f(f)
         player_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("production chain", f)
+        load_context.debug_string_r("production chain", f)
         pchain_bytes_count = s_util.size_from_f(f)
         pchain_bytes = f.read(pchain_bytes_count)
         gamestate.production_chain = serialize_econ_sim.load_production_chain(pchain_bytes)
 
         # load entities
-        s_util.debug_string_r("entities", f)
+        load_context.debug_string_r("entities", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             entity = self.save_game.load_object(core.Entity, f, load_context)
@@ -185,7 +190,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
         gamestate.player = player
 
         # load orders
-        s_util.debug_string_r("orders", f)
+        load_context.debug_string_r("orders", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             order = self.save_game.load_object(core.Order, f, load_context)
@@ -193,7 +198,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             self.load_tick()
 
         # load effects
-        s_util.debug_string_r("effects", f)
+        load_context.debug_string_r("effects", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             effect = self.save_game.load_object(core.Effect, f, load_context)
@@ -201,7 +206,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             self.load_tick()
 
         # load agenda
-        s_util.debug_string_r("agenda", f)
+        load_context.debug_string_r("agenda", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             agenda = self.save_game.load_object(core.AbstractAgendum, f, load_context)
@@ -210,25 +215,22 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
 
         # sectors
         # load sector ids and sector edges from file
-        s_util.debug_string_r("sector ids", f)
+        load_context.debug_string_r("sector ids", f)
         sector_ids:list[uuid.UUID] = []
         count = s_util.size_from_f(f)
         for i in range(count):
             sector_id = s_util.uuid_from_f(f)
             sector_ids.append(sector_id)
-        sector_edges = s_util.matrix_from_f(f)
 
         # now reconstruct all the sector state from entites already loaded
-        sector_coords = np.zeros((len(sector_ids), 2), dtype=np.float64)
         for i, sector_id in enumerate(sector_ids):
             sector = gamestate.entities[sector_id]
             assert(isinstance(sector, core.Sector))
-            sector_coords[i] = sector.loc
             gamestate.add_sector(sector, i)
-        gamestate.update_edges(sector_edges, np.array(sector_ids), sector_coords)
+        gamestate.recompute_jumps(*sector_entity.TravelGate.compute_sector_network(gamestate))
 
         # econ agents
-        s_util.debug_string_r("econ agents", f)
+        load_context.debug_string_r("econ agents", f)
         core.EconAgent._next_id = s_util.size_from_f(f)
         count = s_util.size_from_f(f)
         for i in range(count):
@@ -239,11 +241,11 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             gamestate.representing_agent(entity_id, agent)
 
         # characters
-        s_util.debug_string_r("characters", f)
+        load_context.debug_string_r("characters", f)
         character_ids = s_util.uuids_from_f(f)
 
         # task lists
-        s_util.debug_string_r("order schedule", f)
+        load_context.debug_string_r("order schedule", f)
         scheduled_order_ids:list[tuple[float, uuid.UUID]] = []
         count = s_util.size_from_f(f)
         for i in range(count):
@@ -251,7 +253,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             order_id = s_util.uuid_from_f(f)
             scheduled_order_ids.append((timestamp, order_id))
 
-        s_util.debug_string_r("effect schedule", f)
+        load_context.debug_string_r("effect schedule", f)
         scheduled_effect_ids:list[tuple[float, uuid.UUID]] = []
         count = s_util.size_from_f(f)
         for i in range(count):
@@ -259,7 +261,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             effect_id = s_util.uuid_from_f(f)
             scheduled_effect_ids.append((timestamp, effect_id))
 
-        s_util.debug_string_r("agenda schedule", f)
+        load_context.debug_string_r("agenda schedule", f)
         scheduled_agenda_ids:list[tuple[float, uuid.UUID]] = []
         count = s_util.size_from_f(f)
         for i in range(count):
@@ -267,7 +269,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             agenda_id = s_util.uuid_from_f(f)
             scheduled_agenda_ids.append((timestamp, agenda_id))
 
-        s_util.debug_string_r("task schedule", f)
+        load_context.debug_string_r("task schedule", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             timestamp = s_util.float_from_f(f)
@@ -275,7 +277,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             gamestate._task_schedule.push_task(timestamp, scheduled_task)
 
         # starfields
-        s_util.debug_string_r("starfields", f)
+        load_context.debug_string_r("starfields", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             starfield = self.save_game.load_object(core.StarfieldLayer, f, load_context)
@@ -290,14 +292,14 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
             gamestate.portrait_starfield.append(starfield)
 
         # entity destroy list
-        s_util.debug_string_r("entity destroy list", f)
+        load_context.debug_string_r("entity destroy list", f)
         count = s_util.size_from_f(f)
         for i in range(count):
             entity_id = s_util.uuid_from_f(f)
             gamestate.destroy_entity(gamestate.entities[entity_id])
 
         # last colliders
-        s_util.debug_string_r("last colliders", f)
+        load_context.debug_string_r("last colliders", f)
         count = s_util.size_from_f(f)
         last_colliders = set()
         for i in range(count):
@@ -308,7 +310,7 @@ class GamestateSaver(save_game.Saver[core.Gamestate]):
 
         self.load_tick()
 
-        s_util.debug_string_r("gamestate done", f)
+        load_context.debug_string_r("gamestate done", f)
 
         return gamestate
 
@@ -377,19 +379,19 @@ class EntitySaver[EntityType: core.Entity](save_game.Saver[EntityType], abc.ABC)
         i = 0
 
         # common fields we need for entity creation
-        s_util.debug_string_w("entity id", f)
+        self.save_game.debug_string_w("entity id", f)
         i += s_util.uuid_to_f(entity.entity_id, f)
 
-        s_util.debug_string_w("dispatch", f)
+        self.save_game.debug_string_w("dispatch", f)
         i += self._save_entity(entity, f)
 
         # save some common fields
-        s_util.debug_string_w("common fields", f)
+        self.save_game.debug_string_w("common fields", f)
         i += s_util.to_len_pre_f(entity.name, f, 2)
         i += s_util.to_len_pre_f(entity.description, f, 2)
         i += s_util.float_to_f(entity.created_at, f)
 
-        s_util.debug_string_w("context", f)
+        self.save_game.debug_string_w("context", f)
         context_dict = entity.context.to_dict()
         i += s_util.size_to_f(len(context_dict), f)
         for k,v in context_dict.items():
@@ -400,25 +402,25 @@ class EntitySaver[EntityType: core.Entity](save_game.Saver[EntityType], abc.ABC)
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> EntityType:
         # fields we need for entity creation
-        s_util.debug_string_r("entity id", f)
+        load_context.debug_string_r("entity id", f)
         entity_id = s_util.uuid_from_f(f)
 
         # type specific loading logic
-        s_util.debug_string_r("dispatch", f)
+        load_context.debug_string_r("dispatch", f)
         entity = self._load_entity(f, load_context, entity_id)
 
         #TODO: is this how we want to get the generic fields into the entity?
         # alternatively we could read these and make them available to the
         # class specific loader somehow
         # read common fields
-        s_util.debug_string_r("common fields", f)
+        load_context.debug_string_r("common fields", f)
         entity.name = s_util.from_len_pre_f(f)
         entity.description = s_util.from_len_pre_f(f)
         entity.created_at = s_util.float_from_f(f)
 
         # creating the entity made an empty event context, we just have to
         # populate it
-        s_util.debug_string_r("context", f)
+        load_context.debug_string_r("context", f)
         count = s_util.size_from_f(f)
         for _ in range(count):
             k = s_util.int_from_f(f, 8)

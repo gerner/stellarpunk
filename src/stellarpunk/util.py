@@ -15,6 +15,7 @@ import uuid
 import itertools
 import threading
 import contextlib
+import heapq
 import types
 from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator
 
@@ -24,6 +25,8 @@ from numba import jit # type: ignore
 import drawille # type: ignore
 
 logger = logging.getLogger(__name__)
+
+ZERO_VECTOR = np.array((0.0, 0.0))
 
 def fullname(o:Any) -> str:
     # from https://stackoverflow.com/a/2020083/553580
@@ -379,6 +382,102 @@ def enclosing_circle(c1:npt.NDArray[np.float64], r1:float, c2:npt.NDArray[np.flo
 
     return (np.array((x,y)), R)
 
+
+# Graph algorithms
+
+def dijkstra(adj:npt.NDArray[np.float64], start:int, target:int) -> Tuple[Mapping[int, int], Mapping[int, float]]:
+    """ given adjacency weight matrix, start index, end index, compute
+    distances from start to every node up to end.
+
+    returns tuple:
+        path encoded as node -> parent node mapping
+        distances node -> shortest distance to start
+    """
+    # inspired by: https://towardsdatascience.com/a-self-learners-guide-to-shortest-path-algorithms-with-implementations-in-python-a084f60f43dc
+    d = {start: 0}
+    parent = {start: start}
+    pq = [(0, start)]
+    visited = set()
+    while pq:
+        du, u = heapq.heappop(pq)
+        if u in visited: continue
+        if u == target:
+            break
+        visited.add(u)
+        for v, weight in enumerate(adj[u]):
+            if not weight < math.inf:
+                # inf weight means no edge
+                continue
+            if v not in d or d[v] > du + weight:
+                d[v] = du + weight
+                parent[v] = u
+                heapq.heappush(pq, (d[v], v))
+
+
+    return parent, d
+
+def prims_mst(distances:npt.NDArray[np.float64], root_idx:int) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    # prim's algorithm to construct a minimum spanning tree
+    # https://en.wikipedia.org/wiki/Prim%27s_algorithm
+    # choose starting vertex arbitrarily
+    V = np.zeros(len(distances), bool)
+    E = np.zeros((len(distances), len(distances)))
+    edge_distances = np.full((len(distances), len(distances)), math.inf)
+    # while some nodes not connected
+    # invariant(s):
+    # V is a mask indicating elements in the tree
+    # E is adjacency matrix representing the tree
+    # distances has distances to nodes in the tree
+    #   with inf distance between nodes already in the tree and self edges
+    V[root_idx] = True
+    while not np.all(V):
+        # choose edge from nodes in tree to node not yet in tree with min dist
+        d = np.copy(distances)
+        # don't choose edges from outside the tree
+        d[~V,:] = np.inf
+        # don't choose edges into the tree
+        d[:,V] = np.inf
+        edge = np.unravel_index(np.argmin(d, axis=None), d.shape)
+        E[edge] = 1.
+        E[edge[1], edge[0]] = 1.
+        V[edge[1]] = True
+        edge_distances[edge] = distances[edge]
+        edge_distances[edge[1], edge[0]] = distances[edge]
+    return E, edge_distances
+
+def detect_cycle[T](root:T, tree:Mapping[T, Collection[T]], visited:Optional[set[T]]=None) -> bool:
+    if root is None:
+        return False
+    if visited is None:
+        visited = set()
+    if root in visited:
+        return True
+    visited.add(root)
+    if root in tree:
+        for child in tree[root]:
+            if detect_cycle(child, tree, visited):
+                return True
+    return False
+
+def print_tree[T](root:T, tree:Mapping[T, Collection[T]], level:int=0, visited:Optional[set[T]]=None, leader:str="", last:bool=True) -> None:
+    if root is None:
+        return
+    elbow = "└── "
+    pipe = "│   "
+    tee = "├── "
+    blank = "    "
+    if visited is None:
+        visited = set()
+    if root in visited:
+        print(f'{leader}{(elbow if last else tee)}{root} CYCLE')
+        return
+    visited.add(root)
+    print(f'{leader}{(elbow if last else tee)}{root}')
+    for i, child in enumerate(tree[root]):
+        print_tree(child, tree, level+1, visited, leader=leader+(blank if last else pipe), last=i == len(tree[root]) - 1)
+
+# drawille drawing methods
+
 def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tick_size:int=3) -> drawille.Canvas:
     """ Draws a vector (x,y) on a drawille canvas and returns it.
 
@@ -406,7 +505,7 @@ def drawille_vector(x:float, y:float, canvas:Optional[drawille.Canvas]=None, tic
 
     return canvas
 
-def drawille_line(start:Sequence[float], end:Sequence[float], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None, bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+def drawille_line(start:Union[Sequence[float]|npt.NDArray[np.float64]], end:Union[Sequence[float], npt.NDArray[np.float64]], meters_per_char_x:float, meters_per_char_y:float, canvas:Optional[drawille.Canvas]=None, step:Optional[float]=None, bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
 
     if canvas is None:
         canvas = drawille.Canvas()
@@ -504,26 +603,43 @@ def elipsis(string:str, max_length:int) -> str:
         #TODO: is using unicode elipsis the right thing to do here?
         return string[:max_length-1] + "…"
 
-def tab_complete(partial:str, current:str, options:Iterable[str]) -> str:
+def tab_complete(partial:str, current:str, options:Iterable[str], direction:int=1) -> str:
     """ Tab completion of partial given sorted options. """
 
     options = sorted(options)
-    if not current:
-        current = partial
+    if direction > 0:
+        if not current:
+            current = partial
 
-    i = bisect.bisect(options, current)
-    if i == len(options):
-        return partial
-    if options[i].startswith(partial):
-        return options[i]
-    return partial
+        i = bisect.bisect(options, current)
+        if i == len(options):
+            return partial
+        if not options[i].startswith(partial):
+            return partial
+        else:
+            return options[i]
+    elif direction < 0:
+        # cycle backwards through list of options starting with partial, including partial
+        lo = bisect.bisect(options, partial)
+        if not options[lo].startswith(partial):
+            return partial
+        hi = lo+len(list(x for x in options[lo:] if x.startswith(partial)))
+        if current == partial:
+            return options[hi-1]
+        i = bisect.bisect_left(options, current, lo, hi)-1
+        if i < lo:
+            return partial
+        else:
+            return options[i]
+    else:
+        raise ValueError(f'direction must be < 0 or > 0, not {direction}')
 
-def tab_completer(options:Iterable[str])->Callable[[str, str], str]:
+def tab_completer(options:Iterable[str])->Callable[[str, str, int], str]:
     options = list(options)
-    def completer(partial:str, command:str)->str:
+    def completer(partial:str, command:str, direction:int)->str:
         p = partial.split(' ')[-1]
         c = command.split(' ')[-1]
-        o = tab_complete(p, c, options) or p
+        o = tab_complete(p, c, options, direction) or p
         logging.debug(f'p:{p} c:{c} o:{o}')
         return " ".join(command.split(' ')[:-1]) + " " + o
     return completer
@@ -769,8 +885,9 @@ def make_polygon_canvas(vertices:Sequence[Union[Tuple[float, float]|npt.NDArray[
     return c
 
 
-def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
-    c = drawille.Canvas()
+def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+    if c is None:
+        c = drawille.Canvas()
     assert r >= 0
     if isclose(r, 0.):
         c.set(0,0)
@@ -825,7 +942,7 @@ def make_circle_canvas(r:float, meters_per_char_x:float, meters_per_char_y:float
 
     return c
 
-def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None) -> drawille.Canvas:
+def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, c:Optional[drawille.Canvas]=None, side_tr:bool=True, side_r:bool=True, side_br:bool=True) -> drawille.Canvas:
     """ Draws right half of a regular hexagon, center to point distance size.
 
     This is useful when drawing a tessalating hex pattern. Each hex draws its
@@ -842,20 +959,23 @@ def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_
     # top right segment
     start = (0.+offset_x, size+offset_y)
     end = (np.sqrt(3.)/2.*size+offset_x, size/2.+offset_y)
-    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    if side_tr:
+        c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
     #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "1.s")
     #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "1.e")
     # right segment
     start = end
     end = (np.sqrt(3.)/2.*size+offset_x, -size/2.+offset_y)
-    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    if side_r:
+        c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
     #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "2.s")
     #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "2.e")
 
     # bottom right segment
     start = end
     end = (0+offset_x, -size+offset_y)
-    c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
+    if side_br:
+        c = drawille_line(start, end, meters_per_char_x, meters_per_char_y, c, step, bbox)
     #c.set_text(*sector_to_drawille(*start, meters_per_char_x, meters_per_char_y), "3.s")
     #c.set_text(*sector_to_drawille(*end, meters_per_char_x, meters_per_char_y), "3.e")
 
@@ -863,7 +983,7 @@ def make_half_pointy_hex_canvas(size:float, meters_per_char_x:float, meters_per_
 
     return c
 
-def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None) -> drawille.Canvas:
+def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_char_y:float, step:Optional[float]=None, offset_x:float=0., offset_y:float=0., bbox:Optional[Tuple[float, float, float, float]]=None, suppress_hexes:set[tuple[int, int]]=set()) -> drawille.Canvas:
     """ makes a pointy hex grid filling bbox. """
     c = drawille.Canvas()
     if bbox is None:
@@ -878,7 +998,7 @@ def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_
 
     hex_pairs = 0
     row_pairs = 0
-    # draw pairs of lines until hex center is size distance outside bottom edge
+    # draw pairs of hexes until hex center is size distance outside bottom edge
     #logger.info(f'bbox: {bbox}')
     #logger.info(f'considering row pair: {hex_loc} {pixel_loc}')
     while(pixel_loc[1]+offset_y < bbox[3]+size):
@@ -887,14 +1007,38 @@ def make_pointy_hex_grid_canvas(size:float, meters_per_char_x:float, meters_per_
         row_start = hex_loc.copy()
         while(pixel_loc[0]+offset_x < bbox[2]):
             # draw first, upper left hex
-            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # if this hex is supressed, check the three directions
+            int_hex_loc = int_coords(hex_loc)
+            side_tr = side_r = side_br = True
+            if int_hex_loc in suppress_hexes:
+                if (int_hex_loc[0]+1, int_hex_loc[1]-1) in suppress_hexes:
+                    side_br = False
+                if (int_hex_loc[0]+1, int_hex_loc[1]) in suppress_hexes:
+                    side_r = False
+                if (int_hex_loc[0], int_hex_loc[1]+1) in suppress_hexes:
+                    side_tr = False
+            else:
+                c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), "?")
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c, side_tr=side_tr, side_r=side_r, side_br=side_br)
             # debugging:
             #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.a {hex_loc}')
 
             # draw second, lower right hex
             hex_loc[1] += 1
             pixel_loc = pointy_hex_to_pixel(hex_loc, size)
-            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c)
+            # if this hex is supressed, check the three directions
+            int_hex_loc = int_coords(hex_loc)
+            side_tr = side_r = side_br = True
+            if int_hex_loc in suppress_hexes:
+                if (int_hex_loc[0]+1, int_hex_loc[1]-1) in suppress_hexes:
+                    side_br = False
+                if (int_hex_loc[0]+1, int_hex_loc[1]) in suppress_hexes:
+                    side_r = False
+                if (int_hex_loc[0], int_hex_loc[1]+1) in suppress_hexes:
+                    side_tr = False
+            else:
+                c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), "?")
+            c = make_half_pointy_hex_canvas(size, meters_per_char_x, meters_per_char_y, step, pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, bbox, c, side_tr=side_tr, side_r=side_r, side_br=side_br)
             # debugging:
             #c.set_text(*sector_to_drawille(pixel_loc[0]+offset_x, pixel_loc[1]+offset_y, meters_per_char_x, meters_per_char_y), f'{hex_pairs}.b {hex_loc}')
 
@@ -1043,28 +1187,39 @@ def hexes_at_hex_dist(k:int, hex_coords:npt.NDArray[np.float64]) -> Collection[n
 
     return ret
 
+def pixel_to_hex_dist(dist:float, size:float) -> float:
+    return dist / (3. * np.sqrt(3.) * size / 2.)
 
 def hexes_within_pixel_dist(coords:npt.NDArray[np.float64], dist:float, size:float) -> Collection[npt.NDArray[np.float64]]:
     """ returns all hex coords for hexes contained completely within pixel dist
     of pixel coords. """
 
-    # determine k, the largest integral hex distance that is wholly within dist
     center_hex = axial_round(pixel_to_pointy_hex(coords, size))
-    coords = pointy_hex_to_pixel(center_hex, size)
-    outside_coords = np.array((coords[0]-dist, coords[1]))
-    outside_hex = axial_round(pixel_to_pointy_hex(outside_coords, size))
-    if both_isclose(outside_hex, center_hex):
-        return []
+    d = int(pixel_to_hex_dist(dist, size))
 
-    diff_hex = center_hex - outside_hex
-    d = int(diff_hex[0] - 1)
-    assert(d>=0)
+    # assume worst case that coords is on edge of center_hex, so don't go up
+    # to and including d-1
+    #if d == 0:
+    #    return []
 
     ret:list[npt.NDArray[np.float64]] = []
     for k in range(0, d+1):
         ret.extend(hexes_at_hex_dist(k, center_hex))
 
     return ret
+
+# pixel corner coords of a unit sized hex centered at (0,0)
+# scale by hex_size and offset as appropriate
+HEX_PIXEL_CORNERS = np.array((
+    (0.0, 1.0),
+    (np.sqrt(3.)/2., 1./2.),
+    (np.sqrt(3.)/2., -1.),
+    (0., -1.),
+    (-np.sqrt(3.)/2., -1.),
+    (-np.sqrt(3.)/2., 1./2.),
+))
+def hex_corners(pixel_coords:npt.NDArray[np.float64], hex_size:float) -> npt.NDArray[np.float64]:
+    return HEX_PIXEL_CORNERS * hex_size + pixel_coords
 
 
 class NiceScale:

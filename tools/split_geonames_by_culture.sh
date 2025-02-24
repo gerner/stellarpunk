@@ -8,15 +8,18 @@
 
 set -eu -o pipefail
 
+COUNTRIESCULTURES=/tmp/countriescultures.tsv
+ALLFEATURES=/tmp/allfeatures.countrysorted.gz
+
 country_file=$(mktemp)
 
-cultures="$(cat countriescultures.tsv | tr -d '\r' | tail -n+2 | cut -f 4 | sort -u)"
+cultures="$(cat ${COUNTRIESCULTURES} | tr -d '\r' | tail -n+2 | cut -f 4 | sort -u)"
 for culture in $cultures; do
     echo ${culture}
 
     # natural features
-    cat countriescultures.tsv | tr -d '\r' | awk -F\\t '$4 == "'${culture}'" { print $1 }' | LC_ALL=C sort > $country_file
-    pv allfeatures.countrysorted.gz \
+    cat ${COUNTRIESCULTURES} | tr -d '\r' | awk -F\\t '$4 == "'${culture}'" { print $1 }' | LC_ALL=C sort > $country_file
+    pv ${ALLFEATURES} \
         | zcat \
         | awk -F\\t '($7=="U" || $7=="H" || $7=="T" || $7=="V")' \
         | LC_ALL=C join -t$'\t' -19  - $country_file \
@@ -25,7 +28,7 @@ for culture in $cultures; do
         > features.${culture}.gz
 
     # admin areas: countries, states, cities, etc.
-    pv allfeatures.countrysorted.gz \
+    pv ${ALLFEATURES} \
         | zcat \
         | awk -F\\t '($7=="A" || $7=="P" || ($7=="S" && ($8=="AIRB" || $8=="AIRF" || $8=="AIRH" || $8=="AIRP" || $8=="AIRT" || $8=="ASTR" || $8=="CSTL" || $8=="CTRS" || $8=="EST" || $8=="INSM" || $8=="MN" || $8=="OILR" || $8=="STNB" || $8=="STNC" || $8=="STNE" || $8=="STNS" || $8=="TRANT")))' \
         | LC_ALL=C join -t$'\t' -19  - $country_file \

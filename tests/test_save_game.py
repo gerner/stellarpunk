@@ -6,12 +6,14 @@ from collections.abc import MutableMapping
 
 import numpy as np
 
-from stellarpunk import sim, core, agenda, econ, orders, util
+from stellarpunk import sim, core, agenda, econ, orders, util, intel
 from stellarpunk.orders import steering, movement
-from stellarpunk.core import sector_entity, combat
+from stellarpunk.core import sector_entity, combat, sector as msector
 from stellarpunk.serialization import util as s_util
 
 from . import write_history, add_sector_intel
+
+from . import test_orders
 
 def test_to_int():
     with tempfile.TemporaryFile() as fp:
@@ -179,13 +181,13 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     add_sector_intel(ship, sector, ship_owner, gamestate)
 
     # check that buys and sales all make sense
-    buys = agenda.possible_buys(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
+    buys = agenda.possible_buys(ship_owner, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations)
     assert len(buys) == 1
     assert len(buys[resource]) == 1
-    assert buys[resource][0][2] == station_producer
-    sales = agenda.possible_sales(ship_owner, gamestate, ship, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
+    assert buys[resource][0][2].intel_entity_id == station_producer.entity_id
+    sales = agenda.possible_sales(ship_owner, econ.YesAgent(gamestate.production_chain), trading_agendum.allowed_goods, trading_agendum.sell_to_stations)
     assert len(sales[resource]) == 1
-    assert sales[resource][0][2] == station_consumer
+    assert sales[resource][0][2].intel_entity_id == station_consumer.entity_id
     assert sales[resource][0][0] > buys[resource][0][0]
 
     assert len(set(consumer_agent.sell_resources()).intersection(set(producer_agent.buy_resources()))) == 0
@@ -194,7 +196,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     buy_ret = agenda.choose_station_to_buy_from(ship_owner, gamestate, ship, trading_agendum.agent, trading_agendum.allowed_goods, trading_agendum.buy_from_stations, trading_agendum.sell_to_stations)
     assert buy_ret is not None
     assert buy_ret[0] == resource
-    assert buy_ret[1] == station_producer
+    assert buy_ret[1].intel_entity_id == station_producer.entity_id
 
     # keep track of some info about the expected buy/sale
     buy_price = buys[resource][0][0]
@@ -301,53 +303,10 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
     #assert util.distance(ship.loc, np.array([-702.65356445, 3528.47949219])) < 1e1
 
 def test_saving_in_mining(player, gamestate, generator, intel_director, sector, testui, simulator):
-    game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
-    # ship and asteroid
-    resource = 0
-    ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0)
-    asteroid = generator.spawn_asteroid(sector, 0, 0, resource, 5e2)
-    # ship mines the asteroid
-    mining_order = orders.MineOrder.create_mine_order(asteroid, 3.5e2, ship, gamestate)
-    ship.prepend_order(mining_order)
-
-    testui.orders = [mining_order]
-    testui.margin_neighbors = [ship]
-
-    assert ship.cargo[0] == 0.
-    assert np.isclose(asteroid.cargo[asteroid.resource], 5e2)
-
-    # set up a tick callback to save and load
-    saved_once = False
-    def periodic_save_load():
-        nonlocal saved_once, game_saver, gamestate, generator, player, sector, ship, asteroid, mining_order
-
-        # some sanity checking
-        assert gamestate == core.Gamestate.gamestate
-        assert mining_order.is_complete() or mining_order.order_id in gamestate.orders
-        assert mining_order.is_complete() or mining_order == gamestate.orders[mining_order.order_id]
-        assert sector.entity_id in gamestate.sectors
-        assert sector == gamestate.sectors[sector.entity_id]
-
-        if not saved_once and gamestate.timestamp > 30.0:
-            save_filename = "/tmp/stellarpunk_testfile.stpnk"
-            save_filename = game_saver.save(gamestate, save_filename)
-            gamestate = game_saver.load(save_filename)
-
-            player, sector, ship, asteroid, mining_order = gamestate.recover_objects((player, sector, ship, asteroid, mining_order))
-
-            saved_once = True
-
-    testui.tick_callback = periodic_save_load
-
-    simulator.run()
-    assert mining_order.is_complete()
-
-    # make sure ship ends up near enough to the asteroid
-    assert np.linalg.norm(ship.loc - asteroid.loc) < 2e3 + asteroid.radius + steering.VELOCITY_EPS
-    # make sure we got the resources
-    assert np.isclose(ship.cargo[0], 3.5e2)
-    # make sure asteroid lost the resources
-    assert np.isclose(asteroid.cargo[asteroid.resource], 5e2 - 3.5e2)
+    testui.save_interval = 15.0
+    test_orders.test_basic_mining_order(gamestate, generator, sector, testui, simulator)
+    gamestate = testui.gamestate
+    assert gamestate.save_count > 1
 
 def test_saving_during_attack(player, gamestate, generator, intel_director, sector, testui, simulator):
     game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
@@ -362,7 +321,8 @@ def test_saving_during_attack(player, gamestate, generator, intel_director, sect
     defender_owner.take_ownership(defender)
     defender_owner.add_agendum(agenda.CaptainAgendum.create_eoa(defender, defender_owner, gamestate))
 
-    attack_order = combat.AttackOrder.create_attack_order(sector.sensor_manager.target(defender, attacker), attacker, gamestate, max_missiles=15)
+    defender_image = sector.sensor_manager.target_from_identity(msector.SensorIdentity(defender), attacker, defender.loc)
+    attack_order = combat.AttackOrder.create_attack_order(defender_image, attacker, gamestate, max_missiles=15)
     attacker.prepend_order(attack_order)
 
     testui.orders = [attack_order]
@@ -464,4 +424,25 @@ def test_saving_during_attack(player, gamestate, generator, intel_director, sect
     logging.info(f'missiles fired: {attack_order.missiles_fired}')
     logging.info(f'target active: {attack_order.target.is_active()}')
     logging.info(f'threats destroyed: {flee_order.point_defense.targets_destroyed}')
+
+def test_saving_with_docking(player, gamestate, generator, sector, testui, simulator):
+    testui.save_interval = 15.0
+    test_orders.test_docking_order(gamestate, generator, sector, testui, simulator)
+    gamestate = testui.gamestate
+    assert gamestate.save_count > 1
+    assert gamestate.save_count == testui.save_count
+
+
+def test_saving_with_gate(player, gamestate, generator, sector, connecting_sector, testui, simulator):
+    testui.save_interval = 75.0
+    test_orders.test_travel_through_gate(gamestate, generator, sector, connecting_sector, testui, simulator)
+    gamestate = testui.gamestate
+    assert gamestate.save_count > 1
+
+def test_saving_with_multi_sector_explore(player, gamestate, generator, sector, connecting_sector, testui, simulator):
+    # want to get lots of saves in to capture various phases of the order
+    testui.save_interval = 15.0
+    test_orders.test_multi_sector_location_explore(gamestate, generator, sector, connecting_sector, testui, simulator)
+    gamestate = testui.gamestate
+    assert gamestate.save_count > 1
 

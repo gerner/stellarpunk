@@ -57,6 +57,9 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         self.keep_running = False
         self.should_raise= False
         self.should_raise_breakpoint = False
+        self.breakpoint_sentinel:Optional[str] = None
+
+        self.tick_handlers:list[core.TickHandler] = []
 
         # time between ticks, this is the framerate
         self.desired_dt = 1/60
@@ -182,6 +185,15 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
 
     def should_breakpoint(self) -> bool:
         return self.should_raise_breakpoint
+
+    def get_breakpoint_sentinel(self) -> Optional[str]:
+        return self.breakpoint_sentinel
+
+    def set_breakpoint_sentinel(self, value:Optional[str]) -> None:
+        self.breakpoint_sentinel = value
+
+    def register_tick_handler(self, tick_handler:core.TickHandler) -> None:
+        self.tick_handlers.append(tick_handler)
 
     def initialize_gamestate(self, gamestate:core.Gamestate) -> None:
         """ post-gamestate generation/loading initialization.
@@ -440,9 +452,13 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
         while self.startup_running:
             now = time.perf_counter()
             self._handle_synchronization(now, next_tick)
+            starttime = time.perf_counter()
             next_tick = next_tick + self.dt
             timeout = next_tick - now
             self.ui.tick(timeout, self.dt)
+            now = time.perf_counter()
+            ticktime = now - starttime
+            self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
     def run(self) -> None:
         next_tick = time.perf_counter()+self.dt
@@ -469,6 +485,9 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             if not self.gamestate.paused:
                 self.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.timeout
 
+            for tick_handler in self.tick_handlers:
+                tick_handler.tick()
+
             self.ui.tick(timeout, self.dt)
 
             now = time.perf_counter()
@@ -477,13 +496,14 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
 
 def initialize_intel_director() -> aintel.IntelCollectionDirector:
     intel_director = aintel.IntelCollectionDirector()
+    intel_director.register_gatherer(intel.SectorPartialCriteria, aintel.SectorIntelGatherer())
     intel_director.register_gatherer(intel.SectorHexPartialCriteria, aintel.SectorHexIntelGatherer())
     intel_director.register_gatherer(intel.SectorEntityPartialCriteria, aintel.SectorEntityIntelGatherer())
     intel_director.register_gatherer(intel.EconAgentSectorEntityPartialCriteria, aintel.EconAgentSectorEntityIntelGatherer())
 
     return intel_director
 
-def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, debug:bool=True) -> save_game.GameSaver:
+def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, debug:bool=False) -> save_game.GameSaver:
     sg = save_game.GameSaver(generator, event_manager, intel_director, debug=debug)
 
     # top level stuff
@@ -511,9 +531,11 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(combat.Missile, s_sector_entity.MissileSaver(sg))
 
     # intel
+    sg.register_saver(intel.SectorIntel, s_intel.SectorIntelSaver(sg))
     sg.register_saver(intel.SectorEntityIntel, s_intel.SectorEntityIntelSaver(sg))
     sg.register_saver(intel.AsteroidIntel, s_intel.AsteroidIntelSaver(sg))
     sg.register_saver(intel.StationIntel, s_intel.StationIntelSaver(sg))
+    sg.register_saver(intel.TravelGateIntel, s_intel.TravelGateIntelSaver(sg))
     sg.register_saver(intel.EconAgentIntel, s_intel.EconAgentIntelSaver(sg))
     sg.register_saver(intel.SectorHexIntel, s_intel.SectorHexIntelSaver(sg))
 
@@ -526,6 +548,7 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(intel.StationIntelPartialCriteria, s_intel.StationIntelPartialCriteriaSaver(sg))
     sg.register_saver(intel.SectorHexPartialCriteria, s_intel.SectorHexPartialCriteriaSaver(sg))
     sg.register_saver(intel.EconAgentSectorEntityPartialCriteria, s_intel.EconAgentSectorEntityPartialCriteriaSaver(sg))
+    sg.register_saver(intel.SectorPartialCriteria, s_intel.SectorPartialCriteriaSaver(sg))
 
     # agenda
     sg.register_saver(core.AbstractAgendum, save_game.DispatchSaver[core.AbstractAgendum](sg))
@@ -546,10 +569,11 @@ def initialize_save_game(generator:generate.UniverseGenerator, event_manager:eve
     sg.register_saver(orders.core.TransferCargo, s_order_core.TransferCargoSaver[orders.core.TransferCargo](sg))
     sg.register_saver(orders.core.TradeCargoToStation, s_order_core.TradeCargoToStationSaver(sg))
     sg.register_saver(orders.core.TradeCargoFromStation, s_order_core.TradeCargoFromStationSaver(sg))
-    sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
+    #sg.register_saver(orders.core.DisembarkToEntity, s_order_core.DisembarkToEntitySaver(sg))
     sg.register_saver(orders.core.TravelThroughGate, s_order_core.TravelThroughGateSaver(sg))
     sg.register_saver(orders.core.DockingOrder, s_order_core.DockingOrderSaver(sg))
     sg.register_saver(orders.core.LocationExploreOrder, s_order_core.LocationExploreOrderSaver(sg))
+    sg.register_saver(orders.core.NavigateOrder, s_order_core.NavigateOrderSaver(sg))
 
     # steering orders
     sg.register_saver(orders.movement.KillRotationOrder, s_movement.KillRotationOrderSaver(sg))
@@ -608,6 +632,7 @@ def main() -> None:
         #logging.getLogger("stellarpunk").level = logging.DEBUG
         #logging.getLogger("stellarpunk.sensors").level = logging.DEBUG
         #logging.getLogger("stellarpunk.events").level = logging.DEBUG
+        #logging.getLogger("stellarpunk.intel").level = logging.DEBUG
         # send warnings to the logger
         logging.captureWarnings(True)
         # turn warnings into exceptions
@@ -635,7 +660,6 @@ def main() -> None:
         generator.pre_initialize(event_manager, intel_director)
 
         ui_util.initialize()
-        ui.pre_initialize(event_manager)
 
         # note: universe generator is handled by the ui if the player chooses
         # a new game or to load the game
@@ -643,6 +667,7 @@ def main() -> None:
         #TODO: should this be tied to the gamestate?
         economy_log = context_stack.enter_context(open("/tmp/economy.log", "wt", 1))
         sim = Simulator(generator, ui.interface, max_dt=1/5, economy_log=economy_log, game_saver=sg, context_stack=context_stack)
+        ui.pre_initialize(event_manager, sim)
         sim.pre_initialize()
 
         ui.interface.runtime = sim

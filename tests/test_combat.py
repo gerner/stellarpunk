@@ -8,7 +8,7 @@ import numpy as np
 
 from stellarpunk import core, agenda, util
 from stellarpunk.orders import movement
-from stellarpunk.core import combat
+from stellarpunk.core import combat, sector as msector
 
 def test_compute_thrust(gamestate, generator, sector):
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
@@ -19,7 +19,7 @@ def test_compute_thrust(gamestate, generator, sector):
     t = sector.sensor_manager.compute_thrust_for_profile(ship, (3e5)**2, target_profile)
 
     ship.sensor_settings.set_thrust(t)
-    assert target_profile == sector.sensor_manager.compute_target_profile(ship, 3e5**2)
+    assert util.isclose(target_profile, sector.sensor_manager.compute_target_profile(ship, 3e5**2))
 
 def test_missile_attack(gamestate, generator, sector, testui, simulator):
     ship = generator.spawn_ship(sector, -3000, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
@@ -104,7 +104,9 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     defender_owner.take_ownership(defender)
     defender_owner.add_agendum(agenda.CaptainAgendum.create_eoa(defender, defender_owner, gamestate))
 
-    attack_order = combat.AttackOrder.create_attack_order(sector.sensor_manager.target(defender, attacker), attacker, gamestate, max_missiles=15)
+    defender_image = sector.sensor_manager.target_from_identity(msector.SensorIdentity(defender), attacker, defender.loc)
+
+    attack_order = combat.AttackOrder.create_attack_order(defender_image, attacker, gamestate, max_missiles=15)
     attacker.prepend_order(attack_order)
 
     testui.orders = [attack_order]
@@ -188,4 +190,50 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     logging.info(f'missiles fired: {attack_order.missiles_fired}')
     logging.info(f'target active: {attack_order.target.is_active()}')
     logging.info(f'threats destroyed: {flee_order.point_defense.targets_destroyed}')
+
+def test_discover_missing(gamestate, generator, sector, testui, simulator):
+    """ tests that we eventually discover a target is inactive
+
+    Even if we do not witness the target being destroyed (or migrating), if we
+    get close enough we should detect that they are missing and mark the image
+    as such. And that should end the attack order. """
+    attacker = generator.spawn_ship(sector, -300000, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=1.0, initial_transponder=False)
+    defender = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0, initial_sensor_power_ratio=0.0, initial_transponder=False)
+
+    defender_owner = generator.spawn_character(defender)
+    defender_owner.take_ownership(defender)
+    defender_owner.add_agendum(agenda.CaptainAgendum.create_eoa(defender, defender_owner, gamestate))
+
+    target_image = sector.sensor_manager.target_from_identity(msector.SensorIdentity(defender), attacker, defender.loc)
+    attack_order = combat.AttackOrder.create_attack_order(target_image, attacker, gamestate, max_missiles=15)
+    attacker.prepend_order(attack_order)
+
+    testui.orders = [attack_order]
+    testui.eta = 3600
+
+    undetected_ticks = None
+    stillactive_ticks = None
+    inactive_ticks = None
+    def tick_callback():
+        nonlocal gamestate, sector, attacker, defender, target_image, undetected_ticks, stillactive_ticks, inactive_ticks
+        if not undetected_ticks and not target_image.detected:
+            undetected_ticks = gamestate.ticks
+            gamestate.destroy_entity(defender)
+            assert target_image.is_active()
+        if target_image.is_active():
+            stillactive_ticks = gamestate.ticks
+        else:
+            inactive_ticks = gamestate.ticks
+
+    testui.tick_callback = tick_callback
+    simulator.run()
+
+    assert undetected_ticks
+    assert stillactive_ticks
+    assert inactive_ticks
+    # make sure we still saw the target as active for a couple of ticks
+    assert stillactive_ticks - undetected_ticks > 1
+    assert inactive_ticks - stillactive_ticks > 1
+    assert not target_image.is_active()
+    assert target_image.inactive_reason == core.SensorImageInactiveReason.MISSING
 

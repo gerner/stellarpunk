@@ -18,7 +18,7 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
 
     def save(self, order:Order, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         bytes_written += s_util.uuid_to_f(order.order_id, f)
         bytes_written += s_util.uuid_to_f(order.ship.entity_id, f)
         bytes_written += s_util.float_to_f(order.started_at, f)
@@ -31,18 +31,18 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         else:
             bytes_written += s_util.int_to_f(0, f, blen=1)
 
-        bytes_written += s_util.debug_string_w("child orders", f)
+        bytes_written += self.save_game.debug_string_w("child orders", f)
         bytes_written += s_util.size_to_f(len(order.child_orders), f)
         for child in order.child_orders:
             bytes_written += s_util.uuid_to_f(child.order_id, f)
 
-        bytes_written += s_util.debug_string_w("type specific", f)
+        bytes_written += self.save_game.debug_string_w("type specific", f)
         bytes_written += self._save_order(order, f)
 
         return bytes_written
 
     def load(self, f:io.IOBase, load_context:save_game.LoadContext) -> Order:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         order_id = s_util.uuid_from_f(f)
         ship_id = s_util.uuid_from_f(f)
         started_at = s_util.float_from_f(f)
@@ -53,15 +53,16 @@ class OrderSaver[Order: core.Order](save_game.Saver[Order], abc.ABC):
         if has_parent:
             parent_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("child orders", f)
+        load_context.debug_string_r("child orders", f)
         count = s_util.size_from_f(f)
         child_ids:list[uuid.UUID] = []
         for i in range(count):
             child_id = s_util.uuid_from_f(f)
             child_ids.append(child_id)
 
-        s_util.debug_string_r("type specific", f)
+        load_context.debug_string_r("type specific", f)
         order, extra_context = self._load_order(f, load_context, order_id)
+        assert order.order_id == order_id
         order.started_at = started_at
         order.completed_at = completed_at
         order.init_eta = init_eta

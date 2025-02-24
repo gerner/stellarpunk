@@ -38,7 +38,7 @@ def test_no_interests(gamestate, generator, ship, intel_director, testui, simula
     # run simulator for some ticks until act gets called
     simulator.run()
 
-def test_no_preempt(gamestate, generator, ship, intel_director, testui, simulator):
+def test_no_preempt(gamestate, generator, sector, ship, intel_director, testui, simulator):
     # * does it stay idle if it cannot preempt
     # character captains ship, w/ intel collection agendum
     character = generator.spawn_character(ship)
@@ -46,6 +46,8 @@ def test_no_preempt(gamestate, generator, ship, intel_director, testui, simulato
     ship.captain = character
     intel_agendum = aintel.IntelCollectionAgendum.create_agendum(character, intel_director, gamestate, idle_period=0.5)
     character.add_agendum(intel_agendum)
+
+    intel.add_sector_intel(sector, character, gamestate)
 
     class NoPreemptAgendum(agenda.Agendum):
         def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -90,7 +92,7 @@ def test_no_preempt(gamestate, generator, ship, intel_director, testui, simulato
     assert no_preempt_agendum._tried_preempt_count == 0
     simulator.run()
 
-def test_passive_collection(gamestate, generator, ship, intel_director, testui, simulator):
+def test_passive_collection(gamestate, generator, sector, ship, intel_director, testui, simulator):
     # * does it go passive if there's already a primary and it can preempt
     # * does it preempt properly and return primary when done
     # * does it go back to idle if there's a primary and there's no passive intel
@@ -101,6 +103,8 @@ def test_passive_collection(gamestate, generator, ship, intel_director, testui, 
     ship.captain = character
     intel_agendum = aintel.IntelCollectionAgendum.create_agendum(character, intel_director, gamestate, idle_period=0.5)
     character.add_agendum(intel_agendum)
+
+    intel.add_sector_intel(sector, character, gamestate)
 
     class PreemptAgendum(core.IntelManagerObserver, agenda.Agendum):
         def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -188,7 +192,7 @@ def test_passive_collection(gamestate, generator, ship, intel_director, testui, 
             break
     assert satisfied
 
-def test_active_collection(gamestate, generator, ship, intel_director, testui, simulator):
+def test_active_collection(gamestate, generator, sector, ship, intel_director, testui, simulator):
     # * does it go active if there's not already a primary
     # * does it go back to idle when there's no intel
     # character captains ship, w/ intel collection agendum
@@ -197,6 +201,8 @@ def test_active_collection(gamestate, generator, ship, intel_director, testui, s
     ship.captain = character
     intel_agendum = aintel.IntelCollectionAgendum.create_agendum(character, intel_director, gamestate, idle_period=0.5)
     character.add_agendum(intel_agendum)
+
+    intel.add_sector_intel(sector, character, gamestate)
 
     # advertise some intel interests
     criteria = intel.SectorHexPartialCriteria()
@@ -217,7 +223,7 @@ def test_active_collection(gamestate, generator, ship, intel_director, testui, s
         else:
             assert intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE
 
-        if len(character.intel_manager._intel) > 0 and intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE:
+        if len(character.intel_manager._intel) > 1 and intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE:
             testui.done = True
 
     testui.tick_callback = tick_callback
@@ -231,7 +237,7 @@ def test_active_collection(gamestate, generator, ship, intel_director, testui, s
     assert not intel_agendum.is_primary()
     assert len(intel_agendum._interests) == 0
 
-def test_intel_dependency_chain(gamestate, generator, ship, intel_director, testui, simulator):
+def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_director, testui, simulator):
     # if we adverstise some interest that implies some other intel that implies
     # some other intel and we satisfy the deepest dependency, but not either of the
     # sources, do both sources end up in base set of interests?
@@ -241,6 +247,8 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     ship.captain = character
     intel_agendum = aintel.IntelCollectionAgendum.create_agendum(character, intel_director, gamestate, idle_period=0.5)
     character.add_agendum(intel_agendum)
+
+    intel.add_sector_intel(sector, character, gamestate)
 
     class InterestObserver(core.IntelManagerObserver):
         def __init__(self) -> None:
@@ -270,7 +278,8 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     # intel interest, which should trigger a sector hex interest.
     # those triggerings should push source interests out of the interest set
     # only the sector hex interest can be satisfied
-    # once it is, at least one source interest should go back to the interest set
+    # once it is, at least one source interest should go back to the interest
+    # set and we should end by wanting an unsatisfiable sector interest
     # and intel agendum should be idle
     criteria = intel.EconAgentSectorEntityPartialCriteria(underlying_entity_type=sector_entity.Station)
     character.intel_manager.register_intel_interest(criteria)
@@ -282,9 +291,13 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     # stage:
     # 0. econ agent interest
     # 1. sector entity interest
-    # 2. sector hex interest
+    # 2. sector hex interest (this is satisfiable)
+    # at this point we'll repeat the cycle from the sector entity interest
     # 3. back same sector entity interest with econ agent interest as a source
     # 4. back to a new sector hex interest
+    # 5. new sector interest
+    # 6. sector entity interest for a travel gate
+    # after this we'll get a cycle and bail on all these interests
     saw_active = False
     saw_interest_ea = False
     interest_ea = None
@@ -295,10 +308,16 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     saw_interest_sh = False
     interest_sh = None
     interest_sh_objs:set[int] = set()
+    interest_si = None
+    interest_si_objs:set[int] = set()
+    saw_interest_si = False
     stage = 0
+    seen_stages:set[int] = set()
     def tick_callback():
-        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh, interest_ea_objs, interest_se_objs, interest_sh_objs, stage
+        nonlocal saw_active, saw_interest_ea, interest_ea, saw_interest_se, interest_se, saw_interest_sh, interest_sh, interest_ea_objs, interest_se_objs, interest_sh_objs, saw_interest_si, interest_si_objs, interest_si, stage, seen_stages
         character.intel_manager.sanity_check()
+
+        seen_stages.add(stage)
 
         current_interest = next(iter(intel_agendum._interests), None)
 
@@ -314,16 +333,25 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
             assert len(intel_agendum._interests) == 1
             saw_interest_se = True
             if stage == 0:
+                assert current_interest.cls == sector_entity.Station
                 assert len(interest_se_objs) == 0
                 assert len(interest_sh_objs) == 0
                 stage = 1
             elif stage == 2:
+                assert current_interest.cls == sector_entity.Station
                 assert len(interest_se_objs) == 1
                 assert len(interest_sh_objs) == 1
+                assert len(interest_si_objs) == 0
                 stage = 3
+            elif stage == 5:
+                assert current_interest.cls == sector_entity.TravelGate
+                assert len(interest_se_objs) == 1
+                assert len(interest_sh_objs) == 2
+                assert len(interest_si_objs) == 1
+                stage = 6
             interest_se = current_interest
             interest_se_objs.add(id(current_interest))
-            assert stage in [1,3]
+            assert stage in [1,3,6]
         elif isinstance(current_interest, intel.SectorHexPartialCriteria):
             assert len(intel_agendum._interests) == 1
             saw_interest_sh = True
@@ -338,6 +366,15 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
             interest_sh_objs.add(id(current_interest))
             interest_sh = current_interest
             assert stage in [2,4]
+        elif isinstance(current_interest, intel.SectorPartialCriteria):
+            assert len(intel_agendum._interests) == 1
+            saw_interest_si = True
+            assert stage == 4
+            assert len(interest_se_objs) == 1
+            assert len(interest_sh_objs) == 2
+            stage = 5
+            interest_si_objs.add(id(current_interest))
+            interest_si = current_interest
 
         if intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE and len(interest_observer._added_intels) > 0:
             testui.done = True
@@ -349,21 +386,26 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     # just make sure we don't run forever
     testui.eta = 5.0
 
+    assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorIntel))) == 1
+
     simulator.run()
 
     # make sure the intel_manager is self-consistent
     character.intel_manager.sanity_check()
 
     # at the end we should have seen interests: econ agent, station, sector hex
-    # sector hex should have come up twice with different objects
-    assert stage == 4
+    # sector entity and sector hex should have come up twice with different
+    # objects
+    assert stage == 6
     assert len(interest_ea_objs) == 1
-    assert len(interest_se_objs) == 1
+    assert len(interest_se_objs) == 2
     assert len(interest_sh_objs) == 2
+    assert len(interest_si_objs) == 1
 
     assert interest_ea
     assert interest_se
     assert interest_sh
+    assert interest_si
 
     # at this point we should have purged all our interests and gone idle
     # we should have seen each of the above interests "undesired"
@@ -374,43 +416,10 @@ def test_intel_dependency_chain(gamestate, generator, ship, intel_director, test
     assert interest_ea in interest_observer._undesired_interests
     assert interest_se in interest_observer._undesired_interests
     assert interest_sh in interest_observer._undesired_interests
-    assert len(interest_observer._undesired_interests) == 3
+    assert interest_si in interest_observer._undesired_interests
+    assert len(interest_observer._undesired_interests) == 5
 
-    #TODO: this setup below should be true at some point, right before
-    # intel_agendum goes idle for the last time. but we don't have a good hook
-    # to assert it.
-    # the below is certainly NOT true by the time we get here.
-    # maybe at some point I'll find a clever way to assert all this stuff at
-    # just the right moment. or I'll just nuke all of this.
-
-    # we should still have that full chain of interests, including the None source
-    # the current interest should be unsatisfiable
-    #assert len(intel_agendum._source_interests_by_source) == 3
-
-    #assert interest_sh in intel_agendum._interests
-    #assert len(intel_agendum._interests) == 1
-    #assert len(intel_agendum._source_interests_by_source[interest_sh]) == 0
-
-    #assert interest_se in intel_agendum._source_interests_by_dependency[interest_sh]
-    #assert len(intel_agendum._source_interests_by_dependency[interest_sh]) == 1
-    #assert interest_sh in intel_agendum._source_interests_by_source[interest_se]
-    #assert len(intel_agendum._source_interests_by_source[interest_se]) == 1
-
-    #assert interest_ea in intel_agendum._source_interests_by_dependency[interest_se]
-    #assert len(intel_agendum._source_interests_by_dependency[interest_se]) == 1
-    #assert interest_se in intel_agendum._source_interests_by_source[interest_ea]
-    #assert len(intel_agendum._source_interests_by_source[interest_ea]) == 1
-
-    #assert None in intel_agendum._source_interests_by_dependency[interest_ea]
-    #assert len(intel_agendum._source_interests_by_dependency[interest_ea]) == 1
-    #assert interest_ea in intel_agendum._source_interests_by_source[None]
-    #assert len(intel_agendum._source_interests_by_source[None]) == 1
-
-    #assert criteria == interest_ea
-
-    # this is basically asking us to find sector hexes in a different sector
-    # but there are no other sectors in this test, so this will never be satisfiable
-    #current_interest = next(iter(intel_agendum._interests), None)
-    #assert current_interest is not None
-    #assert intel_director.estimate_cost(character, current_interest) is None
-
+    assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorHexIntel))) > 0
+    assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.StationIntel))) == 0
+    assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.EconAgentIntel))) == 0
+    assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorIntel))) == 1 # sector we started in

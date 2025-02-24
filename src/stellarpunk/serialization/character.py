@@ -53,7 +53,7 @@ class PlayerSaver(s_gamestate.EntitySaver[core.Player]):
 class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
     def _save_entity(self, character:core.Character, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("basic fields", f)
+        bytes_written += self.save_game.debug_string_w("basic fields", f)
         if character.location is not None:
             bytes_written += s_util.int_to_f(1, f, blen=1)
             bytes_written += s_util.uuid_to_f(character.location.entity_id, f)
@@ -64,18 +64,18 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         bytes_written += s_util.uuids_to_f(list(x.entity_id for x in character.assets), f)
         bytes_written += s_util.uuid_to_f(character.home_sector_id, f)
 
-        bytes_written += s_util.debug_string_w("agenda", f)
+        bytes_written += self.save_game.debug_string_w("agenda", f)
         bytes_written += s_util.size_to_f(len(character.agenda), f)
         for agendum in character.agenda:
             bytes_written += s_util.uuid_to_f(agendum.agenda_id, f)
 
-        bytes_written += s_util.debug_string_w("intel", f)
+        bytes_written += self.save_game.debug_string_w("intel", f)
         bytes_written += self.save_game.save_object(character.intel_manager, f)
 
         return bytes_written
 
     def _load_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID) -> core.Character:
-        s_util.debug_string_r("basic fields", f)
+        load_context.debug_string_r("basic fields", f)
         has_location = s_util.int_from_f(f, blen=1)
         location_id:Optional[uuid.UUID] = None
         if has_location:
@@ -85,13 +85,13 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         asset_ids = s_util.uuids_from_f(f)
         home_sector_id = s_util.uuid_from_f(f)
 
-        s_util.debug_string_r("agenda", f)
+        load_context.debug_string_r("agenda", f)
         agenda_ids = []
         count = s_util.size_from_f(f)
         for i in range(count):
             agenda_ids.append(s_util.uuid_from_f(f))
 
-        s_util.debug_string_r("intel", f)
+        load_context.debug_string_r("intel", f)
         intel_manager = self.save_game.load_object(intel.IntelManager, f, load_context)
 
         character = core.Character(
@@ -112,7 +112,7 @@ class CharacterSaver(s_gamestate.EntitySaver[core.Character]):
         location_id, asset_ids, agenda_ids = context
 
         if location_id is not None:
-            character.location = load_context.gamestate.get_entity(location_id, core.SectorEntity)
+            character._location = load_context.gamestate.get_entity(location_id, core.SectorEntity)
 
         for asset_id in asset_ids:
             asset = load_context.gamestate.get_entity(asset_id, core.Asset)

@@ -111,14 +111,17 @@ private:
     std::unordered_map<NGram<N-1>, std::pair<std::vector<TOKEN_ID_T>, std::vector<size_t> >, NGramHash<N-1> > token_counts_;
 
 public:
-    void train_from_file(std::string filename) {
+    bool train_from_file(std::string filename) {
         std::ifstream file(filename, std::ios_base::in | std::ios_base::binary);
-        //train(file);
+        if(file.fail()) {
+            return false;
+        }
         boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
         in.push(boost::iostreams::gzip_decompressor());
         in.push(file);
         std::istream istream(&in);
         train(istream);
+        return true;
     }
 
     template<class IStream>
@@ -233,13 +236,17 @@ public:
         return imploded.str();
     }
 
-    void save_to_file(std::string filename) {
+    bool save_to_file(std::string filename) {
         std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
+        if(file.fail()) {
+            return false;
+        }
         boost::iostreams::filtering_streambuf<boost::iostreams::output> out;
         out.push(boost::iostreams::gzip_compressor());
         out.push(file);
         std::ostream ostream(&out);
         save(ostream);
+        return true;
     }
 
     template<class OStream>
@@ -280,14 +287,17 @@ public:
         }
     }
 
-    void load_from_file(std::string filename) {
+    bool load_from_file(std::string filename) {
         std::ifstream file(filename, std::ios_base::in | std::ios_base::binary);
-        //train(file);
+        if(file.fail()) {
+            return false;
+        }
         boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
         in.push(boost::iostreams::gzip_decompressor());
         in.push(file);
         std::istream istream(&in);
         load(istream);
+        return true;
     }
 
     template<class IStream>

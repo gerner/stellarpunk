@@ -34,7 +34,7 @@ class IntelObserver(base.Observer):
 class AbstractIntel(base.Observable[IntelObserver], base.Entity):
     id_prefix = "INT"
 
-    def __init__(self, *args:Any, author_id:uuid.UUID=base.OBSERVER_ID_NULL, expires_at:Optional[float]=None, fresh_until:Optional[float]=None, **kwargs:Any):
+    def __init__(self, *args:Any, author_id:uuid.UUID, expires_at:Optional[float]=None, fresh_until:Optional[float]=None, **kwargs:Any):
         # we set these fields before calling super init because they may be
         # referenced in overriden __str__ calls before we get to initialize
         # them.
@@ -111,7 +111,7 @@ class AbstractIntelManager(base.Observable[IntelManagerObserver]):
     @abc.abstractmethod
     def add_intel(self, intel:"AbstractIntel") -> bool: ...
     @abc.abstractmethod
-    def intel[T:AbstractIntel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Collection[T]: ...
+    def intel[T:AbstractIntel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> list[T]: ...
     @abc.abstractmethod
     def get_intel[T:AbstractIntel](self, match_criteria:IntelMatchCriteria, cls:Type[T]) -> Optional[T]: ...
     @abc.abstractmethod
@@ -231,6 +231,9 @@ class CharacterObserver(base.Observer, abc.ABC):
     def character_destroyed(self, character: "Character") -> None:
         pass
 
+    def character_migrated(self, character:"Character", from_entity:Optional[sector.SectorEntity], to_entity:Optional[sector.SectorEntity]) -> None:
+        pass
+
 class Character(base.Observable[CharacterObserver], base.Entity):
     id_prefix = "CHR"
 
@@ -246,8 +249,7 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         self.portrait:base.Sprite = sprite
         #TODO: other character background stuff
 
-        #TODO: does location matter?
-        self.location:Optional[sector.SectorEntity] = None
+        self._location:Optional[sector.SectorEntity] = None
 
         # how much money
         self.balance:float = 0.
@@ -272,14 +274,23 @@ class Character(base.Observable[CharacterObserver], base.Entity):
         return self.entity_id
 
 
-    def destroy(self) -> None:
-        super().destroy()
+    def _destroy(self) -> None:
         for observer in self._observers.copy():
             observer.character_destroyed(self)
         self.clear_observers()
         for agendum in self.agenda:
             agendum.stop()
-        self.location = None
+        self._location = None
+
+    @property
+    def location(self) -> Optional[sector.SectorEntity]:
+        return self._location
+
+    def migrate(self, location:sector.SectorEntity) -> None:
+        old_location = self._location
+        self._location = location
+        for observer in self._observers.copy():
+            observer.character_migrated(self, old_location, location)
 
     def address_str(self) -> str:
         if self.location is None:

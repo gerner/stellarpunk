@@ -21,6 +21,7 @@ class Events(enum.IntEnum):
     MINED = enum.auto()
     SOLD = enum.auto()
     BOUGHT = enum.auto()
+    ENTER_SECTOR = enum.auto()
 
 
 class ContextKeys(enum.IntEnum):

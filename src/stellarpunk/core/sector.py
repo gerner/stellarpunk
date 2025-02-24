@@ -126,10 +126,15 @@ def write_history_to_file(entity:Union["Sector", "SectorEntity"], f:Union[str, T
         fout.close()
 
 class SectorEntityObserver(base.Observer):
+    def entity_pre_migrate(self, entity:"SectorEntity", from_sector:"Sector", to_sector:"Sector") -> None:
+        """ Called prior to migrating this sector entity to a new sector. """
+        pass
     def entity_migrated(self, entity:"SectorEntity", from_sector:"Sector", to_sector:"Sector") -> None:
+        """ Called after the entity has migrated to a new sector. """
         pass
 
     def entity_destroyed(self, entity:"SectorEntity") -> None:
+        """ Called just before destroying the entity. """
         pass
 
     def entity_targeted(self, entity:"SectorEntity", threat:"SectorEntity") -> None:
@@ -167,6 +172,10 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         self.history: collections.deque[HistoryEntry] = collections.deque(maxlen=history_length)
 
         self.sensor_settings=sensor_settings
+        self.sensor_settings.set_detector_id(self.entity_id)
+
+        self._loc = np.array(self.phys.position)
+        self._velocity = np.array(self.phys.velocity)
 
     # base.Observable
     @property
@@ -184,31 +193,40 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         for o in self._observers.copy():
             o.entity_migrated(self, from_sector, to_sector)
 
+        self.sensor_settings.clear_images()
         self._migrate(to_sector)
 
     def _migrate(self, to_sector:"Sector") -> None:
         pass
 
-    def destroy(self) -> None:
+    def _destroy_sector_entity(self) -> None:
+        pass
+
+    def _destroy(self) -> None:
         for o in self._observers.copy():
             o.entity_destroyed(self)
         self.clear_observers()
 
-        self._destroy()
+        # perform SE specific destroy logic before we lose the phys data,
+        # but after we've cleared observers
+        self._destroy_sector_entity()
+        self.sensor_settings.clear_images()
         self.phys.data = None
-        super().destroy()
-
-    def _destroy(self) -> None:
-        pass
 
     def target(self, threat:"SectorEntity") -> None:
         for o in self._observers.copy():
             o.entity_targeted(self, threat)
 
     @property
-    def loc(self) -> npt.NDArray[np.float64]: return np.array(self.phys.position)
+    def loc(self) -> npt.NDArray[np.float64]:
+        self._loc[0] = self.phys.position[0]
+        self._loc[1] = self.phys.position[1]
+        return self._loc
     @property
-    def velocity(self) -> npt.NDArray[np.float64]: return np.array(self.phys.velocity)
+    def velocity(self) -> npt.NDArray[np.float64]:
+        self._velocity[0] = self.phys.velocity[0]
+        self._velocity[1] = self.phys.velocity[1]
+        return self._velocity
     @property
     def speed(self) -> float: return self.phys.velocity.length
     @property
@@ -261,34 +279,47 @@ class CollisionObserver:
     def collision(self, entity:SectorEntity, other:SectorEntity, impulse:tuple[float, float], ke:float) -> None: ...
 
 class SensorIdentity:
-    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, short_id:Optional[str]=None, radius:Optional[float]=None, is_static:Optional[bool]=None):
+    def __init__(self, entity:Optional[SectorEntity]=None, object_type:Optional[Type[SectorEntity]]=None, id_prefix:Optional[str]=None, entity_id:Optional[uuid.UUID]=None, mass:Optional[float]=None, radius:Optional[float]=None, is_static:Optional[bool]=None, sector_id:Optional[uuid.UUID]=None):
         if entity:
             self.object_type:Type[SectorEntity]=type(entity)
             self.id_prefix = entity.id_prefix
             self.entity_id = entity.entity_id
-            self.short_id = entity.short_id()
+            self.mass = entity.mass
             self.radius = entity.radius
             self.is_static = entity.is_static
+            assert(entity.sector)
+            self.sector_id = entity.sector.entity_id
         else:
             assert(object_type)
             assert(id_prefix)
             assert(entity_id)
-            assert(short_id)
+            assert(mass is not None)
             assert(radius is not None)
             assert(is_static is not None)
+            assert(sector_id)
             self.object_type = object_type
             self.id_prefix = id_prefix
             self.entity_id = entity_id
-            self.short_id = short_id
+            self.mass = mass
             self.radius = radius
             self.is_static = is_static
+            self.sector_id = sector_id
         # must be updated externally
         self.angle = 0.0
 
+    def short_id(self) -> str:
+        """ first 32 bits as hex """
+        return f'{self.id_prefix}-{self.entity_id.hex[:8]}'
+
+    def short_id_int(self) -> int:
+        return util.uuid_to_u64(self.entity_id)
+
+
 class SensorImageInactiveReason(enum.IntEnum):
     OTHER = enum.auto()
-    DESTROYED = enum.auto()
-    MIGRATED = enum.auto()
+    DESTROYED = enum.auto() # observed target being destroyed
+    MIGRATED = enum.auto() # observed target leaving the sector
+    MISSING = enum.auto() # discovered target missing from expected location
 
 class AbstractSensorImage:
     """ A sensor contact which might be old with predicted attributes
@@ -297,6 +328,13 @@ class AbstractSensorImage:
     directly hang on to the target object. This image predicts the target's 
     position and velocity using latest sensor readings.
     """
+    def target_migrated(self, target:SectorEntity, from_sector:"Sector", to_sector:"Sector") -> None:
+        pass
+    def target_destroyed(self, target:SectorEntity) -> None:
+        pass
+
+    @abc.abstractmethod
+    def destroy(self) -> None: ...
     @property
     @abc.abstractmethod
     def age(self) -> float:
@@ -323,6 +361,12 @@ class AbstractSensorImage:
     @property
     @abc.abstractmethod
     def fidelity(self) -> float: ...
+    @property
+    @abc.abstractmethod
+    def detected(self) -> bool: ...
+    @property
+    @abc.abstractmethod
+    def currently_identified(self) -> bool: ...
     @property
     @abc.abstractmethod
     def identified(self) -> bool: ...
@@ -354,6 +398,8 @@ class AbstractSensorImage:
 
 class AbstractSensorSettings:
     @abc.abstractmethod
+    def set_detector_id(self, entity_id:uuid.UUID) -> None: ...
+    @abc.abstractmethod
     def register_image(self, image:AbstractSensorImage) -> None: ...
     @abc.abstractmethod
     def unregister_image(self, image:AbstractSensorImage) -> None: ...
@@ -364,6 +410,8 @@ class AbstractSensorSettings:
     @property
     @abc.abstractmethod
     def images(self) -> Collection[AbstractSensorImage]: ...
+    @abc.abstractmethod
+    def clear_images(self) -> None: ...
 
     @property
     @abc.abstractmethod
@@ -429,6 +477,10 @@ class AbstractSensorManager:
     def target_from_identity(self, target_identity:SensorIdentity, detector:SectorEntity, loc:npt.NDArray[np.float64], notify_target:bool=True) -> AbstractSensorImage: ...
     @abc.abstractmethod
     def scan(self, detector:SectorEntity) -> Iterable[AbstractSensorImage]: ...
+    @abc.abstractmethod
+    def range_to_detect(self, entity:SectorEntity, mass:Optional[float]=None, radius:Optional[float]=None) -> float: ...
+    @abc.abstractmethod
+    def range_to_identify(self, entity:SectorEntity, mass:Optional[float]=None, radius:Optional[float]=None) -> float: ...
     @abc.abstractmethod
     def sensor_ranges(self, ship:SectorEntity) -> tuple[float, float, float]: ...
     @abc.abstractmethod
@@ -561,6 +613,25 @@ class Sector(base.Entity):
         # quantize loc so we can cache it
         quantized_loc = (loc[0] // 100.0 * 100.0, loc[1] // 100.0 * 100.0)
         return self._weather_cached(quantized_loc)
+
+    def hex_weather(self, hex_loc:npt.NDArray[np.float64]) -> SectorWeather:
+        # sample some points in the same hex to choose the worse case weather
+        # we'll use points that are 2/3 of the way to the next hex
+        q = np.array((0.33, 0.  ))
+        r = np.array((0.  , 0.33))
+        sample_points = [hex_loc+q, hex_loc+r, hex_loc-q+r, hex_loc-q, hex_loc-r, hex_loc+q-r]
+
+        min_sensor_factor = np.inf
+        min_w:Optional[SectorWeather] = None
+        for p in sample_points:
+            assert util.int_coords(util.axial_round(p)) == util.int_coords(hex_loc)
+            w = self.weather(util.pointy_hex_to_pixel(p, self.hex_size))
+            if w.sensor_factor < min_sensor_factor:
+                min_sensor_factor = w.sensor_factor
+                min_w = w
+
+        assert min_w
+        return min_w
 
     def register_collision_observer(self, entity_id:uuid.UUID, observer:CollisionObserver) -> None:
         self.collision_observers[entity_id].add(observer)

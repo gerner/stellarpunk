@@ -4,14 +4,16 @@ from libcpp.string cimport string
 from libcpp.vector cimport vector
 from cython import parallel
 
+import os
+
 import uroman
 
 cdef extern from "markov.hpp":
     cdef cppclass MarkovModel5 nogil:
-        void train_from_file(string filename)
+        bool train_from_file(string filename)
         string generate(uint32_t seed)
-        void save_to_file(string filename)
-        void load_from_file(string filename)
+        bool save_to_file(string filename)
+        bool load_from_file(string filename)
 
     cdef void load_many_models(vector[MarkovModel5*] models, vector[string] filenames)
 
@@ -63,18 +65,23 @@ cdef class MarkovModel:
             if romanizer is None:
                 romanizer = uroman.Uroman()
 
-        self._model.train_from_file(filename.encode("utf-8"));
+        if not self._model.train_from_file(filename.encode("utf-8")):
+            raise ValueError(f'could not train from {filename}')
         return self
 
     def generate(self, random):
         return self.postprocess(self._model.generate(random.integers(2**32)).decode('utf-8'))
 
     def save(self, filename):
-        self._model.save_to_file(filename.encode("utf-8"))
+        if not self._model.save_to_file(filename.encode("utf-8")):
+            raise ValueError(f'could not save to {filename}')
         return self
 
     def load(self, filename):
-        self._model.load_from_file(filename.encode("utf-8"))
+        if not os.path.exists(filename):
+            raise ValueError(f'cannot load model, file does not exist {filename}')
+        if not self._model.load_from_file(filename.encode("utf-8")):
+            raise ValueError(f'could not load from {filename}')
         if self._romanize:
             global romanizer
             if romanizer is None:

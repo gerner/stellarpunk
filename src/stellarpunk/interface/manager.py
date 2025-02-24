@@ -1,7 +1,6 @@
 """ Interface Manager gluing together the interface elements """
 
-import cProfile
-import pstats
+import os
 import curses
 import uuid
 import collections
@@ -10,6 +9,7 @@ import time
 import datetime
 import io
 import functools
+import threading
 from typing import Optional, Sequence, Any, Callable, Collection, Dict, Tuple, List, Mapping
 
 import pyinstrument
@@ -17,7 +17,7 @@ import numpy as np
 
 from stellarpunk import core, interface, generate, util, config, events, narrative, intel
 from stellarpunk.core import sector_entity
-from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events
+from stellarpunk.interface import audio, universe, sector, pilot, startup, command_input, character, comms, station, ui_events, ui_util
 from stellarpunk.serialization import save_game
 
 
@@ -417,7 +417,130 @@ def dump_characters(gamestate:core.Gamestate, f:io.IOBase) -> None:
         f.write("\t".join(character_data))
         f.write("\n")
 
-class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserver):
+
+class SaveGameProgressView(save_game.GameSaverObserver, interface.View):
+    """ Progress meter for saving a game """
+
+    def __init__(self, gamestate:core.Gamestate, game_saver:save_game.GameSaver, *args:Any, threaded_save:bool=True, save_filename:Optional[str]=None, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._save_filename = save_filename
+        self._gamestate = gamestate
+        self._game_saver = game_saver
+        self._estimated_ticks = 100
+        self._save_ticks = 0
+
+        self._save_lock = util.TimeoutLock()
+        self._save_thread:Optional[threading.Thread] = None
+        self._save_exception:Optional[Exception] = None
+        self._threaded_save = threaded_save
+
+        self._game_saved = False
+
+    # save_game.GameSaverObserver
+    def save_start(self, estimated_ticks:int, game_saver:save_game.GameSaver) -> None:
+        with self._save_lock.acquire():
+            self._estimated_ticks = estimated_ticks
+            #self.logger.info(f'save_start: {self._save_ticks}/{self._estimated_ticks}')
+
+    def save_tick(self, game_saver:save_game.GameSaver) -> None:
+        with self._save_lock.acquire():
+            self._save_ticks += 1
+            #self.logger.info(f'save_tick: {self._save_ticks}')
+
+    def save_complete(self, game_saver:save_game.GameSaver) -> None:
+        pass
+
+    def _save_game(self) -> None:
+        self.interface.log_message('saving game...')
+        start_time = time.perf_counter()
+        self._game_saver.save(self._gamestate, self._save_filename, force_pause=False)
+        end_time = time.perf_counter()
+        self.interface.log_message(f'game saved in {end_time-start_time:.2f}s.')
+        with self._save_lock.acquire():
+            self._game_saved = True
+
+    def _save_game_threaded(self) -> None:
+        try:
+            self._save_game()
+        except Exception as e:
+            self._save_exception = e
+
+    def initialize(self) -> None:
+        # start the save on another thread
+
+        # in general we can't save while force paused since we force pause
+        # because we're at risk of putting the gamestate in an inconsistent
+        # state (e.g. middle of dialog)
+        assert not self._gamestate.is_force_paused()
+
+        # however, we have to block everything while we save
+        self._gamestate.force_pause(self)
+        self._game_saver.observe(self)
+        if self._threaded_save:
+            self._save_thread = threading.Thread(target=self._save_game_threaded)
+            self._save_thread.start()
+        else:
+            self._save_game()
+
+    def terminate(self) -> None:
+        self._game_saver.unobserve(self)
+        self._gamestate.force_unpause(self)
+
+    def update_display(self) -> None:
+        done = False
+        with self._save_lock.acquire():
+            if self._save_exception:
+                raise self._save_exception
+            if self._game_saved:
+                done = True
+            ticks = self._save_ticks
+            total_ticks = self._estimated_ticks
+
+        y = 16
+        x = 15
+
+        m = ui_util.MeterItem("test", ticks, maximum=max(ticks, total_ticks))
+        self.viewscreen.rectangle(y, x-2, y+4, x+6+m.meter_width+m.left_number_width)
+        self.viewscreen.addstr(y, x, f' Saving game... ')
+        m.draw(self.viewscreen, y+2, x)
+        self.interface.refresh_viewscreen()
+
+        if done:
+            # do this outside of holding the lock
+            self.interface.close_view(self)
+
+
+class AutosaveTickHandler(core.TickHandler):
+    def __init__(self, autosave_interval:float, game_saver:save_game.GameSaver, interface:interface.Interface) -> None:
+        super().__init__()
+        self.autosave_interval = autosave_interval
+        self.save_filename = "autosave.stpnk"
+        self.game_saver = game_saver
+        self.gamestate:Optional[core.Gamestate] = None
+        self.interface = interface
+        self.next_autosave_timestamp = 0.
+        self.next_autosave_real_timestamp = 0.
+
+    def tick(self) -> None:
+        if self.gamestate is None:
+            return
+        if self.gamestate.is_force_paused():
+            # no autosave whlie force paused, we'll pick it back up when it
+            # gets force unpaused (even if it stays paused)
+            return
+
+        if self.gamestate.timestamp > self.next_autosave_timestamp and time.time() > self.next_autosave_real_timestamp:
+
+            self.interface.open_view(SaveGameProgressView(self.gamestate, self.game_saver, self.interface, save_filename=os.path.join(self.game_saver._save_path, self.save_filename)), deactivate_views=False)
+            self.set_next_autosave_ts()
+
+    def set_next_autosave_ts(self) -> None:
+        assert self.gamestate
+        self.next_autosave_timestamp = self.gamestate.timestamp + self.autosave_interval
+        self.next_autosave_real_timestamp = time.time() + self.autosave_interval
+
+
+class InterfaceManager(core.CharacterObserver, core.SectorEntityObserver, generate.UniverseGeneratorObserver):
     def __init__(self, generator:generate.UniverseGenerator, sg:save_game.GameSaver, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(util.fullname(self))
@@ -441,16 +564,23 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         self.interface.__exit__(*args)
         self.mixer.__exit__(*args)
 
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
     # generate.UniverseGeneratorObserver
     def universe_generated(self, gamestate:core.Gamestate) -> None:
         self.gamestate = gamestate
         self.interface.gamestate = gamestate
+        self.autosave_tick_handler.gamestate = gamestate
 
     def player_spawned(self, player:core.Player) -> None:
         assert(player.character)
         #TODO: should probably check some state to avoid errors here
         # e.g. player already exists and didn't die
         player.character.observe(self)
+        if player.character.location:
+            player.character.location.observe(self)
 
     def universe_loaded(self, gamestate:core.Gamestate) -> None:
         self.logger.info("universe loaded")
@@ -462,26 +592,54 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         gamestate.player.character.observe(self)
 
         # wait for a full autosave period before saving again
-        self.interface.set_next_autosave_ts()
+        self.autosave_tick_handler.gamestate = gamestate
+        self.autosave_tick_handler.set_next_autosave_ts()
+
 
     # core.CharacterObserver
-    @property
-    def observer_id(self) -> uuid.UUID:
-        return core.OBSERVER_ID_NULL
-
     def character_destroyed(self, character:core.Character) -> None:
         if character == self.interface.player.character:
+            if character.location:
+                character.location.unobserve(self)
+
             self.logger.info("player killed")
             self.gamestate.force_pause(self)
             self.interface.log_message("you've been killed")
             # TODO: what should we do when the player's character dies?
             self.open_universe()
 
-    def pre_initialize(self, event_manager:events.EventManager) -> None:
+    def character_migrated(self, character:core.Character, from_entity:Optional[core.SectorEntity], to_entity:Optional[core.SectorEntity]) -> None:
+        if character != self.interface.player.character:
+            return
+        if from_entity:
+            self.interface.log_message(f'disembarked {from_entity}')
+            from_entity.unobserve(self)
+        if to_entity:
+            self.interface.log_message(f'boarded {to_entity}')
+            to_entity.observe(self)
+
+
+    # core.SectorEntityObserver
+
+    # no need to watch entity destroyed, that'll destroy the character and
+    # we'll catch it there
+    #def entity_destroyed
+
+    def entity_migrated(self, entity:core.SectorEntity, from_sector:core.Sector, to_sector:core.Sector) -> None:
+        assert self.interface.player.character
+        if entity != self.interface.player.character.location:
+            return
+        self.interface.log_message(f'left {from_sector}, entering {to_sector}')
+
+
+    def pre_initialize(self, event_manager:events.EventManager, runtime:core.AbstractGameRuntime) -> None:
         self.event_manager = event_manager
         self.register_events(event_manager)
         self.interface.initialize()
         self.generator.observe(self)
+
+        self.autosave_tick_handler = AutosaveTickHandler(config.Settings.AUTOSAVE_PERIOD_SEC, self.game_saver, self.interface)
+        runtime.register_tick_handler(self.autosave_tick_handler)
 
         startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
         self.interface.open_view(startup_view, deactivate_views=True)
@@ -590,7 +748,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             h = "NO HELP"
         return interface.KeyBinding(k, f, h, help_key=help_key)
 
-    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str], str]]=None) -> interface.CommandBinding:
+    def bind_command(self, command:str, f: Callable[[Sequence[str]], None], tab_completer:Optional[Callable[[str, str, int], str]]=None) -> interface.CommandBinding:
         try:
             h = getattr(getattr(config.Settings.help.interface, self.__class__.__name__).commands, command)
         except AttributeError:
@@ -628,6 +786,11 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             self.interface.runtime.quit()
         def raise_exception(args:Sequence[str]) -> None: self.interface.runtime.raise_exception()
         def raise_breakpoint(args:Sequence[str]) -> None: self.interface.runtime.raise_breakpoint()
+        def breakpoint_sentinel(args:Sequence[str]) -> None:
+            if len(args) == 0:
+                self.interface.runtime.set_breakpoint_sentinel(None)
+            else:
+                self.interface.runtime.set_breakpoint_sentinel(args[0])
         def colordemo(args:Sequence[str]) -> None: self.interface.open_view(ColorDemo(self.interface), deactivate_views=True)
         def attrdemo(args:Sequence[str]) -> None: self.interface.open_view(AttrDemo(self.interface), deactivate_views=True)
         def keydemo(args:Sequence[str]) -> None: self.interface.open_view(KeyDemo(self.interface), deactivate_views=True)
@@ -782,11 +945,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
             if self.gamestate.is_force_paused():
                 raise command_input.UserError("can't save right now. finish what you're in the middle of")
 
-            self.interface.log_message(f'saving game...')
-            start_time = time.perf_counter()
-            filename = self.game_saver.save(self.gamestate)
-            end_time = time.perf_counter()
-            self.interface.log_message(f'game saved to "{filename}" in {end_time-start_time:.2f}s')
+            self.interface.open_view(SaveGameProgressView(self.gamestate, self.game_saver, self.interface), deactivate_views=False)
 
         def menu(args:Sequence[str]) -> None:
             startup_view = startup.StartupView(self.generator, self.game_saver, self.interface)
@@ -806,6 +965,7 @@ class InterfaceManager(core.CharacterObserver, generate.UniverseGeneratorObserve
         command_list = [
             self.bind_command("raise", raise_exception),
             self.bind_command("breakpoint", raise_breakpoint),
+            self.bind_command("sentinel", breakpoint_sentinel),
             self.bind_command("fps", fps),
             self.bind_command("quit", quit),
             self.bind_command("colordemo", colordemo),

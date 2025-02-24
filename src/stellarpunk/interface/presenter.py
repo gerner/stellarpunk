@@ -309,12 +309,12 @@ class Presenter:
             last_y = hist_y
         """
 
-        if entity.identified and issubclass(entity.identity.object_type, sector_entity.Asteroid | sector_entity.Projectile):
+        if entity.identified and not issubclass(entity.identity.object_type, sector_entity.Asteroid | sector_entity.Projectile):
             speed = util.magnitude(*entity.velocity)
             if speed > 0.:
-                name_tag = f' {entity.identity.short_id} {speed:.0f}'
+                name_tag = f' {entity.identity.short_id()} {speed:.0f}'
             else:
-                name_tag = f' {entity.identity.short_id}'
+                name_tag = f' {entity.identity.short_id()}'
             self.view.viewscreen.addstr(y+1, x+1, name_tag, description_attr)
 
         #if self.debug_entity:
@@ -490,24 +490,127 @@ class Presenter:
     def draw_hexes(self) -> None:
         """ Draws the sector hex grid """
 
+        # get sector hexes player knows about
+        assert self.gamestate.player.character
+        known_hexes = set(
+            util.int_coords(x.hex_loc)
+            for x in self.gamestate.player.character.intel_manager.intel(
+                intel.SectorHexPartialCriteria(self.sector.entity_id, is_static=True),
+                cls=intel.SectorHexIntel,
+            )
+        )
+
         assert isinstance(self.view.viewscreen, interface.Canvas)
-        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, *self.perspective.meters_per_char, bbox=self.perspective.bbox)
+        mpc_x, mpc_y = self.perspective.meters_per_char
+        c = util.make_pointy_hex_grid_canvas(self.sector.hex_size, mpc_x, mpc_y, bbox=self.perspective.bbox, suppress_hexes=known_hexes)
+
+        assert self.gamestate.player.character.location
+        offset_x, offset_y = self.gamestate.player.character.location.loc
+        id_range = self.sector.sensor_manager.range_to_identify(self.gamestate.player.character.location)
+        c = util.make_circle_canvas(id_range, mpc_x, mpc_y, bbox=self.perspective.bbox, c=c, offset_x=offset_x, offset_y=offset_y)
+
         s_x, s_y = self.perspective.sector_to_screen(0, 0)
-        util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(23))
-        self.gamestate.breakpoint()
+        util.draw_canvas_at(c, self.view.viewscreen.window, s_y, s_x, bounds=self.view.viewscreen_bounds, attr=curses.color_pair(34))
 
     def update(self) -> None:
         pass
 
-class SectorPresenter(Presenter):
-    #TODO: presenter for sector wide view
+    def terminate(self) -> None:
+        pass
+
+class IntelImage(core.AbstractSensorImage):
+    def __init__(self, se_intel:intel.SectorEntityIntel) -> None:
+        self._identity = se_intel.create_sensor_identity()
+        self._se_intel = se_intel
+
+    def destroy(self) -> None:
+        pass
+    @property
+    def age(self) -> float:
+        return core.Gamestate.gamestate.timestamp - self._se_intel.created_at
+    @property
+    def loc(self) -> npt.NDArray[np.float64]:
+        return self._se_intel.loc
+    @property
+    def velocity(self) -> npt.NDArray[np.float64]:
+        return sensors.ZERO_VECTOR
+    @property
+    def acceleration(self) -> npt.NDArray[np.float64]:
+        return sensors.ZERO_VECTOR
+    @property
+    def profile(self) -> float:
+        return 0.0
+    @property
+    def fidelity(self) -> float:
+        return 0.0
+    @property
+    def detected(self) -> bool:
+        return False
+    @property
+    def currently_identified(self) -> bool:
+        return False
+    @property
+    def identified(self) -> bool:
+        return True
+    @property
+    def identity(self) -> core.SensorIdentity:
+        return self._identity
+    @property
+    def transponder(self) -> bool:
+        return False
+    def is_active(self) -> bool:
+        return True
+    @property
+    def inactive_reason(self) -> core.SensorImageInactiveReason:
+        return core.SensorImageInactiveReason.OTHER
+    def update(self, notify_target:bool=True) -> bool:
+        raise NotImplementedError(f'cannot update {self}')
+    def set_sensor_manager(self, sensor_manager:core.AbstractSensorManager) -> None:
+        raise NotImplementedError(f'cannot set sensor_manager {self}')
+    def copy(self, detector:core.SectorEntity) -> core.AbstractSensorImage:
+        raise NotImplementedError(f'cannot copy {self}')
+
+class SectorPresenter(core.IntelManagerObserver, Presenter):
+    def __init__(self, *args:Any, **kwargs:Any) -> None:
+        super().__init__(*args, **kwargs)
+        assert self.gamestate.player.character
+        self._images = {x.intel_entity_id: IntelImage(x) for x in self.gamestate.player.character.intel_manager.intel(intel.SectorEntityPartialCriteria(sector_id=self.sector.entity_id, is_static=True), intel.SectorEntityIntel)}
+
+        self.gamestate.player.character.intel_manager.observe(self)
+
+    # core.IntelManagerObserver
+
+    @property
+    def observer_id(self) -> uuid.UUID:
+        return core.OBSERVER_ID_NULL
+
+    def intel_removed(self, intel_manager:core.AbstractIntelManager, intel_item:core.AbstractIntel) -> None:
+        if not isinstance(intel_item, intel.SectorEntityIntel):
+            return
+        if intel_item.intel_entity_id not in self._images:
+            return
+        assert intel_item.sector_id == self.sector.entity_id
+        del self._images[intel_item.intel_entity_id]
+
+    def intel_added(self,  intel_manager:core.AbstractIntelManager, intel_item:core.AbstractIntel) -> None:
+        if not isinstance(intel_item, intel.SectorEntityIntel):
+            return
+        if intel_item.sector_id != self.sector.entity_id:
+            return
+        assert intel_item.intel_entity_id not in self._images
+        self._images[intel_item.intel_entity_id] = IntelImage(intel_item)
+
     def visible_entities(self) -> Iterable[core.AbstractSensorImage]:
-        return []
+        return self._images.values()
 
     @property
     def selected_target_image(self) -> core.AbstractSensorImage:
         assert self.selected_target
-        raise NotImplementedError("ohnoes")
+        return self._images[self.selected_target]
+
+    def terminate(self) -> None:
+        assert self.gamestate.player.character
+        self.gamestate.player.character.intel_manager.unobserve(self)
 
 class PilotPresenter(Presenter):
     def __init__(self, ship:core.Ship, *args:Any, **kwargs:Any):
@@ -529,6 +632,7 @@ class PilotPresenter(Presenter):
 class SensorImageManager:
     """ Manages SensorImage instances for a particular ship. """
     def __init__(self, ship:core.SectorEntity, sensor_image_ttl:float, static_image_ttl:float):
+        self.logger = logging.getLogger(util.fullname(self))
         self.ship = ship
 
         self._cached_entities:dict[uuid.UUID, core.AbstractSensorImage] = {}
@@ -537,6 +641,7 @@ class SensorImageManager:
         self._sensor_image_ttl = sensor_image_ttl
         self._static_image_ttl = static_image_ttl
         self._sensor_loc_index = rtree.index.Index()
+        self._last_update = -np.inf
 
     @property
     def sensor_contacts(self) -> Mapping[uuid.UUID, core.AbstractSensorImage]:
@@ -549,12 +654,22 @@ class SensorImageManager:
         return (self._cached_entities_by_idx[x] for x in self._sensor_loc_index.intersection(bbox)) # type: ignore
 
     def update(self) -> None:
+        if core.Gamestate.gamestate.timestamp <= self._last_update:
+            return
         assert self.ship.sector
+        self._last_update = core.Gamestate.gamestate.timestamp
 
         # first we find all the detectable entities
+        total_count = 0
+        identified_count = 0
         for hit in self.ship.sector.sensor_manager.scan(self.ship):
             if hit.identity.entity_id not in self._cached_entities:
                 self._cached_entities[hit.identity.entity_id] = hit
+            total_count += 1
+            if hit.identified:
+                identified_count += 1
+
+        self.logger.info(f'identified: {identified_count}/{total_count}')
 
         # then check captain's intel
         if isinstance(self.ship, core.CrewedSectorEntity) and self.ship.captain:

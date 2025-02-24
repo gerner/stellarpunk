@@ -145,8 +145,9 @@ _action = "dialog"
 
 
 # Intel
-# all of these are non-terminal with priority 0 so they always go off and do
-# not interfer with other narrative event rules.
+# all of these are in their own group so they always get a chance to go off
+# (deciding within just these rules) and they do not interfer with other
+# narrative event rules.
 
 [intel_id_asteroid]
 type = "sensors:identified"
@@ -164,6 +165,14 @@ group = "intel"
 criteria = ["$sensors:target.generate:etype_station"]
 [[intel_id_station.actions]]
 _action = "intel:identify_station"
+
+[intel_id_travel_gate]
+type = "sensors:identified"
+priority = 1
+group = "intel"
+criteria = ["$sensors:target.generate:etype_travel_gate"]
+[[intel_id_travel_gate.actions]]
+_action = "intel:identify_travel_gate"
 
 #TODO: what about planets?
 [intel_docked_station]
@@ -191,6 +200,14 @@ group = "intel"
 criteria = []
 [[intel_sensor_scan.actions]]
 _action = "intel:witness_scan"
+
+# enter sector
+[intel_enter_sector]
+type = "enter_sector"
+priority = 1
+group = "intel"
+[[intel_enter_sector.actions]]
+_action = "intel:witness_enter_sector"
 
 #[player_open_dialog]
 #type = "dialog"

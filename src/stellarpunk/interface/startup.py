@@ -83,7 +83,7 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
     def generation_step(self, step:generate.GenerationStep) -> None:
         with self._generation_lock.acquire():
-            self.logger.debug(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
+            self.logger.info(f'step: {step} {self._generation_ticks}/{self._estimated_generation_ticks}')
             self._current_generation_step = step
 
     def generation_tick(self) -> None:
@@ -135,7 +135,8 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
         self._loaded_gamestate = gamestate
         end_time = time.perf_counter()
         self.interface.log_message(f'game loaded in {end_time-start_time:.2f}s.')
-        self._universe_loaded = True
+        with self._generation_lock.acquire():
+            self._universe_loaded = True
 
     def _load_game_threaded(self) -> None:
         try:
@@ -580,15 +581,24 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
                 )
                 return
             self._enter_mode(Mode.CREATE_NEW_GAME)
-        def quick_gen() -> None:
+        def create_unthreaded() -> None:
+            self._threaded_generation = False
+            create()
+        def quick_gen(player_start:Optional[generate.UniverseConfig.PlayerStart]=None) -> None:
             """ sets up universe generation to be fast, creates a very simple
             universe. """
+
+            if player_start is not None:
+                self._generator.universe_config.player_start=player_start
 
             self._generator.universe_config.cultures=[self._generator._empty_name_model_culture]
             self._generator.universe_config.num_cultures = [1,1]
             self._generator._load_empty_name_models(self._generator._empty_name_model_culture)
-            self.config_options[ConfigOption.NUM_SECTORS].setting = 1
+            self.config_options[ConfigOption.NUM_SECTORS].setting = 2
             self.config_options[ConfigOption.NUM_INHABITED_SECTORS].setting = 1
+
+            self.config_options[ConfigOption.SECTOR_SCALE].setting = 5e4
+            self.config_options[ConfigOption.SECTOR_STD].setting = 1e4
 
             self._generator.universe_config.production_chain_config.n_ranks=3
             self._generator.universe_config.production_chain_config.min_per_rank=(2,2,2)
@@ -600,9 +610,23 @@ class StartupView(generate.UniverseGeneratorObserver, save_game.GameSaverObserve
 
             self._enter_mode(Mode.CREATE_NEW_GAME)
 
+        def quick_gen_combat() -> None:
+            quick_gen(generate.UniverseConfig.PlayerStart.TEST_COMBAT)
+        def quick_gen_gate() -> None:
+            quick_gen(generate.UniverseConfig.PlayerStart.TEST_GATE)
+
         key_list = list(self._new_game_config_menu.key_list())
         key_list.extend(self.bind_aliases(
             [ord('q')], quick_gen, help_key="startup_new_game_quick_gen"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord('c')], quick_gen_combat, help_key="startup_new_game_quick_gen"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord('g')], quick_gen_gate, help_key="startup_new_game_quick_gen"
+        ))
+        key_list.extend(self.bind_aliases(
+            [ord('t')], create_unthreaded, help_key="startup_new_game_unthreaded_gen"
         ))
         key_list.extend(self.bind_aliases(
             [curses.ascii.ESC], cancel, help_key="startup_new_game_cancel"

@@ -232,6 +232,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
     """ Objective is to destroy a target. """
 
     class State(enum.IntEnum):
+        BEGIN = enum.auto()
         APPROACH = enum.auto()
         WITHDRAW = enum.auto()
         SHADOW = enum.auto()
@@ -240,6 +241,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         LAST_LOCATION = enum.auto()
         SEARCH = enum.auto()
         GIVEUP = enum.auto()
+        DESTROYED = enum.auto()
 
     @classmethod
     def create_attack_order[T:"AttackOrder"](cls:Type[T], target:core.AbstractSensorImage, *args:Any, distance_min:float=7.5e4, distance_max:float=2e5, max_active_age:float=35, max_passive_age:float=15, search_distance:float=2.5e4, max_fire_rel_bearing:float=np.pi/8, max_missiles:int=0, **kwargs:Any) -> T:
@@ -265,7 +267,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         #TODO: a temporary hack to limit how many missiles we can shoot
         self.max_missiles = max_missiles
 
-        self.state = AttackOrder.State.APPROACH
+        self.state = AttackOrder.State.BEGIN
 
         self.last_fire_ts = -3600.
         #TODO: fire period is a temporary hack to limit firing
@@ -273,11 +275,11 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self.missiles_fired = 0
 
     def __str__(self) -> str:
-        return f'Attack: {self.target.identity.short_id} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
+        return f'Attack: {self.target.identity.short_id()} state: {self.state} age: {self.target.age:.1f}s dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))}'
 
     def _begin(self) -> None:
         super()._begin()
-        self.logger.debug(f'beginning attack on {self.target.identity.short_id}')
+        self.logger.debug(f'beginning attack on {self.target.identity.short_id()}')
 
     def _is_complete(self) -> bool:
         return not self.target.is_active()
@@ -293,7 +295,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
-        self.logger.debug(f'giving up search for target {self.target.identity.short_id}')
+        self.logger.debug(f'giving up search for target {self.target.identity.short_id()}')
+        assert not self.target.detected
         self.state = AttackOrder.State.GIVEUP
 
     def _do_approach(self) -> None:
@@ -361,6 +364,14 @@ class AttackOrder(movement.AbstractSteeringOrder):
             self.ship.sensor_settings.set_sensors(0.0)
 
     def _choose_state(self) -> "AttackOrder.State":
+        if not self.target.is_active():
+            if self.target.inactive_reason == core.SensorImageInactiveReason.DESTROYED:
+                # we observed the target being destroyed
+                return AttackOrder.State.DESTROYED
+            else:
+                # we lost track of the target and we know they are missing
+                return AttackOrder.State.GIVEUP
+
         if self.gamestate.timestamp - self.last_fire_ts < self.fire_backoff_time:
             # back off immediately following firing a missile to reduce risk of
             # colliding with our own missile
@@ -397,6 +408,8 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         assert self.ship.sector
         self.target.update()
+        if not self.target.is_active():
+            breakpoint()
 
         self._set_sensors()
 
@@ -504,7 +517,6 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
     def _activate(self) -> None:
         """ IDLE -> ACTIVE transition logic """
-        self.logger.info("activate")
         self.state = PointDefenseEffect.State.ACTIVE
 
         self._setup_shape()
@@ -542,7 +554,6 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
     def _deactivate(self) -> None:
         """ ACTIVE -> IDLE transition logic """
-        self.logger.info("deactivate")
         assert self._pd_shape
         self.state = PointDefenseEffect.State.IDLE
 
@@ -554,7 +565,6 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
 
     def add_collision(self, entity:core.SectorEntity) -> None:
         assert self.state == PointDefenseEffect.State.ACTIVE
-        logger.info(f'point defense cone collision with {entity}')
         if entity.entity_id not in self._pd_collisions:
             self._pd_collisions[entity.entity_id] = PDTarget(entity)
         else:
@@ -609,22 +619,17 @@ class PointDefenseEffect(core.SectorEntityObserver, core.Effect):
             p = config.Settings.combat.point_defense.THREAT_HIT_PROBABILITY
         roll = self.gamestate.random.uniform()
         if roll < p:
-            self.logger.info(f'pd hit {target.entity.entity_id} {roll} < {p}')
             if damage(target.entity):
                 self.targets_destroyed += 1
                 return True
-        else:
-            self.logger.info(f'pd miss {target.entity.entity_id} {roll} > {p}')
         target.last_roll = core.Gamestate.gamestate.timestamp
         return False
 
     def _do_point_defense(self, target:core.AbstractSensorImage) -> None:
-        self.logger.info(f'pd {target}')
         assert self._pd_shape
         # handle any collisions with the cone shape
         remove_ids:List[uuid.UUID] = []
         for entity_id, pdtarget in self._pd_collisions.items():
-            self.logger.info(f'pdtarget {pdtarget}')
             if pdtarget.since_last_seen > self.pdtarget_expiration:
                 remove_ids.append(entity_id)
             elif util.isclose(pdtarget.since_last_seen, 0.0):

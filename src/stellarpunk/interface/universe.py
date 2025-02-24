@@ -8,7 +8,7 @@ from typing import Any, Tuple, Sequence, Mapping, Optional, Callable, Collection
 import numpy as np
 import drawille # type: ignore
 
-from stellarpunk import interface, util, core, config
+from stellarpunk import interface, util, core, config, intel
 from stellarpunk.interface import command_input, starfield, sector as sector_interface
 
 class UniverseView(interface.PerspectiveObserver, interface.View):
@@ -53,72 +53,41 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
     def perspective_updated(self, perspective:interface.Perspective) -> None:
         self._cached_sector_layout = self.compute_sector_layout()
 
-    def add_sector_to_canvas(self, c:drawille.Canvas, sector:core.Sector) -> bool:
+    def add_sector_to_canvas(self, c:drawille.Canvas, sector:intel.SectorIntel) -> bool:
         used_canvas = False
         if sector.radius > 0 and self.perspective.meters_per_char[0] < sector.radius:
             used_canvas = True
-
-            # draw the sector as a circle
-            r = sector.radius
-            theta = 0.
-            step = 1.5/r*self.perspective.meters_per_char[0]
-            while theta < 2*math.pi:
-                c_x, c_y = util.polar_to_cartesian(r, theta)
-                d_x, d_y = util.sector_to_drawille(c_x+sector.loc[0], c_y+sector.loc[1], *self.perspective.meters_per_char)
-                c.set(d_x, d_y)
-                theta += step
-
+            loc_x, loc_y = sector.loc
+            util.make_circle_canvas(sector.radius, *self.perspective.meters_per_char, bbox=util.translate_rect(self.perspective.bbox, (-loc_x, -loc_y)), offset_x=loc_x, offset_y=loc_y, c=c)
         return used_canvas
 
-    def add_sector_edges_to_canvas(self, c:drawille.Canvas, sector:core.Sector) -> bool:
+    def add_sector_edges_to_canvas(self, c:drawille.Canvas, sector:intel.SectorIntel, universe_view:intel.UniverseView) -> bool:
         used_canvas = False
-        #TODO: how should this be synchronized with the existence of gates between sectors?
+
         # draw edges with neighbors
-        sector_idx = self.gamestate.sector_idx[sector.entity_id]
-        for i, edge in enumerate(self.gamestate.sector_edges[sector_idx]):
-            dest_sector = self.gamestate.sectors[self.gamestate.sector_ids[i]]
+        sector_idx = universe_view.sector_idx_lookup[sector.intel_entity_id]
+        for i, edge in enumerate(universe_view.adj_matrix[sector_idx]):
             # skip symmetric edges
-            if i <= sector_idx:
-                continue
+            #if i <= sector_idx:
+            #    continue
             # skip non-edges
-            elif edge == 0:
+            if not edge < np.inf:
                 continue
-            # skip edges that are off screen
-            subsegment = util.segment_intersects_rect(
-                (sector.loc[0], sector.loc[1], dest_sector.loc[0], dest_sector.loc[1]),
-                self.perspective.bbox
-            )
-            if subsegment is None:
-                continue
+
+            if i >= len(universe_view.sector_intels):
+                # we must not have intel on the destination of this edge
+                # we'll just draw a stub for this gate
+                gate_intel = universe_view.gate_intel_lookup[(sector.intel_entity_id, universe_view.sector_id_lookup[i])]
+                stub_start_loc = util.polar_to_cartesian(sector.radius, gate_intel.direction) + sector.loc
+                stub_end_loc = util.polar_to_cartesian(sector.radius*15, gate_intel.direction) + sector.loc
+
+                util.drawille_line(stub_start_loc, stub_end_loc, *self.perspective.meters_per_char, canvas=c, bbox=self.perspective.bbox)
             else:
-                used_canvas = True
+                dest_sector = universe_view.sector_intels[i]
                 # there's an edge between sector and sector at index i
                 # draw a line from the edge of the sector to the edge of the other sector
-                #TODO: start/end at the bounds of the rect instead of along the
-                # entire edge. see util.segments_intersect where we compute the
-                # intersection of two line segments
-
-                r = 0.
-                distance, theta = util.cartesian_to_polar(subsegment[0]-subsegment[2], subsegment[1]-subsegment[3])
-                step = 2*self.perspective.meters_per_char[0]
-                r += step
-                while r < distance:
-                    c_x, c_y = util.polar_to_cartesian(r, theta)
-                    r += step
-                    s_x, s_y = (c_x+subsegment[2], c_y+subsegment[3])
-                    assert util.point_inside_rect((s_x, s_y), self.perspective.bbox)
-                    #TODO: we could optimize this so we start/end at the
-                    # boundaries of the sector circles
-                    if util.magnitude(s_x-sector.loc[0], s_y-sector.loc[1]) < sector.radius:
-                        continue
-
-                    if util.magnitude(s_x-dest_sector.loc[0], s_y-dest_sector.loc[1]) < dest_sector.radius:
-                        continue
-                    d_x, d_y = util.sector_to_drawille(
-                        s_x, s_y,
-                        *self.perspective.meters_per_char
-                    )
-                    c.set(d_x, d_y)
+                util.drawille_line(sector.loc, dest_sector.loc, *self.perspective.meters_per_char, canvas=c, bbox=self.perspective.bbox)
+            used_canvas = True
 
         return used_canvas
 
@@ -128,15 +97,21 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
         used_canvas_sectors = False
         used_canvas_edges = False
 
-        for sector in self.gamestate.sectors.values():
+        assert self.gamestate.player.character
+
+        # construct the player's view of the universe, depending on intel
+        universe_view = intel.UniverseView.create(self.gamestate.player.character)
+
+        max_edge_length = universe_view.max_edge_length
+
+        for sector in universe_view.sector_intels:
             # compute a bounding box of interest for this sector
             # that's this sector (including radius) plus all sectors it connects to
-            self.gamestate.sector_edges[self.gamestate.sector_idx[sector.entity_id]]
             sector_bbox = (
-                    sector.loc[0]-sector.radius-self.gamestate.max_edge_length,
-                    sector.loc[1]-sector.radius-self.gamestate.max_edge_length,
-                    sector.loc[0]+sector.radius+self.gamestate.max_edge_length,
-                    sector.loc[1]+sector.radius+self.gamestate.max_edge_length
+                    sector.loc[0]-sector.radius-max_edge_length,
+                    sector.loc[1]-sector.radius-max_edge_length,
+                    sector.loc[0]+sector.radius+max_edge_length,
+                    sector.loc[1]+sector.radius+max_edge_length
             )
 
             if not util.intersects(self.perspective.bbox, sector_bbox):
@@ -145,7 +120,7 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
             # order here matters because of short circuit evaluation!
             used_canvas_sectors = self.add_sector_to_canvas(c_sectors, sector) or used_canvas_sectors
 
-            used_canvas_edges = self.add_sector_edges_to_canvas(c_edges, sector) or used_canvas_edges
+            used_canvas_edges = self.add_sector_edges_to_canvas(c_edges, sector, universe_view) or used_canvas_edges
 
         (d_min_x, d_min_y) = util.sector_to_drawille(
             self.perspective.bbox[0], self.perspective.bbox[1],
@@ -185,10 +160,10 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
             self.viewscreen.addstr(y, x, c, curses.color_pair(interface.Icons.COLOR_UNIVERSE_SECTOR))
 
         # draw info for each sector
-        for sector in self.gamestate.sectors.values():
+        assert self.gamestate.player.character
+        for sector in self.gamestate.player.character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorIntel), intel.SectorIntel):
             # compute a bounding box of interest for this sector
             # only if the sector is actually on screen
-            self.gamestate.sector_edges[self.gamestate.sector_idx[sector.entity_id]]
             sector_bbox = (
                     sector.loc[0]-sector.radius,
                     sector.loc[1]-sector.radius,
@@ -204,11 +179,9 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
             name_attr = 0
             if sector == self.selected_sector:
                 name_attr = name_attr | curses.A_STANDOUT
-            self.viewscreen.addstr(s_y, s_x, sector.short_id(), name_attr)
-            self.viewscreen.addstr(s_y+1, s_x, sector.name)
-            self.viewscreen.addstr(s_y+2, s_x, sector.culture, interface.Icons.culture_attr(sector.culture))
-            self.viewscreen.addstr(s_y+3, s_x, f'[ {sector.loc[0]:.2e} {sector.loc[1]:.2e} ]')
-            self.viewscreen.addstr(s_y+4, s_x, f'{len(sector.entities)} objects')
+            self.viewscreen.addstr(s_y, s_x+1, sector.intel_entity_short_id, name_attr)
+            self.viewscreen.addstr(s_y+1, s_x+1, sector.intel_entity_name)
+            self.viewscreen.addstr(s_y+2, s_x+1, sector.culture, interface.Icons.culture_attr(sector.culture))
 
         self.interface.refresh_viewscreen()
 
@@ -244,6 +217,7 @@ class UniverseView(interface.PerspectiveObserver, interface.View):
                 sector_x-self.perspective.meters_per_char[0], sector_y-self.perspective.meters_per_char[1],
                 sector_x+self.perspective.meters_per_char[0], sector_y+self.perspective.meters_per_char[1]
         )
+        #TODO: this should be related to the player character's intel
         hit = next(self.gamestate.spatial_query(bounds), None)
         if hit:
             #TODO: check if the hit is close enough

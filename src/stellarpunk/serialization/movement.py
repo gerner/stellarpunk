@@ -2,7 +2,7 @@ import io
 import uuid
 import abc
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import cymunk # type: ignore
@@ -22,7 +22,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
 
     def _save_navigator_params(self, params:collision.NavigatorParameters, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.debug_string_w("navigator basic params", f)
+        bytes_written += self.save_game.debug_string_w("navigator basic params", f)
 
         bytes_written += s_util.float_to_f(params.radius, f)
         bytes_written += s_util.float_to_f(params.max_thrust, f)
@@ -52,13 +52,13 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         bytes_written += s_util.float_to_f(params.arrival_radius, f)
         bytes_written += s_util.float_to_f(params.min_radius, f)
 
-        bytes_written += s_util.float_to_f(params.last_threat_id, f)
+        bytes_written += s_util.int_to_f(params.last_threat_id, f, blen=8)
         bytes_written += s_util.float_to_f(params.collision_margin_histeresis, f)
         bytes_written += s_util.bool_to_f(params.cannot_avoid_collision_hold, f)
         bytes_written += s_util.bool_to_f(params.collision_cbdr, f)
 
         # analysis params
-        bytes_written += s_util.debug_string_w("navigator analysis params", f)
+        bytes_written += self.save_game.debug_string_w("navigator analysis params", f)
         bytes_written += s_util.float_to_f(params.analysis.neighborhood_radius, f)
         bytes_written += s_util.int_to_f(params.analysis.threat_count, f)
         bytes_written += s_util.int_to_f(params.analysis.neighborhood_size, f)
@@ -66,8 +66,17 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         bytes_written += s_util.bool_to_f(params.analysis.cannot_avoid_collision, f)
         bytes_written += s_util.int_to_f(params.analysis.coalesced_threat_count, f)
 
+        bytes_written += s_util.optional_uuid_to_f(params.analysis.threat_shape.body.data.entity_id if params.analysis.threat_shape else None, f)
+        bytes_written += s_util.float_to_f(params.analysis.minimum_separation, f)
+        bytes_written += s_util.float_pair_to_f(params.analysis.current_threat_loc, f)
+        bytes_written += s_util.float_pair_to_f(params.analysis.threat_velocity, f)
+        bytes_written += s_util.float_to_f(params.analysis.detection_timestamp, f)
+        bytes_written += s_util.float_to_f(params.analysis.approach_time, f)
+        bytes_written += s_util.float_pair_to_f(params.analysis.threat_loc, f)
+        bytes_written += s_util.float_to_f(params.analysis.threat_radius, f)
+
         # prior threats
-        bytes_written += s_util.debug_string_w("navigator prior threats", f)
+        bytes_written += self.save_game.debug_string_w("navigator prior threats", f)
         bytes_written += s_util.uuids_to_f(list(x.body.data.entity_id for x in params.prior_threats), f)
 
         return bytes_written
@@ -75,7 +84,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
     def _load_navigator_params(self, f:io.IOBase, order:T, load_context:save_game.LoadContext) -> tuple[collision.NavigatorParameters, Any]:
         params = collision.NavigatorParameters()
 
-        s_util.debug_string_r("navigator basic params", f)
+        load_context.debug_string_r("navigator basic params", f)
 
         params.radius = s_util.float_from_f(f)
         params.max_thrust = s_util.float_from_f(f)
@@ -106,13 +115,13 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         params.arrival_radius = s_util.float_from_f(f)
         params.min_radius = s_util.float_from_f(f)
 
-        params.last_threat_id = s_util.int_from_f(f)
+        params.last_threat_id = s_util.int_from_f(f, blen=8)
         params.collision_margin_histeresis = s_util.float_from_f(f)
         params.cannot_avoid_collision_hold = s_util.bool_from_f(f)
         params.collision_cbdr = s_util.bool_from_f(f)
 
         # analysis params
-        s_util.debug_string_r("navigator analysis params", f)
+        load_context.debug_string_r("navigator analysis params", f)
         params.analysis.neighborhood_radius = s_util.float_from_f(f)
         params.analysis.threat_count = s_util.int_from_f(f)
         params.analysis.neighborhood_size = s_util.int_from_f(f)
@@ -120,24 +129,42 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         params.analysis.cannot_avoid_collision = s_util.bool_from_f(f)
         params.analysis.coalesced_threat_count = s_util.int_from_f(f)
 
+        threat_entity_id = s_util.optional_uuid_from_f(f)
+        params.analysis.minimum_separation = s_util.float_from_f(f)
+        loc = s_util.float_pair_from_f(f)
+        params.analysis.current_threat_loc = (float(loc[0]), float(loc[1]))
+        vel = s_util.float_pair_from_f(f)
+        params.analysis.threat_velocity = (float(vel[0]), float(vel[1]))
+        params.analysis.detection_timestamp = s_util.float_from_f(f)
+        params.analysis.approach_time = s_util.float_from_f(f)
+        loc = s_util.float_pair_from_f(f)
+        params.analysis.threat_loc = (float(loc[0]), float(loc[1]))
+        params.analysis.threat_radius = s_util.float_from_f(f)
+
         # prior threats, we'll fully set this up in post load
-        s_util.debug_string_r("navigator prior threats", f)
+        load_context.debug_string_r("navigator prior threats", f)
         prior_threat_ids = s_util.uuids_from_f(f)
 
-        load_context.register_custom_post_load(self._post_load_navigator_params, order, (params, prior_threat_ids))
+        load_context.register_custom_post_load(self._post_load_navigator_params, order, (params, threat_entity_id, prior_threat_ids))
 
         return params, prior_threat_ids
 
     def _post_load_navigator_params(self, order:T, load_context:save_game.LoadContext, context:Any) -> None:
-        context_data:tuple[collision.NavigatorParameters, list[uuid.UUID]] = context
+        context_data:tuple[collision.NavigatorParameters, Optional[uuid.UUID], list[uuid.UUID]] = context
 
-        params, prior_threat_ids = context_data
+        params, threat_entity_id, prior_threat_ids = context_data
 
         # we assume that the sector has been completely post loaded by the time
         # we are. this should happen because orders are loaded after entities.
         assert(order.ship.sector)
         space = order.ship.sector.space
         body = order.ship.phys
+
+        # we might not have had a threat, that threat might also have been
+        # removed from the space, we need to check for all of these
+        if threat_entity_id and load_context.gamestate.contains_entity(threat_entity_id):
+            threat_entity = load_context.gamestate.get_entity(threat_entity_id, core.SectorEntity)
+            params.analysis.threat_shape = threat_entity.phys_shape
 
         for prior_threat_id in prior_threat_ids:
             sector_entity = load_context.gamestate.get_entity(prior_threat_id, core.SectorEntity)

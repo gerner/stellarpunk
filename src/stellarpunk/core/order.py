@@ -281,7 +281,7 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
     def _cancel(self) -> None:
         pass
 
-    def begin_order(self) -> None:
+    def _begin_order(self) -> None:
         """ Called when an order is ready to start acting, at the front of the
         order queue, before the first call to act. This is a good time to
         compute the eta for the order."""
@@ -291,6 +291,8 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
         for observer in self._observers:
             observer.order_begin(self)
 
+    def begin_order(self) -> None:
+        self._begin_order()
         self.gamestate.schedule_order_immediate(self)
 
     def complete_order(self) -> None:
@@ -338,7 +340,7 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
             # order might already have been removed from the queue
             pass
 
-        for order in self.child_orders:
+        for order in self.child_orders.copy():
             order.cancel_order()
             try:
                 self.ship.remove_order(order)
@@ -351,13 +353,15 @@ class Order(base.Observable[OrderObserver], base.AbstractOrder):
             self.parent_order.child_orders.remove(self)
 
         self._cancel()
-        for observer in self._observers:
+        for observer in self._observers.copy():
             observer.order_cancel(self)
         self.clear_observers()
         self.gamestate.unschedule_order(self)
 
     def base_act(self, dt:float) -> None:
         if self == self.ship.current_order():
+            if self.started_at < 0:
+                self._begin_order()
             if self.is_complete():
                 ship = self.ship
                 self.logger.debug(f'ship {self.ship.entity_id} completed {self} in {self.gamestate.timestamp - self.started_at:.2f} est {self.init_eta:.2f}')

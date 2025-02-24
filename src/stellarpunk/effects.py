@@ -217,7 +217,8 @@ class WarpOutEffect(core.Effect):
 
     def _begin(self) -> None:
         self.expiration_time = self.gamestate.timestamp + self.ttl
-        self.gamestate.schedule_effect_immediate(self)
+        # act again right after we're done, so we get marked as complete
+        self.gamestate.schedule_effect(self.expiration_time + core.DT_EPSILON, self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         ll = self.loc - self.radius
@@ -240,7 +241,8 @@ class WarpInEffect(core.Effect):
 
     def _begin(self) -> None:
         self.expiration_time = self.gamestate.timestamp + self.ttl
-        self.gamestate.schedule_effect_immediate(self)
+        # act again right after we're done, so we get marked as complete
+        self.gamestate.schedule_effect(self.expiration_time + core.DT_EPSILON, self)
 
     def bbox(self) -> Tuple[float, float, float, float]:
         ll = self.loc - self.radius
