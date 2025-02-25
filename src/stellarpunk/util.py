@@ -16,8 +16,10 @@ import itertools
 import threading
 import contextlib
 import heapq
+import functools
 import types
-from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator
+from collections.abc import Set, Iterator
+from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator, Type
 
 import numpy as np
 import numpy.typing as npt
@@ -1320,3 +1322,76 @@ class TimeoutLock(object):
         yield result
         if result:
             self._lock.release()
+
+class TypeTree[T]:
+    """ stores items by their type.
+
+    getting an item of a type returns all items of that type and all sub-types.
+    """
+
+    EMPTY_SET:Set[T] = set()
+    class Node[T2]:
+        @classmethod
+        def _get_items(cls, node:"TypeTree.Node[T2]") -> set[T2]:
+            items = node._items
+            for child in node._children.values():
+                items = items.union(TypeTree.Node._get_items(child))
+            return items
+
+        def __init__(self, cls:Type[T2]) -> None:
+            self._cls:Type[T2] = cls
+            self._children:dict[Type[T2], TypeTree.Node] = {}
+            self._items:set[T2] = set()
+
+    def __init__(self, base_type:Type[T]) -> None:
+        self._base_type = base_type
+        self._root:TypeTree.Node = TypeTree.Node(base_type)
+
+    @functools.cache
+    def _types(self, cls:Type[T]) -> list[Type[T]]:
+        return list(reversed(list(x for x in cls.__mro__ if issubclass(x, self._base_type))))
+
+    def add(self, item:T) -> None:
+        node = self._root
+        types = self._types(type(item)) # type: ignore
+        #assert types[0] == self._base_type
+        for cls in types[1:]:
+            if cls in node._children:
+                node = node._children[cls]
+            else:
+                new_node = TypeTree.Node(cls)
+                node._children[cls] = new_node
+                node = new_node
+        #assert node._cls == type(item)
+        node._items.add(item)
+
+    def remove(self, item:T) -> None:
+        node = self._root
+        types = self._types(type(item)) # type: ignore
+        #assert types[0] == self._base_type
+        for cls in types[1:]:
+            if cls in node._children:
+                node = node._children[cls]
+            else:
+                return
+        #assert node._cls == type(item)
+        node._items.remove(item)
+
+    def get[T2](self, cls:Type[T2]) -> Set[T2]:
+        node = self._root
+        types = self._types(cls) # type: ignore
+        #assert types[0] == self._base_type
+        for cls in types[1:]: # type: ignore
+            if cls in node._children:
+                node = node._children[cls]
+            else:
+                return self.EMPTY_SET # type: ignore
+        #assert node._cls == type(item)
+        return TypeTree.Node._get_items(node)
+
+    def __iter__(self) -> Iterator[T]:
+        for item in self.get(self._base_type):
+            yield item
+
+    def __len__(self) -> int:
+        return len(self.get(self._base_type))

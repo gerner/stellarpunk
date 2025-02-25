@@ -78,23 +78,18 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         self.logger = logging.getLogger(util.fullname(self))
         self.character:Character = None # type: ignore
         self.gamestate = gamestate
-        self._intel:set[uuid.UUID] = set()
         self._intel_map:dict[core.IntelMatchCriteria, uuid.UUID] = {}
+        self._intel_tree = util.TypeTree(core.AbstractIntel)
 
     def sanity_check(self) -> None:
         assert self.character.intel_manager == self
 
         intel_count = 0
         entity_intel_count = 0
-        for intel_id in self._intel:
+        for intel in self._intel_tree:
             intel_count += 1
-            assert intel_id in self._intel
-            intel = self.gamestate.get_entity(intel_id, core.AbstractIntel)
-            assert intel.entity_id == intel_id
             match_criteria = intel.match_criteria()
             assert intel.entity_id == self._intel_map[match_criteria]
-
-        assert intel_count == len(self._intel)
 
     # core.Observable
 
@@ -122,15 +117,15 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
 
     def _remove_intel(self, old_intel:core.AbstractIntel) -> None:
         self.logger.debug(f'{self.character} removing intel {old_intel}')
-        self._intel.remove(old_intel.entity_id)
         del self._intel_map[old_intel.match_criteria()]
         old_intel.unobserve(self)
+        self._intel_tree.remove(old_intel)
 
     def _add_intel(self, intel:core.AbstractIntel) -> None:
         self.logger.debug(f'{self.character} adding intel {intel}')
         intel.observe(self)
-        self._intel.add(intel.entity_id)
         self._intel_map[intel.match_criteria()] = intel.entity_id
+        self._intel_tree.add(intel)
 
     def add_intel(self, intel:core.AbstractIntel) -> bool:
         old_intel:Optional[core.AbstractIntel] = self.get_intel(intel.match_criteria(), type(intel))
@@ -162,7 +157,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
             assert(isinstance(intel, cls))
             return [intel]
 
-        return list(x for x in (self.gamestate.get_entity(intel_id, cls) for intel_id in self._intel if match_criteria.matches(self.gamestate.get_entity(intel_id, core.AbstractIntel))))
+        return list(x for x in self._intel_tree.get(cls) if match_criteria.matches(x))
 
     def get_intel[T:core.AbstractIntel](self, match_criteria:core.IntelMatchCriteria, cls:Type[T]) -> Optional[T]:
         # we assume the intel is of the right type
@@ -174,11 +169,8 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
                 intel = self.gamestate.get_entity(intel_id, cls)
                 return intel
         else:
-            for intel_id in self._intel:
-                generic_intel = self.gamestate.get_entity(intel_id, core.AbstractIntel)
-                if match_criteria.matches(generic_intel):
-                    assert(isinstance(generic_intel, cls))
-                    return generic_intel
+            for intel in self.intel(match_criteria, cls):
+                return intel
         return None
 
     def register_intel_interest(self, interest:core.IntelMatchCriteria, source:Optional[core.IntelMatchCriteria]=None) -> None:

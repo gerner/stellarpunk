@@ -427,7 +427,7 @@ class IntelCollectionAgendumSaver(AgendumSaver[aintel.IntelCollectionAgendum]):
             load_imcs,
         ))
 
-        cycle_interests = set(s_util.objs_from_f(f, load_imc))
+        cycle_interests = s_util.objs_from_f(f, load_imc)
 
         preempted_primary_id = s_util.optional_uuid_from_f(f)
 

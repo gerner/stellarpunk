@@ -19,7 +19,7 @@ class IntelManagerSaver(save_game.Saver[intel.IntelManager]):
 
     def save(self, intel_manager:intel.IntelManager, f:io.IOBase) -> int:
         bytes_written = 0
-        bytes_written += s_util.uuids_to_f(intel_manager._intel, f)
+        bytes_written += s_util.uuids_to_f(list(x.entity_id for x in intel_manager._intel_tree), f)
         # our character field is handled in CharacterSaver
         return bytes_written
 

@@ -49,7 +49,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
         self._source_interests_by_source:collections.defaultdict[Optional[core.IntelMatchCriteria], set[core.IntelMatchCriteria]] = collections.defaultdict(set)
 
         # interests that would cause a dependency cycle and need to be rejected
-        self._cycle_interests:set[core.IntelMatchCriteria] = set()
+        self._cycle_interests:list[core.IntelMatchCriteria] = list()
 
         self._preempted_primary:Optional[core.AbstractAgendum] = None
 
@@ -113,8 +113,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
                 # this needs to be resolved by rejecting intel_criteria and
                 # related interests
                 # we'll mark these here and reject them on a subsequent tick
-                self._cycle_interests.add(intel_criteria)
-                self._cycle_interests.add(source)
+                self._cycle_interests.append(intel_criteria)
+                self._cycle_interests.append(source)
                 if source == self._immediate_interest:
                     self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
                 return
@@ -156,11 +156,11 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # registers several interests, but the schedule will dedupe
             self.gamestate.schedule_agendum_immediate(self, jitter=1.0)
 
-    def _reject_interest(self, interest:core.IntelMatchCriteria, visited:Optional[set[core.IntelMatchCriteria]]=None) -> None:
+    def _reject_interest(self, interest:core.IntelMatchCriteria, visited:Optional[set[core.IntelMatchCriteria]]=None) -> set[core.IntelMatchCriteria]:
         if visited is None:
             visited = set()
         if interest in visited:
-            return
+            return visited
         visited.add(interest)
         # this is how we signal to intel consumers that we will not try
         # to collect this intel
@@ -172,7 +172,7 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
                 continue
             self._reject_interest(child, visited)
         self.logger.debug(f'rejection dropping {interest}')
-        self._remove_interest(interest)
+        return visited
 
     def _remove_interest(self, interest:core.IntelMatchCriteria) -> None:
         # prec: interest was an interest we were tracking with at least the None source, possibly others
@@ -386,7 +386,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # back into interests and we want to remove those too.
             while self._interests:
                 interest = self._interests.pop()
-                self._reject_interest(interest)
+                for imc in self._reject_interest(interest):
+                    self._remove_interest(imc)
 
             assert len(self._source_interests_by_source) == 0
             assert len(self._source_interests_by_dependency) == 0
@@ -436,7 +437,8 @@ class IntelCollectionAgendum(core.IntelManagerObserver, Agendum):
             # this cycle makes the interest unsatisfiable
             self.logger.info(f'{self.character} has intel interest {cycle_interest} that we cannot satisfy: (interest dependency cycle)')
             # bail on all the interests for which this is a dependency
-            self._reject_interest(cycle_interest)
+            for imc in self._reject_interest(cycle_interest):
+                self._remove_interest(imc)
 
         # no sense working if we have no intel to collect
         if len(self._interests) == 0:
@@ -751,7 +753,7 @@ class EconAgentSectorEntityIntelGatherer(IntelGatherer[intel.EconAgentSectorEnti
             # make sure we don't have econ agent intel for this station already
             # we're looking to create new intel
             #TODO: should this be a freshness thing?
-            if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), core.AbstractIntel):
+            if character.intel_manager.get_intel(intel.EconAgentSectorEntityPartialCriteria(underlying_entity_id=station_intel.intel_entity_id), intel.EconAgentIntel):
                 continue
 
             # we might get stations from intel manager that are in technically

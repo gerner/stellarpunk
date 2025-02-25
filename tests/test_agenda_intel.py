@@ -223,7 +223,7 @@ def test_active_collection(gamestate, generator, sector, ship, intel_director, t
         else:
             assert intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE
 
-        if len(character.intel_manager._intel) > 1 and intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE:
+        if len(character.intel_manager._intel_tree) > 1 and intel_agendum._state == aintel.IntelCollectionAgendum.State.IDLE:
             testui.done = True
 
     testui.tick_callback = tick_callback
@@ -423,3 +423,4 @@ def test_intel_dependency_chain(gamestate, generator, sector, ship, intel_direct
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.StationIntel))) == 0
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.EconAgentIntel))) == 0
     assert len(character.intel_manager.intel(intel.TrivialMatchCriteria(cls=intel.SectorIntel))) == 1 # sector we started in
+

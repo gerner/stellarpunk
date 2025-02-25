@@ -151,3 +151,39 @@ def test_pixel_to_hex():
             util.pixel_to_pointy_hex(np.array((-105.*np.sqrt(3)*100. + 25.*np.sqrt(3)/2.*100., 25.*3./2.*100.)), 100.),
             np.array((-105., 25.))
     )
+
+def test_type_tree():
+    class Foo:
+        pass
+
+    class Bar(Foo):
+        pass
+
+    class Blerf:
+        pass
+
+    class Baz(Blerf, Bar):
+        pass
+
+    class Blazzo(Bar):
+        pass
+
+    baz = Baz()
+    t = util.TypeTree(Foo)
+    t.add(baz)
+    assert baz in t.get(Baz)
+    assert baz in t.get(Bar)
+    assert baz in t.get(Foo)
+    assert baz not in t.get(Blazzo)
+
+    bar = Bar()
+    t.add(bar)
+    assert bar in t.get(Bar)
+    assert baz in t.get(Bar)
+    assert bar not in t.get(Baz)
+
+    t.remove(baz)
+    assert baz not in t.get(Baz)
+    assert baz not in t.get(Bar)
+    assert baz not in t.get(Foo)
+    assert bar in t.get(Bar)

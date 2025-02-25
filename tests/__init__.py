@@ -345,6 +345,8 @@ class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, inter
         for x in self.cannot_avoid_collision_orders: # type: ignore
             assert not x.cannot_avoid_collision, f'cannot avoid collision ({x.ship.entity_id})'
         for margin_neighbor in self.margin_neighbors:
+            if margin_neighbor.sector is None:
+                continue
             neighbor, neighbor_dist = nearest_neighbor(margin_neighbor.sector, margin_neighbor)
             assert neighbor_dist >= self.margin - steering.VELOCITY_EPS, f'violated margin ({margin_neighbor.entity_id})'
             if neighbor_dist < self.min_neighbor_dist:
