@@ -435,15 +435,13 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
                 self.missed_ticks += 1
                 behind = (now - next_tick)/self.dt
                 if self.behind_length > self.behind_dt_scale_thresthold and behind >= self.behind_ticks:
-                    if not self.ui.decrease_fps():
-                        self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
+                    self.dt = min(self.max_dt, self.dt * self.dt_scaleup)
                 self.behind_ticks = behind
                 self.behind_length += 1
                 if self.gamestate is not None:
                     self.behind_message_throttle = util.throttled_log(self.gamestate.timestamp, self.behind_message_throttle, self.logger, logging.WARNING, f'behind by {now - next_tick:.4f}s {behind:.2f} ticks dt: {self.dt:.4f} for {self.behind_length} ticks', 3.)
             else:
                 if self.behind_length > self.behind_dt_scale_thresthold:
-                    self.ui.increase_fps()
                     self.logger.debug(f'ticks caught up with realtime ticks dt: {self.dt:.4f} for {self.behind_length} ticks')
 
                 self.behind_ticks = 0
@@ -456,11 +454,12 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             self._handle_synchronization(now, next_tick)
             starttime = time.perf_counter()
             next_tick = next_tick + self.dt
-            timeout = next_tick - now
-            self.ui.tick(timeout, self.dt)
             now = time.perf_counter()
             ticktime = now - starttime
             self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
+
+            timeout = next_tick - now
+            self.ui.tick(timeout, self.dt)
 
     def run(self) -> None:
         next_tick = time.perf_counter()+self.dt
@@ -468,33 +467,27 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
             if self.should_raise:
                 raise Exception("debug breakpoint in Simulator at start of tick")
             now = time.perf_counter()
-
             self._handle_synchronization(now, next_tick)
 
             starttime = time.perf_counter()
             if not self.gamestate.paused:
                 self.tick(self.dt)
 
-            now = time.perf_counter()
+            for tick_handler in self.tick_handlers:
+                tick_handler.tick()
 
-            last_tick = next_tick
+            now = time.perf_counter()
             if self.fast_mode:
                 next_tick = now
             else:
                 next_tick = next_tick + self.dt / self.time_accel_rate
+            ticktime = now - starttime
+            self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
             timeout = next_tick - now
             if not self.gamestate.paused:
                 self.timeout = self.ticktime_alpha * timeout + (1-self.ticktime_alpha) * self.timeout
-
-            for tick_handler in self.tick_handlers:
-                tick_handler.tick()
-
             self.ui.tick(timeout, self.dt)
-
-            now = time.perf_counter()
-            ticktime = now - starttime
-            self.ticktime = util.update_ema(self.ticktime, self.ticktime_alpha, ticktime)
 
 def initialize_intel_director() -> aintel.IntelCollectionDirector:
     intel_director = aintel.IntelCollectionDirector()

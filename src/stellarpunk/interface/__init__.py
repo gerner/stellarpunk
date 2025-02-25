@@ -553,12 +553,6 @@ class AbstractInterface(abc.ABC):
         self.mixer = mixer
         self.views:List[View] = []
 
-    def decrease_fps(self) -> bool:
-        return False
-
-    def increase_fps(self) -> bool:
-        return False
-
     def collision_detected(self, entity_a:core.SectorEntity, entity_b:core.SectorEntity, impulse:Tuple[float, float], ke:float) -> None:
         pass
 
@@ -690,7 +684,7 @@ class Interface(AbstractInterface):
         self.desired_fps = Settings.MAX_FPS
         self.max_fps = self.desired_fps
         self.min_fps = Settings.MIN_FPS
-        self.min_ui_timeout = -1.#gamestate.desired_dt/4
+        self.min_ui_timeout = 0.#gamestate.desired_dt/4
 
         self.fps_counter = FPSCounter(Settings.MAX_FRAME_HISTORY_SEC)
         self.fast_fps_counter = FPSCounter(Settings.MAX_FRAME_HISTORY_SEC)
@@ -796,22 +790,6 @@ class Interface(AbstractInterface):
             curses.nocbreak()
             curses.endwin()
             self.logger.info("done")
-
-    def decrease_fps(self) -> bool:
-        """ Drops the fps if possible.
-
-        returns bool if it could reduce the fps
-        """
-
-        if self.max_fps > self.min_fps:
-            self.max_fps -= 1
-            return True
-        else:
-            return False
-
-    def increase_fps(self) -> bool:
-        self.max_fps = self.desired_fps
-        return True
 
     def choose_viewport_sizes(self) -> None:
         """ Chooses viewport sizes and locations for viewscreen and the log."""
