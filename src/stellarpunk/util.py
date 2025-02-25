@@ -19,7 +19,7 @@ import heapq
 import functools
 import types
 from collections.abc import Set, Iterator
-from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator, Type
+from typing import Any, List, Tuple, Optional, Callable, Sequence, Iterable, Mapping, MutableMapping, Union, overload, Deque, Collection, Generator, Type, Hashable
 
 import numpy as np
 import numpy.typing as npt
@@ -1323,7 +1323,7 @@ class TimeoutLock(object):
         if result:
             self._lock.release()
 
-class TypeTree[T]:
+class TypeTree[T:Hashable]:
     """ stores items by their type.
 
     getting an item of a type returns all items of that type and all sub-types.
@@ -1353,7 +1353,7 @@ class TypeTree[T]:
 
     def add(self, item:T) -> None:
         node = self._root
-        types = self._types(type(item)) # type: ignore
+        types = self._types(type(item))
         #assert types[0] == self._base_type
         for cls in types[1:]:
             if cls in node._children:
@@ -1367,7 +1367,7 @@ class TypeTree[T]:
 
     def remove(self, item:T) -> None:
         node = self._root
-        types = self._types(type(item)) # type: ignore
+        types = self._types(type(item))
         #assert types[0] == self._base_type
         for cls in types[1:]:
             if cls in node._children:
@@ -1381,9 +1381,9 @@ class TypeTree[T]:
         node = self._root
         types = self._types(cls) # type: ignore
         #assert types[0] == self._base_type
-        for cls in types[1:]: # type: ignore
-            if cls in node._children:
-                node = node._children[cls]
+        for klass in types[1:]:
+            if klass in node._children:
+                node = node._children[klass]
             else:
                 return self.EMPTY_SET # type: ignore
         #assert node._cls == type(item)

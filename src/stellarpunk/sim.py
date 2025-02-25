@@ -421,6 +421,8 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
                 self.logger.debug(f'dt: {self.dt}')
             time.sleep(next_tick - now)
             self.sleep_count += 1
+        elif self.fast_mode:
+            return
         else:
             # what to do if we miss a tick (or a lot)
             # seems like we should run a tick with a longer dt to make up for
