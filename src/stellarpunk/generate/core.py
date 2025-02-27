@@ -642,11 +642,11 @@ class UniverseGenerator(core.AbstractGenerator):
                 observer.generation_tick()
 
     def _load_empty_name_models(self, culture:str) -> None:
-        self._ship_name_model = markov.MarkovModel(romanize=False)
-        self._sector_name_models[culture] = markov.MarkovModel(romanize=False)
-        self._station_name_models[culture] = markov.MarkovModel(romanize=False)
-        self._first_name_models[culture] = markov.MarkovModel(romanize=False)
-        self._last_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._ship_name_model = markov.MarkovModel(romanize=False, empty=True)
+        self._sector_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
+        self._station_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
+        self._first_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
+        self._last_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
 
 
     def pre_initialize(self, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, empty_name_model_culture:Optional[str]=None) -> None:
