@@ -52,6 +52,7 @@ class Rule:
         self,
         event_type: int,
         priority: int,
+        terminal: bool,
         criteria: CriteriaBuilder,
         actions: List[ActionTemplate] = [],
     ) -> None: ...

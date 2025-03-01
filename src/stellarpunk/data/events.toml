@@ -25,6 +25,7 @@
 [help_start]
 type = "start_game"
 priority = 0
+terminal = false
 criteria = ["is_player"]
 [[help_start.actions]]
 _action = "player_notification"
@@ -36,6 +37,7 @@ message = "press \"?\" for help\ntype \":\" followed by \"help\" and press <ENTE
 [tutorial]
 type = "start_game"
 priority = 0
+terminal = false
 criteria = ["tutorial_guy"]
 [[tutorial.actions]]
 _action = "message"
