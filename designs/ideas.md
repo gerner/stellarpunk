@@ -1,12 +1,17 @@
 Ideas
 =====
 
+# Misc Ideas
+
+ * Characters have a nemesis
+
 # Projects
 
  - [ ] sensors in cython
+ - [ ] universeview and/or all of intel in cython
  - [ ] fuel and/or lifesupport resources + NPC logic to refill it somehow
- - [ ] multi-sector NPC travel, mining, trading
- - [ ] make mining and trading not use intel instead of SectorEntities and
+ - [x] multi-sector NPC travel, mining, trading
+ - [x] make mining and trading not use intel instead of SectorEntities and
        EconAgents as input params directly (and maybe decide when we can go
        from intel/sensor image to the actual entity or tell the player it's
        toast)
