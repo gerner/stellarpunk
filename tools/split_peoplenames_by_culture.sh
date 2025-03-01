@@ -8,8 +8,8 @@
 
 set -eu -o pipefail
 
-COUNTRIESCULTURES=/tmp/countriescultures.tsv
-NAMEDATASET=/tmp/name_dataset.zip
+COUNTRIESCULTURES=countriescultures.tsv
+NAMEDATASET=name_dataset.zip
 
 LINE_COUNT=4000000
 

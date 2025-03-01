@@ -8,8 +8,8 @@
 
 set -eu -o pipefail
 
-COUNTRIESCULTURES=/tmp/countriescultures.tsv
-ALLFEATURES=/tmp/allfeatures.countrysorted.gz
+COUNTRIESCULTURES=countriescultures.tsv
+ALLFEATURES=allfeatures.countrysorted.gz
 
 country_file=$(mktemp)
 

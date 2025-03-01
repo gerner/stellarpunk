@@ -42,25 +42,16 @@ CULTURES = [
     "westeurope",
 ]
 
-SHIP_NAME_FILE = "/tmp/shipnames.txt.gz"
-PEOPLE_NAME_DIR = "/tmp/peoplenames"
-PLACE_NAME_DIR = "/tmp/geonames"
+SHIP_NAME_FILE = "shipnames.txt.gz"#"/tmp/shipnames.txt.gz"
+BUSINESS_NAME_FILE = "businesses.txt.gz"
+PEOPLE_NAME_DIR = "./"#"/tmp/peoplenames"
+PLACE_NAME_DIR = "./"#"/tmp/geonames"
 MODELS_DIR = "/tmp/stellarpunk_models"
 
 NGRAM=5
 
-def train_save_model(m:markov.MarkovModel, input_filename, output_filename) -> None:
-    #if input_filename.endswith(".gz"):
-    #    in_f = gzip.open(input_filename, "rt", errors="ignore")
-    #else:
-    #    in_f = open(input_filename, "rt", errors="ignore")
-    #m.train(in_f)
-    #in_f.close()
-    #if output_filename.endswith(".gz"):
-    #    out_f = gzip.open(output_filename, "wb")
-    #m.save(out_f)
-    #out_f.close()
-    m.train(input_filename)
+def train_save_model(m:markov.MarkovModel, input_filename, output_filename, n:int=5) -> None:
+    m.train(input_filename, n=n)
     m.save(output_filename)
 
     return m
@@ -74,12 +65,17 @@ def main() -> None:
 
     r = np.random.default_rng()
 
-    logger.info("training ship name model")
-
     # model for ship names
+    logger.info("training ship name model")
     m = markov.MarkovModel()#n=NGRAM, romanize=True, titleize=True, roman_numerals=True)
     train_save_model(m, SHIP_NAME_FILE, os.path.join(MODELS_DIR, "shipnames.mmodel.gz"))
     logger.info(f'sample ship: "{m.generate(r)}"')
+
+    # model for faction names
+    logger.info("training faction name model")
+    m = markov.MarkovModel()#n=NGRAM, romanize=True, titleize=True, roman_numerals=True)
+    train_save_model(m, BUSINESS_NAME_FILE, os.path.join(MODELS_DIR, "biznames.mmodel.gz"), n=6)
+    logger.info(f'sample faction: "{m.generate(r)}"')
 
     culture_start_time = time.time()
     for i, culture in enumerate(CULTURES):
