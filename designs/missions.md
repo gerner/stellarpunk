@@ -81,3 +81,16 @@ failed. Events here are generic. Tasks are specialized.
   been dispensed.
 * Cancelled - the task (assigned or not) is no longer relevant for some reason,
   perhaps the poster cancelled it.
+
+# Strawman
+
+Two characters: poster, agent. Poster decides to create a task. Task gets
+assigned to agent. Agent plans to carry out the task.
+
+Task has a goal (success criteria). Task has failure criteria. Agent ignores
+failure criteria (for now).
+
+Agent uses success criteria to come up with a strategy to fulfill the task,
+given a set of actions they can take (e.g. traveling to a location, mining an
+asteroid, trading with a station, etc.)
+

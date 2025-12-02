@@ -4,6 +4,7 @@ Ideas
 # Misc Ideas
 
  * Characters have a nemesis
+ * Characters plot to overthrow leaders of factions
 
 # Projects
 
@@ -31,6 +32,7 @@ Ideas
 * Collect and sell intel, aka explore
 * Hunt and kill (or capture?) a specific bounty (a character)
 * Patrol a sector for another character (or org?)
+* Ambitions a la Battle Brothers
 
 # News
 
@@ -41,6 +43,11 @@ layer?
 
 Heatmap of universe-wide traffic: thicker, brighter links with high traffic.
 Holes or dark areas indicate low traffic for some reason.
+
+# Combat
+
+* Different kinds of torpedoes a la highfleet or cold waters (e.g. own sensors, home on enemy sensors, different search patterns)
+* Boost or afterburners to dodge projectiles a la highfleet
 
 # Comms Chatter
 
