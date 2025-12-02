@@ -1002,36 +1002,36 @@ class EconAgentSectorEntityPartialCriteria(IntelPartialCriteria):
 
 
 # helpers to create intel
-def add_asteroid_intel(asteroid:sector_entity.Asteroid, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+def add_asteroid_intel(asteroid:sector_entity.Asteroid, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> int:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(asteroid.entity_id), AsteroidIntel)
     if not entity_intel or not entity_intel.is_fresh():
         ret = character.intel_manager.add_intel(AsteroidIntel.create_asteroid_intel(asteroid, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
         assert ret
-        return True
+        return 1
     else:
-        return False
+        return 0
 
-def add_station_intel(station:sector_entity.Station, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+def add_station_intel(station:sector_entity.Station, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> int:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(station.entity_id), StationIntel)
     if not entity_intel or not entity_intel.is_fresh():
         ret = character.intel_manager.add_intel(StationIntel.create_station_intel(station, gamestate, author_id=character.entity_id, fresh_until=fresh_until, expires_at=expires_at))
         assert ret
-        return True
+        return 1
     else:
-        return False
+        return 0
 
-def add_travel_gate_intel(gate:sector_entity.TravelGate, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+def add_travel_gate_intel(gate:sector_entity.TravelGate, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> int:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(gate.entity_id), TravelGateIntel)
     if not entity_intel or not entity_intel.is_fresh():
         new_intel = TravelGateIntel.create_sector_entity_intel(gate, gamestate, destination_id=gate.destination.entity_id, direction=gate.direction, fresh_until=fresh_until, expires_at=expires_at, author_id=character.entity_id)
 
         ret = character.intel_manager.add_intel(new_intel)
         assert ret
-        return True
+        return 1
     else:
-        return False
+        return 0
 
-def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None) -> bool:
+def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None) -> int:
     entity_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sentity.entity_id), SectorEntityIntel)
     if not entity_intel or not entity_intel.is_fresh():
         # intel about these select objects
@@ -1044,20 +1044,20 @@ def add_sector_entity_intel(sentity:core.SectorEntity, character:core.Character,
             intel = SectorEntityIntel.create_sector_entity_intel(sentity, gamestate, author_id=character.entity_id, expires_at=dynamic_expires_at, fresh_until=dynamic_fresh_until)
         ret = character.intel_manager.add_intel(intel)
         assert ret
-        return True
+        return 1
     else:
-        return False
+        return 0
 
-def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> bool:
+def add_econ_agent_intel(agent:core.EconAgent, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> int:
     econ_agent_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(agent.entity_id), EconAgentIntel)
     if not econ_agent_intel or not econ_agent_intel.is_fresh():
         ret = character.intel_manager.add_intel(EconAgentIntel.create_econ_agent_intel(agent, gamestate, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until))
         assert ret
-        return True
+        return 1
     else:
-        return False
+        return 0
 
-def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None, loc:Optional[npt.NDArray[np.float64]]=None, images:Optional[Collection[core.AbstractSensorImage]]=None) -> None:
+def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, character:core.Character, gamestate:core.Gamestate, static_fresh_until:Optional[float]=None, static_expires_at:Optional[float]=None, dynamic_fresh_until:Optional[float]=None, dynamic_expires_at:Optional[float]=None, loc:Optional[npt.NDArray[np.float64]]=None, images:Optional[Collection[core.AbstractSensorImage]]=None) -> int:
     # figure out the set of hexes that are relevant
     scan_range = sector.sensor_manager.range_to_detect(detector)
     identification_range = sector.sensor_manager.range_to_identify(detector)
@@ -1135,21 +1135,28 @@ def add_sector_scan_intel(detector:core.CrewedSectorEntity, sector:core.Sector, 
             else:
                 intels[h_coords].type_counts[type_name] = 1
 
+    num_intel = 0
     for s_intel in static_intel.values():
         ret = character.intel_manager.add_intel(s_intel)
         assert ret
+        num_intel += 1
     for d_intel in dynamic_intel.values():
         ret = character.intel_manager.add_intel(d_intel)
         assert ret
+        num_intel += 1
 
-def add_sector_intel(sector:core.Sector, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> None:
+    return num_intel
+
+def add_sector_intel(sector:core.Sector, character:core.Character, gamestate:core.Gamestate, fresh_until:Optional[float]=None, expires_at:Optional[float]=None) -> int:
     sector_intel = character.intel_manager.get_intel(EntityIntelMatchCriteria(sector.entity_id), SectorIntel)
     if sector_intel and sector_intel.is_fresh():
-        return
+        return 0
 
     sector_intel = SectorIntel.create_intel(gamestate, intel_entity_id=sector.entity_id, intel_entity_type=type(sector), intel_entity_name=sector.name, intel_entity_description=sector.description, author_id=character.entity_id, expires_at=expires_at, fresh_until=fresh_until)
     ret = character.intel_manager.add_intel(sector_intel)
     assert(ret)
+
+    return 1
 
 
 # Intel Witness Actions
