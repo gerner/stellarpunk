@@ -112,7 +112,7 @@ AUTOSAVE_PERIOD_SEC = 120.0
 
 [generate]
     [generate.names]
-        NAME_MODEL_LOCATION = "/tmp/stellarpunk_models"
+        NAME_MODEL_LOCATION = "/home/nick/src/stellarpunk/data/models"
         MAX_SECTOR_NAME_WORDS = 5
         MAX_STATION_NAME_WORDS = 5
         MAX_SHIP_NAME_WORDS = 5

@@ -660,16 +660,9 @@ class SensorImageManager:
         self._last_update = core.Gamestate.gamestate.timestamp
 
         # first we find all the detectable entities
-        total_count = 0
-        identified_count = 0
         for hit in self.ship.sector.sensor_manager.scan(self.ship):
             if hit.identity.entity_id not in self._cached_entities:
                 self._cached_entities[hit.identity.entity_id] = hit
-            total_count += 1
-            if hit.identified:
-                identified_count += 1
-
-        self.logger.info(f'identified: {identified_count}/{total_count}')
 
         # then check captain's intel
         if isinstance(self.ship, core.CrewedSectorEntity) and self.ship.captain:

@@ -1,12 +1,18 @@
 Ideas
 =====
 
+# Misc Ideas
+
+ * Characters have a nemesis
+ * Characters plot to overthrow leaders of factions
+
 # Projects
 
  - [ ] sensors in cython
+ - [ ] universeview and/or all of intel in cython
  - [ ] fuel and/or lifesupport resources + NPC logic to refill it somehow
- - [ ] multi-sector NPC travel, mining, trading
- - [ ] make mining and trading not use intel instead of SectorEntities and
+ - [x] multi-sector NPC travel, mining, trading
+ - [x] make mining and trading not use intel instead of SectorEntities and
        EconAgents as input params directly (and maybe decide when we can go
        from intel/sensor image to the actual entity or tell the player it's
        toast)
@@ -26,6 +32,7 @@ Ideas
 * Collect and sell intel, aka explore
 * Hunt and kill (or capture?) a specific bounty (a character)
 * Patrol a sector for another character (or org?)
+* Ambitions a la Battle Brothers
 
 # News
 
@@ -36,6 +43,11 @@ layer?
 
 Heatmap of universe-wide traffic: thicker, brighter links with high traffic.
 Holes or dark areas indicate low traffic for some reason.
+
+# Combat
+
+* Different kinds of torpedoes a la highfleet or cold waters (e.g. own sensors, home on enemy sensors, different search patterns)
+* Boost or afterburners to dodge projectiles a la highfleet
 
 # Comms Chatter
 

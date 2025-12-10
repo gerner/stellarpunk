@@ -236,6 +236,12 @@ def loadd(
             raise ValueError(f'missing or bad priority in rule {rule_id}')
         priority = rule["priority"]
 
+        terminal = True
+        if "terminal" in rule:
+            if not isinstance(rule["terminal"], bool):
+                raise ValueError(f'terminal must be a boolean value, not {rule["terminal"]} in {rule_id}')
+            terminal = rule["terminal"]
+
         group:Optional[str] = None
         if "group" in rule:
             if isinstance(rule["group"], str):
@@ -278,9 +284,9 @@ def loadd(
 
         # create a rule record
         if not group:
-            base_rules[event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
+            base_rules[event_type_id].append(director.Rule(event_type_id, priority, terminal, criteria_builder, actions))
         else:
-            rules_by_group[group][event_type_id].append(director.Rule(event_type_id, priority, criteria_builder, actions))
+            rules_by_group[group][event_type_id].append(director.Rule(event_type_id, priority, terminal, criteria_builder, actions))
 
     # make sure the rules are in priority order
     sorted_rule_groups:list[MutableMapping[int, list[director.Rule]]] = []

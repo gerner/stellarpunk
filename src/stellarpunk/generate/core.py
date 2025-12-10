@@ -642,11 +642,11 @@ class UniverseGenerator(core.AbstractGenerator):
                 observer.generation_tick()
 
     def _load_empty_name_models(self, culture:str) -> None:
-        self._ship_name_model = markov.MarkovModel(romanize=False)
-        self._sector_name_models[culture] = markov.MarkovModel(romanize=False)
-        self._station_name_models[culture] = markov.MarkovModel(romanize=False)
-        self._first_name_models[culture] = markov.MarkovModel(romanize=False)
-        self._last_name_models[culture] = markov.MarkovModel(romanize=False)
+        self._ship_name_model = markov.MarkovModel(romanize=False, empty=True)
+        self._sector_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
+        self._station_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
+        self._first_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
+        self._last_name_models[culture] = markov.MarkovModel(romanize=False, empty=True)
 
 
     def pre_initialize(self, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, empty_name_model_culture:Optional[str]=None) -> None:
@@ -2145,13 +2145,14 @@ class UniverseGenerator(core.AbstractGenerator):
         sector_expires_at = np.inf
 
         captains:list[core.Character] = []
+        num_intels = 0
 
         for character in self.gamestate.characters.values():
             # add intel for the sector the character is in and their home sector
             home_sector = self.gamestate.get_entity(character.home_sector_id, core.Sector)
-            intel.add_sector_intel(home_sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
+            num_intels += intel.add_sector_intel(home_sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
             if character.location and character.location.sector and home_sector != character.location.sector:
-                intel.add_sector_intel(character.location.sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
+                num_intels += intel.add_sector_intel(character.location.sector, character, self.gamestate, sector_fresh_until, sector_expires_at)
 
             # miners
             if list(x for x in character.agenda if isinstance(x, agenda.MiningAgendum)):
@@ -2203,7 +2204,7 @@ class UniverseGenerator(core.AbstractGenerator):
             images = sector.sensor_manager.scan(detector)
             for character in gamestate.crew(detector):
                 scan_expiration_args:dict[str, Any] = {**intel_ttl(static_expires_at, k_f="static_fresh_until", k_e="static_expires_at"), **intel_ttl(dynamic_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at")}
-                intel.add_sector_scan_intel(detector, sector, character, self.gamestate, **scan_expiration_args)
+                num_intels += intel.add_sector_scan_intel(detector, sector, character, self.gamestate, **scan_expiration_args)
                 for entity in sector.entities.values():
                     if not detector.sensor_settings.has_image(entity.entity_id):
                         continue
@@ -2211,15 +2212,15 @@ class UniverseGenerator(core.AbstractGenerator):
                     if not image.identified:
                         continue
                     if isinstance(entity, sector_entity.Asteroid):
-                        intel.add_asteroid_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
+                        num_intels += intel.add_asteroid_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                     elif isinstance(entity, sector_entity.Station):
-                        intel.add_station_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
+                        num_intels += intel.add_station_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                         if entity.entity_id in self.gamestate.econ_agents:
-                            intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, **intel_ttl(econ_expires_at))
+                            num_intels += intel.add_econ_agent_intel(self.gamestate.econ_agents[entity.entity_id], character, self.gamestate, **intel_ttl(econ_expires_at))
                     elif isinstance(entity, sector_entity.TravelGate):
-                        intel.add_travel_gate_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
+                        num_intels += intel.add_travel_gate_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at))
                     else:
-                        intel.add_sector_entity_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at"))
+                        num_intels += intel.add_sector_entity_intel(entity, character, self.gamestate, **intel_ttl(se_expires_at, k_f="dynamic_fresh_until", k_e="dynamic_expires_at"))
 
             current_tick_i = (i+1) // tick_increment
             if current_tick_i > last_tick_i:
@@ -2231,6 +2232,8 @@ class UniverseGenerator(core.AbstractGenerator):
             for observer in self._observers:
                 observer.generation_tick()
             last_tick_i += 1
+
+        self.logger.info(f'generated {num_intels} intel entries')
 
 
     def estimate_generation_ticks(self) -> int:
@@ -2317,10 +2320,10 @@ class UniverseGenerator(core.AbstractGenerator):
         assert self.gamestate.player.character
         #for sector_id in self.gamestate.sectors:
         #    sector = self.gamestate.get_entity(sector_id, core.Sector)
-            #intel.add_sector_intel(sector, self.gamestate.player.character, self.gamestate, np.inf, np.inf)
-        sector = self.gamestate.get_entity(self.gamestate.player.character.home_sector_id, core.Sector)
-        for travel_gate in sector.entities_by_type(sector_entity.TravelGate):
-            intel.add_travel_gate_intel(travel_gate, self.gamestate.player.character, self.gamestate)
+        #    intel.add_sector_intel(sector, self.gamestate.player.character, self.gamestate, np.inf, np.inf)
+        #sector = self.gamestate.get_entity(self.gamestate.player.character.home_sector_id, core.Sector)
+        #for travel_gate in sector.entities_by_type(sector_entity.TravelGate):
+        #    intel.add_travel_gate_intel(travel_gate, self.gamestate.player.character, self.gamestate)
 
         self.logger.info(f'sectors: {len(self.gamestate.sectors)}')
         self.logger.info(f'characters: {len(self.gamestate.characters)}')

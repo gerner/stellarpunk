@@ -35,7 +35,7 @@ Character dynamics drive the motivations of and relationships between
 characters, including the one character the player plays as. Here we draw
 inspiration from grand strategy games like the Crusader Kings franchise. The AI
 plays the game in the same way as the player, through characters who have their
-own goals, limited information, and relationships. Characters might work for
+own goals, limited information, and relationships.xCharacters might work for
 one another, might lead or follow political factions. The universe is filled
 with many different kinds of jobs like trader, factory manager, company leader,
 government official, political leader, police officer, pirate, rebel. Each

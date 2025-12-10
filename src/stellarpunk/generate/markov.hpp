@@ -74,21 +74,6 @@ void add_count(
     } else {
         ngram_counts[ngram_prefix][token_id] += 1;
     }
-    return;
-
-    /*
-    // first find the right set of counts
-    const auto& token_counts_itr = ngram_counts.find(ngram_prefix);
-    if(token_counts_itr == ngram_counts.end()) {
-        ngram_counts.insert(std::make_pair(ngram_prefix, std::unordered_map<TOKEN_ID_T, size_t>())).first->second.insert(std::make_pair(token_id, 1));
-        return;
-    }
-    const auto& current_count_itr = token_counts_itr->second.find(token_id);
-    if(current_count_itr == token_counts_itr->second.end()) {
-        token_counts_itr->second.insert(std::make_pair(token_id, 1));
-    } else {
-        current_count_itr->second += 1;
-    }*/
 }
 
 template<size_t N>
@@ -102,8 +87,17 @@ NGram<N> k(const std::deque<TOKEN_ID_T>& ngram) {
     return key;
 }
 
-template<size_t N, class T=std::string>
 class MarkovModel {
+public:
+    virtual ~MarkovModel() { };
+    virtual bool train_from_file(std::string filename) = 0;
+    virtual std::string generate(uint32_t seed) = 0;
+    virtual bool save_to_file(std::string filename) = 0;
+    virtual void load(std::istream& in) = 0;
+};
+
+template<size_t N, class T=std::string>
+class MarkovModelN : public MarkovModel {
 private:
     // distinct tokens, index is the token id
     std::vector<T> tokens_;
@@ -111,7 +105,8 @@ private:
     std::unordered_map<NGram<N-1>, std::pair<std::vector<TOKEN_ID_T>, std::vector<size_t> >, NGramHash<N-1> > token_counts_;
 
 public:
-    bool train_from_file(std::string filename) {
+    ~MarkovModelN() override { }
+    bool train_from_file(std::string filename) override {
         std::ifstream file(filename, std::ios_base::in | std::ios_base::binary);
         if(file.fail()) {
             return false;
@@ -191,7 +186,7 @@ public:
         //std::cerr << "done prepping counts." << std::endl;
     }
 
-    std::string generate(uint32_t seed) {
+    std::string generate(uint32_t seed) override {
         // source of randomness, seeded externally
         std::mt19937 gen(seed);
         std::deque<T> result;
@@ -236,7 +231,7 @@ public:
         return imploded.str();
     }
 
-    bool save_to_file(std::string filename) {
+    bool save_to_file(std::string filename) override {
         std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
         if(file.fail()) {
             return false;
@@ -287,28 +282,9 @@ public:
         }
     }
 
-    bool load_from_file(std::string filename) {
-        std::ifstream file(filename, std::ios_base::in | std::ios_base::binary);
-        if(file.fail()) {
-            return false;
-        }
-        boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
-        in.push(boost::iostreams::gzip_decompressor());
-        in.push(file);
-        std::istream istream(&in);
-        load(istream);
-        return true;
-    }
-
-    template<class IStream>
-    void load(IStream& in) {
+    void load(std::istream& in) override {
         tokens_.clear();
         token_counts_.clear();
-
-        // read N
-        size_t n;
-        in.read(reinterpret_cast<char*>(&n), sizeof(n));
-        assert(n == N);
 
         // read tokens, starting with a count
         size_t token_count;
@@ -354,19 +330,20 @@ public:
     }
 };
 
-typedef MarkovModel<1> MarkovModel1;
-typedef MarkovModel<2> MarkovModel2;
-typedef MarkovModel<3> MarkovModel3;
-typedef MarkovModel<4> MarkovModel4;
-typedef MarkovModel<5> MarkovModel5;
-typedef MarkovModel<6> MarkovModel6;
-typedef MarkovModel<7> MarkovModel7;
+typedef MarkovModelN<1> MarkovModel1;
+typedef MarkovModelN<2> MarkovModel2;
+typedef MarkovModelN<3> MarkovModel3;
+typedef MarkovModelN<4> MarkovModel4;
+typedef MarkovModelN<5> MarkovModel5;
+typedef MarkovModelN<6> MarkovModel6;
+typedef MarkovModelN<7> MarkovModel7;
+typedef MarkovModel CMarkovModel;
 
-void train_from_file(MarkovModel5* model, std::string filename) {
+void train_from_file(CMarkovModel* model, std::string filename) {
     model->train_from_file(filename);
 }
 
-void load_many_models(std::vector<MarkovModel5*> models, std::vector<std::string> filenames) {
+void load_many_models(std::vector<CMarkovModel*> models, std::vector<std::string> filenames) {
     assert(models.size() == filenames.size());
     //std::vector<std::thread> threads;
     for(size_t i=0; i<models.size(); i++) {
@@ -376,6 +353,56 @@ void load_many_models(std::vector<MarkovModel5*> models, std::vector<std::string
     //for(size_t i=0; i<threads.size(); i++) {
     //    threads[i].join();
     //}
+}
+
+CMarkovModel* create_markov_model(size_t n) {
+    switch(n) {
+        case 1: return new MarkovModelN<1>();
+            break;
+        case 2: return new MarkovModelN<2>();
+            break;
+        case 3: return new MarkovModelN<3>();
+            break;
+        case 4: return new MarkovModelN<4>();
+            break;
+        case 5: return new MarkovModelN<5>();
+            break;
+        case 6: return new MarkovModelN<6>();
+            break;
+        case 7: return new MarkovModelN<7>();
+            break;
+        case 8: return new MarkovModelN<8>();
+            break;
+        case 9: return new MarkovModelN<9>();
+            break;
+        case 10: return new MarkovModelN<10>();
+            break;
+        default: return NULL;
+            break;
+    }
+}
+
+CMarkovModel* load_markov_model(std::string filename) {
+    std::ifstream file(filename, std::ios_base::in | std::ios_base::binary);
+    if(file.fail()) {
+        return NULL;
+    }
+    boost::iostreams::filtering_streambuf<boost::iostreams::input> in;
+    in.push(boost::iostreams::gzip_decompressor());
+    in.push(file);
+    std::istream istream(&in);
+
+    // read N
+    size_t n;
+    istream.read(reinterpret_cast<char*>(&n), sizeof(n));
+
+    CMarkovModel* model = create_markov_model(n);
+    if(model == NULL) {
+        return NULL;
+    }
+
+    model->load(istream);
+    return model;
 }
 
 #endif
