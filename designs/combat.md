@@ -30,8 +30,8 @@ with passive sensors. Craft with passive sensors are generally difficult to
 detect with active sensors.
 
 Passive sesnsors are much less effective. They can detect some objects very
-easily (e.g. ships with active transponders, massive objects like asteroids,
-etc.). In some cases craft with active sensors might be hard to detect with
+easily, e.g. ships with active transponders, massive objects like asteroids,
+etc. In some cases craft with active sensors might be hard to detect with
 passive sensors. But generally active sensors give away position information to
 passive sensors. Passive sensors have a very hard time detecting other craft
 with passive sensors.
@@ -60,7 +60,7 @@ Where:
  * $w$ is the sector weather
  * $d$ is the distance between target and detector and $c_d$ is a tuning coefficient associated with distance in general
 
-$q = c_q / ({c_{s_{detector]} * s_{detector}+1)$
+$q$ = $c_q$ / ({$c_{s_{detector}}$ * $s_{detector}$+1)$
 
 Where:
  * $q$ is the sensor threshold of the detector
@@ -70,7 +70,7 @@ Where:
 
 A ship is detected if
 
-$p_{target} > q$
+$p_{target}$ > $q$
 
 That is, a ship is detected if it's target profile exceeds the sensor
 threshold of the detector.
@@ -211,8 +211,8 @@ Based on location where damage occurs? (e.g. stern vs bow of the craft)
 ### Damage Control/Mechanics
 
 Gameplay mechanics to repair or work around component damage?
-Ship performance impacted by damage? (if so, it should make sense like
-positional damage)
+Ship performance impacted by damage? if so, it should make sense like
+positional damage
 
 ### Collateral Damage
 
