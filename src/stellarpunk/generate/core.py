@@ -1281,6 +1281,8 @@ class UniverseGenerator(core.AbstractGenerator):
                 self.setup_captain(captain, asset, mining_ships, trading_ships)
 
         for asset in assets:
+            assert isinstance(asset, core.CrewedSectorEntity)
+            assert asset.captain is not None
             assert asset.captain.location == asset
 
         self.gamestate.add_sector(sector, sector_idx)

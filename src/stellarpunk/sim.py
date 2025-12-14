@@ -500,6 +500,7 @@ def initialize_intel_director() -> aintel.IntelCollectionDirector:
 
 def initialize_save_game(generator:generate.UniverseGenerator, event_manager:events.EventManager, intel_director:aintel.IntelCollectionDirector, debug:bool=False) -> save_game.GameSaver:
     sg = save_game.GameSaver(generator, event_manager, intel_director, debug=debug)
+    sg.ensure_save_path()
 
     # top level stuff
     sg.register_saver(events.EventState, s_events.EventStateSaver(sg))

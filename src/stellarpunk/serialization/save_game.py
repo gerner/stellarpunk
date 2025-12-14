@@ -301,6 +301,16 @@ class GameSaver(SaverObserver):
 
         self._observers:weakref.WeakSet[GameSaverObserver] = weakref.WeakSet()
 
+    def ensure_save_path(self) -> None:
+        if os.path.exists(self._save_path):
+            if not os.path.isdir(self._save_path):
+                raise ValueError(f'save path {self._save_path} exists but is not a directory')
+            else:
+                self.logger.debug('save path %s already exists', self._save_path)
+        else:
+            os.makedirs(self._save_path)
+            self.logger.info('save path %s created', self._save_path)
+
     def debug_string_w(self, s:str, f:io.IOBase) -> int:
         if self.debug:
             return s_util._debug_string_w(s, f)
