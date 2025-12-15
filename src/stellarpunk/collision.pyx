@@ -103,15 +103,11 @@ cdef void log(ccymunk.Body body, message, eid_prefix=""):
 
 # modelling aspects of running a rocket engine
 cdef class RocketModel:
-    cdef double param_decay_thrust
-    cdef double last_thrust
     cdef double last_thrust_ts
     cdef double thrust
     cdef double thrust_seconds
 
-    def __cinit__(self, decay_thrust:float) -> None:
-        self.param_decay_thrust = decay_thrust
-        self.last_thrust = 0.
+    def __cinit__(self) -> None:
         self.last_thrust_ts = 0.
         self.thrust = 0.
         self.thrust_seconds = 0.
@@ -119,24 +115,13 @@ cdef class RocketModel:
     def get_thrust_seconds(self):
         return self.thrust_seconds
 
-    cdef double c_effective_thrust(self, double timestamp):
-        if self.last_thrust == self.thrust:
-            return self.thrust
-        return (self.last_thrust - self.thrust) * self.param_decay_thrust ** (timestamp - self.last_thrust_ts) + self.thrust
-    def effective_thrust(self, timestamp:float) -> float:
-        return self.c_effective_thrust(timestamp)
-
     cdef void c_set_thrust(self, double thrust, double timestamp):
-        if thrust == self._thrust:
+        if thrust == self.thrust:
             return
-        cdef double decayed_thrust = self.c_effective_thrust(timestamp)
-        if thrust > decayed_thrust:
-            self.last_thrust = thrust
-        else:
-            self.last_thrust = decayed_thrust
         self.thrust_seconds += self.thrust * (timestamp - self.last_thrust_ts)
         self.last_thrust_ts = timestamp
         self.thrust = thrust
+
     def set_thrust(self, thrust:float, timestamp:float) -> None:
         self.c_set_thrust(thrust, timestamp)
 
@@ -2003,9 +1988,9 @@ def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_
     return (float(intercept_time), cpvtoVec2d(intercept_loc), float(intercept_heading))
 
 def accelerate_to(
-        body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
+        body:cymunk.Body, rocket_model:RocketModel, target_velocity:cymunk.Vec2d, dt:float,
         max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
-        sensor_settings:Any) -> float:
+        sensor_settings:Any, timestamp:float) -> float:
 
     cdef ccymunk.Vec2d cyvelocity = <ccymunk.Vec2d?>target_velocity
     cdef ccymunk.Body cybody = <ccymunk.Body?>body
@@ -2025,9 +2010,11 @@ def accelerate_to(
         cybody._body.f = ZERO_VECTOR
         if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:
             cybody._body.w = 0.
+        rocket_model.set_thrust(0., timestamp)
         sensor_settings.set_thrust(0.)
     else:
         cybody._body.f = ft_result.force
+        rocket_model.set_thrust(ccymunk.cpvlength(ft_result.force), timestamp)
         sensor_settings.set_thrust(ccymunk.cpvlength(ft_result.force))
 
     if ft_result.torque != 0.:

@@ -11,8 +11,8 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from stellarpunk import util, core, config
-from stellarpunk.orders import movement, collision
+from stellarpunk import util, core, config, collision
+from stellarpunk.orders import movement
 
 logger = logging.getLogger(__name__)
 
@@ -330,7 +330,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
         # TODO: choose a max thrust appropriate for desired sensor profile
 
-        shadow_time = collision.accelerate_to(self.ship.phys, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings)
+        shadow_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings, self.gamestate.timestamp)
         self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
 
     def _do_fire(self) -> None:

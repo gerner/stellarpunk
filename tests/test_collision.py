@@ -5,8 +5,7 @@ from typing import Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, task_schedule
-from stellarpunk.orders import collision
+from stellarpunk import util, task_schedule, collision
 
 def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
     ship_a = generator.spawn_ship(sector, 0, 0, v=(0,0), w=0, theta=0)

@@ -14,9 +14,8 @@ import numba as nb # type: ignore
 from numba import jit # type: ignore
 import cymunk # type: ignore
 
-from stellarpunk import util, core
+from stellarpunk import util, core, collision
 from stellarpunk.core import order
-from stellarpunk.orders import collision
 
 ANGLE_EPS = 8e-2 # about 3 degrees #2e-3 # about .06 degrees
 PARALLEL_EPS = 0.5e-1

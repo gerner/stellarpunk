@@ -8,8 +8,8 @@ import pytest
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import core, sim, generate, orders, util
-from stellarpunk.orders import steering, collision
+from stellarpunk import core, sim, generate, orders, util, collision
+from stellarpunk.orders import steering
 from . import write_history, nearest_neighbor, ship_from_history, station_from_history, asteroid_from_history, order_from_history, history_from_file
 
 TESTDIR = os.path.dirname(__file__)

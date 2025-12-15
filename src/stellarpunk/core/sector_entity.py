@@ -9,7 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import cymunk # type: ignore
 
-from stellarpunk import util
+from stellarpunk import util, collision
 from . import base, character, sector, gamestate
 
 class Planet(character.Asset, character.CrewedSectorEntity):

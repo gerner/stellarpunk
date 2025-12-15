@@ -13,9 +13,9 @@ import numpy.typing as npt
 from numba import jit # type: ignore
 import rtree.index # type: ignore
 
-from stellarpunk import core, interface, util, effects, config, sensors, intel
+from stellarpunk import core, interface, util, effects, config, sensors, intel, collision
 from stellarpunk.core import combat, sector_entity
-from stellarpunk.orders import steering, collision
+from stellarpunk.orders import steering
 
 SENSOR_ANGLE_BINS = np.linspace(0, 2*np.pi, 64)
 #COLLISION_MARGIN_BINS = np.linspace(0, 5e3, 128)

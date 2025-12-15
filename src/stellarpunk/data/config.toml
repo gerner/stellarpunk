@@ -148,6 +148,10 @@ AUTOSAVE_PERIOD_SEC = 120.0
         MINING_SHIP_FACTOR = 0.67
         TRADING_SHIP_FACTOR = 0.17
 
+
+        # standard gravity in m/s^2
+        g_0 = 9.80665 # m/s^2
+
         # how many distinct cultures should be represented in the universe?
         # maybe on order of sqrt(NUM_SECTORS)?
         # specified as min, max, inclusive
@@ -354,6 +358,7 @@ AUTOSAVE_PERIOD_SEC = 120.0
             # mass flow rate/exhaust velocity used to model fuel consumption
             # SSME (RS-25) has a mass flow rate of 513kg/s and v_e = 4435m/s
             # assuming specific impulse, I_sp = 452.3 and thrust approx above
+            I_SP = 452.3 # seconds. fuel mass used = total impulse (N s) / (I_SP * g_0)
             MASS_FLOW_RATE = 513 #kg/s
             EXHAUST_VELOCITY = 4435 #m/s, mass flow rate = F_thrust / v_e
 

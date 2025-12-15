@@ -14,11 +14,11 @@ from typing import Tuple, Optional, Any, Callable, Mapping, Sequence, Collection
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import core, interface, util, orders, config, intel
+from stellarpunk import core, interface, util, orders, config, intel, collision
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.interface import presenter, command_input, starfield, ui_util
 from stellarpunk.interface import station as v_station
-from stellarpunk.orders import steering, movement, collision
+from stellarpunk.orders import steering, movement
 
 DRIVE_KEYS = tuple(map(lambda x: ord(x), "wasdijkl"))
 TRANSLATE_KEYS = tuple(map(lambda x: ord(x), "ijkl"))
@@ -201,10 +201,10 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             return
         #TODO: handle continuous force/torque
         period = collision.accelerate_to(
-                self.ship.phys, cymunk.Vec2d(0,0), self.dt,
+                self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(0,0), self.dt,
                 self.ship.max_speed(), self.ship.max_torque,
                 self.ship.max_thrust, self.ship.max_fine_thrust,
-                self.ship.sensor_settings)
+                self.ship.sensor_settings, self.gamestate.timestamp)
 
     def rotate(self, scale:float) -> None:
         """ Rotates the ship in desired direction

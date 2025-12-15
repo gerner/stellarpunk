@@ -18,7 +18,7 @@ def compute_neighborhood_center(body:cymunk.Body, neighborhood_radius:float, mar
 def compute_sensor_cone(course:cymunk.Vec2d, neighborhood_radius:float, margin:float, neighborhood_loc:cymunk.Vec2d, radius:float) -> Tuple[cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d, cymunk.Vec2d]: ...
 
 class RocketModel:
-    def effective_thrust(self, timestamp:float) -> float: ...
+    def __init__(self) -> None: ...
     def set_thrust(self, thrust:float, timestamp:float) -> None: ...
 
 class NeighborAnalysisParameters:
@@ -173,9 +173,9 @@ def rotate_to(
 
 
 def accelerate_to(
-        body:cymunk.Body, target_velocity:cymunk.Vec2d, dt:float,
+        body:cymunk.Body, rocket_model:RocketModel, target_velocity:cymunk.Vec2d, dt:float,
         max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
-        sensor_settings:Any) -> float: ...
+        sensor_settings:Any, timestamp:float) -> float: ...
 
 def migrate_threat_location(
         inref_loc:cymunk.Vec2d, inref_radius:float,

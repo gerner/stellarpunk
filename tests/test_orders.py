@@ -7,9 +7,9 @@ import os
 import pytest
 import numpy as np
 
-from stellarpunk import core, sim, generate, orders, util, intel
+from stellarpunk import core, sim, generate, orders, util, intel, collision
 from stellarpunk.core import sector_entity
-from stellarpunk.orders import steering, collision
+from stellarpunk.orders import steering
 from . import write_history, nearest_neighbor, add_sector_intel
 
 TESTDIR = os.path.dirname(__file__)

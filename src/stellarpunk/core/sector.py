@@ -17,7 +17,7 @@ import numpy.typing as npt
 import cymunk # type: ignore
 import rtree.index # type: ignore
 
-from stellarpunk import util
+from stellarpunk import util, collision
 from . import base
 
 SECTOR_ENTITY_COLLISION_TYPE = 0
@@ -397,6 +397,8 @@ class AbstractSensorImage:
     def copy(self, detector:SectorEntity) -> "AbstractSensorImage": ...
 
 class AbstractSensorSettings:
+    @abc.abstractmethod
+    def set_rocket_model(self, rocket_model:collision.RocketModel) -> None: ...
     @abc.abstractmethod
     def set_detector_id(self, entity_id:uuid.UUID) -> None: ...
     @abc.abstractmethod

@@ -7,8 +7,8 @@ from typing import Any, Optional
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core
-from stellarpunk.orders import collision, steering, movement
+from stellarpunk import util, core, collision
+from stellarpunk.orders import steering, movement
 from stellarpunk.serialization import util as s_util, save_game, order as s_order
 
 class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.OrderSaver[T]):

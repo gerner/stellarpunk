@@ -16,8 +16,8 @@ os.environ['LDSHARED'] = 'clang -shared'
 
 import cymunk
 ext_modules=[
-    Extension("stellarpunk.orders.collision",
-        sources=["src/stellarpunk/orders/collision.pyx"],
+    Extension("stellarpunk.collision",
+        sources=["src/stellarpunk/collision.pyx"],
         libraries=[":cymunk.cpython-312-x86_64-linux-gnu.so"],
         library_dirs=cymunk.get_includes(),
         #extra_link_args=['-static'], #TODO: still working on trying to get static linking against cymunk to work so when this is installed elsewhere we don't get errors trying to find the cymunk shared library
