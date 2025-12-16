@@ -75,7 +75,7 @@ def game_saver(gamestate:core.Gamestate, event_manager:events.EventManager, gene
     return game_saver
 
 @pytest.fixture
-def sector(gamestate:core.Gamestate) -> core.Sector:
+def sector(gamestate:core.Gamestate) -> Generator[core.Sector, None, None]:
     sector_radius=1e5
     hex_size = 2e5
     sector_name = "Sector"
@@ -85,7 +85,13 @@ def sector(gamestate:core.Gamestate) -> core.Sector:
     gamestate.add_sector(sector, 0)
     gamestate.recompute_jumps(*(sector_entity.TravelGate.compute_sector_network(gamestate)))
 
-    return sector
+    yield sector
+
+    #TODO: drop this code that's just measuring propellant usage and reporting it in a temporary convenient way
+    #for entity in sector.entities.values():
+    #    if isinstance(entity, core.Ship):
+    #        if entity.rocket_model.get_propellant() < -1500:
+    #            raise Exception(f'{entity.rocket_model.get_propellant()}kg of propellant after {gamestate.timestamp}s')
 
 @pytest.fixture
 def connecting_sector(gamestate:core.Gamestate, generator:generate.UniverseGenerator, sector:core.Sector) -> core.Sector:

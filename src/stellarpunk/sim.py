@@ -13,7 +13,7 @@ from typing import Iterable, List, Optional, Mapping, MutableMapping, Any, Tuple
 import numpy as np
 import cymunk # type: ignore
 
-from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors, intel
+from stellarpunk import util, core, interface, generate, orders, econ, econ_sim, agenda, events, narrative, config, effects, sensors, intel, collision
 from stellarpunk.core import combat, sector_entity
 from stellarpunk.agenda import intel as aintel
 from stellarpunk.interface import ui_util, manager as interface_manager
@@ -376,6 +376,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
+        collision.tick(dt)
         self._tick_space(dt)
         self._tick_collisions(dt)
 

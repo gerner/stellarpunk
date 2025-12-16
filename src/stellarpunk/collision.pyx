@@ -3,6 +3,7 @@
 from typing import Tuple, List, Any, Dict
 import cython
 from libcpp.vector cimport vector
+from libcpp.algorithm cimport remove
 from libcpp.set cimport set
 from libcpp.list cimport list
 from libcpp.queue cimport priority_queue
@@ -102,28 +103,30 @@ cdef void log(ccymunk.Body body, message, eid_prefix=""):
             print(f'{body.data.entity_id}\t{message}')
 
 # modelling aspects of running a rocket engine
+
+cdef extern from "rocket.hpp":
+    cdef cppclass cRocketModel "RocketModel":
+        cRocketModel()
+        cRocketModel(ccymunk.cpBody* body)
+        void set_thrust(double thrust)
+        double get_propellant()
+
+    cdef void c_rocket_tick "rocket_tick"(double dt)
+
 cdef class RocketModel:
-    cdef double last_thrust_ts
-    cdef double thrust
-    cdef double thrust_seconds
+    cdef cRocketModel rocket_model
 
-    def __cinit__(self) -> None:
-        self.last_thrust_ts = 0.
-        self.thrust = 0.
-        self.thrust_seconds = 0.
+    def __cinit__(self, body:cymunk.Body) -> None:
+        self.rocket_model = cRocketModel((<ccymunk.Body?> body)._body)
 
-    def get_thrust_seconds(self):
-        return self.thrust_seconds
+    def get_propellant(self) -> float:
+        return self.rocket_model.get_propellant()
 
-    cdef void c_set_thrust(self, double thrust, double timestamp):
-        if thrust == self.thrust:
-            return
-        self.thrust_seconds += self.thrust * (timestamp - self.last_thrust_ts)
-        self.last_thrust_ts = timestamp
-        self.thrust = thrust
+    def set_thrust(self, thrust:float) -> None:
+        self.rocket_model.set_thrust(thrust)
 
-    def set_thrust(self, thrust:float, timestamp:float) -> None:
-        self.c_set_thrust(thrust, timestamp)
+def tick(dt:float) -> None:
+    c_rocket_tick(dt)
 
 # collision detection types
 
@@ -2010,11 +2013,11 @@ def accelerate_to(
         cybody._body.f = ZERO_VECTOR
         if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:
             cybody._body.w = 0.
-        rocket_model.set_thrust(0., timestamp)
+        rocket_model.rocket_model.set_thrust(0.)
         sensor_settings.set_thrust(0.)
     else:
         cybody._body.f = ft_result.force
-        rocket_model.set_thrust(ccymunk.cpvlength(ft_result.force), timestamp)
+        rocket_model.rocket_model.set_thrust(ccymunk.cpvlength(ft_result.force))
         sensor_settings.set_thrust(ccymunk.cpvlength(ft_result.force))
 
     if ft_result.torque != 0.:

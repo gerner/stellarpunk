@@ -350,7 +350,7 @@ class SensorImage(core.AbstractSensorImage):
 
         return image
 
-_null_rocket_model = collision.RocketModel()
+#_null_rocket_model = collision.RocketModel()
 class SensorSettings(core.SectorEntityObserver, core.AbstractSensorSettings):
     def __init__(self, max_sensor_power:float=0., sensor_intercept:float=100.0, initial_sensor_power:Optional[float]=None, initial_transponder:bool=True) -> None:
         super().__init__()
@@ -383,15 +383,15 @@ class SensorSettings(core.SectorEntityObserver, core.AbstractSensorSettings):
         self._cached_effective_profile:float = 0.0
         self._cached_effective_profile_ts:float = -np.inf
 
-        self._rocket_model = _null_rocket_model
+        #self._rocket_model = _null_rocket_model
 
     # core.SectorEntityObserver
     @property
     def observer_id(self) -> uuid.UUID:
         return self._detector_id
 
-    def set_rocket_model(self, rocket_model:collision.RocketModel) -> None:
-        self._rocket_model = rocket_model
+    #def set_rocket_model(self, rocket_model:collision.RocketModel) -> None:
+    #    self._rocket_model = rocket_model
 
     def entity_destroyed(self, entity:core.SectorEntity) -> None:
         if entity.entity_id in self._images:

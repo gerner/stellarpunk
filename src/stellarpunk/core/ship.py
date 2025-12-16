@@ -31,8 +31,8 @@ class Ship(character.Asset, character.CrewedSectorEntity):
         self.max_torque = 0.
 
         self._orders: collections.deque[base.AbstractOrder] = collections.deque()
-        self.rocket_model = collision.RocketModel()
-        self.sensor_settings.set_rocket_model(self.rocket_model)
+        self.rocket_model = collision.RocketModel(self.phys)
+        #self.sensor_settings.set_rocket_model(self.rocket_model)
 
     def _destroy_sector_entity(self) -> None:
         self._clear_orders()
@@ -70,7 +70,7 @@ class Ship(character.Asset, character.CrewedSectorEntity):
 
     def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
         self.phys.force = cymunk.vec2d.Vec2d(*force)
-        self.rocket_model.set_thrust(self.phys.force.length, Gamestate.gamestate.timestamp)
+        self.rocket_model.set_thrust(self.phys.force.length)
         self.sensor_settings.set_thrust(self.phys.force.length)
 
     def apply_torque(self, torque: float, persistent:bool) -> None:

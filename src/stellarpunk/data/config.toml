@@ -321,7 +321,6 @@ AUTOSAVE_PERIOD_SEC = 120.0
             # one SSME: 2.279 MN
             # OMS main engine: 26.7 kN
             # KTDU-80 main engine: 2.95 kN
-            #max_thrust = 5e5
             # 5e5 translates to 250m/s^2 which is over 25 gs
 
             # max forward thrust in newtons
@@ -358,9 +357,14 @@ AUTOSAVE_PERIOD_SEC = 120.0
             # mass flow rate/exhaust velocity used to model fuel consumption
             # SSME (RS-25) has a mass flow rate of 513kg/s and v_e = 4435m/s
             # assuming specific impulse, I_sp = 452.3 and thrust approx above
-            I_SP = 452.3 # seconds. fuel mass used = total impulse (N s) / (I_SP * g_0)
-            MASS_FLOW_RATE = 513 #kg/s
-            EXHAUST_VELOCITY = 4435 #m/s, mass flow rate = F_thrust / v_e
+            # SSME has I_sp of 452.3
+            # SOTA low thrust (<10N) plasma/ion engines have I_sp around
+            #   3000-30000 seconds
+            # an ideal photonic rocket (shooting photons out at speed of light)
+            #   has I_sp of 30,570,000
+            I_SP =  12000 # seconds. fuel mass used = total impulse (N s) / (I_SP * g_0)
+            #MASS_FLOW_RATE = 513 #kg/s
+            #EXHAUST_VELOCITY = 4435 #m/s, mass flow rate = F_thrust / v_e
 
         [generate.SectorEntities.missile]
             # for comparison, a sidewinder missile:

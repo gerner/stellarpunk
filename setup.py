@@ -20,6 +20,7 @@ ext_modules=[
         sources=["src/stellarpunk/collision.pyx"],
         libraries=[":cymunk.cpython-312-x86_64-linux-gnu.so"],
         library_dirs=cymunk.get_includes(),
+        undef_macros=['NDEBUG'],
         #extra_link_args=['-static'], #TODO: still working on trying to get static linking against cymunk to work so when this is installed elsewhere we don't get errors trying to find the cymunk shared library
         runtime_library_dirs=cymunk.get_includes(),
         language="c++",

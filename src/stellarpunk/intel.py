@@ -108,7 +108,7 @@ class IntelManager(core.IntelObserver, core.AbstractIntelManager):
         return self.character.entity_id
 
     def intel_expired(self, intel:core.AbstractIntel) -> None:
-        self.logger.debug(f'{self.character} expired intel {intel}')
+        self.logger.debug('%s expired intel %s', self.character, intel)
         self._remove_intel(intel)
 
         #TODO: are there other ways intel might be removed?
