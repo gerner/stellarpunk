@@ -366,6 +366,11 @@ AUTOSAVE_PERIOD_SEC = 120.0
             #MASS_FLOW_RATE = 513 #kg/s
             #EXHAUST_VELOCITY = 4435 #m/s, mass flow rate = F_thrust / v_e
 
+            # kg of initial propellant when spawning.
+            # chosen experimentally from testing so multi-sector mining for 5
+            # minutes does not require refuelling
+            INITIAL_PROPELLANT = 2500
+
         [generate.SectorEntities.missile]
             # for comparison, a sidewinder missile:
             # https://en.wikipedia.org/wiki/AIM-9_Sidewinder
@@ -398,6 +403,10 @@ AUTOSAVE_PERIOD_SEC = 120.0
             MAX_SENSOR_POWER = 25.0
             SENSOR_INTERCEPT = 1000.0
 
+            I_SP =  12000 # seconds. fuel mass used = total impulse (N s) / (I_SP * g_0)
+
+            # about 15 seconds of thrust
+            INITIAL_PROPELLANT = 25
         [generate.SectorEntities.projectile]
             # Phalanx CIWS fires 20x102mm tungsten alloy shell
             # weighing 300g

@@ -107,20 +107,36 @@ cdef void log(ccymunk.Body body, message, eid_prefix=""):
 cdef extern from "rocket.hpp":
     cdef cppclass cRocketModel "RocketModel":
         cRocketModel()
-        cRocketModel(ccymunk.cpBody* body)
-        void set_thrust(double thrust)
-        double get_propellant()
+        cRocketModel(ccymunk.cpBody* body, double i_sp)
+        double get_i_sp() const
+        void set_i_sp(const double i_sp)
+        double get_thrust() const
+        void set_thrust(const double thrust)
+        double get_propellant() const
+        void set_propellant(const double i_sp)
 
     cdef void c_rocket_tick "rocket_tick"(double dt)
 
 cdef class RocketModel:
     cdef cRocketModel rocket_model
 
-    def __cinit__(self, body:cymunk.Body) -> None:
-        self.rocket_model = cRocketModel((<ccymunk.Body?> body)._body)
+    def __cinit__(self, body:cymunk.Body, i_sp:float) -> None:
+        self.rocket_model = cRocketModel((<ccymunk.Body?> body)._body, i_sp)
+
+    def get_i_sp(self) -> float:
+        return self.rocket_model.get_i_sp()
+
+    def set_i_sp(self, i_sp:float) -> None:
+        self.rocket_model.set_i_sp(i_sp)
 
     def get_propellant(self) -> float:
         return self.rocket_model.get_propellant()
+
+    def set_propellant(self, propellant:float) -> None:
+        self.rocket_model.set_propellant(propellant)
+
+    def get_thrust(self) -> float:
+        return self.rocket_model.get_thrust()
 
     def set_thrust(self, thrust:float) -> None:
         self.rocket_model.set_thrust(thrust)

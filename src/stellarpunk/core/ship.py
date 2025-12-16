@@ -16,7 +16,7 @@ from stellarpunk import collision
 class Ship(character.Asset, character.CrewedSectorEntity):
     id_prefix = "SHP"
 
-    def __init__(self, *args:Any, **kwargs:Any) -> None:
+    def __init__(self, *args:Any, i_sp:float=1.0, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
         # SI units (newtons and newton-meters)
@@ -31,7 +31,7 @@ class Ship(character.Asset, character.CrewedSectorEntity):
         self.max_torque = 0.
 
         self._orders: collections.deque[base.AbstractOrder] = collections.deque()
-        self.rocket_model = collision.RocketModel(self.phys)
+        self.rocket_model = collision.RocketModel(self.phys, i_sp)
         #self.sensor_settings.set_rocket_model(self.rocket_model)
 
     def _destroy_sector_entity(self) -> None:

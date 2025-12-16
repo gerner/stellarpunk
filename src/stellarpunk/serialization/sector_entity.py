@@ -178,6 +178,12 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         bytes_written += s_util.float_to_f(ship.max_fine_thrust, f)
         bytes_written += s_util.float_to_f(ship.max_torque, f)
 
+        # rocket model
+        bytes_written += self.save_game.debug_string_w("rocket model", f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_i_sp(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_propellant(), f)
+
         # orders
         bytes_written += self.save_game.debug_string_w("orders", f)
         bytes_written += s_util.size_to_f(len(ship._orders), f)
@@ -198,6 +204,12 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
         ship.max_thrust = s_util.float_from_f(f)
         ship.max_fine_thrust = s_util.float_from_f(f)
         ship.max_torque = s_util.float_from_f(f)
+
+        # rocket model
+        load_context.debug_string_r("rocket model", f)
+        ship.rocket_model.set_i_sp(s_util.float_from_f(f))
+        ship.rocket_model.set_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_propellant(s_util.float_from_f(f))
 
         # orders
         load_context.debug_string_r("orders", f)
@@ -240,6 +252,12 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         else:
             bytes_written += s_util.int_to_f(0, f, blen=1)
 
+        # rocket model
+        bytes_written += self.save_game.debug_string_w("rocket model", f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_i_sp(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_propellant(), f)
+
         # orders
         bytes_written += self.save_game.debug_string_w("orders", f)
         bytes_written += s_util.size_to_f(len(ship._orders), f)
@@ -264,6 +282,12 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         firer_id:Optional[uuid.UUID] = None
         if has_firer:
             firer_id = s_util.uuid_from_f(f)
+
+        # rocket model
+        load_context.debug_string_r("rocket model", f)
+        ship.rocket_model.set_i_sp(s_util.float_from_f(f))
+        ship.rocket_model.set_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_propellant(s_util.float_from_f(f))
 
         # orders
         load_context.debug_string_r("orders", f)

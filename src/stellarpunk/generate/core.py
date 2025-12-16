@@ -725,7 +725,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return planet
 
-    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None, initial_transponder:bool=True) -> core.Ship:
+    def spawn_ship(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None, initial_transponder:bool=True, initial_propellant:Optional[float]=None) -> core.Ship:
         assert(self.gamestate)
 
         max_sensor_power = config.Settings.generate.SectorEntities.ship.MAX_SENSOR_POWER
@@ -739,6 +739,7 @@ class UniverseGenerator(core.AbstractGenerator):
         max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
         max_fine_thrust = config.Settings.generate.SectorEntities.ship.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.ship.MAX_TORQUE
+        initial_propellant = initial_propellant if initial_propellant is not None else config.Settings.generate.SectorEntities.ship.INITIAL_PROPELLANT
 
         ship_body = self.phys_body(ship_mass, ship_radius)
         ship = core.Ship(
@@ -749,8 +750,10 @@ class UniverseGenerator(core.AbstractGenerator):
             self.gamestate,
             name=self._gen_ship_name(sector.culture),
             is_static=False,
-            entity_id=entity_id
+            entity_id=entity_id,
+            i_sp = config.Settings.generate.SectorEntities.ship.I_SP
         )
+        ship.rocket_model.set_propellant(initial_propellant)
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_SHIP), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
@@ -781,7 +784,7 @@ class UniverseGenerator(core.AbstractGenerator):
 
         return ship
 
-    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None) -> combat.Missile:
+    def spawn_missile(self, sector:core.Sector, ship_x:float, ship_y:float, v:Optional[npt.NDArray[np.float64]]=None, w:Optional[float]=None, theta:Optional[float]=None, entity_id:Optional[uuid.UUID]=None, initial_sensor_power_ratio:Optional[float]=None, initial_propellant:Optional[float]=None) -> combat.Missile:
         assert(self.gamestate)
 
         max_sensor_power = config.Settings.generate.SectorEntities.missile.MAX_SENSOR_POWER
@@ -796,6 +799,8 @@ class UniverseGenerator(core.AbstractGenerator):
         max_fine_thrust = config.Settings.generate.SectorEntities.missile.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.missile.MAX_TORQUE
 
+        initial_propellant = initial_propellant if initial_propellant is not None else config.Settings.generate.SectorEntities.missile.INITIAL_PROPELLANT
+
         ship_body = self.phys_body(ship_mass, ship_radius)
         ship = combat.Missile(
             np.array((ship_x, ship_y), dtype=np.float64),
@@ -806,7 +811,9 @@ class UniverseGenerator(core.AbstractGenerator):
             name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id,
+            i_sp = config.Settings.generate.SectorEntities.missile.I_SP
         )
+        ship.rocket_model.set_propellant(initial_propellant)
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
