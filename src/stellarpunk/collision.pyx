@@ -113,31 +113,27 @@ cdef extern from "rocket.hpp":
         double get_thrust() const
         void set_thrust(const double thrust)
         double get_propellant() const
-        void set_propellant(const double i_sp)
+        void set_propellant(const double propellant)
+        void adjust_propellant(const double delta)
 
     cdef void c_rocket_tick "rocket_tick"(double dt)
 
 cdef class RocketModel:
     cdef cRocketModel rocket_model
-
     def __cinit__(self, body:cymunk.Body, i_sp:float) -> None:
         self.rocket_model = cRocketModel((<ccymunk.Body?> body)._body, i_sp)
-
     def get_i_sp(self) -> float:
         return self.rocket_model.get_i_sp()
-
     def set_i_sp(self, i_sp:float) -> None:
         self.rocket_model.set_i_sp(i_sp)
-
     def get_propellant(self) -> float:
         return self.rocket_model.get_propellant()
-
     def set_propellant(self, propellant:float) -> None:
         self.rocket_model.set_propellant(propellant)
-
+    def adjust_propellant(self, delta:float) -> None:
+        self.rocket_model.adjust_propellant(delta)
     def get_thrust(self) -> float:
         return self.rocket_model.get_thrust()
-
     def set_thrust(self, thrust:float) -> None:
         self.rocket_model.set_thrust(thrust)
 

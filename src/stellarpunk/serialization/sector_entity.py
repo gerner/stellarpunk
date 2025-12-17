@@ -114,7 +114,7 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
         phys_body.angular_velocity = angular_velocity
         phys_body.force = cymunk.Vec2d(force)
         phys_body.torque = torque
-        assert(phys_body.moment == moment or (math.isinf(phys_body.mass) and math.isinf(phys_body.moment)))
+        assert(util.isclose(phys_body.moment, moment) or (math.isinf(phys_body.mass) and math.isinf(phys_body.moment)))
 
         if self.save_game.debug:
             load_context.debug_string_r("history", f)
@@ -132,8 +132,6 @@ class SectorEntitySaver[SectorEntity: core.SectorEntity](s_gamestate.EntitySaver
 
         # phys_shape sets the shape and radius on the sector entity
         self.save_game.generator.phys_shape(phys_body, sector_entity, radius)
-        sector_entity.mass = mass
-        sector_entity.moment = moment
         sector_entity.cargo_capacity = cargo_capacity
         sector_entity.cargo = cargo
 

@@ -430,7 +430,7 @@ def test_docking_order(gamestate, generator, sector, testui, simulator):
 
     assert all(np.isclose(ship_driver.velocity, np.array((0., 0.))))
 
-def test_travel_through_gate(gamestate, generator, sector, connecting_sector, testui, simulator):
+def test_travel_through_gate(player, gamestate, generator, sector, connecting_sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -10000, 0, v=(0,0), w=0, theta=0)
     ship_owner = generator.spawn_character(ship_driver)
     ship_owner.take_ownership(ship_driver)
@@ -442,7 +442,7 @@ def test_travel_through_gate(gamestate, generator, sector, connecting_sector, te
 
     order = orders.TravelThroughGate.create_travel_through_gate(gate_intel, ship_driver, gamestate)
     ship_driver.prepend_order(order)
-    assert order.estimate_eta() < 200.0
+    assert order.estimate_eta() < 202.0
 
     testui.eta = order.estimate_eta()*1.1
     testui.orders = [order]

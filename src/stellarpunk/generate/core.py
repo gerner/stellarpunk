@@ -693,7 +693,8 @@ class UniverseGenerator(core.AbstractGenerator):
         assert station.cargo.sum() <= station.cargo_capacity
 
         self.phys_shape(station_body, station, station_radius)
-        station.mass = config.Settings.generate.SectorEntities.station.MASS
+        # stations are static and have no mass
+        #station.mass = config.Settings.generate.SectorEntities.station.MASS
 
         sector.add_entity(station)
 
@@ -719,7 +720,8 @@ class UniverseGenerator(core.AbstractGenerator):
         planet.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_PLANET), 1)
 
         self.phys_shape(planet_body, planet, planet_radius)
-        planet.mass = config.Settings.generate.SectorEntities.planet.MASS
+        # planets are static and have no mass
+        #planet.mass = config.Settings.generate.SectorEntities.planet.MASS
 
         sector.add_entity(planet)
 
@@ -753,13 +755,11 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id,
             i_sp = config.Settings.generate.SectorEntities.ship.I_SP
         )
-        ship.rocket_model.set_propellant(initial_propellant)
+        ship.rocket_model.adjust_propellant(initial_propellant)
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_SHIP), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
 
-        ship.mass = ship_mass
-        ship.moment = ship_body.moment
         ship.radius = ship_radius
         ship.max_base_thrust = ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
@@ -813,13 +813,11 @@ class UniverseGenerator(core.AbstractGenerator):
             entity_id=entity_id,
             i_sp = config.Settings.generate.SectorEntities.missile.I_SP
         )
-        ship.rocket_model.set_propellant(initial_propellant)
+        ship.rocket_model.adjust_propellant(initial_propellant)
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
 
-        ship.mass = ship_mass
-        ship.moment = ship_body.moment
         ship.radius = ship_radius
         ship.max_base_thrust = ship.max_thrust = max_thrust
         ship.max_fine_thrust = max_fine_thrust
@@ -867,8 +865,6 @@ class UniverseGenerator(core.AbstractGenerator):
         shape = self.phys_shape(ship_body, ship, ship_radius)
         shape.group = 1
 
-        ship.mass = ship_mass
-        ship.moment = ship_body.moment
         ship.radius = ship_radius
         #ship.max_base_thrust = ship.max_thrust = max_thrust
         #ship.max_fine_thrust = max_fine_thrust
@@ -962,7 +958,8 @@ class UniverseGenerator(core.AbstractGenerator):
         asteroid.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_ASTEROID), 1)
 
         self.phys_shape(body, asteroid, asteroid_radius)
-        asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
+        # asteroids are static and have no mass
+        #asteroid.mass = config.Settings.generate.SectorEntities.asteroid.MASS
 
         sector.add_entity(asteroid)
 

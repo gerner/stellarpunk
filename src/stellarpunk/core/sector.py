@@ -149,8 +149,8 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
         self.sector:Optional["Sector"] = None
 
         # some physical properties (in SI units)
-        self.mass = 0.
-        self.moment = 0.
+        #self.mass = 0.
+        #self.moment = 0.
         #TODO: are all entities just circles?
         self.radius = 0.
         self.cargo_capacity = 5e2
@@ -176,6 +176,14 @@ class SectorEntity(base.Observable[SectorEntityObserver], base.Entity):
 
         self._loc = np.array(self.phys.position)
         self._velocity = np.array(self.phys.velocity)
+
+    @property
+    def mass(self) -> float:
+        return self.phys.mass
+
+    @property
+    def moment(self) -> float:
+        return self.phys.moment
 
     # base.Observable
     @property

@@ -112,8 +112,8 @@ def test_saving_in_goto(ship, player, gamestate, intel_director, generator, sect
 
     # these were experimentally determined to be the values achieved without a
     # save/load cycle. this might be fragile
-    assert util.isclose(gamestate.timestamp, 30.699999809264416)
-    assert util.isclose(util.distance(ship.loc, target_loc), 1466.2242390081483)
+    assert util.isclose(gamestate.timestamp, 35.049999999999294)
+    assert util.isclose(util.distance(ship.loc, target_loc), 1477.0974987118984)
 
 def test_saving_in_basic_trading(player, gamestate, generator, intel_director, sector, testui, simulator, econ_logger):
     game_saver = sim.initialize_save_game(generator, gamestate.event_manager, intel_director, debug=True)
@@ -295,7 +295,7 @@ def test_saving_in_basic_trading(player, gamestate, generator, intel_director, s
 
     # this is fragile, but experimentally determined from running this test
     # without save/load. note, there is some variation even without save/load
-    assert abs(gamestate.timestamp - 107.06666666666187) < 10.0
+    assert abs(gamestate.timestamp - 120.13333307901506) < 10.0
 
     # this is too fragile, but I've checked with/without saving and sometimes
     # this passes and sometimes it doesn't
@@ -435,7 +435,7 @@ def test_saving_with_docking(player, gamestate, generator, sector, testui, simul
 
 def test_saving_with_gate(player, gamestate, generator, sector, connecting_sector, testui, simulator):
     testui.save_interval = 75.0
-    test_orders.test_travel_through_gate(gamestate, generator, sector, connecting_sector, testui, simulator)
+    test_orders.test_travel_through_gate(player, gamestate, generator, sector, connecting_sector, testui, simulator)
     gamestate = testui.gamestate
     assert gamestate.save_count > 1
 

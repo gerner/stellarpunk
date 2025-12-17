@@ -176,6 +176,32 @@ There's probably some weirdness about the  parameter binding I'm doing above.
   travel from one sector to another.
 *
 
+# Managing a Reactor
+
+Lots of power, on the order of dozens of GW, are required to achive the desired
+acceleration (that's fun) for masses that are even approaching realistic
+(several metric tons, although just the orbiter is 110 tons and most large
+rockets that can enter LEO are 1000s of tons). At launch, Starship generates
+100GW of power on launch for a 2nd stage dry mass of 100 tons.
+
+A 2 ton vehicle generating 200kN of thrust which only needs 2.5 tons of
+propellant for 5 minutes of constant thrust (implying an $I_sp$ of 60,000
+seconds, comparable to SOTA ion and plasma engines) needs to generate nearly
+60GW of exhaust energy. In a chemical rocket that energy comes from the
+propellant itself (i.e. combustion). In an electric rocket (e.g. an ion or
+plasma rocket) that energy needs to be supplied to the rocket engine. You could imagine some kind of hybrid where the fuel provides energy
+
+Systems to manage:
+* magnetic confinement (superconducting, zero energy cost once established and maintained at cryogenic levels)
+* crygenic cooling systems
+* plasma heating to reach fusion temperatures (injecting high energy fuel, Pulsed Power Electrical Network generates EM waves tuned at resonant frequency, direct energy "ohmic heating" through conductive plasma, like a toaster
+* fuel injection: crygenically frozen pellet injection system and gas injection system
+* closed-loop fuel recycling (since only a small portion of injected fuel is consumed): exhaust collection, fusion "ash" byproduct removed to prevent poisoning the plasma, separation and isotope refinement (to maintain fuel mix ratio)
+* energy generation: traditional coolant loop: primary coolant to secondary heat exchange, steam production, steam turbines, generators, condensers
+
+
+
+
 # Sources
 
 ## AI Planning

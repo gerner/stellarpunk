@@ -33,18 +33,23 @@ class RocketModel {
         }
     }
 
+    // models consuming propellant at the current thrust level for given
+    // timestep
+    // returns true iff that consumed all the propellant
     bool consume_propellant(const double dt) {
         assert(thrust_ > 0);
         double propellant_used = thrust_ / (i_sp_ * G_0) * dt;
-        //TODO: handle dropping mass (and moment) from body_
-        //TODO: handle case where we go over
         if (propellant_used > propellant_) {
-            propellant_ = 0;
+            propellant_used = propellant_;
+        }
+
+        adjust_propellant(-propellant_used);
+
+        if (propellant_ == 0) {
             thrust_ = 0;
             body_->f = cpvzero;
             return true;
         }
-        propellant_ -= propellant_used;
         return false;
     }
 
@@ -60,8 +65,28 @@ class RocketModel {
         return propellant_;
     }
 
+    // sets the amount of propellant available
+    // this does NOT update the physical properties of the physics body
     void set_propellant(const double propellant) {
         propellant_ = propellant;
+    }
+
+    // updates amount of propellant available to given amount
+    // this also updates the physical properties of the underlying physics body
+    void adjust_propellant(const double delta) {
+        // don't want to go negative
+        assert(-delta <= propellant_);
+        if (delta == 0) {
+            return;
+        }
+        propellant_ += delta;
+
+        double new_mass = body_->m + delta;
+        double ratio = new_mass / body_->m;
+        double new_moment = body_->i * ratio;
+
+        cpBodySetMass(body_, new_mass);
+        cpBodySetMoment(body_, new_moment);
     }
 
     double get_thrust() const {
@@ -85,9 +110,8 @@ class RocketModel {
     }
 };
 
-void rocket_tick(double dt) {
+void rocket_tick(const double dt) {
     for(auto it = thrust_rocket_models.begin(); it != thrust_rocket_models.end();) {
-        //TODO: handle case where we've used up all the propellant
         if((*it)->consume_propellant(dt)) {
             it = thrust_rocket_models.erase(it);
         } else {

@@ -171,7 +171,7 @@ def test_multi_sector_mining(intel_director, gamestate, generator, sector, conne
     mining_agendum.max_trips = 1
     testui.agenda.append(mining_agendum)
     testui.margin_neighbors = [ship]
-    testui.eta = 900 # experimentally determined
+    testui.eta = 950 # experimentally determined
 
     # before we start, no known asteroid or econ agent intel
     assert ship_owner.intel_manager.get_intel(intel.TrivialMatchCriteria(cls=intel.AsteroidIntel), intel.AsteroidIntel) is None
@@ -457,7 +457,7 @@ def test_multi_sector_trading(intel_director, gamestate, generator, sector, conn
     assert consumer_initial_balance >= consumer_agent.buy_price(resource) * trader_capacity * 2
 
     testui.agenda.append(trading_agendum)
-    testui.eta = 1300 # experimentally determined
+    testui.eta = 1350 # experimentally determined
 
     seen_sector_ids:set[uuid.UUID] = set()
     def tick_callback():

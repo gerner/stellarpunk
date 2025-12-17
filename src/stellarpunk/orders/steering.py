@@ -44,6 +44,7 @@ class AbstractSteeringOrder(order.Order, abc.ABC):
 
         o = cls.create_order(*args, safety_factor=safety_factor, collision_margin=collision_margin, neighborhood_radius=neighborhood_radius, **kwargs)
         assert o.ship.sector is not None
+        assert o.ship.mass == o.ship.phys.mass
         o.neighbor_analyzer = collision.Navigator(
                 o.ship.sector.space, o.ship.phys,
                 o.ship.radius, o.ship.max_thrust, o.ship.max_torque,
