@@ -204,6 +204,7 @@ class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, inter
         self.margin_neighbors:List[core.SectorEntity] = []
         self.eta = np.inf
         self.max_timestamp = np.inf
+        self.check_propellant = True
 
         self.collisions:List[tuple[core.SectorEntity, core.SectorEntity, Tuple[float, float], float]] = []
         self.collisions_allowed=False
@@ -356,6 +357,11 @@ class MonitoringUI(core.OrderObserver, generate.UniverseGeneratorObserver, inter
         for agendum in self.agenda:
             if agendum.is_complete():
                 self.done = True
+
+        if self.check_propellant:
+            for sector in self.gamestate.sectors.values():
+                for ship in sector.entities_by_type(core.Ship):
+                    assert(ship.rocket_model.get_propellant() > 0)
 
         if self.done:
             self.runtime.quit()
