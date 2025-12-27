@@ -69,6 +69,12 @@ def ship_from_history(history_entry, generator, sector):
         f = [f["x"], f["y"]]
     ship.phys.force = cymunk.vec2d.Vec2d(f)
     ship.phys.torque = history_entry.get("t", 0.)
+    # some histories have existing force applied larger than the current max
+    if ship.phys.force.get_length()+0.1 > ship.rocket_model.get_max_thrust():
+        ship.rocket_model.set_max_thrust(ship.phys.force.get_length()+0.2)
+    # we assume all force/torque is coming from the rocket model
+    ship.rocket_model.set_force(ship.phys.force)
+    ship.rocket_model.set_torque(ship.phys.torque)
     return ship
 
 def station_from_history(history_entry, generator, sector):

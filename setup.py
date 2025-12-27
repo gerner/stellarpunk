@@ -24,6 +24,7 @@ ext_modules=[
         #extra_link_args=['-static'], #TODO: still working on trying to get static linking against cymunk to work so when this is installed elsewhere we don't get errors trying to find the cymunk shared library
         runtime_library_dirs=cymunk.get_includes(),
         language="c++",
+        #extra_compile_args=["-std=c++17", "-O0"],
     ),
     Extension("stellarpunk.narrative.director",
         sources=["src/stellarpunk/narrative/director.pyx"],

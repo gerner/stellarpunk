@@ -20,7 +20,7 @@ import cymunk # type: ignore
 import rtree.index # type: ignore
 import graphviz # type: ignore
 
-from stellarpunk import util, core, orders, agenda, econ, config, events, sensors, intel
+from stellarpunk import util, core, orders, agenda, econ, config, events, sensors, intel, collision
 from stellarpunk.core import combat, sector_entity, gamestate
 from stellarpunk.agenda import intel as aintel
 from . import markov
@@ -738,13 +738,16 @@ class UniverseGenerator(core.AbstractGenerator):
         sensor_settings = sensors.SensorSettings(max_sensor_power=max_sensor_power, sensor_intercept=config.Settings.generate.SectorEntities.ship.SENSOR_INTERCEPT, initial_sensor_power=initial_sensor_power, initial_transponder=initial_transponder)
         ship_mass = config.Settings.generate.SectorEntities.ship.MASS
         ship_radius = config.Settings.generate.SectorEntities.ship.RADIUS
+        i_sp = config.Settings.generate.SectorEntities.ship.I_SP
         max_thrust = config.Settings.generate.SectorEntities.ship.MAX_THRUST
         max_fine_thrust = config.Settings.generate.SectorEntities.ship.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.ship.MAX_TORQUE
         initial_propellant = initial_propellant if initial_propellant is not None else config.Settings.generate.SectorEntities.ship.INITIAL_PROPELLANT
 
         ship_body = self.phys_body(ship_mass, ship_radius)
+        rocket_model = collision.RocketModel(self.gamestate.rocket_space, ship_body, i_sp, max_thrust, max_fine_thrust, max_torque)
         ship = core.Ship(
+            rocket_model,
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
             self.gamestate.production_chain.shape[0],
@@ -753,17 +756,12 @@ class UniverseGenerator(core.AbstractGenerator):
             name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id,
-            i_sp = config.Settings.generate.SectorEntities.ship.I_SP
         )
         ship.rocket_model.adjust_propellant(initial_propellant)
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_SHIP), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
-
         ship.radius = ship_radius
-        ship.max_base_thrust = ship.max_thrust = max_thrust
-        ship.max_fine_thrust = max_fine_thrust
-        ship.max_torque = max_torque
 
         if v is None:
             v = (self.r.normal(0, 50, 2))
@@ -795,6 +793,7 @@ class UniverseGenerator(core.AbstractGenerator):
         sensor_settings = sensors.SensorSettings(max_sensor_power=max_sensor_power, sensor_intercept=config.Settings.generate.SectorEntities.missile.SENSOR_INTERCEPT, initial_sensor_power=initial_sensor_power, initial_transponder=False)
         ship_mass = config.Settings.generate.SectorEntities.missile.MASS
         ship_radius = config.Settings.generate.SectorEntities.missile.RADIUS
+        i_sp = config.Settings.generate.SectorEntities.missile.I_SP
         max_thrust = config.Settings.generate.SectorEntities.missile.MAX_THRUST
         max_fine_thrust = config.Settings.generate.SectorEntities.missile.MAX_FINE_THRUST
         max_torque = config.Settings.generate.SectorEntities.missile.MAX_TORQUE
@@ -802,7 +801,9 @@ class UniverseGenerator(core.AbstractGenerator):
         initial_propellant = initial_propellant if initial_propellant is not None else config.Settings.generate.SectorEntities.missile.INITIAL_PROPELLANT
 
         ship_body = self.phys_body(ship_mass, ship_radius)
+        rocket_model = collision.RocketModel(self.gamestate.rocket_space, ship_body, i_sp, max_thrust, max_fine_thrust, max_torque)
         ship = combat.Missile(
+            rocket_model,
             np.array((ship_x, ship_y), dtype=np.float64),
             ship_body,
             self.gamestate.production_chain.shape[0],
@@ -811,17 +812,12 @@ class UniverseGenerator(core.AbstractGenerator):
             name=self._gen_ship_name(sector.culture),
             is_static=False,
             entity_id=entity_id,
-            i_sp = config.Settings.generate.SectorEntities.missile.I_SP
         )
         ship.rocket_model.adjust_propellant(initial_propellant)
         ship.context.set_flag(self.gamestate.event_manager.ck(ContextKeys.ETYPE_MISSILE), 1)
 
         self.phys_shape(ship_body, ship, ship_radius)
-
         ship.radius = ship_radius
-        ship.max_base_thrust = ship.max_thrust = max_thrust
-        ship.max_fine_thrust = max_fine_thrust
-        ship.max_torque = max_torque
 
         if v is None:
             v = (self.r.normal(0, 50, 2))

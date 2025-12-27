@@ -291,7 +291,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
         self._add_child(order)
 
     def _do_last_location(self) -> None:
-        self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
+        self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=self.search_distance*0.8, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_speed()/6.))
 
     def _do_search(self) -> None:
         #TODO: search, for now give up
@@ -330,7 +330,7 @@ class AttackOrder(movement.AbstractSteeringOrder):
 
         # TODO: choose a max thrust appropriate for desired sensor profile
 
-        shadow_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings, self.gamestate.timestamp)
+        shadow_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(target_velocity), dt, self.ship.max_speed(), self.max_throttle, self.ship.sensor_settings, self.gamestate.timestamp)
         self.gamestate.schedule_order(self.gamestate.timestamp + min(shadow_time, 1/10), self)
 
     def _do_fire(self) -> None:
@@ -349,11 +349,11 @@ class AttackOrder(movement.AbstractSteeringOrder):
         # get in close enough that a launched missile will be able to lock on to the target
 
         if self.target.profile / self.ship.sensor_settings.max_threshold < self.min_profile_to_threshold:
-            self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=1e3, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_thrust / self.ship.mass * 5.))
+            self._ttl_order(movement.PursueOrder.create_pursue_order(self.target, self.ship, self.gamestate, arrival_distance=1e3, max_speed=self.ship.max_speed()*5, final_speed=self.ship.max_speed()/6.))
             return
 
         bearing = util.bearing(self.ship.loc, self.target.loc)
-        rotate_time = collision.rotate_to(self.ship.phys, bearing, dt, self.ship.max_torque)
+        rotate_time = collision.rotate_to(self.ship.phys, self.ship.rocket_model, bearing, dt)
         self.gamestate.schedule_order(self.gamestate.timestamp + min(rotate_time, 1/10), self)
 
     def _set_sensors(self) -> None:
@@ -408,8 +408,6 @@ class AttackOrder(movement.AbstractSteeringOrder):
     def act(self, dt:float) -> None:
         assert self.ship.sector
         self.target.update()
-        if not self.target.is_active():
-            breakpoint()
 
         self._set_sensors()
 
@@ -709,7 +707,6 @@ class FleeOrder(core.Order):
         assert o.ship.sector
         o.threat_tracker = ThreatTracker.create_threat_tracker(o.ship)
         o.point_defense = PointDefenseEffect.create_point_defense_effect(o.ship, o.ship.sector, o.gamestate)
-        o.max_thrust = o.ship.max_thrust
         return o
 
     def __init__(self, *args:Any, **kwargs:Any) -> None:
@@ -719,7 +716,6 @@ class FleeOrder(core.Order):
 
         self.threat_tracker:ThreatTracker = None # type: ignore
         self.point_defense:PointDefenseEffect = None # type: ignore
-        self.max_thrust = 0.0
 
     def _ttl_order(self, order:core.Order) -> None:
         TimedOrderTask.ttl_order(order, self.ttl_order_time)
@@ -760,8 +756,8 @@ class FleeOrder(core.Order):
         # ideally we'd choose a thrust that keeps us hidden under active
         # sensors but at least we should choose a thrust that requires active
         # sensors
-        max_active_thrust = self.ship.max_thrust
-        max_passive_thrust = self.ship.max_thrust
+        max_active_thrust = self.ship.rocket_model.get_max_thrust()
+        max_passive_thrust = self.ship.rocket_model.get_max_thrust()
         for threat in self.threat_tracker:
             dist_sq = util.distance_sq(self.ship.loc, threat.loc)
             active_threshold_thrust = self.ship.sector.sensor_manager.compute_thrust_for_profile(self.ship, dist_sq, self.ship.sensor_settings.effective_threshold(self.ship.sensor_settings.max_sensor_power))
@@ -776,7 +772,7 @@ class FleeOrder(core.Order):
         elif max_passive_thrust > 0.:
             return max_passive_thrust * 0.8
         else:
-            return self.ship.max_thrust
+            return self.ship.rocket_model.get_max_thrust()
 
     def act(self, dt:float) -> None:
         self.threat_tracker.update_threats()
@@ -788,6 +784,6 @@ class FleeOrder(core.Order):
         #TODO: better logic on how to evade all the threats simultaneously
         # evade closest threat
 
-        self.max_thrust = self._choose_thrust()
-        self._ttl_order(movement.EvadeOrder.create_evade_order(self.threat_tracker.closest_threat, self.ship, self.gamestate, max_thrust=self.max_thrust))
+        chosen_max_thrust = self._choose_thrust()
+        self._ttl_order(movement.EvadeOrder.create_evade_order(self.threat_tracker.closest_threat, self.ship, self.gamestate, max_throttle=chosen_max_thrust))
 

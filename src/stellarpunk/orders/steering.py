@@ -35,19 +35,22 @@ CYZERO_VECTOR = cymunk.Vec2d(0.,0.)
 
 class AbstractSteeringOrder(order.Order, abc.ABC):
     @classmethod
-    def create_abstract_steering_order[T:"AbstractSteeringOrder"](cls:Type[T],
+    def create_abstract_steering_order[T:"AbstractSteeringOrder"](
+            cls:Type[T],
             *args:Any,
             safety_factor:float=2.,
             collision_margin:float=2e2,
             neighborhood_radius: float = 8.5e3,
+            max_throttle:Optional[float]=None,
             **kwargs:Any) -> T:
 
         o = cls.create_order(*args, safety_factor=safety_factor, collision_margin=collision_margin, neighborhood_radius=neighborhood_radius, **kwargs)
         assert o.ship.sector is not None
         assert o.ship.mass == o.ship.phys.mass
+        o.max_throttle = max_throttle if max_throttle is not None else o.ship.rocket_model.get_max_thrust()
         o.neighbor_analyzer = collision.Navigator(
                 o.ship.sector.space, o.ship.phys,
-                o.ship.radius, o.ship.max_thrust, o.ship.max_torque,
+                o.ship.radius, o.max_throttle, o.ship.rocket_model.get_max_torque(),
                 o.ship.max_speed(),
                 collision_margin,
                 neighborhood_radius,
@@ -62,17 +65,18 @@ class AbstractSteeringOrder(order.Order, abc.ABC):
         super().__init__(*args, **kwargs)
         self.safety_factor = safety_factor
         self.collision_dv = ZERO_VECTOR
+        self.max_throttle:float = None # type: ignore
         self.neighbor_analyzer:collision.Navigator = None # type: ignore
 
     def _cancel(self) -> None:
         self.logger.debug(f'cancel at {self.gamestate.timestamp}')
-        self.ship.apply_force(ZERO_VECTOR, False)
-        self.ship.apply_torque(0., False)
+        self.ship.rocket_model.apply_force(CYZERO_VECTOR)
+        self.ship.rocket_model.apply_torque(0.)
 
     def _complete(self) -> None:
         self.logger.debug(f'complete at {self.gamestate.timestamp}')
-        self.ship.apply_force(ZERO_VECTOR, False)
-        self.ship.apply_torque(0., False)
+        self.ship.rocket_model.apply_force(CYZERO_VECTOR)
+        self.ship.rocket_model.apply_torque(0.)
 
     @property
     def collision_cbdr(self) -> bool: return self.neighbor_analyzer.get_collision_cbdr()

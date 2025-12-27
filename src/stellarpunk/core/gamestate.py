@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 import rtree.index # type: ignore
 
-from stellarpunk import util, task_schedule, narrative
+from stellarpunk import util, task_schedule, narrative, collision
 from .base import EntityRegistry, Entity, EconAgent, AbstractEconDataLogger, StarfieldLayer, AbstractEffect, AbstractOrder, Observable, stellarpunk_version
 from .production_chain import ProductionChain
 from .sector import Sector, SectorEntity
@@ -155,6 +155,8 @@ class Gamestate(EntityRegistry):
         self.game_version:str = stellarpunk_version()
         self.game_start_version:str = stellarpunk_version()
         self.save_count:int = 0
+
+        self.rocket_space = collision.RocketSpace()
 
         self.generator:AbstractGenerator = None #type: ignore
         self.game_runtime:AbstractGameRuntime = AbstractGameRuntime()

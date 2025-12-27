@@ -15,7 +15,7 @@ def test_analyze_neighbors(gamestate, generator, sector, testui, simulator):
     neighbor_analyzer = collision.Navigator(
             sector.space, ship_a.phys,
             ship_a.radius,
-            ship_a.max_thrust, ship_a.max_torque, ship_a.max_speed(),
+            ship_a.rocket_model.get_max_thrust(), ship_a.rocket_model.get_max_torque(), ship_a.max_speed(),
             5e2, 1e4,
     )
     (
@@ -70,7 +70,7 @@ def test_coalesce(generator, sector):
     neighbor_analyzer = collision.Navigator(
             sector.space, ship_a.phys,
             ship_a.radius,
-            ship_a.max_thrust, ship_a.max_torque, ship_a.max_speed(),
+            ship_a.rocket_model.get_max_thrust(), ship_a.rocket_model.get_max_torque(), ship_a.max_speed(),
             5e2, 1e4,
     )
     (
@@ -277,7 +277,7 @@ def test_get_set_navigator_parameters(generator, sector):
     neighbor_analyzer = collision.Navigator(
             sector.space, ship_a.phys,
             ship_a.radius,
-            ship_a.max_thrust, ship_a.max_torque, ship_a.max_speed(),
+            ship_a.rocket_model.get_max_thrust(), ship_a.rocket_model.get_max_torque(), ship_a.max_speed(),
             5e2, 1e4,
     )
     (

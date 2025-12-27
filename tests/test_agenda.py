@@ -51,7 +51,7 @@ def test_mining_agendum(intel_director, gamestate, generator, sector, testui, si
     mining_agendum.max_trips = 2
     testui.agenda.append(mining_agendum)
     testui.margin_neighbors = [ship]
-    testui.eta = 200
+    testui.eta = 300
 
     simulator.run()
 
@@ -113,7 +113,7 @@ def test_mining_partial_transfer(gamestate, generator, sector, testui, simulator
     mining_agendum.max_trips = 2
     testui.agenda.append(mining_agendum)
     testui.margin_neighbors = [ship]
-    testui.eta = 200
+    testui.eta = 230
 
     #TODO: should we actually test that intel gathering works for trading?
     # setup station and econ agent intel

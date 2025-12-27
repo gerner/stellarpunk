@@ -11,31 +11,20 @@ import cymunk # type: ignore
 
 from . import Gamestate
 from . import base, sector, character
-from stellarpunk import collision
+from stellarpunk import collision, util
 
 class Ship(character.Asset, character.CrewedSectorEntity):
     id_prefix = "SHP"
 
-    def __init__(self, *args:Any, i_sp:float=1.0, **kwargs:Any) -> None:
+    def __init__(self, rocket_model:collision.RocketModel, *args:Any, **kwargs:Any) -> None:
         super().__init__(*args, **kwargs)
 
-        # SI units (newtons and newton-meters)
-        # max_base_thrust is the underlying maximum
-        # max_thrust is the current set max thrust (which can fall below base)
-        # max thrust along heading vector
-        self.max_base_thrust = 0.
-        self.max_thrust = 0.
-        # max thrust in any direction
-        self.max_fine_thrust = 0.
-        # max torque for turning (in newton-meters)
-        self.max_torque = 0.
-
         self._orders: collections.deque[base.AbstractOrder] = collections.deque()
-        self.rocket_model = collision.RocketModel(self.phys, i_sp)
-        #self.sensor_settings.set_rocket_model(self.rocket_model)
+        self.rocket_model = rocket_model
 
     def _destroy_sector_entity(self) -> None:
         self._clear_orders()
+        self.rocket_model.destroy()
 
     def get_history(self) -> Sequence[sector.HistoryEntry]:
         return self.history
@@ -57,23 +46,24 @@ class Ship(character.Asset, character.CrewedSectorEntity):
         )
 
     def max_speed(self) -> float:
-        return self.max_base_thrust / self.mass * 30
+        return self.rocket_model.get_max_thrust() / self.mass * 30
 
     def max_acceleration(self) -> float:
-        return self.max_thrust / self.mass
+        # this is a point estimate given the current mass
+        return self.rocket_model.get_max_thrust() / self.mass
 
-    def max_fine_acceleration(self) -> float:
-        return self.max_fine_thrust / self.mass
+    #def max_fine_acceleration(self) -> float:
+    #    # this is a point estimate given the current mass
+    #    return self.max_fine_thrust / self.mass
 
     def max_angular_acceleration(self) -> float:
-        return self.max_torque / self.moment
+        # this is a point estimate given the current moment
+        return self.rocket_model.get_max_torque() / self.moment
 
-    def apply_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]], persistent:bool) -> None:
+    def apply_external_force(self, force: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
         self.phys.force = cymunk.vec2d.Vec2d(*force)
-        self.rocket_model.set_thrust(self.phys.force.length)
-        self.sensor_settings.set_thrust(self.phys.force.length)
 
-    def apply_torque(self, torque: float, persistent:bool) -> None:
+    def apply_external_torque(self, torque: float) -> None:
         self.phys.torque = torque
 
     def set_loc(self, loc: Union[Sequence[float], npt.NDArray[np.float64]]) -> None:
@@ -138,4 +128,3 @@ class Ship(character.Asset, character.CrewedSectorEntity):
             return self._orders[0]
         else:
             return None
-

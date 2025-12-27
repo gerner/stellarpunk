@@ -120,12 +120,10 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
     a_non_zero_forces = 0
     d_zero_forces = 0
     d_non_zero_forces = 0
-    evade_max_thrust_sum = 0.
     ticks_evading = 0
     ticks_fleeing = 0
     distinct_flee_orders = 0
     dist_sum = 0
-    max_thrust_sum = 0.
 
     last_loc = defender.loc
     last_force = np.array(defender.phys.force)
@@ -133,7 +131,7 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
 
     def tick_callback():
         nonlocal attacker, state_ticks, a_zero_forces, a_non_zero_forces, d_zero_forces, d_non_zero_forces, age_sum, attack_ticks
-        nonlocal defender, ticks_fleeing, distinct_flee_orders, ticks_evading, evade_max_thrust_sum, dist_sum, max_thrust_sum
+        nonlocal defender, ticks_fleeing, distinct_flee_orders, ticks_evading, dist_sum
         nonlocal last_loc, last_force, last_velocity
         if util.distance(last_loc, defender.loc) > max(np.linalg.norm(defender.velocity)*simulator.dt*3.0, 1.):
             raise Exception()
@@ -159,14 +157,12 @@ def test_attack_and_defend(gamestate, generator, sector, testui, simulator):
         if isinstance(defender_top_order, combat.FleeOrder):
             ticks_fleeing += 1
             dist_sum += util.distance(defender.loc, attacker.loc)
-            max_thrust_sum += defender_top_order.max_thrust
             if defender_top_order not in testui.orders:
                 testui.add_order(defender_top_order)
                 distinct_flee_orders += 1
         defender_current_order = defender.current_order()
         if isinstance(defender_current_order, movement.EvadeOrder):
             ticks_evading += 1
-            evade_max_thrust_sum += defender_current_order.max_thrust
 
         if attack_order.is_complete():
             simulator.raise_breakpoint()

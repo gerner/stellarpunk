@@ -9,7 +9,7 @@ from typing import Any, Optional
 import numpy as np
 import numpy.typing as npt
 
-from stellarpunk import core, util
+from stellarpunk import core, util, collision
 from stellarpunk.core import combat, sector_entity
 
 import cymunk # type: ignore
@@ -169,17 +169,14 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
     def _save_sector_entity(self, ship:core.Ship, f:io.IOBase) -> int:
         bytes_written = 0
 
-        # basic fields
-        bytes_written += self.save_game.debug_string_w("basic fields", f)
-        bytes_written += s_util.float_to_f(ship.max_base_thrust, f)
-        bytes_written += s_util.float_to_f(ship.max_thrust, f)
-        bytes_written += s_util.float_to_f(ship.max_fine_thrust, f)
-        bytes_written += s_util.float_to_f(ship.max_torque, f)
-
         # rocket model
         bytes_written += self.save_game.debug_string_w("rocket model", f)
         bytes_written += s_util.float_to_f(ship.rocket_model.get_i_sp(), f)
-        bytes_written += s_util.float_to_f(ship.rocket_model.get_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_max_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_max_fine_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_max_torque(), f)
+        bytes_written += s_util.float_pair_to_f(np.array(ship.rocket_model.get_force()), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_torque(), f)
         bytes_written += s_util.float_to_f(ship.rocket_model.get_propellant(), f)
 
         # orders
@@ -194,19 +191,17 @@ class ShipSaver(SectorEntitySaver[core.Ship]):
 
     def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[core.Ship, Any]:
         num_products = load_context.gamestate.production_chain.shape[0]
-        ship = core.Ship(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
-
-        # basic fields
-        load_context.debug_string_r("basic fields", f)
-        ship.max_base_thrust = s_util.float_from_f(f)
-        ship.max_thrust = s_util.float_from_f(f)
-        ship.max_fine_thrust = s_util.float_from_f(f)
-        ship.max_torque = s_util.float_from_f(f)
+        rocket_model = collision.RocketModel(load_context.gamestate.rocket_space, phys_body)
+        ship = core.Ship(rocket_model, loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
         # rocket model
         load_context.debug_string_r("rocket model", f)
         ship.rocket_model.set_i_sp(s_util.float_from_f(f))
-        ship.rocket_model.set_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_max_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_max_fine_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_max_torque(s_util.float_from_f(f))
+        ship.rocket_model.set_force(cymunk.Vec2d(s_util.float_pair_from_f(f)))
+        ship.rocket_model.set_torque(s_util.float_from_f(f))
         ship.rocket_model.set_propellant(s_util.float_from_f(f))
 
         # orders
@@ -240,10 +235,6 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
 
         # basic fields
         bytes_written += self.save_game.debug_string_w("basic fields", f)
-        bytes_written += s_util.float_to_f(ship.max_base_thrust, f)
-        bytes_written += s_util.float_to_f(ship.max_thrust, f)
-        bytes_written += s_util.float_to_f(ship.max_fine_thrust, f)
-        bytes_written += s_util.float_to_f(ship.max_torque, f)
         if ship.firer:
             bytes_written += s_util.int_to_f(1, f, blen=1)
             bytes_written += s_util.uuid_to_f(ship.firer.entity_id, f)
@@ -253,7 +244,11 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         # rocket model
         bytes_written += self.save_game.debug_string_w("rocket model", f)
         bytes_written += s_util.float_to_f(ship.rocket_model.get_i_sp(), f)
-        bytes_written += s_util.float_to_f(ship.rocket_model.get_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_max_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_max_fine_thrust(), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_max_torque(), f)
+        bytes_written += s_util.float_pair_to_f(np.array(ship.rocket_model.get_force()), f)
+        bytes_written += s_util.float_to_f(ship.rocket_model.get_torque(), f)
         bytes_written += s_util.float_to_f(ship.rocket_model.get_propellant(), f)
 
         # orders
@@ -268,14 +263,11 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
 
     def _load_sector_entity(self, f:io.IOBase, load_context:save_game.LoadContext, entity_id:uuid.UUID, loc:npt.NDArray[np.float64], phys_body:cymunk.Body, sensor_settings:core.AbstractSensorSettings) -> tuple[combat.Missile, Any]:
         num_products = load_context.gamestate.production_chain.shape[0]
-        ship = combat.Missile(loc, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
+        rocket_model = collision.RocketModel(load_context.gamestate.rocket_space, phys_body)
+        ship = combat.Missile(loc, rocket_model, phys_body, num_products, sensor_settings, load_context.gamestate, entity_id=entity_id)
 
         # basic fields
         load_context.debug_string_r("basic fields", f)
-        ship.max_base_thrust = s_util.float_from_f(f)
-        ship.max_thrust = s_util.float_from_f(f)
-        ship.max_fine_thrust = s_util.float_from_f(f)
-        ship.max_torque = s_util.float_from_f(f)
         has_firer = s_util.int_from_f(f, blen=1)
         firer_id:Optional[uuid.UUID] = None
         if has_firer:
@@ -284,7 +276,11 @@ class MissileSaver(SectorEntitySaver[combat.Missile]):
         # rocket model
         load_context.debug_string_r("rocket model", f)
         ship.rocket_model.set_i_sp(s_util.float_from_f(f))
-        ship.rocket_model.set_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_max_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_max_fine_thrust(s_util.float_from_f(f))
+        ship.rocket_model.set_max_torque(s_util.float_from_f(f))
+        ship.rocket_model.set_force(cymunk.Vec2d(s_util.float_pair_from_f(f)))
+        ship.rocket_model.set_torque(s_util.float_from_f(f))
         ship.rocket_model.set_propellant(s_util.float_from_f(f))
 
         # orders

@@ -352,6 +352,8 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
 
     def _cancel(self) -> None:
         #TODO: what should happen to the ship?
+        self.ship.apply_external_force((0., 0.))
+        self.ship.phys.velocity = (0., 0.)
         if self.warp_out:
             self.warp_out.cancel_effect()
         if self.warp_in:
@@ -542,12 +544,12 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # rotate to face opposite direction of travel and decelerate
             rotate_order = RotateOrder.create_rotate_order(actual_gate.direction+np.pi, self.ship, self.gamestate, observer=self)
             self._add_child(rotate_order)
-            self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, np.pi+actual_gate.direction), True)
+            self.ship.apply_external_force(util.polar_to_cartesian(self.travel_thrust, np.pi+actual_gate.direction))
             # we'll act again when the rotate order is finished
             return
         else:
             # lets gooooooo
-            self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, actual_gate.direction), True)
+            self.ship.apply_external_force(util.polar_to_cartesian(self.travel_thrust, actual_gate.direction))
             #TODO: we want to continue applying thrust for the entire interval
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
@@ -561,14 +563,14 @@ class TravelThroughGate(core.EffectObserver, core.OrderObserver, core.Order):
             # application of force over time, so it's possible this won't work
 
             # should already be stopped, but let's make sure
-            self.ship.apply_force((0., 0.), True)
+            self.ship.apply_external_force((0., 0.))
             self.ship.phys.velocity = (0., 0.)
             self.phase = self.Phase.PHASE_COMPLETE
 
             # schedule another tick to get cleaned up
             self.gamestate.schedule_order_immediate(self)
         else:
-            self.ship.apply_force(util.polar_to_cartesian(self.travel_thrust, self.target_gate.direction+np.pi), True)
+            self.ship.apply_external_force(util.polar_to_cartesian(self.travel_thrust, self.target_gate.direction+np.pi))
             next_ts = self.travel_start_time + self.travel_time
             self.gamestate.schedule_order(next_ts, self)
 

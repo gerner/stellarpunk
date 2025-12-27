@@ -74,6 +74,19 @@ def test_non_zero_rotation_time(gamestate, generator, sector, testui, simulator)
     # out the safety margin
     assert np.isclose(gamestate.timestamp, eta, rtol=0.15)
 
+def test_kill_rotation_order(gamestate, generator, sector, testui, simulator):
+    ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=np.pi/4, theta=0)
+    kill_rotation_order = orders.KillRotationOrder.create_kill_rotation_order(ship_driver, gamestate)
+    ship_driver.prepend_order(kill_rotation_order)
+
+    testui.orders = [kill_rotation_order]
+    # set a fallback eta so we're not waiting forever
+    testui.eta = 300
+    simulator.run()
+
+    assert kill_rotation_order.is_complete()
+    assert ship_driver.phys.angular_velocity == 0.0
+
 @write_history
 def test_basic_gotolocation(gamestate, generator, sector, testui, simulator):
     ship_driver = generator.spawn_ship(sector, -400, 15000, v=(0,0), w=0, theta=0)
@@ -476,7 +489,7 @@ def test_simple_physics(gamestate, generator, sector, testui, simulator):
 
     # apply some force
     travel_thrust = 5000000.0
-    ship_driver.apply_force((-travel_thrust, 0.0), True)
+    ship_driver.apply_external_force((-travel_thrust, 0.0))
     #calculate where we should end up
     # s = u * t + 1/2 * a * t
     # f = m * a

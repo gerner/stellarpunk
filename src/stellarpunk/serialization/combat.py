@@ -185,7 +185,6 @@ class FleeOrderSaver(s_order.OrderSaver[combat.FleeOrder]):
         bytes_written += s_util.float_to_f(order.last_target_ttl, f)
         bytes_written += self.save_game.save_object(order.threat_tracker, f)
         bytes_written += s_util.uuid_to_f(order.point_defense.effect_id, f)
-        bytes_written += s_util.float_to_f(order.max_thrust, f)
         return bytes_written
 
     def _load_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[combat.FleeOrder, Any]:
@@ -193,13 +192,11 @@ class FleeOrderSaver(s_order.OrderSaver[combat.FleeOrder]):
         last_target_ttl = s_util.float_from_f(f)
         threat_tracker = self.save_game.load_object(combat.ThreatTracker, f, load_context)
         point_defense_id = s_util.uuid_from_f(f)
-        max_thrust = s_util.float_from_f(f)
 
         order = combat.FleeOrder(load_context.gamestate, _check_flag=True, order_id=order_id)
         order.ttl_order_time = ttl_order_time
         order.last_target_ttl = last_target_ttl
         order.threat_tracker = threat_tracker
-        order.max_thrust = max_thrust
 
         return order, point_defense_id
 

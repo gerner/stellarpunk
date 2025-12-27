@@ -24,19 +24,23 @@ class KillRotationOrder(core.Order):
     def _is_complete(self) -> bool:
         return self.ship.angular_velocity == 0
 
+    def _cancel(self) -> None:
+        self.ship.rocket_model.apply_torque(0.)
+
     def act(self, dt: float) -> None:
         # apply torque up to max torque to kill angular velocity
         # torque = moment * angular_acceleration
         # the perfect acceleration would be -1 * angular_velocity / timestep
         # implies torque = moment * -1 * angular_velocity / timestep
         t = self.ship.moment * -1 * self.ship.angular_velocity / dt
-        if t == 0:
+        if util.isclose(t, 0.0):
             self.ship.phys.angular_velocity = 0
             # schedule again to get cleaned up on next tick
-            self.ship.apply_torque(0., False)
+            self.ship.rocket_model.apply_torque(0.)
+            self.ship.apply_external_torque(0.)
             self.gamestate.schedule_order_immediate(self)
         else:
-            self.ship.apply_torque(np.clip(t, -9000, 9000), True)
+            self.ship.rocket_model.apply_torque(np.clip(t, -9000, 9000))
 
             self.gamestate.schedule_order_immediate(self)
 
@@ -54,7 +58,7 @@ class RotateOrder(AbstractSteeringOrder):
 
     def act(self, dt: float) -> None:
         #period = self._rotate_to(self.target_angle, dt)
-        period = collision.rotate_to(self.ship.phys, self.target_angle, dt, self.ship.max_torque)
+        period = collision.rotate_to(self.ship.phys, self.ship.rocket_model, self.target_angle, dt)
         if period < np.inf:
             # don't need to wake up again until the rotation is complete
             self.gamestate.schedule_order(self.gamestate.timestamp + period/self.safety_factor, self)
@@ -90,8 +94,7 @@ class KillVelocityOrder(AbstractSteeringOrder):
     def act(self, dt: float) -> None:
         period = collision.accelerate_to(
                 self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(0,0), dt,
-                self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.max_speed(), self.max_throttle,
                 self.ship.sensor_settings, self.gamestate.timestamp)
         # don't need to wake up again until the acceleration is complete
         if period < math.inf:
@@ -163,6 +166,10 @@ class GoToLocation(AbstractSteeringOrder):
         course = target_location - starting_loc
         distance, target_angle = util.cartesian_to_polar(course[0], course[1])
         rotate_towards = collision.rotation_time(util.normalize_angle(target_angle-ship.angle, shortest=True), ship.angular_velocity, ship.max_angular_acceleration())
+
+        #TODO: this calculation assumes fixed acceleration which is not correct
+        # as we thrust, we consume fuel, reducing our mass, increasing
+        # acceleration.
 
         # we cap at max_speed, so need to account for that by considering a
         # "cruise" period where we travel at max_speed, but only if we have
@@ -284,9 +291,9 @@ class GoToLocation(AbstractSteeringOrder):
         else:
             if self._target_location.get_distance(self.ship.phys.position) < self.arrival_distance + VELOCITY_EPS and util.isclose(self.ship.phys.speed, 0.):
                 #assert not self.ship._persistent_force
-                self.ship.apply_force(ZERO_VECTOR, False)
+                self.ship.rocket_model.apply_force(CYZERO_VECTOR)
                 #assert not self.ship._persistent_torque
-                self.ship.apply_torque(0., False)
+                self.ship.rocket_model.apply_torque(0.)
                 return True
             else:
                 return False
@@ -302,7 +309,7 @@ class GoToLocation(AbstractSteeringOrder):
         # check if it's time for us to do a careful calculation or a simple one
         if self.gamestate.timestamp < self._next_compute_ts:
             force_recompute = self.distance_estimate < self.arrival_distance * 5
-            continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings, self.gamestate.timestamp)
+            continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, self._desired_velocity, dt, self.ship.max_speed(), self.max_throttle, self.ship.sensor_settings, self.gamestate.timestamp)
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST] += 1
             self.gamestate.counters[core.Counters.GOTO_ACT_FAST_CT] += continue_time
 
@@ -344,7 +351,7 @@ class GoToLocation(AbstractSteeringOrder):
         # if there's no collision diversion OR we're at the destination and can
         # quickly (1 sec) come to a stop
         if util.both_almost_zero(collision_dv):
-            continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings, self.gamestate.timestamp)
+            continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, self._desired_velocity, dt, self.ship.max_speed(), self.max_throttle, self.ship.sensor_settings, self.gamestate.timestamp)
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_NO_CT] += continue_time
             self._desired_velocity = self.target_v
@@ -383,7 +390,7 @@ class GoToLocation(AbstractSteeringOrder):
             #desired_mag = util.magnitude(*self._desired_velocity)
             #if desired_mag > max_speed:
             #    self._desired_velocity = self._desired_velocity/desired_mag * max_speed
-            continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, self._desired_velocity, dt, self.ship.max_speed(), self.ship.max_torque, self.ship.max_thrust, self.ship.max_fine_thrust, self.ship.sensor_settings, self.gamestate.timestamp)
+            continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, self._desired_velocity, dt, self.ship.max_speed(), self.max_throttle, self.ship.sensor_settings, self.gamestate.timestamp)
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES] += 1
             self.gamestate.counters[core.Counters.GOTO_THREAT_YES_CT] += continue_time
 
@@ -401,16 +408,10 @@ class GoToLocation(AbstractSteeringOrder):
 
 class EvadeOrder(AbstractSteeringOrder):
     @classmethod
-    def create_evade_order[T:"EvadeOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args: Any, escape_distance:float=np.inf, max_thrust:Optional[float]=None, **kwargs: Any) -> T:
+    def create_evade_order[T:"EvadeOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args: Any, escape_distance:float=np.inf, **kwargs: Any) -> T:
         o = cls.create_abstract_steering_order(*args, escape_distance=escape_distance, **kwargs)
         assert o.ship.sector
         o.target = target_image
-        if max_thrust:
-            o.max_thrust = max(0.0, min(max_thrust, o.ship.max_thrust))
-            o.max_fine_thrust = max(0.0, min(max_thrust, o.ship.max_fine_thrust))
-        else:
-            o.max_thrust = o.ship.max_thrust
-            o.max_fine_thrust = o.ship.max_fine_thrust
 
         return o
 
@@ -430,8 +431,6 @@ class EvadeOrder(AbstractSteeringOrder):
         #self.last_est_tv = 0.
 
         self.escape_distance = escape_distance
-        self.max_thrust = 0.0
-        self.max_fine_thrust = 0.0
 
     def __str__(self) -> str:
         return f'Evade: {self.target.identity.short_id()} dist: {util.human_distance(float(np.linalg.norm(self.target.loc-self.ship.loc)))} escape: {util.human_distance(self.escape_distance)}'
@@ -451,7 +450,7 @@ class EvadeOrder(AbstractSteeringOrder):
 
         # have a high max speed, but not crazy since we still need to avoid
         # collisions and recover from the evasion once we're done
-        max_speed = self.ship.max_thrust / self.ship.mass * 90
+        max_speed = self.ship.max_speed() * 3.
 
         # OPTION A:
         # plot a course away from intercept location
@@ -505,7 +504,7 @@ class EvadeOrder(AbstractSteeringOrder):
         if not util.both_almost_zero(collision_dv) or approach_time < self.intercept_time:
             target_velocity = self.ship.phys.velocity + collision_dv
 
-        continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, target_velocity, dt, max_speed, self.ship.max_torque, self.max_thrust, self.max_fine_thrust, self.ship.sensor_settings, self.gamestate.timestamp)
+        continue_time = collision.accelerate_to(self.ship.phys, self.ship.rocket_model, target_velocity, dt, max_speed, self.max_throttle, self.ship.sensor_settings, self.gamestate.timestamp)
 
         next_ts = self.gamestate.timestamp + min(1/10, continue_time)
         self.gamestate.schedule_order(next_ts, self)
@@ -513,7 +512,7 @@ class EvadeOrder(AbstractSteeringOrder):
 class PursueOrder(AbstractSteeringOrder):
     """ Steer toward a collision with the target """
     @classmethod
-    def create_pursue_order[T:"PursueOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, max_thrust:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> T:
+    def create_pursue_order[T:"PursueOrder"](cls:Type[T], target_image:core.AbstractSensorImage, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, max_speed:Optional[float]=None, final_speed:Optional[float]=None, **kwargs:Any) -> T:
         o = cls.create_abstract_steering_order(*args, **kwargs, arrival_distance=arrival_distance, avoid_collisions=avoid_collisions)
         assert o.ship.sector
         o.target = target_image
@@ -521,16 +520,10 @@ class PursueOrder(AbstractSteeringOrder):
             o.max_speed = max_speed
         else:
             o.max_speed = o.ship.max_speed()
-        if max_thrust:
-            o.max_thrust = max_thrust
-            o.max_fine_thrust = min(max_thrust, o.ship.max_fine_thrust)
-        else:
-            o.max_thrust = o.ship.max_thrust
-            o.max_fine_thrust = o.ship.max_fine_thrust
         if final_speed:
             o.final_speed = final_speed
         else:
-            o.final_speed = o.max_thrust / o.ship.mass * 0.5
+            o.final_speed = o.max_throttle / o.ship.mass * 0.5
         return o
 
     def __init__(self, *args:Any, arrival_distance:float=0., avoid_collisions:bool=True, **kwargs:Any) -> None:
@@ -545,8 +538,6 @@ class PursueOrder(AbstractSteeringOrder):
 
         self.avoid_collisions=avoid_collisions
         self.max_speed = 0.0
-        self.max_thrust = 0.0
-        self.max_fine_thrust = 0.0
         self.final_speed = 0.0
 
     def __str__(self) -> str:
@@ -575,6 +566,8 @@ class PursueOrder(AbstractSteeringOrder):
         # a large value here reduces intercept time
         # a small value here makes it easy to correct at the last minute
 
+        #TODO: this is finding intercept v at the ship's max acceleration, not
+        # limiting it to our specified max throttle
         target_velocity, _, self.intercept_time, self.intercept_location = collision.find_intercept_v(
                 self.ship.phys,
                 cymunk.Vec2d(self.target.loc),
@@ -601,9 +594,7 @@ class PursueOrder(AbstractSteeringOrder):
                 target_velocity,
                 dt,
                 self.max_speed,
-                self.ship.max_torque,
-                self.max_thrust,
-                self.max_fine_thrust,
+                self.max_throttle,
                 self.ship.sensor_settings,
                 self.gamestate.timestamp
         )
@@ -630,8 +621,7 @@ class WaitOrder(AbstractSteeringOrder):
             raise ValueError(f'{self.ship} not in any sector')
         period = collision.accelerate_to(
                 self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(0,0), dt,
-                self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.max_speed(), self.max_throttle,
                 self.ship.sensor_settings,
                 self.gamestate.timestamp)
 

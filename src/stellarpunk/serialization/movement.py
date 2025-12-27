@@ -27,9 +27,6 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         bytes_written += s_util.float_to_f(params.radius, f)
         bytes_written += s_util.float_to_f(params.max_thrust, f)
         bytes_written += s_util.float_to_f(params.max_torque, f)
-        bytes_written += s_util.float_to_f(params.max_acceleration, f)
-        bytes_written += s_util.float_to_f(params.max_angular_acceleration, f)
-        bytes_written += s_util.float_to_f(params.worst_case_rot_time, f)
 
         bytes_written += s_util.float_to_f(params.base_neighborhood_radius, f)
         bytes_written += s_util.float_to_f(params.neighborhood_radius, f)
@@ -89,9 +86,6 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         params.radius = s_util.float_from_f(f)
         params.max_thrust = s_util.float_from_f(f)
         params.max_torque = s_util.float_from_f(f)
-        params.max_acceleration = s_util.float_from_f(f)
-        params.max_angular_acceleration = s_util.float_from_f(f)
-        params.worst_case_rot_time = s_util.float_from_f(f)
 
         params.base_neighborhood_radius = s_util.float_from_f(f)
         params.neighborhood_radius = s_util.float_from_f(f)
@@ -178,6 +172,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         bytes_written += s_util.float_to_f(obj.safety_factor, f)
         bytes_written += s_util.float_to_f(obj.collision_dv[0], f)
         bytes_written += s_util.float_to_f(obj.collision_dv[1], f)
+        bytes_written += s_util.float_to_f(obj.max_throttle, f)
         bytes_written += self._save_steering_order(obj, f)
         bytes_written += self._save_navigator_params(obj.neighbor_analyzer.get_navigator_parameters(), f)
         return bytes_written
@@ -186,6 +181,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
         safety_factor = s_util.float_from_f(f)
         cdv_x = s_util.float_from_f(f)
         cdv_y = s_util.float_from_f(f)
+        max_throttle = s_util.float_from_f(f)
 
         steering_order, extra_context = self._load_steering_order(f, load_context, order_id)
         self._load_navigator_params(f, steering_order, load_context)
@@ -194,6 +190,7 @@ class AbstractSteeringOrderSaver[T:steering.AbstractSteeringOrder](s_order.Order
             steering_order.collision_dv = steering.ZERO_VECTOR
         else:
             steering_order.collision_dv = np.array((cdv_x, cdv_y))
+        steering_order.max_throttle = max_throttle
 
         return steering_order, extra_context
 
@@ -279,8 +276,6 @@ class EvadeOrderSaver(AbstractSteeringOrderSaver[movement.EvadeOrder]):
         bytes_written += s_util.float_pair_to_f(obj.intercept_location, f)
         bytes_written += s_util.float_to_f(obj.intercept_time, f)
         bytes_written += s_util.float_to_f(obj.escape_distance, f)
-        bytes_written += s_util.float_to_f(obj.max_thrust, f)
-        bytes_written += s_util.float_to_f(obj.max_fine_thrust, f)
         return bytes_written
 
     def _load_steering_order(self, f:io.IOBase, load_context:save_game.LoadContext, order_id:uuid.UUID) -> tuple[movement.EvadeOrder, Any]:
@@ -288,15 +283,11 @@ class EvadeOrderSaver(AbstractSteeringOrderSaver[movement.EvadeOrder]):
         intercept_location = s_util.float_pair_from_f(f)
         intercept_time = s_util.float_from_f(f)
         escape_distance = s_util.float_from_f(f)
-        max_thrust = s_util.float_from_f(f)
-        max_fine_thrust = s_util.float_from_f(f)
 
         order = movement.EvadeOrder(load_context.gamestate, escape_distance=escape_distance, _check_flag=True, order_id=order_id)
         order.intercept_location = intercept_location
         order.intercept_time = intercept_time
         order.escape_distance = escape_distance
-        order.max_thrust = max_thrust
-        order.max_fine_thrust = max_fine_thrust
         return (order, target_id)
 
     def _post_load_steering_order(self, obj:movement.EvadeOrder, load_context:save_game.LoadContext, extra_context:Any) -> None:
@@ -322,8 +313,6 @@ class PursueOrderSaver[T:movement.PursueOrder](AbstractSteeringOrderSaver[T]):
         bytes_written += s_util.float_to_f(obj.arrival_distance, f)
         bytes_written += s_util.bool_to_f(obj.avoid_collisions, f)
         bytes_written += s_util.float_to_f(obj.max_speed, f)
-        bytes_written += s_util.float_to_f(obj.max_thrust, f)
-        bytes_written += s_util.float_to_f(obj.max_fine_thrust, f)
         bytes_written += s_util.float_to_f(obj.final_speed, f)
 
         bytes_written += self._save_pursue_order(obj, f)
@@ -336,16 +325,12 @@ class PursueOrderSaver[T:movement.PursueOrder](AbstractSteeringOrderSaver[T]):
         arrival_distance = s_util.float_from_f(f)
         avoid_collisions = s_util.bool_from_f(f)
         max_speed = s_util.float_from_f(f)
-        max_thrust = s_util.float_from_f(f)
-        max_fine_thrust = s_util.float_from_f(f)
         final_speed = s_util.float_from_f(f)
 
         order, extra_context = self._load_pursue_order(f, load_context, arrival_distance, avoid_collisions, order_id)
         order.intercept_location = intercept_location
         order.intercept_time = intercept_time
         order.max_speed = max_speed
-        order.max_thrust = max_thrust
-        order.max_fine_thrust = max_fine_thrust
         order.final_speed = final_speed
         return (order, (target_id, extra_context))
 

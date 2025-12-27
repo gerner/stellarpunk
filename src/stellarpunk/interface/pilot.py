@@ -85,14 +85,15 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
     """
 
     @classmethod
-    def create_player_control_order[T:"PlayerControlOrder"](cls:Type[T], dt:float, *args: Any, **kwargs: Any) -> T:
-        return cls.create_abstract_steering_order(*args, dt, **kwargs)
+    def create_player_control_order[T:"PlayerControlOrder"](cls:Type[T], dt:float, max_thrust:float, *args: Any, **kwargs: Any) -> T:
+        return cls.create_abstract_steering_order(*args, dt, max_thrust, **kwargs)
 
-    def __init__(self, dt:float, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, dt:float, max_thrust:float, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.dt = dt
         self.has_thrust_command = False
         self.has_torque_command = False
+        self.max_throttle = max_thrust
 
     def _clip_force_to_max_speed(self, force:Tuple[float, float], max_thrust:float) -> Tuple[float, float]:
         # clip force s.t. resulting speed (after dt) is at most max_speed
@@ -156,7 +157,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         if self.has_thrust_command:
             self.has_thrust_command = False
         else:
-            self.ship.apply_force(steering.ZERO_VECTOR, False)
+            self.ship.rocket_model.apply_force(steering.CYZERO_VECTOR)
 
         rotate_time = 1/15
 
@@ -168,13 +169,13 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
             # torque = moment * angular_acceleration
             # the perfect acceleration would be -1 * angular_velocity / timestep
             # implies torque = moment * -1 * angular_velocity / timestep
-            t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.max_torque, self.ship.max_torque)
+            t = np.clip(self.ship.moment * -1 * self.ship.angular_velocity / dt, -self.ship.rocket_model.get_max_torque(), self.ship.rocket_model.get_max_torque())
             if t == 0:
                 self.ship.phys.angular_velocity = 0
                 # schedule again to get cleaned up on next tick
-                self.ship.apply_torque(0., False)
+                self.ship.rocket_model.apply_torque(0.)
             else:
-                self.ship.apply_torque(t, True)
+                self.ship.rocket_model.apply_torque(t)
                 rotate_time = 1/60
 
         self.gamestate.schedule_order(self.gamestate.timestamp + min(rotate_time, 1/15), self)
@@ -184,15 +185,14 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
     def accelerate(self) -> None:
         self.has_thrust_command = True
-        #TODO: up to max speed?
-        force = util.polar_to_cartesian(self.ship.max_thrust, self.ship.angle)
 
-        force = self._clip_force_to_max_speed(force, self.ship.max_thrust)
+        force = util.polar_to_cartesian(min(self.max_throttle, self.ship.rocket_model.get_max_thrust()), self.ship.angle)
+        force = self._clip_force_to_max_speed(force, self.ship.rocket_model.get_max_thrust())
 
         if not np.allclose(force, steering.ZERO_VECTOR):
-            self.ship.apply_force(force, False)
+            self.ship.rocket_model.apply_force(cymunk.Vec2d(force))
         else:
-            self.ship.apply_force(steering.ZERO_VECTOR, False)
+            self.ship.rocket_model.apply_force(steering.CYZERO_VECTOR)
 
     def kill_velocity(self) -> None:
         self.has_thrust_command = True
@@ -202,8 +202,7 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         #TODO: handle continuous force/torque
         period = collision.accelerate_to(
                 self.ship.phys, self.ship.rocket_model, cymunk.Vec2d(0,0), self.dt,
-                self.ship.max_speed(), self.ship.max_torque,
-                self.ship.max_thrust, self.ship.max_fine_thrust,
+                self.ship.max_speed(), self.max_throttle,
                 self.ship.sensor_settings, self.gamestate.timestamp)
 
     def rotate(self, scale:float) -> None:
@@ -214,13 +213,12 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
 
         self.has_torque_command = True
         #TODO: up to max angular acceleration?
-        self.ship.apply_torque(
+        self.ship.rocket_model.apply_torque(
             self._clip_torque_to_max_angular_velocity(
-                self.ship.max_torque * scale,
-                self.ship.max_torque,
+                self.ship.rocket_model.get_max_torque() * scale,
+                self.ship.rocket_model.get_max_torque(),
                 Settings.MAX_ANGULAR_VELOCITY
-            ),
-            False
+            )
         )
 
     def translate(self, direction:float) -> None:
@@ -230,12 +228,11 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         """
 
         self.has_thrust_command = True
-        #TODO: up to max speed?
-        force = util.polar_to_cartesian(self.ship.max_fine_thrust, self.ship.angle + direction)
 
-        force = self._clip_force_to_max_speed(force, self.ship.max_fine_thrust)
+        force = util.polar_to_cartesian(self.ship.rocket_model.get_max_fine_thrust(), self.ship.angle + direction)
+        force = self._clip_force_to_max_speed(force, self.ship.rocket_model.get_max_fine_thrust())
 
-        self.ship.apply_force(force, False)
+        self.ship.rocket_model.apply_force(cymunk.Vec2d(force))
 
 class MouseState(enum.Enum):
     """ States to interpret mouse clicks.
@@ -286,6 +283,8 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         # indicates if the ship should follow its orders, or direct player
         # control
         self.control_order:Optional[PlayerControlOrder] = None
+
+        self.max_throttle = self.ship.rocket_model.get_max_thrust()
 
         self.mouse_state = MouseState.EMPTY
         self.mouse_state_clear_time = np.inf
@@ -484,8 +483,10 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
                     raise command_input.UserError("must choose a ratio between 0 and 1")
                 #TODO: we should really not monkey with the ship's max thrust
                 # there is nothing that will set it back to the real max
-                self.ship.max_thrust = self.ship.max_base_thrust * thrust_ratio
-            self.interface.log_message(f'max thrust: {util.human_si_scale(self.ship.max_thrust, "N")}')
+                self.max_throttle = self.ship.rocket_model.get_max_thrust() * thrust_ratio
+                if self.control_order:
+                    self.control_order.max_throttle = self.max_throttle
+            self.interface.log_message(f'max throttle: {util.human_si_scale(self.max_throttle, "N")}')
 
         def mouse_pos(args:Sequence[str]) -> None:
             self.interface.log_message(f'{self.m_sector_x},{self.m_sector_y}')
@@ -579,6 +580,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
 
             control_order = PlayerControlOrder.create_player_control_order(
                 self.interface.runtime.get_dt(),
+                self.max_throttle,
                 self.ship,
                 self.gamestate,
                 observer=self.make_order_observer(
@@ -972,7 +974,7 @@ class PilotView(interface.PerspectiveObserver, core.SectorEntityObserver, interf
         self.viewscreen.addstr(status_y+4, status_x, f'{label_location:>12} {self.ship.loc[0]:.0f},{self.ship.loc[1]:.0f}')
         self.viewscreen.addstr(status_y+5, status_x, f'{label_heading:>12} {math.degrees(util.normalize_angle(heading)):.0f}° ({math.degrees(self.ship.phys.angular_velocity):.0f}°/s) ({self.ship.phys.torque:.2}N-m))')
         self.viewscreen.addstr(status_y+6, status_x, f'{label_course:>12} {math.degrees(util.normalize_angle(course)):.0f}°')
-        self.viewscreen.addstr(status_y+7, status_x, f'{label_fuel:>12} {self.ship.rocket_model.get_propellant() / 4435.:.0f}')
+        self.viewscreen.addstr(status_y+7, status_x, f'{label_fuel:>12} {self.ship.rocket_model.get_propellant():.0f}')
         self.viewscreen.addstr(status_y+8, status_x, f'{label_pd:>12} {pd_status}')
         status_y += 9
 

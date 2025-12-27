@@ -376,7 +376,7 @@ class Simulator(generate.UniverseGeneratorObserver, core.AbstractGameRuntime):
     def tick(self, dt: float) -> None:
         """ Do stuff to update the universe """
 
-        collision.tick(dt)
+        self.gamestate.rocket_space.tick(dt, self.gamestate.timestamp)
         self._tick_space(dt)
         self._tick_collisions(dt)
 

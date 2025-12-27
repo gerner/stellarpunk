@@ -105,40 +105,81 @@ cdef void log(ccymunk.Body body, message, eid_prefix=""):
 # modelling aspects of running a rocket engine
 
 cdef extern from "rocket.hpp":
+    cdef cppclass cRocketSpace "RocketSpace":
+        cRocketSpace()
+        void tick (double dt, double current_time)
+
     cdef cppclass cRocketModel "RocketModel":
         cRocketModel()
-        cRocketModel(ccymunk.cpBody* body, double i_sp)
+        cRocketModel(cRocketSpace* space, ccymunk.cpBody* body, double i_sp, double max_thrust, double max_fine_thrust, double max_torque)
+        void destroy()
         double get_i_sp() const
         void set_i_sp(const double i_sp)
-        double get_thrust() const
-        void set_thrust(const double thrust)
+        double get_max_thrust() const
+        void set_max_thrust(const double max_thrust)
+        double get_max_fine_thrust()
+        void set_max_fine_thrust(const double max_fine_thrust)
+        double get_max_torque() const
+        void set_max_torque(const double max_torque)
+        ccymunk.cpVect get_force() const
+        void set_force(const ccymunk.cpVect force)
+        double get_torque() const
+        void set_torque(const double torque)
+        void apply_force(const ccymunk.cpVect thrust)
+        void apply_torque(const double torque)
         double get_propellant() const
         void set_propellant(const double propellant)
         void adjust_propellant(const double delta)
 
-    cdef void c_rocket_tick "rocket_tick"(double dt)
+cdef class RocketSpace:
+    cdef cRocketSpace space
+
+    def tick(self, dt:float, timestamp:float) -> None:
+        self.space.tick(dt, timestamp)
 
 cdef class RocketModel:
     cdef cRocketModel rocket_model
-    def __cinit__(self, body:cymunk.Body, i_sp:float) -> None:
-        self.rocket_model = cRocketModel((<ccymunk.Body?> body)._body, i_sp)
+    def __cinit__(self, rocket_space:RocketSpace, body:cymunk.Body, i_sp:float=0.0, max_thrust:float=0.0, max_fine_thrust:float=0.0, max_torque:float=0.0) -> None:
+        self.rocket_model = cRocketModel(&(<RocketSpace?>rocket_space).space, (<ccymunk.Body?> body)._body, i_sp, max_thrust, max_fine_thrust, max_torque)
+    def destroy(self) -> None:
+        self.rocket_model.destroy()
     def get_i_sp(self) -> float:
         return self.rocket_model.get_i_sp()
     def set_i_sp(self, i_sp:float) -> None:
         self.rocket_model.set_i_sp(i_sp)
+    def get_max_thrust(self) -> float:
+        return self.rocket_model.get_max_thrust()
+    def set_max_thrust(self, max_thrust:float) -> None:
+        self.rocket_model.set_max_thrust(max_thrust)
+    def get_max_fine_thrust(self) -> float:
+        return self.rocket_model.get_max_fine_thrust()
+    def set_max_fine_thrust(self, max_fine_thrust:float) -> None:
+        self.rocket_model.set_max_fine_thrust(max_fine_thrust)
+    def get_max_torque(self) -> float:
+        return self.rocket_model.get_max_torque()
+    def set_max_torque(self, max_torque:float) -> None:
+        self.rocket_model.set_max_torque(max_torque)
+
     def get_propellant(self) -> float:
         return self.rocket_model.get_propellant()
     def set_propellant(self, propellant:float) -> None:
         self.rocket_model.set_propellant(propellant)
+    def get_force(self) -> float:
+        cdef ccymunk.cpVect force = self.rocket_model.get_force();
+        return cymunk.Vec2d(force.x, force.y)
+    def set_force(self, force:cymunk.Vec2d) -> None:
+        self.rocket_model.set_force((<ccymunk.Vec2d?>force).v)
+    def get_torque(self) -> float:
+        return self.rocket_model.get_torque()
+    def set_torque(self, torque:float) -> None:
+        return self.rocket_model.set_torque(torque)
+
+    def apply_force(self, force:cymunk.Vec2d) -> None:
+        self.rocket_model.apply_force((<ccymunk.Vec2d?>force).v)
+    def apply_torque(self, torque:float) -> None:
+        self.rocket_model.apply_torque(torque)
     def adjust_propellant(self, delta:float) -> None:
         self.rocket_model.adjust_propellant(delta)
-    def get_thrust(self) -> float:
-        return self.rocket_model.get_thrust()
-    def set_thrust(self, thrust:float) -> None:
-        self.rocket_model.set_thrust(thrust)
-
-def tick(dt:float) -> None:
-    c_rocket_tick(dt)
 
 # collision detection types
 
@@ -774,9 +815,6 @@ class NavigatorParameters:
         self.radius = 0.0
         self.max_thrust = 0.0
         self.max_torque = 0.0
-        self.max_acceleration = 0.0
-        self.max_angular_acceleration = 0.0
-        self.worst_case_rot_time = 0.0
 
         self.base_neighborhood_radius = 0.0
         self.neighborhood_radius = 0.0
@@ -815,9 +853,6 @@ cdef class Navigator:
     cdef double radius
     cdef double max_thrust
     cdef double max_torque
-    cdef double max_acceleration
-    cdef double max_angular_acceleration
-    cdef double worst_case_rot_time
 
     # some parameters about the navigation we'll be doing
 
@@ -884,9 +919,6 @@ cdef class Navigator:
         self.radius = radius
         self.max_thrust = max_thrust
         self.max_torque = max_torque
-        self.max_acceleration = self.max_thrust / self.body._body.m
-        self.max_angular_acceleration = self.max_torque / self.body._body.i
-        self.worst_case_rot_time = sqrt(2. * pi / (self.max_torque/self.body._body.i))
 
         self.base_neighborhood_radius = base_neighborhood_radius
         self.neighborhood_radius = base_neighborhood_radius
@@ -926,9 +958,6 @@ cdef class Navigator:
         params.radius = self.radius
         params.max_thrust = self.max_thrust
         params.max_torque = self.max_torque
-        params.max_acceleration = self.max_acceleration
-        params.max_angular_acceleration = self.max_angular_acceleration
-        params.worst_case_rot_time = self.worst_case_rot_time
 
         params.base_neighborhood_radius = self.base_neighborhood_radius
         params.neighborhood_radius = self.neighborhood_radius
@@ -974,9 +1003,6 @@ cdef class Navigator:
         self.radius = params.radius
         self.max_thrust = params.max_thrust
         self.max_torque = params.max_torque
-        self.max_acceleration = params.max_acceleration
-        self.max_angular_acceleration = params.max_angular_acceleration
-        self.worst_case_rot_time = params.worst_case_rot_time
 
         self.base_neighborhood_radius = params.base_neighborhood_radius
         self.neighborhood_radius = params.neighborhood_radius
@@ -1217,11 +1243,14 @@ cdef class Navigator:
 
         return scaled_collision_margin
 
+    cdef double _calculate_worst_case_rot_time(self):
+        return sqrt(2. * pi / (self.max_torque/self.body._body.i))
+
     cdef bool _calculate_cannot_avoid_collision(self, double neighbor_margin):
         cdef double desired_margin = neighbor_margin + self.analysis.threat_radius + self.radius
         cdef double required_acceleration, required_thrust
         cdef double min_clearance = self.analysis.threat_radius# + self.radius
-        cdef double t = max(self.analysis.approach_time - self.worst_case_rot_time, 0.1)
+        cdef double t = max(self.analysis.approach_time - self._calculate_worst_case_rot_time(), 0.1)
         cdef bool cannot_avoid_collision = 0
         if self.analysis.distance_to_threat <= desired_margin + VELOCITY_EPS:
             if self.analysis.minimum_separation < min_clearance:
@@ -1352,7 +1381,7 @@ cdef class Navigator:
             delta speed between current and target
         """
 
-        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_acceleration, self.max_angular_acceleration, self.max_speed, dt, safety_factor, 0.0)
+        cdef DeltaVResult result = _find_target_v(self.body._body, self.target_location, self.arrival_radius, self.min_radius, self.max_thrust / self.body._body.m, self.max_torque / self.body._body.i, self.max_speed, dt, safety_factor, 0.0)
 
         return (cpvtoVec2d(result.target_velocity), result.distance, result.distance_estimate, result.cannot_stop, result.delta_speed)
 
@@ -1422,7 +1451,7 @@ cdef class Navigator:
         self.analysis.ship_radius = self.radius
         self.analysis.margin = margin
         self.analysis.max_distance = max_distance
-        self.analysis.maximum_acceleration = self.max_acceleration
+        self.analysis.maximum_acceleration = self.max_thrust / self.body._body.m
         self.analysis.body = self.body._body
         self.analysis.worst_ultimate_separation = ccymunk.INFINITY
         self.analysis.approach_time = ccymunk.INFINITY
@@ -1644,7 +1673,7 @@ cdef class Navigator:
                 required_acceleration = 2.*(desired_margin-self.analysis.minimum_separation)/(self.analysis.approach_time ** 2.)
                 required_thrust = self.body._body.m * required_acceleration
                 if required_thrust > self.max_thrust:
-                    desired_margin = (self.max_acceleration * self.analysis.approach_time ** 2. + 2. * self.analysis.minimum_separation)/2.
+                    desired_margin = (self.max_thrust/self.body._body.m * self.analysis.approach_time ** 2. + 2. * self.analysis.minimum_separation)/2.
 
             desired_delta_velocity = ccymunk.cpvsub(desired_direction, self.body._body.v)
             ddv_mag = ccymunk.cpvlength(desired_delta_velocity)
@@ -1652,7 +1681,7 @@ cdef class Navigator:
             if ddv_mag > max_dv_available:
                 desired_delta_velocity = ccymunk.cpvmult(desired_delta_velocity, max_dv_available / ddv_mag)
 
-            delta_v_budget = self.max_thrust / self.body._body.m * (self.analysis.approach_time - self.worst_case_rot_time)
+            delta_v_budget = self.max_thrust / self.body._body.m * (self.analysis.approach_time - self._calculate_worst_case_rot_time())
 
             delta_velocity = _collision_dv(
                     self.analysis.current_threat_loc, self.analysis.threat_velocity,
@@ -1851,8 +1880,8 @@ cdef ForceTorqueResult _force_torque_for_delta_velocity(
     return ForceTorqueResult(force_result.force, torque_result.torque, continue_time, difference_mag, difference_angle)
 
 def rotate_to(
-        body:cymunk.Body, target_angle:float, dt:float,
-        max_torque:float) -> float:
+        body:cymunk.Body, rocket_model:RocketModel, target_angle:float, dt:float,
+        ) -> float:
     """ Applies torque to rotate the given body to the desired angle
 
     returns the time to continue applying that torque. """
@@ -1861,21 +1890,21 @@ def rotate_to(
     # torque to apply for dt now to hit target angle
 
     cdef ccymunk.Body cybody = <ccymunk.Body?> body
+    cdef cRocketModel* crocket_model = &(<RocketModel?> rocket_model).rocket_model
     cdef double w = cybody._body.w
     cdef double moment = cybody._body.i
     cdef double angle = cybody._body.a
 
     cdef TorqueResult torque_result = _torque_for_angle(
             target_angle, angle, w, moment,
-            max_torque, dt)
+            crocket_model.get_max_torque(), dt)
 
     cdef double difference_angle = normalize_angle(angle - target_angle, shortest=1)
+    crocket_model.apply_torque(torque_result.torque)
     if torque_result.torque == 0 and fabs(difference_angle) <= ANGLE_EPS:
         cybody._body.a = target_angle
         cybody._body.w = 0
-        cybody._body.t = 0.
-    else:
-        cybody._body.t = torque_result.torque
+        cybody._body.t = 0
 
     return torque_result.continue_time
 
@@ -2004,17 +2033,21 @@ def find_intercept_heading(start_loc:cymunk.Vec2d, start_v:cymunk.Vec2d, target_
 
 def accelerate_to(
         body:cymunk.Body, rocket_model:RocketModel, target_velocity:cymunk.Vec2d, dt:float,
-        max_speed:float, max_torque:float, max_thrust:float, max_fine_thrust:float,
+        max_speed:float, max_throttle:float,
         sensor_settings:Any, timestamp:float) -> float:
 
     cdef ccymunk.Vec2d cyvelocity = <ccymunk.Vec2d?>target_velocity
     cdef ccymunk.Body cybody = <ccymunk.Body?>body
+    cdef cRocketModel* crocket_model = &((<RocketModel?>rocket_model).rocket_model)
+    cdef double max_thrust = min(max_throttle, crocket_model.get_max_thrust())
+    cdef double max_fine_thrust = min(max_throttle, crocket_model.get_max_fine_thrust())
 
     # compute force/torque
     cdef ForceTorqueResult ft_result = _force_torque_for_delta_velocity(
                 cyvelocity.v,
                 cybody._body,
-                max_speed, max_torque, max_thrust, max_fine_thrust,
+                max_speed, crocket_model.get_max_torque(),
+                max_thrust, max_fine_thrust,
                 dt
         )
 
@@ -2022,19 +2055,17 @@ def accelerate_to(
 
     if ccymunk.cpvlength(ft_result.force) < VELOCITY_EPS and ft_result.dv_mag < VELOCITY_EPS:
         cybody._body.v = cyvelocity.v
-        cybody._body.f = ZERO_VECTOR
         if ft_result.torque == 0. and cybody._body.w < ANGLE_EPS:
             cybody._body.w = 0.
-        rocket_model.rocket_model.set_thrust(0.)
+        rocket_model.rocket_model.apply_force(ZERO_VECTOR)
+        cybody._body.f = ZERO_VECTOR
         sensor_settings.set_thrust(0.)
     else:
-        cybody._body.f = ft_result.force
-        rocket_model.rocket_model.set_thrust(ccymunk.cpvlength(ft_result.force))
+        rocket_model.rocket_model.apply_force(ft_result.force)
         sensor_settings.set_thrust(ccymunk.cpvlength(ft_result.force))
 
-    if ft_result.torque != 0.:
-        cybody._body.t = ft_result.torque
-    else:
+    rocket_model.rocket_model.apply_torque(ft_result.torque)
+    if ft_result.torque == 0.:
         cybody._body.t = 0.
 
     return ft_result.continue_time
