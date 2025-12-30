@@ -26,6 +26,9 @@ cdef bool isclose(double a, double b, double rtol=1e-05, double atol=1e-08):
     # "overload"
     return fabs(a-b) <= (atol + rtol * fabs(b))
 
+cdef bool lte_close(double a, double b):
+    return a < b or fabs(a-b) <= (1e-08 + 1e-05 * fabs(b))
+
 cdef double normalize_angle(double angle, bool shortest=0):
     angle = angle % (2*pi)
     angle = (angle + 2*pi) if angle < 0 else angle
@@ -175,8 +178,10 @@ cdef class RocketModel:
         return self.rocket_model.set_torque(torque)
 
     def apply_force(self, force:cymunk.Vec2d) -> None:
+        assert(lte_close(force.get_length(), self.rocket_model.get_max_thrust()))
         self.rocket_model.apply_force((<ccymunk.Vec2d?>force).v)
     def apply_torque(self, torque:float) -> None:
+        assert(lte_close(torque,  self.rocket_model.get_max_torque()))
         self.rocket_model.apply_torque(torque)
     def adjust_propellant(self, delta:float) -> None:
         self.rocket_model.adjust_propellant(delta)

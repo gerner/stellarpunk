@@ -144,11 +144,15 @@ class PlayerControlOrder(steering.AbstractSteeringOrder):
         # w = w_0 + torque * dt
 
         expected_w = self.ship.phys.angular_velocity + torque/self.ship.moment * self.dt
+
+        # if applying this torque would put us over max w
         if abs(expected_w) > max_angular_velocity:
-            if expected_w < 0:
-                return (-max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment
+            if torque < 0:
+                suggested_torque = np.clip((-max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment, torque, 0.)
+                return suggested_torque
             else:
-                return (max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment
+                suggested_torque = np.clip((max_angular_velocity - self.ship.phys.angular_velocity)/self.dt*self.ship.moment, 0., torque)
+                return suggested_torque
         return torque
 
     def act(self, dt:float) -> None:

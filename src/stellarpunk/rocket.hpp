@@ -6,6 +6,10 @@
 const double G_0 = 9.80665;
 cpBody cpBodySingleton;
 
+const bool lte_close(const double &a, const double &b) {
+    return a < b || abs(a-b) <= (1e-08 + 1e-05 * abs(b));
+}
+
 class RocketModel;
 
 class RocketSpace {
@@ -143,7 +147,7 @@ class RocketModel {
     // sets force directly
     // this does NOT update the physical properties of the physics body
     void set_force(const cpVect force) {
-        assert(cpvlength(force) <= max_thrust_+0.1);
+        assert(lte_close(cpvlength(force), max_thrust_));
         if (!cpveql(force, cpvzero) and cpveql(force_, cpvzero)) {
             space_->mark_thrust(this);
         } else if (cpveql(force, cpvzero) and !cpveql(force_, cpvzero)) {
@@ -159,12 +163,12 @@ class RocketModel {
     // sets torque directly
     // this does NOT update the physical properties of the physics body
     void set_torque(const double torque) {
-        assert(abs(torque) <= max_torque_+0.1);
+        assert(lte_close(abs(torque), max_torque_));
         torque_ = torque;
     }
 
     void apply_force(const cpVect force) {
-        assert(cpvlength(force) <= max_thrust_+0.1);
+        assert(lte_close(cpvlength(force), max_thrust_));
         assert(body_);
 
         //TODO: handle and somehow expose case where we have zero propellant
@@ -186,7 +190,7 @@ class RocketModel {
     }
 
     void apply_torque(const double torque) {
-        assert(abs(torque) <= max_torque_+0.1);
+        assert(lte_close(abs(torque), max_torque_));
         assert(body_);
         if (torque == torque_) {
             return;

@@ -249,6 +249,12 @@ def isclose(a:float, b:float) -> bool:
     return abs(a-b) <= (1e-08 + 1e-05 * abs(b))
 
 @jit(cache=True, nopython=True, fastmath=True)
+def islte(a:float, b:float) -> bool:
+    if a < b:
+        return True
+    return isclose(a, b)
+
+@jit(cache=True, nopython=True, fastmath=True)
 def inf_nan_isclose(a:float, b:float) -> bool:
     if math.isnan(a):
         return math.isnan(b)
